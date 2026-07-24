@@ -1,0 +1,6 @@
+[submodule "references/SillyTavern"]
+	path = references/SillyTavern
+	url = https://github.com/SillyTavern/SillyTavern.git
+[submodule "references/pi-mono"]
+	path = references/pi-mono
+	url = https://github.com/badlogic/pi-mono.git
