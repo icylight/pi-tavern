@@ -1,0 +1,18 @@
+{
+  "name": "pi-tavern",
+  "version": "0.1.0",
+  "description": "Pi coding agent tavern — gathering place for extensions, skills, and tools",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["pi", "pi-extension"],
+  "author": "icylight",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}
