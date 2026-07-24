@@ -4,3 +4,15 @@
 [submodule "references/pi-mono"]
 	path = references/pi-mono
 	url = https://github.com/badlogic/pi-mono.git
+[submodule "references/gastown"]
+	path = references/gastown
+	url = https://github.com/gastownhall/gastown.git
+[submodule "references/agent-framework"]
+	path = references/agent-framework
+	url = https://github.com/microsoft/agent-framework.git
+[submodule "references/autogen"]
+	path = references/autogen
+	url = https://github.com/microsoft/autogen.git
+[submodule "references/openclaw"]
+	path = references/openclaw
+	url = https://github.com/openclaw/openclaw.git
