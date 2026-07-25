@@ -28,7 +28,14 @@ Repository
 /tavern-name
 ```
 
-同一仓库同时只允许存在一个当前群聊。
+同一项目可以同时存在多个活动群聊，每个活动群聊由独立的群聊创建者 pi 承载。
+
+一个 pi 同时只能绑定一个群聊：
+
+- 成为群聊创建者和作为 Character 加入群聊互斥。
+- 已绑定群聊时执行 `/tavern-new`、`/tavern-resume` 或 `/tavern-join` 均失败，并提示先执行 `/tavern-leave`。
+- 角色 pi 离开后销毁当前 Character 公共 Agent，但保留自己的私有 pi session。
+- 群聊创建者关闭群聊后恢复原私有 pi session；之后可以创建、恢复或加入其他群聊。
 
 ## 群聊生命周期
 
@@ -39,8 +46,9 @@ Repository
 - 当前 pi 创建并托管群聊。
 - 新群聊从当前已解析配置的 `configMaxMessages` 继承一次，生成并保存自己的 `groupMaxMessages`。
 - `/tavern-new` 始终创建全新群聊，不恢复旧聊天。
-- 已经存在当前群聊时命令失败。
+- 项目中已经存在其他活动群聊时，仍可由新的 pi 创建群聊。
 - 当前 pi 成为群聊创建者，并默认绑定代表用户的 User Persona。
+- User Persona 是群聊内置的 `user` role，不使用 Markdown、配置文件或选择界面。
 - 群聊创建者继续复用 pi-coding-agent 原生界面，不实现独立全屏 TUI。
 - 群聊创建者模式拦截普通文本输入，以 User Persona 身份发送群聊消息，不触发当前 pi 自己的 Agent 回复。
 - User Persona 不领取角色卡，也不进入 Character 发言队列。
@@ -48,13 +56,21 @@ Repository
 
 这与 SillyTavern 的模型一致：用户是独立参与者，创建者不是 Character Card。
 
+User Persona 只是一种消息身份：
+
+- JSONL 中以 `user_message` 类型保存。
+- UI 复用 pi-coding-agent 的用户消息样式，不额外显示角色名。
+- Character 公共 Agent 通过消息类型识别用户发言。
+- User Persona 不占用 Character，也不进入 Character 导入或领取池。
+
 ### 群聊创建者
 
 开启群聊的 pi-coding-agent 进程负责通信、调度、持久化和用户界面，但不拥有群聊记录：
 
 - 成为群聊创建者后，原 pi session 暂停且保持不变。
 - 群聊中的 User Persona 消息和 Character 回复不写入创建者的原 pi session。
-- 群聊创建者执行 `/tavern-leave` 时关闭整个群聊，不转移创建者身份。
+- 群聊创建者执行 `/tavern-leave` 时直接关闭整个群聊，不要求二次确认，也不转移创建者身份。
+- 关闭前通知所有在线 Character 并断开连接；关闭不删除群聊记录，之后仍可 `/tavern-resume`。
 - 群聊关闭后，创建者返回原来的普通 pi session。
 - 创建者进程意外退出时，当前群聊随之停止。
 
@@ -66,7 +82,9 @@ Repository
 - 恢复群聊记录和群聊设置，并由当前 pi 成为新的群聊创建者、绑定 User Persona。
 - 不恢复旧成员连接或角色卡领取状态。
 - 各角色 pi 必须重新执行 `/tavern-join` 并领取角色。
-- 已经存在当前群聊时命令失败。
+- 恢复后不自动重新加入旧 Character；所有角色均由用户手动加入。
+- 项目中存在其他活动群聊不影响恢复。
+- 被选择的历史群聊已经处于活动状态时不能重复恢复。
 
 群聊不永久绑定最初创建它的 pi-coding-agent 进程或 pi session。
 
@@ -81,6 +99,7 @@ Repository
 - `/tavern-name` 不带参数时，已有名称则显示当前名称；没有名称则显示用法提示。
 - `/tavern-resume` 中已命名群聊显示名称，未命名群聊使用第一条 User Persona 消息展示。
 - 重命名作为群聊元数据持久化，不修改聊天消息。
+- `/tavern-resume` 的历史删除交互复用 pi-coding-agent `/resume`：使用相同的删除快捷键和确认流程，并在可用时优先通过系统废纸篓删除。
 
 ### 群聊创建者界面
 
@@ -120,9 +139,12 @@ sequenceDiagram
 
 加入规则：
 
-- `/tavern-join` 自动发现当前仓库内唯一的当前群聊，不要求输入群聊名称。
+- `/tavern-join` 自动发现当前项目的活动群聊。
+- 没有活动群聊时提示当前无可加入群聊。
+- 只有一个活动群聊时直接选择；存在多个时显示群聊选择界面。
+- 发现无法连接或 PID 已不存在的活动描述文件时将其清理，不影响其他群聊。
 - 加入方主动选择一张尚未被领取的角色卡。
-- 同一张角色卡同时只能由一个 pi 领取。
+- 同一张角色卡在同一个群聊中同时只能由一个 pi 领取；不同群聊的领取状态相互独立。
 - 已被领取的角色卡不会出现在其他 pi 的可领取列表中。
 - 连接成功完成身份绑定并同步 Character Markdown、完整群聊记录和当前发言次数，不自动发送欢迎消息。
 - Character 加入后没有额外的等待或激活状态；公开发送是否被接受只由当前 `roundMaxMessages` 判断。
@@ -139,8 +161,10 @@ sequenceDiagram
 
 PiTavern 扩展之间使用 WebSocket 传递实时消息和成员状态：
 
-- 群聊创建者在 `127.0.0.1` 上监听，不默认暴露到局域网。
-- 项目配置可以覆盖监听端口。
+- 群聊创建者监听 `127.0.0.1:0`，由操作系统分配空闲端口，不暴露到局域网。
+- 每个活动群聊拥有独立的 WebSocket 端口。
+- 监听成功后，创建者在项目对应的 `active/` 目录写入以 `groupChatId` 命名的活动描述文件。
+- 活动描述包含 `groupChatId`、创建者 PID、监听地址、实际端口和启动时间，供 `/tavern-join` 自动发现。
 - 一个加入方 WebSocket 连接对应一个群成员。
 - 首版运行在同一台机器和代码仓库中，不使用证书或 token。
 - 公共事件带有群聊内递增的消息序号；角色重连后按照最后应用的序号补齐缺失事件。
@@ -323,11 +347,14 @@ roundMaxMessages
 `roundMaxMessages` 耗尽后，Character 如果仍有必要发言，可以向 PiTavern 发送举手（Hand Raise）状态：
 
 - 举手不是公共发言，不消耗 `roundMaxMessages`。
-- 群聊创建者只看到举手的 Character 和对应 pi session，不看到具体意图。
+- 举手只是临时 UI 提醒，用于引导用户前往对应角色的私有 pi session 查看具体回复。
+- 群聊创建者只看到举手的 Character 和对应 pi session，不在群聊中展示具体内容。
 - 超额生成的完整回复只保留在该 Character 的私有 pi session 中。
 - 同一群成员只保留一个未处理的举手状态；重复举手更新私有意图，不重复产生通知。
 - 修改 `groupMaxMessages` 不会改变当前 Round，也不会自动公开已有举手内容；Character 必须在后续 Round 重新发起发送，并继续遵循先到先得。
-- Character 后续成功发言、主动撤回举手、离开群聊后，清除举手状态。
+- 举手不进入待发送队列，也不赋予 Character 后续发言优先级。
+- 新 User Persona 消息刷新 Round 时清除上一 Round 的全部举手状态。
+- Character 后续成功发言、主动撤回举手、离开群聊后，同样清除其举手状态。
 
 Hand Raise Intent、Hand Raise Status 和 Character Message 必须分开：
 
@@ -373,6 +400,19 @@ tavern_speak({
 
 群聊记录与各个 pi session 分开保存：
 
+- PiTavern 状态保存在 `~/.pi/agent/tavern/`，按照项目工作目录组织，与 pi-coding-agent session 的项目隔离思路一致。
+- 群聊状态不写入项目内的 `.pi/`；项目内 `.pi/tavern.json` 只保存项目配置。
+- 项目目录移动后的数据发现行为沿用 pi-coding-agent，不额外提供路径迁移规则。
+- 项目状态目录下使用 `chats/` 保存群聊 JSONL，使用 `active/` 保存各活动群聊的 WebSocket 描述文件。
+- 每个活动群聊对应 `active/<groupChatId>.json`；多个群聊可以同时存在，互不覆盖。
+- 活动描述文件属于临时运行状态，正常关闭时删除；异常退出后由发现方在连接失败或 PID 失效时清理。
+- 一个群聊保存为一个追加写入的 JSONL 文件，沿用 pi-coding-agent session 的单文件持久化原则。
+- JSONL 首条记录群聊 header，后续按顺序追加群聊元数据变化、User Persona 消息和 Character 消息。
+- 每条持久化记录包含稳定标识和时间戳；公共消息另外包含群聊内递增的 `sequence`。
+- User Persona 消息记录该 Round 创建时继承的 `roundMaxMessages`，恢复时不从当前配置重新计算。
+- 群聊名称和 `groupMaxMessages` 的修改作为元数据记录追加，恢复时重放到最新值。
+- 群聊是线性公共记录，不复制 pi session 的分支树结构。
+- Hand Raise、在线成员、角色领取状态和 follow-up queue 属于临时状态，不写入群聊 JSONL。
 - `/tavern-new` 创建群聊时立即建立独立的群聊记录。
 - 用户消息写入群聊记录后立即保存。
 - 每条完整的角色回复写入后立即保存。
@@ -409,7 +449,3 @@ SillyTavern 使用 AGPL-3.0。PiTavern 只借鉴其交互机制和行为，不�
 Character 公共 Agent 忙碌时，PiTavern 使用 pi-coding-agent 的 `followUp` 投递模式；空闲时触发处理。PiTavern 不实现独立消息队列，也不覆盖 pi-coding-agent 的 follow-up queue 模式。
 
 `references/pi/packages/coding-agent/docs/skills.md` 提供了文件和目录资源导入、Markdown frontmatter 解析及全局/项目配置分层的设计参考。
-
-## 尚未确认
-
-- 群聊记录与角色公共事件的持久化格式及存储路径。
