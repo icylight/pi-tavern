@@ -1,0 +1,18 @@
+[submodule "references/SillyTavern"]
+	path = references/SillyTavern
+	url = https://github.com/SillyTavern/SillyTavern.git
+[submodule "references/pi"]
+	path = references/pi
+	url = git@github.com:earendil-works/pi.git
+[submodule "references/gastown"]
+	path = references/gastown
+	url = https://github.com/gastownhall/gastown.git
+[submodule "references/agent-framework"]
+	path = references/agent-framework
+	url = https://github.com/microsoft/agent-framework.git
+[submodule "references/autogen"]
+	path = references/autogen
+	url = https://github.com/microsoft/autogen.git
+[submodule "references/openclaw"]
+	path = references/openclaw
+	url = https://github.com/openclaw/openclaw.git
