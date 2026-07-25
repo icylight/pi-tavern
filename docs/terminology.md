@@ -21,19 +21,28 @@ SillyTavern 使用 AGPL-3.0。PiTavern 只借鉴其术语和交互概念，不�
 
 | 中文 | 英文及代码概念 | 定义 |
 | --- | --- | --- |
-| PiTavern | `PiTavern` | 产品、Pi 扩展及 `/tavern-*` 命令的命名空间。 |
+| pi-coding-agent | `pi-coding-agent` | PiTavern 所扩展的上游 Coding Agent 项目；其 CLI 命令为 `pi`。 |
+| PiTavern | `PiTavern` | 产品、pi-coding-agent 扩展及 `/tavern-*` 命令的命名空间。 |
 | 群聊 | `GroupChat` / Group Chat | `/tavern-new` 创建、`/tavern-resume` 恢复的公共聊天。 |
 | 当前群聊 | Active Group Chat | 当前仓库中唯一正在运行的群聊。 |
-| 群聊记录 | `ChatHistory` / Chat History | 独立于所有 Pi session 持久化的公共消息历史。 |
-| 群聊创建者 | `GroupChatCreator` / Group Chat Creator | 执行 `/tavern-new` 的 Pi session；默认绑定一个代表用户的 User Persona。 |
-| 用户 | `User` | 操作群聊创建者 Pi、通过 User Persona 发送公共消息的人。 |
+| 群聊记录 | `ChatHistory` / Chat History | 独立于所有 pi session 持久化的公共消息历史。 |
+| 群聊创建者 | `GroupChatCreator` / Group Chat Creator | 执行 `/tavern-new` 的 pi session；默认绑定一个代表用户的 User Persona。 |
+| 用户 | `User` | 操作群聊创建者 pi、通过 User Persona 发送公共消息的人。 |
 | 用户 Persona | `UserPersona` / User Persona | 用户在群聊中的公开身份；默认绑定到群聊创建者，不属于 Character。 |
-| 角色 | `Character` | 由角色卡定义的身份，不等同于某个 Pi 进程。 |
+| 角色 | `Character` | 由角色卡定义的身份，不等同于某个 pi-coding-agent 进程。 |
 | 角色卡 | `CharacterCard` / Character Card | 使用 Markdown 定义角色提示词的文件。 |
-| 群成员 | `GroupMember` / Group Member | 通过 User Persona 或 Character 身份参与当前群聊的 Pi。 |
-| 私聊 | `PrivateChat` / Private Chat | 用户在某个角色 Pi 中与该角色进行的非公开对话。 |
-| Pi session | `PiSession` / Pi Session | 每个 Pi 独立持久化的会话；不是群聊记录。 |
-| 公共事件 | `PublicEvent` / Public Event | 从群聊同步到角色 Pi session 的公共消息或状态事件。 |
+| 群成员 | `GroupMember` / Group Member | 通过 User Persona 或 Character 身份参与当前群聊的 pi。 |
+| 私聊 | `PrivateChat` / Private Chat | 用户在某个角色 pi 中与该角色进行的非公开对话。 |
+| pi session | `PiSession` / pi Session | 每个 pi-coding-agent 进程独立持久化的会话；不是群聊记录。 |
+| Character 公共 Agent | `CharacterPublicAgent` / Character Public Agent | 角色 pi 内用于参与群聊的独立 Agent 上下文；只读取 Character Markdown 和公共事件。 |
+| 后续消息队列 | `followUp` / Follow-up Queue | 每个 Character 公共 Agent 在当前工作完成后投递公共消息的 pi-coding-agent 原生队列；PiTavern 不自建队列。 |
+| 公共事件 | `PublicEvent` / Public Event | 从群聊同步到角色 pi session 的公共消息或状态事件。 |
+| 讨论轮次 | `DiscussionRound` / Round | 由一条 User Persona 消息开启的一轮 Character 公共讨论。 |
+| 配置总发言次数 | `configMaxMessages` / Configured Maximum Messages | 全局或项目配置解析出的新群聊默认发言上限；首版缺省值为 `10`。 |
+| 群聊总发言次数 | `groupMaxMessages` / Group Maximum Messages | 新建群聊时从 `configMaxMessages` 继承并随群聊持久化的默认值。 |
+| 轮次总发言次数 | `roundMaxMessages` / Round Maximum Messages | 新建讨论轮次时从 `groupMaxMessages` 继承的不可变硬上限。 |
+| 举手 | `HandRaise` / Hand Raise | 总发言次数耗尽后，Character 表达继续发言意图的状态；不是公共消息。 |
+| 公开发言工具 | `tavern_speak` | Character 唯一用于尝试发送公共回复的 Agent tool；不是用户 `/` 命令。 |
 
 ## 使用规则
 
@@ -43,9 +52,16 @@ SillyTavern 使用 AGPL-3.0。PiTavern 只借鉴其术语和交互概念，不�
 - `/tavern-new` 表示新建群聊。
 - `/tavern-resume` 表示恢复历史群聊。
 - `/tavern-join` 表示加入当前群聊并成为群成员。
-- 群聊创建者默认以 User Persona 成为群成员；其他 Pi 加入群聊时领取 Character。
+- `/tavern-set-max <count>` 使用绝对值设置当前群聊的 `groupMaxMessages`，不修改当前 Round。
+- `/tavern-name <name>` 按照 pi-coding-agent session name 的相同语义设置群聊显示名；名称不是群聊身份。
+- 群聊创建者默认以 User Persona 成为群成员；其他 pi 加入群聊时领取 Character。
 - User Persona 表示用户身份，Character 表示 Agent 角色，两者不混用。
-- 角色 Pi 执行 `/tavern-leave` 表示退出群聊；群聊创建者执行该命令表示关闭当前群聊。
-- “角色”描述身份，“群成员”描述已连接并领取该身份的 Pi，不混用。
-- “私聊”描述用户与角色的对话，“Pi session”描述承载并保存该私聊的技术会话，不混用。
+- 角色 pi 执行 `/tavern-leave` 表示退出群聊；群聊创建者执行该命令表示关闭当前群聊。
+- “角色”描述身份，“群成员”描述已连接并领取该身份的 pi，不混用。
+- “私聊”描述用户与角色的对话，“pi session”描述承载并保存该私聊的技术会话，不混用。
+- 私有 pi session 与 Character 公共 Agent 属于同一个角色 pi，但上下文相互隔离。
+- `configMaxMessages`、`groupMaxMessages` 和 `roundMaxMessages` 按配置、群聊、讨论轮次区分，不混用。
+- 总发言次数是唯一的发言控制额度；不设置每角色保底机会数或角色活跃度配置。
+- “举手”只表示继续发言的意图，不等同于 Character 已经生成或发送公共回复。
+- 普通 assistant 输出属于私有 pi session；只有 `tavern_speak.content` 可以尝试进入群聊。
 - 首版不引入独立的 `Group` 实体，避免与 `GroupChat` 形成无实际用途的两层模型。

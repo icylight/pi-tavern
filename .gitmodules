@@ -1,9 +1,9 @@
 [submodule "references/SillyTavern"]
 	path = references/SillyTavern
 	url = https://github.com/SillyTavern/SillyTavern.git
-[submodule "references/pi-mono"]
-	path = references/pi-mono
-	url = https://github.com/badlogic/pi-mono.git
+[submodule "references/pi"]
+	path = references/pi
+	url = git@github.com:earendil-works/pi.git
 [submodule "references/gastown"]
 	path = references/gastown
 	url = https://github.com/gastownhall/gastown.git
