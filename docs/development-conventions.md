@@ -2,9 +2,9 @@
 
 本文记录 PiTavern 的通用开发约定。具体通信协议及其消息结构由对应的技术设计文档另行定义。
 
-## JSON
+## 自定义 JSON
 
-JSON 对象的字段名统一使用 `snake_case`：
+PiTavern 自己定义的 JSON 对象字段名统一使用 `snake_case`：
 
 ```json
 {
@@ -22,7 +22,7 @@ JSON 对象的字段名统一使用 `snake_case`：
 }
 ```
 
-不得在 JSON 中混用 `camelCase`、`PascalCase` 或 `kebab-case`：
+不得在 PiTavern 自定义 JSON 中混用 `camelCase`、`PascalCase` 或 `kebab-case`：
 
 ```json
 {
@@ -32,4 +32,6 @@ JSON 对象的字段名统一使用 `snake_case`：
 }
 ```
 
-本约定只规定 JSON 的命名风格，不规定任何具体协议的消息类型、字段或封装结构。
+本约定只规定 PiTavern 自定义 JSON 的命名风格，不规定任何具体协议的消息类型、字段或封装结构。
+
+复用上游格式时必须保持上游字段原样，不为满足本约定转换字段名称。例如，pi-coding-agent session JSONL 中的 `parentId`、`customType` 和 `parentSession` 继续使用上游定义的 camelCase。

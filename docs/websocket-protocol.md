@@ -4,6 +4,27 @@
 
 当前文档只收录已经确认的协议内容。尚未讨论完成的消息不在本阶段预先定义。
 
+连接地址为：
+
+```text
+ws://127.0.0.1:<port>/<group_chat_id>/<instance_id>
+```
+
+`group_chat_id` 是来自群聊 session header 的持久身份，`instance_id` 是本次活动实例的运行期身份。群聊创建者在 WebSocket upgrade 阶段同时校验两者；任一不匹配时直接拒绝连接，不进入应用消息流程。活动描述文件只负责发现候选地址，实际连接是活动群聊有效性的最终判断。
+
+## 连接心跳
+
+PiTavern 使用标准 WebSocket `ping` / `pong` 控制帧检测半开连接，不定义 JSON 心跳消息：
+
+- 群聊创建者每 30 秒向所有 Character WebSocket 发送一次 `ping`。
+- Character 收到 `ping` 后由 WebSocket 库返回 `pong`，并记录最近一次收到创建者心跳的时间。
+- 群聊创建者连续 120 秒没有收到某个 Character 的 `pong` 时，主动终止该连接。
+- Character 连续 120 秒没有收到创建者的 `ping` 时，主动终止该连接。
+- 普通 WebSocket `close` 或 `error` 事件立即进入断线处理，不等待心跳超时。
+- 心跳超时只用于兜底检测半开连接，不是重连窗口。
+- `ping` / `pong` 不进入环境防抖、Agent、pi session 或群聊记录。
+- 心跳失败后不自动重连，统一执行 `disconnected` 清理。
+
 ## JSON 约定
 
 - JSON 字段名统一使用 `snake_case`。
@@ -35,7 +56,7 @@
 - Character 刚完成加入后即属于广播接收者，因此能收到紧随其后的广播。
 - User Persona 由群聊创建者本地表示，不是 Character WebSocket 接收者。
 - 向某个连接发送失败时，该 Character 转入断线处理流程；不能静默跳过并继续将其视为在线。
-- 持久化公共消息由重连补齐机制恢复；临时状态由重新请求群聊状态恢复。
+- Character 手动重新加入后会重新收到最近消息；协议不提供自动重连或按序号补发。
 
 后文使用“广播”时均遵循此定义，不再逐项声明是否包含发送者或新加入的 Character。
 
@@ -71,10 +92,10 @@
 ```
 
 - `is_self` 表示该 Character 是否属于当前请求方，根据请求连接动态生成。
-- `is_streaming` 对齐 pi-coding-agent 的同名状态，表示 Character 公共 Agent 正在处理一次 Agent run。
+- `is_streaming` 直接映射当前 pi Agent 的原生 `isStreaming` 状态，不区分本次处理由用户终端输入还是群聊输入触发。
 - `hand_raised` 是独立状态，可以与其他运行状态同时存在。
-- Character 公共 Agent 的 follow-up queue 是其内部状态，不向群聊上报。
-- Character 的私有 pi session 是否忙碌不属于公共状态。
+- 当前 pi session 的 follow-up queue 是本地状态，不向群聊上报。
+- 群聊创建者只获得 `is_streaming` 布尔值，不获得触发来源、输入内容或其他 pi session 状态。
 - 在线 Character 不携带 `claim_status`；出现在在线列表中即表示已经领取。
 - `session_id`、其他私有 pi session 信息和角色卡文件路径不属于公开摘要。
 - `is_self` 不持久化，也不由 Character 上报。
@@ -107,15 +128,9 @@ claim_character
 }
 ```
 
-群聊创建者根据 `session_id` 判断本次请求：
+群聊创建者使用 `session_id` 防止同一个当前 pi session 建立重复成员连接。首版不提供断线重连或成员恢复分支。
 
-- `session_id` 当前在线：拒绝重复连接。
-- `session_id` 处于 30 秒断线窗口：恢复原 Character。
-- 不存在有效成员映射：进入普通加入流程。
-
-是否属于重连完全由群聊创建者判断，协议不要求角色维护或发送重连模式。
-
-普通加入响应：
+加入响应：
 
 ```json
 {
@@ -124,7 +139,6 @@ claim_character
   "command": "join_group_chat",
   "success": true,
   "data": {
-    "joined": false,
     "available_characters": [
       {
         "character_id": "developer",
@@ -136,41 +150,12 @@ claim_character
 }
 ```
 
-恢复已有成员时返回：
+收到响应后，连接进入临时的加入阶段：
 
-```json
-{
-  "id": "req-2",
-  "type": "response",
-  "command": "join_group_chat",
-  "success": true,
-  "data": {
-    "joined": true,
-    "character": {
-      "character_id": "developer",
-      "name": "Developer",
-      "description": "负责方案实现、代码设计和技术风险分析",
-      "path": "/absolute/path/to/characters/developer.md"
-    }
-  }
-}
-```
-
-- `joined: false` 表示需要选择并领取 Character。
-- `joined: true` 表示已经恢复原 Character，不需要再次领取。
-- 响应不提供 `reconnected` 字段；角色不区分首次连接和重连，只处理当前加入结果。
-- 重连不广播 `character_joined`，因为成员从未被移除。
-- 恢复成功后与首次领取成功使用相同的后置流程，直接发送最近 10 条 `message_history`。
-- 角色不根据 `event_id` 或 `sequence` 去重；收到的最近消息直接进入通用环境批次。
-- `session_id` 只用于群聊创建者恢复成员与 Character 映射，不改变角色端的环境消息处理。
-
-收到 `joined: false` 响应后，连接进入临时的加入阶段：
-
-- `session_id` 必须是角色 pi 外层私有 session 的 ID，不是 Character 公共 Agent 的内部 session ID。
-- 群聊创建者使用 `session_id` 作为群成员的连接和断线重连身份。
+- `session_id` 必须是角色 pi 当前 session 的 ID；PiTavern 不创建另一个 Agent session ID。
+- 群聊创建者使用 `session_id` 作为当前成员连接身份。
 - 同一 `session_id` 已经在线时拒绝新的加入连接。
 - `session_id` 到 Character 和 WebSocket 的映射只存在于当前活动实例，不写入群聊记录文件。
-- 恢复同一个 pi session 时 `session_id` 保持不变；`/new` 或 fork 产生新 ID，不继承原群成员身份。
 - 尚未成为群成员，也不占用任何 Character。
 - 不接收群聊广播。
 - 不能请求群聊记录文件。
@@ -208,7 +193,7 @@ claim_character
 
 - `path` 是 Character Markdown 的本机绝对路径。
 - WebSocket 不发送 Character Markdown 正文；加入方在共享环境中直接读取该文件。
-- 加入方领取成功后立即读取文件并建立 Character 公共 Agent。
+- 加入方领取成功后立即读取一次文件，在内存中缓存 Character 提示词，并为当前 pi Agent 启用群聊输入模块和稳定的 system prompt 扩展。
 - 已经运行的 Character 不因角色卡文件后续变化自动替换提示词。
 
 Character 已经被领取等失败情况使用 pi-coding-agent 风格的通用错误响应：
@@ -225,7 +210,7 @@ Character 已经被领取等失败情况使用 pi-coding-agent 风格的通用�
 
 失败时不占用 Character。加入方重新发送 `join_group_chat` 获取最新的可领取 Character 列表并再次选择。
 
-首次领取成功后，群聊创建者先返回 `claim_character` 成功响应，再广播 `character_joined`。无论首次领取还是恢复已有成员，连接成功后都向该 Character 发送最近 10 条 `message_history`；Character 在环境批次防抖结束后主动请求 `get_group_chat_state`。
+领取成功后，群聊创建者先返回 `claim_character` 成功响应，再广播 `character_joined`，然后向该 Character 发送最近 10 条 `message_history`；Character 在环境批次防抖结束后主动请求 `get_group_chat_state`。
 
 ### Character 加入广播
 
@@ -244,8 +229,9 @@ Character 领取成功并正式成为群成员后，群聊创建者向此时的�
 
 - 广播遵循协议的统一广播语义。
 - 消息只携带公开 Character 摘要，不携带 `is_streaming` 或 `hand_raised`。
-- 该消息属于环境事件，进入每个接收方的 1 秒环境防抖批次。
-- 新加入的 Character 将自己的加入事件和随后收到的 `message_history` 合并到首次环境批次。
+- 群聊已有公开消息时，该消息属于环境事件，进入每个接收方的 1 秒环境防抖批次。
+- 群聊尚无公开消息时，该消息只用于界面通知，不进入环境批次，也不触发 Agent run。
+- 新加入的 Character 只在群聊已有公开消息时，将自己的加入事件和随后收到的 `message_history` 合并到首次环境批次。
 - 群聊创建者界面同时显示一次 Character 加入通知。
 - 成员关系是临时状态；加入广播不写入群聊记录文件，也不使用 `event_id` 或 `sequence`。
 
@@ -270,6 +256,8 @@ Character 主动离开请求：
 6. 成功响应发送完成后关闭离开方 WebSocket。
 
 离开的 Character 已经不属于广播接收者，因此不会收到自己的离开广播。
+
+角色 pi 执行会产生或切换到不同 `session_id` 的 pi 原生 session 操作前，也执行相同的主动离开流程。PiTavern 不阻止 `/new`、`/resume`、`/fork` 或 `/clone`；新 session 不继承群成员关系。离开请求因连接故障无法送达时，角色 pi 仍立即完成本地清理，群聊创建者通过 WebSocket 断开执行 `disconnected` 清理。
 
 成功响应：
 
@@ -299,14 +287,17 @@ Character 主动离开请求：
 `reason` 首版支持：
 
 - `left`：Character 主动执行 `/tavern-leave`。
-- `disconnect_timeout`：WebSocket 断线超过 30 秒重连窗口后被正式移除。
+- `disconnected`：Character WebSocket 意外断开。
 
-断线超时时没有离开请求和响应。群聊创建者在重连窗口到期后执行同样的移除、释放和广播流程。
+WebSocket 意外断开时没有离开请求和响应。群聊创建者立即执行同样的移除、释放和广播流程，不保留重连窗口。
+
+角色 pi 在检测到 WebSocket 断开时不等待服务端通知，立即清除当前群聊关联、未提交的防抖批次、群聊输入模块、Character system prompt 和 `tavern_speak`。已经提交给 pi session 或原生 follow-up queue 的群聊输入不回滚，当前 Agent run 不打断。用户之后只能通过 `/tavern-join` 重新加入。
 
 `character_left`：
 
 - 遵循协议的统一广播语义，接收范围基于成员移除后的在线 Character 集合。
-- 属于环境事件，进入接收方的 1 秒环境防抖批次。
+- 群聊已有公开消息时属于环境事件，进入接收方的 1 秒环境防抖批次。
+- 群聊尚无公开消息时只用于界面通知，不进入环境批次，也不触发 Agent run。
 - 不写入群聊记录文件，也不使用 `event_id` 或 `sequence`。
 - 群聊整体关闭使用单独的关闭消息，不将其表示为所有 Character 逐个离开。
 
@@ -338,14 +329,14 @@ Character 收到关闭广播后：
 - 清除当前群聊关联。
 - 停止向该群聊上报状态或发送公开消息。
 - 释放 Character，使该 pi 可以加入其他群聊。
-- 保留并继续使用自己的私有 pi session。
-- 不强制中断已经运行的 Character 公共 Agent；该 Agent 后续尝试 `tavern_speak` 时失败，完全结束后释放。
+- 保留并继续使用当前 pi Agent 和 pi session。
+- 不强制中断当前 pi Agent 已经在处理的对话；群聊关联清除后，后续 `tavern_speak` 尝试失败。
 
 `group_chat_closed` 是仅存在于当前活动实例中的运行期终止信号，不进入 1 秒环境防抖，也不触发新的 Agent run。它不写入群聊记录文件，也不使用 `event_id` 或 `sequence`。
 
 PiTavern 与 pi-coding-agent session 一样，不持久化“已结束”状态。是否存在活动群聊只由临时活动描述和当前进程决定；群聊记录文件始终停留在最后一条完整记录。
 
-群聊创建者异常退出时无法发送关闭广播。加入方通过 WebSocket 断开、活动描述失效和重连失败流程退出当前群聊。恢复群聊时会建立新的活动实例和成员关系，不恢复旧连接。
+群聊创建者异常退出时无法发送关闭广播。加入方通过 WebSocket 断开退出当前群聊。恢复群聊时会建立新的活动实例和成员关系，不恢复旧连接。
 
 ## 最近群聊消息
 
@@ -365,9 +356,11 @@ Character 加入成功后，群聊创建者自动发送最近 10 条公开消息
 - 只包含 User Persona 和 Character 的公开发言。
 - 加入、离开和状态变化等事件不进入 `messages`。
 - 消息元素复用公开发言结构；该结构将在公开发言广播消息中定义。
-- `cursor` 用于获取当前批次之前的消息。
+- `cursor` 标识当前批次最早一条公开消息之前的历史位置，用于继续获取更早消息。
+- `cursor` 只由群聊创建者生成和解释；Character 不解析其内容，只在后续请求中原样回传。
 - 没有更早消息时，`cursor` 为 `null`，`has_more` 为 `false`。
 - `total_messages` 是响应时群聊内公开消息的总数。
+- 空群聊返回空 `messages`、`cursor: null`、`has_more: false` 和 `total_messages: 0`；空历史不启动 Agent run。
 
 获取更早的 10 条消息：
 
@@ -398,6 +391,7 @@ Character 加入成功后，群聊创建者自动发送最近 10 条公开消息
 
 - 每次固定获取 10 条，首版不提供 `limit`。
 - 翻页期间产生新消息不会改变已有 cursor 所指向的历史位置。
+- 服务端可以使用 `sequence` 定位 cursor 的分页边界，但具体编码不属于 WebSocket 协议。
 
 ## 获取群聊记录文件
 
@@ -429,6 +423,7 @@ Character 加入成功后，群聊创建者自动发送最近 10 条公开消息
 - 返回成功前，群聊创建者确保已经接受的消息写入文件。
 - 只有已经加入当前群聊的 pi 可以请求文件路径。
 - 该文件称为“群聊记录文件”，不称为 session 文件。
+- 空群聊尚未创建 JSONL 文件，此时返回 `success: false`。
 
 ## 获取群聊状态
 
@@ -485,7 +480,6 @@ Character 加入成功后，群聊创建者自动发送最近 10 条公开消息
 
 - 使用在线 Character 结构。
 - 不包含 User Persona。
-- 不包含处于断线重连窗口的 Character。
 - `is_self` 由群聊创建者根据发起 `get_group_chat_state` 的 WebSocket 连接填写，并且恰好一个为 `true`。
 
 群聊状态不包含地址、端口、创建者 PID、`config_max_messages`、历史消息或群聊记录文件路径。
@@ -498,9 +492,9 @@ Character 加入成功后，群聊创建者自动发送最近 10 条公开消息
 - 用户执行需要展示完整状态的命令时。
 - 其他明确需要刷新本地群聊状态的交互。
 
-环境批次触发的状态响应与该批次一起交给 Character 公共 Agent。手动状态命令取得的响应只更新界面，不触发 Agent。
+环境批次触发的状态响应与该批次合并后，作为一次群聊输入提交给当前 pi Agent。Character 提示词由加入期间持续生效的 system prompt 扩展提供，不进入该输入。手动状态命令取得的响应只更新界面，不触发 Agent。
 
-Character 成功领取角色后，群聊创建者自动发送 `message_history`。Character 将历史消息加入首次环境批次；1 秒防抖结束后主动请求群聊状态，再使用历史批次和最新状态启动首次 Agent run。
+Character 成功领取角色后，群聊创建者自动发送 `message_history`。历史非空时，Character 将其加入首次环境批次；1 秒防抖结束后主动请求群聊状态，再将历史批次和最新状态作为群聊输入提交给当前 pi Agent。空历史只更新界面，不创建环境批次。
 
 首次处理没有特殊的禁言规则。`tavern_speak` 是否被接受只由收到请求时当前 Round 的剩余发言次数判断；没有当前 Round 或当前 Round 没有剩余次数时，公开消息不能进入群聊。
 
@@ -515,26 +509,28 @@ Character 使用固定 1 秒的 trailing-edge debounce 合并连续到达的环�
 
 提交环境批次时：
 
-- Character 公共 Agent 空闲：使用环境批次和状态快照启动一次 Agent run。
-- Character 公共 Agent 正在运行：将环境批次和状态快照合并为一条 follow-up，交给 pi-coding-agent 原生队列。
+- 当前 pi Agent 空闲：将环境批次和状态快照合并为一次输入并立即提交。
+- 当前 pi Agent 正在运行：将同样的合并输入作为一条 follow-up，交给当前 pi session 的原生队列。
+
+WebSocket 环境消息不会逐条直接追加到 pi session。只有防抖完成后的合并输入才通过 pi 原生对话入口提交，并与随后的 assistant 回复、工具调用和工具结果一起按照 pi 原生 session 逻辑记录。
 
 防抖适用于：
 
 - `message_history`
 - User Persona 的公开消息
 - 其他 Character 的公开消息
-- 后续定义的成员加入和离开环境事件
+- 已经产生公开消息的群聊中的成员加入和离开环境事件
 
 以下消息不进入环境批次，也不重置防抖计时：
 
 - Character 自己公开消息的回传确认
 - 普通请求响应
 
-`get_group_chat_state` 响应不独立触发 Agent，而是作为触发它的环境批次的最新快照。防抖等待期间 `is_streaming` 保持 `false`；真正启动 Agent run 后才上报 `true`。防抖批次只是短暂的消息合并机制，不替代 pi-coding-agent 的 follow-up queue。首版固定为 1 秒，不提供配置项。
+`get_group_chat_state` 响应不独立触发 Agent，而是作为触发它的环境批次的最新快照。防抖本身不修改 `is_streaming`；该字段始终跟随当前 pi Agent 的原生状态。防抖批次只是短暂的消息合并机制，不替代 pi-coding-agent 的 follow-up queue。首版固定为 1 秒，不提供配置项。
 
 ## Character 状态同步
 
-Character 只向群聊创建者上报自身公共 Agent 的运行状态，不承担向其他 Character 广播的职责。
+Character 只向群聊创建者上报当前 pi Agent 的原生 `isStreaming` 状态，不承担向其他 Character 广播的职责。
 
 Character 上报：
 
@@ -547,8 +543,8 @@ Character 上报：
 
 - 上报消息不携带 `character_id`；群聊创建者根据对应的 WebSocket 连接确定 Character 身份。
 - 每次都发送完整的 `is_streaming` 状态，不使用局部状态补丁。
-- 角色私有 pi session 的运行状态不上报。
-- Character 公共 Agent 的 follow-up queue 不上报。
+- `is_streaming` 不区分用户终端输入与群聊输入。
+- 当前 pi session 的 follow-up queue 不上报。
 - `hand_raised` 由群聊创建者根据公开发言和举手规则维护，不由 Character 通过运行状态消息设置。
 
 群聊创建者接收上报并更新权威状态，但不向其他 Character 广播状态消息：
@@ -574,6 +570,9 @@ Character 的 `tavern_speak` Agent tool 通过以下 WebSocket 请求原子尝�
 
 - `id` 用于将 WebSocket 响应关联回本次 `tavern_speak` 调用。
 - `content` 是准备公开发布的完整内容。
+- 只有已经领取 Character 且当前 WebSocket 已连接时，角色 pi 才启用 `tavern_speak`。
+- WebSocket 断开后工具立即停用，Character 领取关系同时释放。
+- 断线后无法形成 WebSocket `speak` 请求，本地工具调用失败且不产生举手。用户手动重新加入并领取 Character 后才重新启用工具。
 - 请求不携带 `character_id`；群聊创建者根据对应的 WebSocket 连接确定 Character 身份。
 - 该请求不是提前询问发言许可。群聊创建者收到完整内容后，按照消息到达顺序原子检查当前 Round 的剩余发言次数。
 - 发言请求本身不广播；只有成功进入群聊的公开消息才广播。
@@ -595,7 +594,7 @@ Character 的 `tavern_speak` Agent tool 通过以下 WebSocket 请求原子尝�
   "success": true,
   "data": {
     "published": true,
-    "event_id": "event-42",
+    "event_id": "a1b2c3d4",
     "sequence": 42,
     "round": {
       "round_max_messages": 10,
@@ -653,7 +652,7 @@ Character 消息：
 ```json
 {
   "type": "public_message",
-  "event_id": "event-42",
+  "event_id": "a1b2c3d4",
   "sequence": 42,
   "timestamp": "2026-07-26T11:30:00.000Z",
   "sender": {
@@ -675,7 +674,7 @@ User Persona 消息：
 ```json
 {
   "type": "public_message",
-  "event_id": "event-43",
+  "event_id": "b2c3d4e5",
   "sequence": 43,
   "timestamp": "2026-07-26T11:31:00.000Z",
   "sender": {
@@ -690,8 +689,10 @@ User Persona 消息：
 }
 ```
 
-- `event_id` 是公开消息的稳定标识。
-- `sequence` 是群聊内公开消息的递增序号。
+- `event_id` 是对应 pi session `custom_message` entry 的原生 `id`。
+- `sequence` 是群聊内公开消息的递增序号，第一条公开消息从 `1` 开始。
+- 只有成功落盘的公开消息才占用 `sequence`；群聊设置、成员事件、状态变化和举手不占用。
+- 恢复群聊时从最后一条公开消息继续递增，不因重新启动活动实例而重置。
 - `timestamp` 是群聊创建者接受消息的时间。
 - `content` 是公开消息的完整内容。
 - `sender.type` 首版支持 `user_persona` 和 `character`。
@@ -702,4 +703,6 @@ User Persona 消息：
 - Character 发送方接收自己的广播作为正式发布确认，但该回传不进入自己的环境防抖批次。
 - `message_history.messages` 与群聊记录中的公开消息复用此结构。
 
-Character 发言成功时，群聊创建者原子分配 `event_id` 和 `sequence`、更新 Round 次数并写入群聊记录，然后先广播 `public_message`，再返回对应的 `speak` 成功响应。
+Character 发言成功时，群聊创建者原子分配 `sequence`、更新 Round 次数并通过 `SessionManager` 写入 `custom_message`，使用返回的 entry `id` 作为 `event_id`，然后先广播 `public_message`，再返回对应的 `speak` 成功响应。
+
+session append 成功是公开消息成立的提交点。append 失败时，不递增 `sequence`、不消耗 Round 额度、不广播，并返回 `success: false`。append 成功后，即使某个 WebSocket 发送失败，公开消息也不回滚；对应连接进入断线处理。

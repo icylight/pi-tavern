@@ -25,6 +25,7 @@ SillyTavern 使用 AGPL-3.0。PiTavern 只借鉴其术语和交互概念，不�
 | PiTavern | `PiTavern` | 产品、pi-coding-agent 扩展及 `/tavern-*` 命令的命名空间。 |
 | 群聊 | `GroupChat` / Group Chat | `/tavern-new` 创建、`/tavern-resume` 恢复的公共聊天。 |
 | 活动群聊 | `ActiveGroupChat` / Active Group Chat | 当前项目中正在由某个群聊创建者 pi 承载的群聊；同一项目可以同时存在多个。 |
+| 活动实例 | `ActiveInstance` / Active Instance | 群聊的一次运行期承载实例；由每次新建或恢复时生成的 `instanceId` 标识，不属于持久群聊身份。 |
 | 当前群聊 | Current Group Chat | 当前 pi 已创建或加入并正在交互的群聊。 |
 | 群聊记录 | `ChatHistory` / Chat History | 独立于所有 pi session 持久化的公共消息历史。 |
 | 群聊创建者 | `GroupChatCreator` / Group Chat Creator | 执行 `/tavern-new` 的 pi session；默认绑定一个代表用户的 User Persona。 |
@@ -35,8 +36,8 @@ SillyTavern 使用 AGPL-3.0。PiTavern 只借鉴其术语和交互概念，不�
 | 群成员 | `GroupMember` / Group Member | 通过 User Persona 或 Character 身份参与某个活动群聊的 pi。 |
 | 私聊 | `PrivateChat` / Private Chat | 用户在某个角色 pi 中与该角色进行的非公开对话。 |
 | pi session | `PiSession` / pi Session | 每个 pi-coding-agent 进程独立持久化的会话；不是群聊记录。 |
-| Character 公共 Agent | `CharacterPublicAgent` / Character Public Agent | 角色 pi 内用于参与群聊的独立 Agent 上下文；只读取 Character Markdown 和公共事件。 |
-| 后续消息队列 | `followUp` / Follow-up Queue | 每个 Character 公共 Agent 在当前工作完成后投递公共消息的 pi-coding-agent 原生队列；PiTavern 不自建队列。 |
+| 群聊输入模块 | `GroupChatInput` / Group Chat Input | 角色 pi 加入群聊期间接入的另一种对话输入来源；负责合并群聊环境并触发当前 pi Agent。 |
+| 后续消息队列 | `followUp` / Follow-up Queue | 当前 pi Agent 忙碌时接收后续用户输入或群聊输入的 pi-coding-agent 原生队列；PiTavern 不自建队列。 |
 | 公共事件 | `PublicEvent` / Public Event | 从群聊同步到角色 pi session 的公共消息或状态事件。 |
 | 广播 | `Broadcast` | 群聊创建者将同一条逻辑消息无筛选地发送给当前群聊全部在线 Character 的操作；消息发送者同样接收。 |
 | 讨论轮次 | `DiscussionRound` / Round | 由一条 User Persona 消息开启的一轮 Character 公共讨论。 |
@@ -62,11 +63,13 @@ SillyTavern 使用 AGPL-3.0。PiTavern 只借鉴其术语和交互概念，不�
 - 角色 pi 执行 `/tavern-leave` 表示退出其当前群聊；群聊创建者执行该命令表示关闭其创建的群聊。
 - 群聊关闭不等于删除；关闭后的群聊仍可恢复，历史删除在 `/tavern-resume` 选择器中完成。
 - 群聊关闭只终止当前活动实例，不向群聊记录写入关闭或结束状态。
+- `groupChatId` 标识持久群聊，`instanceId` 只标识当前活动实例；恢复群聊时前者保持不变、后者重新生成。
 - “角色”描述身份，“群成员”描述已连接并领取该身份的 pi，不混用。
 - “私聊”描述用户与角色的对话，“pi session”描述承载并保存该私聊的技术会话，不混用。
-- 角色 pi 外层私有 pi session 的 `sessionId` 同时作为临时群成员连接和重连身份；不另设 `memberId`。
+- 角色 pi 当前 pi session 的 `sessionId` 作为临时群成员连接身份；不另设 `memberId`。
 - “广播”始终面向全部在线 Character，不使用接收者列表或排除列表，也不排除消息发送者。
-- 私有 pi session 与 Character 公共 Agent 属于同一个角色 pi，但上下文相互隔离。
+- 用户输入与群聊输入进入同一个 pi Agent 和 pi session；PiTavern 不创建第二个 Agent 或 session。
+- Character Markdown 在领取时加载一次，并在加入期间作为当前 pi Agent 的稳定 system prompt 扩展；它不标识新的 Agent、session 或群成员。
 - `configMaxMessages`、`groupMaxMessages` 和 `roundMaxMessages` 按配置、群聊、讨论轮次区分，不混用。
 - 总发言次数是唯一的发言控制额度；不设置每角色保底机会数或角色活跃度配置。
 - “举手”只表示继续发言的意图，不等同于 Character 已经生成或发送公共回复。
