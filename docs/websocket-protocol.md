@@ -96,13 +96,13 @@ PiTavern 使用标准 WebSocket `ping` / `pong` 控制帧检测半开连接，�
 - `hand_raised` 是独立状态，可以与其他运行状态同时存在。
 - 当前 pi session 的 follow-up queue 是本地状态，不向群聊上报。
 - 群聊创建者只获得 `is_streaming` 布尔值，不获得触发来源、输入内容或其他 pi session 状态。
-- 在线 Character 不携带 `claim_status`；出现在在线列表中即表示已经领取。
+- 在线 Character 不携带 `claim_status`；出现在在线列表中即表示已经完成 `character_ready`。
 - `session_id`、其他私有 pi session 信息和角色卡文件路径不属于公开摘要。
 - `is_self` 不持久化，也不由 Character 上报。
 
 ## 加入群聊
 
-建立 WebSocket 连接不代表已经成为群成员。加入流程分为请求加入和领取 Character 两个阶段：
+建立 WebSocket 连接不代表已经成为群成员。Character 使用应用层三阶段握手加入群聊：
 
 ```text
 建立 WebSocket
@@ -115,7 +115,13 @@ join_group_chat
     ↓
 claim_character
     ↓
-原子领取成功并正式成为群成员
+预留 Character
+    ↓
+本地读取角色卡并准备 CharacterRuntime
+    ↓
+character_ready
+    ↓
+正式成为群成员
 ```
 
 ### 请求加入
@@ -157,10 +163,12 @@ claim_character
 - 同一 `session_id` 已经在线时拒绝新的加入连接。
 - `session_id` 到 Character 和 WebSocket 的映射只存在于当前活动实例，不写入群聊记录文件。
 - 尚未成为群成员，也不占用任何 Character。
+- 尚未预留 Character。
 - 不接收群聊广播。
 - 不能请求群聊记录文件。
 - 可以在同一连接上重新发送 `join_group_chat`，刷新可领取 Character 列表。
 - WebSocket 关闭后不留下成员状态。
+- `available_characters` 排除已经被其他连接预留或已经在线的 Character。
 
 ### 领取 Character
 
@@ -172,7 +180,7 @@ claim_character
 }
 ```
 
-群聊创建者按照消息到达顺序原子检查并领取 Character。成功响应：
+群聊创建者按照消息到达顺序原子检查并预留 Character。已经预留或已经在线的 Character 不能再次预留。成功响应：
 
 ```json
 {
@@ -193,10 +201,12 @@ claim_character
 
 - `path` 是 Character Markdown 的本机绝对路径。
 - WebSocket 不发送 Character Markdown 正文；加入方在共享环境中直接读取该文件。
-- 加入方领取成功后立即读取一次文件，在内存中缓存 Character 提示词，并为当前 pi Agent 启用群聊输入模块和稳定的 system prompt 扩展。
+- `claim_character` 成功只表示 Character 已由当前连接预留；该连接仍不是群成员，不接收群聊广播。
+- 加入方收到成功响应后读取并验证一次文件，在内存中缓存 Character 提示词，并准备尚未激活的 `CharacterRuntime`。
+- 此时不为当前 pi Agent 启用群聊输入模块、system prompt 扩展或 `tavern_speak`。
 - 已经运行的 Character 不因角色卡文件后续变化自动替换提示词。
 
-Character 已经被领取等失败情况使用 pi-coding-agent 风格的通用错误响应：
+Character 已经被预留或已经在线等失败情况使用 pi-coding-agent 风格的通用错误响应：
 
 ```json
 {
@@ -208,13 +218,51 @@ Character 已经被领取等失败情况使用 pi-coding-agent 风格的通用�
 }
 ```
 
-失败时不占用 Character。加入方重新发送 `join_group_chat` 获取最新的可领取 Character 列表并再次选择。
+失败时不预留 Character。加入方重新发送 `join_group_chat` 获取最新的可领取 Character 列表并再次选择。
 
-领取成功后，群聊创建者先返回 `claim_character` 成功响应，再广播 `character_joined`，然后向该 Character 发送最近 10 条 `message_history`；Character 在环境批次防抖结束后主动请求 `get_group_chat_state`。
+预留只属于当前 WebSocket 连接，不持久化，也不进入在线 Character 列表。连接在正式加入前关闭时，群聊创建者立即释放预留，不广播 `character_left`。
+
+成功预留后，群聊创建者立即启动 5 秒 `character_ready` 超时计时。5 秒内仍未完成 `character_ready` 时，群聊创建者先释放 Character 预留，再关闭当前 WebSocket。
+
+加入方在 `joining` 期间收到该连接关闭后，释放 `JoinAttempt` 并直接回到 `idle`。首版不增加“预留已超时”等中间运行状态；用户需要重新执行 `/tavern-join`。
+
+### Character 准备完成
+
+本地角色卡读取、验证和 `CharacterRuntime` 准备成功后，加入方在同一连接上发送：
+
+```json
+{
+  "id": "req-4",
+  "type": "character_ready"
+}
+```
+
+请求不携带 `character_id` 或 `session_id`。群聊创建者根据连接闭包中保存的预留确定身份。没有有效预留、预留已释放或连接已经在线时返回通用错误响应。
+
+成功响应：
+
+```json
+{
+  "id": "req-4",
+  "type": "response",
+  "command": "character_ready",
+  "success": true
+}
+```
+
+处理 `character_ready` 时，群聊创建者原子执行：
+
+1. 从 Character 预留集合中移除当前预留；
+2. 将 `session_id` 与 WebSocket 写入正式连接集合；
+3. 将 `session_id` 与 Character 写入在线 Character 状态。
+
+成功响应发出后，群聊创建者广播 `character_joined`，再向新 Character 发送最近 10 条 `message_history`。加入方收到成功响应后把准备好的 `CharacterRuntime` 激活，转交 WebSocket，并将 Controller 从 `joining` 切换为 `character`。后续广播和历史消息由 `CharacterRuntime` 接收；Character 在环境批次防抖结束后主动请求 `get_group_chat_state`。
+
+加入方在发送 `character_ready` 前本地准备失败时，关闭 WebSocket 并回到 `idle`；群聊创建者随连接关闭释放预留。首版不自动重试。
 
 ### Character 加入广播
 
-Character 领取成功并正式成为群成员后，群聊创建者向此时的全部在线 Character 广播：
+Character 完成 `character_ready` 并正式成为群成员后，群聊创建者向此时的全部在线 Character 广播：
 
 ```json
 {
@@ -257,7 +305,9 @@ Character 主动离开请求：
 
 离开的 Character 已经不属于广播接收者，因此不会收到自己的离开广播。
 
-角色 pi 执行会产生或切换到不同 `session_id` 的 pi 原生 session 操作前，也执行相同的主动离开流程。PiTavern 不阻止 `/new`、`/resume`、`/fork` 或 `/clone`；新 session 不继承群成员关系。离开请求因连接故障无法送达时，角色 pi 仍立即完成本地清理，群聊创建者通过 WebSocket 断开执行 `disconnected` 清理。
+角色 pi 执行会产生或切换到不同 `session_id` 的 pi 原生 session 操作前，先询问用户是否退出群聊并继续。取消确认时阻止原生操作；确认后执行相同的主动离开流程，再允许 `/new`、`/resume`、`/fork` 或 `/clone` 继续。新 session 不继承群成员关系。离开请求因连接故障无法送达时，角色 pi 仍立即完成本地清理，群聊创建者通过 WebSocket 断开执行 `disconnected` 清理。
+
+主动离开完成后不提供事务回滚。后续 pi session 操作失败或取消时，角色 pi 保持 `idle`，不自动重连或恢复 Character。
 
 成功响应：
 
@@ -570,9 +620,9 @@ Character 的 `tavern_speak` Agent tool 通过以下 WebSocket 请求原子尝�
 
 - `id` 用于将 WebSocket 响应关联回本次 `tavern_speak` 调用。
 - `content` 是准备公开发布的完整内容。
-- 只有已经领取 Character 且当前 WebSocket 已连接时，角色 pi 才启用 `tavern_speak`。
+- 只有已经完成 `character_ready` 且当前 WebSocket 已连接时，角色 pi 才启用 `tavern_speak`。
 - WebSocket 断开后工具立即停用，Character 领取关系同时释放。
-- 断线后无法形成 WebSocket `speak` 请求，本地工具调用失败且不产生举手。用户手动重新加入并领取 Character 后才重新启用工具。
+- 断线后无法形成 WebSocket `speak` 请求，本地工具调用失败且不产生举手。用户手动重新加入并完成 `character_ready` 后才重新启用工具。
 - 请求不携带 `character_id`；群聊创建者根据对应的 WebSocket 连接确定 Character 身份。
 - 该请求不是提前询问发言许可。群聊创建者收到完整内容后，按照消息到达顺序原子检查当前 Round 的剩余发言次数。
 - 发言请求本身不广播；只有成功进入群聊的公开消息才广播。

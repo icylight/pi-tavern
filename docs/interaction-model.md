@@ -55,8 +55,13 @@ Repository
 - 群聊创建者模式拦截普通文本输入，以 User Persona 身份发送群聊消息，不触发当前 pi 自己的 Agent 回复。
 - User Persona 不领取角色卡，也不进入 Character 发言队列。
 - 如果用户还需要一个 AI 角色，应启动新的 pi-coding-agent 进程加入群聊。
-- 群聊创建者模式下，`/new`、`/resume`、`/fork`、`/clone` 等会切换 pi session 的原生命令不执行，并提示先显式运行 `/tavern-leave`。
-- PiTavern 不因为原生 session 切换命令而隐式关闭整个群聊；用户关闭群聊后再自行执行原生命令。
+- 当前处于 `joining`、`creator` 或 `character` 时，执行 `/new`、`/resume`、`/fork`、`/clone` 等会创建或切换 pi session 的原生命令，PiTavern 先询问是否退出当前群聊并继续。
+- 用户取消确认时阻止原生 session 操作并保持当前状态；用户确认时先完成退出，再允许 pi 执行原生操作。
+- Creator 的退出会关闭整个群聊；Character 的退出执行正常离开；`joining` 的退出关闭连接并释放可能存在的 Character 预留。
+- 退出一旦完成便不回滚。后续 `/new`、`/resume`、`/fork` 或 `/clone` 即使失败、取消或没有实际完成，PiTavern 也保持 `idle`，不自动恢复或重新加入群聊。
+- `/reload` 不属于上述退出流程。当前 pi session 不变时，Creator 或 Character 通过 reload 专用的一次性运行资源交接保持原群聊身份和 WebSocket，不关闭群聊、不离开、不重新连接。
+- `joining` 不参与 reload 资源交接；reload 时关闭加入连接、释放 Character 预留，新 Extension Runtime 从 `idle` 开始。
+- reload handoff 必须在 5 秒内由新 Extension Runtime 接管；超时后释放全部 handoff 资源，随后加载的 Runtime 从 `idle` 开始，不自动恢复。
 
 这与 SillyTavern 的模型一致：用户是独立参与者，创建者不是 Character Card。
 
@@ -137,9 +142,13 @@ sequenceDiagram
     CharacterPi->>Creator: 通过 WebSocket 请求连接
     Creator-->>CharacterPi: 返回尚未被领取的角色卡
     User->>CharacterPi: 选择角色卡
-    CharacterPi->>Creator: 领取角色卡
-    Creator->>Creator: 独占锁定角色卡
-    Creator-->>CharacterPi: 返回连接成功及角色卡
+    CharacterPi->>Creator: claim_character
+    Creator->>Creator: 预留角色卡
+    Creator-->>CharacterPi: 返回角色卡路径
+    CharacterPi->>CharacterPi: 读取角色卡并准备 CharacterRuntime
+    CharacterPi->>Creator: character_ready
+    Creator->>Creator: 转为正式在线成员
+    Creator-->>CharacterPi: 返回加入成功、广播并发送最近历史
     Creator-->>User: 群聊界面显示 pi 已进入
     CharacterPi-->>User: pi 端显示已连接
 ```
@@ -150,15 +159,16 @@ sequenceDiagram
 - 没有活动群聊时提示当前无可加入群聊。
 - 只有一个活动群聊时直接选择；存在多个时显示群聊选择界面。
 - 发现无法连接或 PID 已不存在的活动描述文件时将其清理，不影响其他群聊。
-- 加入方主动选择一张尚未被领取的角色卡。
-- 同一张角色卡在同一个群聊中同时只能由一个 pi 领取；不同群聊的领取状态相互独立。
-- 已被领取的角色卡不会出现在其他 pi 的可领取列表中。
-- 连接成功完成身份绑定并返回 Character Markdown 的本机绝对路径；加入方直接读取角色卡，并自动收到最近 10 条公开消息。完整群聊记录按需通过群聊记录文件读取。
+- 加入方主动选择一张尚未被预留或正式加入的角色卡。
+- 同一张角色卡在同一个群聊中同时只能由一个 pi 预留或使用；不同群聊的状态相互独立。
+- 已被预留或已经在线的角色卡不会出现在其他 pi 的可领取列表中。
+- `claim_character` 成功后预留 Character 并返回 Character Markdown 的本机绝对路径；加入方直接读取角色卡并准备本地运行组件，再通过 `character_ready` 正式加入群聊。正式加入后自动收到最近 10 条公开消息，完整群聊记录按需通过群聊记录文件读取。
+- Character 预留只等待 5 秒；超时后创建者释放预留并关闭 WebSocket，加入方直接回到 `idle`，不增加中间状态。
 - 群聊输入模块将最近消息合并为环境批次；固定 1 秒防抖结束后主动获取最新群聊状态，再把环境批次和状态快照作为一次输入提交给当前 pi Agent。
 - 首次环境处理没有特殊的禁言规则；`tavern_speak` 是否被接受只由当前 Round 的剩余发言次数判断。
-- Character 加入后没有额外的等待或激活状态；公开发送是否被接受只由当前 `roundMaxMessages` 判断。
+- `character_ready` 成功后没有额外的等待或激活状态；公开发送是否被接受只由当前 `roundMaxMessages` 判断。
 - 群聊创建者和加入方 pi 都显示连接成功通知。
-- Character 领取成功后，加入事件向包括新成员在内的全部在线 Character 广播。群聊已有公开消息时该事件作为公共环境事件参与 1 秒防抖。
+- Character 完成 `character_ready` 后，加入事件向包括新成员在内的全部在线 Character 广播。群聊已有公开消息时该事件作为公共环境事件参与 1 秒防抖。
 - 群聊尚无公开消息时，加入和离开广播只用于界面通知，不进入环境批次，也不触发 pi Agent；第一条 User Persona 消息落盘后，后续成员事件才参与防抖。
 - 加入方保持普通 pi-coding-agent 界面，显示群聊、角色、生成状态和连接通知。
 - 群聊创建者只接收角色 pi 当前 Agent 的原生 `isStreaming` 布尔状态，不接收触发来源、用户终端输入内容或其他 session 细节。
@@ -171,10 +181,11 @@ sequenceDiagram
 - 角色 pi 使用当前 pi session 的 `sessionId` 作为群成员连接身份；PiTavern 不创建另一个 Agent session ID。
 - 群聊创建者在连接断开时立即移除成员并释放角色卡，再以 `disconnected` 原因向剩余在线 Character 广播 `character_left`。
 - 首版没有自动重连、重连窗口或成员恢复逻辑。
-- 用户需要手动重新执行 `/tavern-join` 并领取 Character；成功后重新加载提示词、启用工具，并收到最近 10 条公开消息。
+- 用户需要手动重新执行 `/tavern-join`、预留 Character 并完成 `character_ready`；成功后启用提示词和工具，并收到最近 10 条公开消息。
 - 群成员关系绑定角色 pi 加入时的当前 `sessionId`。
-- `/new`、`/resume`、`/fork`、`/clone` 等操作产生或切换到不同 `sessionId` 前，PiTavern 先执行正常离开流程，再允许 pi 完成原生 session 切换。
+- `/new`、`/resume`、`/fork`、`/clone` 等操作产生或切换到不同 `sessionId` 前，PiTavern 先取得用户确认，再执行正常离开流程并允许 pi 完成原生 session 切换。
 - session 切换不继承群成员关系、Character system prompt、群聊输入模块或 `tavern_speak`；切换完成后由用户手动重新加入。
+- 退出完成后，后续 session 操作失败或取消也不回滚群聊退出，不自动重连。
 - 不改变 `sessionId` 的同 session 操作不退出群聊。
 
 ## WebSocket 连接
@@ -194,7 +205,7 @@ PiTavern 扩展之间使用 WebSocket 传递实时消息和成员状态：
 - 首版运行在同一台机器和代码仓库中，不使用证书或 token。
 - 群聊创建者每 30 秒发送标准 WebSocket `ping`；任一方连续 120 秒没有收到对应心跳时终止连接。
 - 普通 WebSocket `close/error` 立即处理；心跳超时只兜底检测半开连接，不产生 JSON 消息或自动重连。
-- 公开消息带有群聊内递增的消息序号；每次领取 Character 成功后统一发送最近 10 条公开消息，不实现自动重连或基于最后应用序号的补发。
+- 公开消息带有群聊内递增的消息序号；每次 `character_ready` 成功后统一发送最近 10 条公开消息，不实现自动重连或基于最后应用序号的补发。
 - 以后支持远程连接时再增加鉴权，首版不预设远程安全模型。
 
 ## 群聊与角色私聊
@@ -212,7 +223,7 @@ PiTavern 扩展之间使用 WebSocket 传递实时消息和成员状态：
 
 Character Markdown 是当前 pi Agent 在加入期间使用的稳定 system prompt 扩展：
 
-- 领取 Character 时读取并解析一次，随后缓存在角色 pi 内存中。
+- `claim_character` 预留成功后读取并解析一次，随后缓存在角色 pi 内存中。
 - 加入期间对用户终端输入和群聊输入触发的 Agent run 都生效。
 - pi 的 `before_agent_start` 在每次 Agent run 中应用同一份缓存提示词，但不重新读取角色文件。
 - Character Markdown 不拼接到防抖后的群聊输入，也不作为消息写入 pi session。
@@ -263,7 +274,7 @@ description: 负责系统设计、技术决策和架构风险分析
 - `name` 用于界面展示和 `@提及`。
 - `description` 是公开的角色简介，用于角色选择器、在线角色列表和状态界面。
 - Markdown 正文是完整角色提示词。
-- 领取成功时加载一次正文，并在加入期间作为稳定的 system prompt 扩展应用于当前 pi Agent。
+- `claim_character` 预留成功时加载一次正文，`character_ready` 成功后在加入期间作为稳定的 system prompt 扩展应用于当前 pi Agent。
 - 角色提示词不重复拼接到每条群聊输入，也不作为聊天消息写入 pi session。
 - Character 列表只发送 `name` 和 `description` 等公开摘要，不发送 Markdown 正文。
 - 第一版只支持 PiTavern Character Markdown，不导入 SillyTavern 的 JSON、PNG 或 CHARX Character Card。
@@ -420,9 +431,9 @@ tavern_speak({
 ```
 
 - 工具参数 `content` 是唯一允许尝试进入群聊的 Character 输出。
-- 只有成功领取 Character 且 WebSocket 当前已连接时启用该工具。
+- 只有 `character_ready` 成功且 WebSocket 当前已连接时启用该工具。
 - WebSocket 断开时立即停用，同时移除群聊输入模块和 Character system prompt；断线后的调用不能公开发送，也不产生举手。
-- 用户手动重新加入并领取 Character 后恢复启用；主动离开或群聊关闭后保持停用。
+- 用户手动重新加入并完成 `character_ready` 后恢复启用；主动离开或群聊关闭后保持停用。
 - Tavern 在收到工具调用时按照当前 Round 的 `roundMaxMessages` 原子判断。
 - 额度内的内容写入群聊、分配正式消息序号，并广播给包括发送者在内的所有角色 pi。
 - 额度外的内容不写入群聊，保留在调用方私有 pi session，并将调用方标记为举手。

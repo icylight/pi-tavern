@@ -2,6 +2,8 @@
 
 本文定义单个 pi 进程中的 PiTavern 扩展运行状态。
 
+初步代码结构及尚待讨论的架构问题见 [extension-architecture.md](extension-architecture.md)。
+
 ## 状态
 
 PiTavern 使用三个稳定状态和一个短暂状态：
@@ -11,7 +13,8 @@ idle
 ├── /tavern-new、/tavern-resume → creator
 └── /tavern-join               → joining
                                       │
-                                      └── 领取成功 → character
+                                      ├── claim_character → 预留 Character
+                                      └── character_ready 成功 → character
 ```
 
 ### `idle`
@@ -28,12 +31,14 @@ idle
 
 ### `joining`
 
-- 当前 pi 已连接目标群聊 WebSocket，但尚未领取 Character。
+- 当前 pi 已连接目标群聊 WebSocket，但尚未正式成为群成员。
 - 可以接收和刷新可领取 Character 列表。
-- 尚未成为群成员，不接收群聊广播，也不占用 Character。
+- 可以处于尚未选择 Character，或已经预留 Character、正在准备本地 `CharacterRuntime` 的阶段。
+- 尚未成为群成员，不接收群聊广播。
 - `claim_character` 因角色已被领取等业务冲突失败时仍停留在 `joining`，可以刷新列表并重新选择。
-- 用户取消、领取失败后放弃或 WebSocket 断开时，关闭连接并回到 `idle`。
-- Character 领取成功后进入 `character`。
+- `claim_character` 成功后仍停留在 `joining`，该 Character 暂时不能被其他连接领取。
+- 本地准备完成并取得 `character_ready` 成功响应后进入 `character`。
+- 用户取消、准备失败后放弃或 WebSocket 断开时，关闭连接、释放预留并回到 `idle`。
 
 ### `character`
 
@@ -70,14 +75,27 @@ WebSocket 断开即退出群聊，不进入等待重连的状态。群聊是否�
 | `idle` | `/tavern-new` 成功 | `creator` |
 | `idle` | `/tavern-resume` 成功 | `creator` |
 | `idle` | `/tavern-join` 建立候选连接 | `joining` |
-| `joining` | `claim_character` 成功 | `character` |
+| `joining` | `claim_character` 成功并预留 | `joining` |
 | `joining` | `claim_character` 业务失败 | `joining` |
+| `joining` | `character_ready` 成功 | `character` |
+| `joining` | `character_ready` 5 秒超时 | `idle` |
 | `joining` | 取消、放弃或连接关闭 | `idle` |
 | `character` | `/tavern-leave` | `idle` |
 | `character` | 断线或心跳超时 | `idle` |
 | `character` | `group_chat_closed` | `idle` |
-| `character` | pi session 切换 | `idle` |
+| `character` | 确认退出并执行 pi session 操作 | `idle` |
+| `joining` | 确认退出并执行 pi session 操作 | `idle` |
+| `creator` | 确认退出并执行 pi session 操作 | `idle` |
+| `character` | `/reload` 交接成功 | `character` |
+| `creator` | `/reload` 交接成功 | `creator` |
+| `character` | `/reload` 交接 5 秒超时 | `idle` |
+| `creator` | `/reload` 交接 5 秒超时 | `idle` |
+| `joining` | `/reload` | `idle` |
 | `creator` | `/tavern-leave` | `idle` |
+
+`/new`、`/resume`、`/fork` 和 `/clone` 在非 `idle` 状态下先请求用户确认。取消时状态不变并阻止原生操作；确认时先退出群聊再允许原生操作。退出后不因原生操作失败或取消而回滚状态。
+
+`/reload` 不创建或切换 pi session。`creator` 和 `character` 通过一次性 `ReloadHandoff` 把运行资源交给新 Extension Runtime，交接成功后保持原状态，不产生离开、关闭、重连或重新加入事件。`joining` 不参与交接；旧 Runtime 关闭连接并释放预留，新 Runtime 从 `idle` 开始。
 
 ## 命令可用性
 
