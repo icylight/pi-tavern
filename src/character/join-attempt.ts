@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import WebSocket from "ws";
 
 import { type ClaimedCharacter, loadClaimedCharacter } from "../config/character-card.js";
@@ -116,7 +117,7 @@ export class JoinAttempt {
 		}
 	}
 
-	async claimCharacter(characterId: string): Promise<CharacterRuntime> {
+	async claimCharacter(characterId: string, pi?: ExtensionAPI): Promise<CharacterRuntime> {
 		const claimResponse = await this.request({
 			type: "claim_character",
 			character_id: characterId,
@@ -145,7 +146,7 @@ export class JoinAttempt {
 			if (!readyResponse.success) {
 				throw new Error(readyResponse.error);
 			}
-			runtime.activate(this.takeConnection());
+			runtime.activate(this.takeConnection(), pi);
 			return runtime;
 		} catch (error) {
 			await this.close();

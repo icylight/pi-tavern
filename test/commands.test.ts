@@ -181,7 +181,7 @@ describe("PiTavern commands", () => {
 			"session-1",
 			expect.objectContaining({ onDisconnected: expect.any(Function) }),
 		);
-		expect(attempt.claimCharacter).toHaveBeenCalledWith("architect.md");
+		expect(attempt.claimCharacter).toHaveBeenCalledWith("architect.md", expect.any(Object));
 		expect(controller.getState()).toEqual({
 			type: "character",
 			runtime: characterRuntime,

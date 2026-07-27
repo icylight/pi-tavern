@@ -61,7 +61,10 @@ export class TavernController {
 		});
 	}
 
-	claimCharacter(characterId: string): Promise<CharacterRuntime> {
+	claimCharacter(
+		characterId: string,
+		pi?: import("@earendil-works/pi-coding-agent").ExtensionAPI,
+	): Promise<CharacterRuntime> {
 		return this.runTransition(async () => {
 			if (this.state.type !== "joining") {
 				throw new Error("This pi session is not joining a group chat");
@@ -69,7 +72,7 @@ export class TavernController {
 
 			const attempt = this.state.attempt;
 			try {
-				const runtime = await attempt.claimCharacter(characterId);
+				const runtime = await attempt.claimCharacter(characterId, pi);
 				this.state = { type: "character", runtime };
 				return runtime;
 			} catch (error) {

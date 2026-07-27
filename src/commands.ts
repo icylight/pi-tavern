@@ -81,7 +81,7 @@ export function registerCommands(
 						return;
 					}
 					try {
-						const runtime = await controller.claimCharacter(selected.character_id);
+						const runtime = await controller.claimCharacter(selected.character_id, pi);
 						ctx.ui.notify(`Joined ${descriptor.name ?? descriptor.groupChatId} as ${runtime.character.name}`, "info");
 						return;
 					} catch (error) {

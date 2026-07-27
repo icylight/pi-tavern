@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import WebSocket from "ws";
 
 import type { CharacterCard } from "../config/character-card.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { GroupChatStateMessage, ServerMessage } from "../protocol/messages.js";
+import { GroupChatInput } from "./group-chat-input.js";
 
 export interface CharacterConnectionTransfer {
 	socket: WebSocket;
@@ -32,6 +34,8 @@ export class CharacterRuntime {
 	readonly sessionId: string;
 	readonly character: CharacterCard;
 	readonly receivedMessages: ServerMessage[] = [];
+	onEnvironmentMessage: ((message: ServerMessage) => void) | undefined;
+	groupChatInput: GroupChatInput | undefined;
 
 	private socket: WebSocket | null = null;
 	private readonly pendingRequests = new Map<string, PendingRequest>();
@@ -73,7 +77,7 @@ export class CharacterRuntime {
 		return new CharacterRuntime(options);
 	}
 
-	activate(transfer: CharacterConnectionTransfer): void {
+	activate(transfer: CharacterConnectionTransfer, pi?: ExtensionAPI): void {
 		if (this.socket || this.disconnected) {
 			throw new Error("CharacterRuntime has already been activated or disposed");
 		}
@@ -81,6 +85,12 @@ export class CharacterRuntime {
 		this.socket.on("message", this.onMessage);
 		this.socket.on("close", this.onClose);
 		this.socket.on("error", this.onError);
+
+		if (pi) {
+			this.groupChatInput = new GroupChatInput(this, pi);
+			this.groupChatInput.start();
+		}
+
 		for (const message of transfer.bufferedMessages) {
 			this.handleServerMessage(message);
 		}
@@ -136,6 +146,10 @@ export class CharacterRuntime {
 				remainingMessages: response.data.round.remaining_messages,
 			},
 		};
+	}
+
+	get hasPublicMessages(): boolean {
+		return this.receivedMessages.some((m) => m.type === "public_message" || m.type === "message_history");
 	}
 
 	close(): Promise<void> {
@@ -205,6 +219,9 @@ export class CharacterRuntime {
 		}
 
 		this.receivedMessages.push(message);
+
+		this.onEnvironmentMessage?.(message);
+
 		if (message.type === "group_chat_closed") {
 			this.finishDisconnected();
 		}
@@ -223,6 +240,8 @@ export class CharacterRuntime {
 			return;
 		}
 		this.disconnected = true;
+		this.groupChatInput?.stop();
+		this.groupChatInput = undefined;
 		const socket = this.socket;
 		this.socket = null;
 		if (socket) {
