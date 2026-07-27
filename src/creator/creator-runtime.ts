@@ -45,6 +45,13 @@ export interface CreatorRuntimeDependencies {
 
 const DEFAULT_CONFIG_MAX_MESSAGES = 10;
 
+/** Bit flags tracking first-persist milestones for granular rollback on failure. */
+const FIRST_PERSIST_HEADER_WRITTEN = 1 << 0;
+const FIRST_PERSIST_SESSION_OPENED = 1 << 1;
+const FIRST_PERSIST_NAME_APPENDED = 1 << 2;
+const FIRST_PERSIST_SETTINGS_APPENDED = 1 << 3;
+const FIRST_PERSIST_MESSAGE_APPENDED = 1 << 4;
+
 export class CreatorRuntime {
 	readonly connections = new Map<string, WebSocket>();
 	readonly characters: Map<string, CharacterCard>;
@@ -54,6 +61,10 @@ export class CreatorRuntime {
 	private disposed = false;
 	private readonly deps: CreatorRuntimeDependencies;
 	private persistedCount = 0;
+
+	/** Tracks which steps have completed during first-persist, for rollback on failure. */
+	private firstPersistFlags = 0;
+
 	onPublicMessage:
 		| ((msg: {
 				sender: { type: "user_persona" } | { type: "character"; character_id: string; name: string };
@@ -218,21 +229,29 @@ export class CreatorRuntime {
 			// For the very first persist, seed the file with SessionManager's header,
 			// then use its append API for all entries so IDs, parentId chain, and envelopes
 			// are fully managed by SessionManager (persistence.md L6-8).
+			// Bit flags track each step for granular rollback on partial failure.
 			if (this.persistedCount === 0) {
 				const sessionPath = this.getSessionFilePath();
 				const header = this.groupSessionManager.getHeader();
-				await this.deps.writeFile(sessionPath, `${JSON.stringify(header)}\n`);
-				this.groupSessionManager.setSessionFile(sessionPath);
 
+				this.firstPersistFlags = 0;
 				try {
+					await this.deps.writeFile(sessionPath, `${JSON.stringify(header)}\n`);
+					this.firstPersistFlags |= FIRST_PERSIST_HEADER_WRITTEN;
+
+					this.groupSessionManager.setSessionFile(sessionPath);
+					this.firstPersistFlags |= FIRST_PERSIST_SESSION_OPENED;
+
 					if (this.state.groupChat.name) {
 						this.groupSessionManager.appendSessionInfo(this.state.groupChat.name);
+						this.firstPersistFlags |= FIRST_PERSIST_NAME_APPENDED;
 						this.persistedCount++;
 					}
 
 					this.groupSessionManager.appendCustomEntry("pi-tavern.group-settings", {
 						group_max_messages: roundMaxMessages,
 					});
+					this.firstPersistFlags |= FIRST_PERSIST_SETTINGS_APPENDED;
 					this.persistedCount++;
 
 					entryId = this.groupSessionManager.appendCustomMessageEntry(
@@ -251,22 +270,10 @@ export class CreatorRuntime {
 							},
 						},
 					);
+					this.firstPersistFlags |= FIRST_PERSIST_MESSAGE_APPENDED;
 					this.persistedCount++;
 				} catch (error) {
-					// First persist failed part-way: delete the half-initialized file
-					// so "started" is only true when at least one public message exists.
-					try {
-						await rm(sessionPath, { force: true });
-					} catch {
-						// Best-effort cleanup; ignore deletion failure
-					}
-					// Reset SessionManager to pre-first-persist state
-					this.groupSessionManager = SessionManager.create(
-						this.groupSessionManager.getCwd(),
-						this.groupSessionManager.getSessionDir(),
-						{ id: this.state.groupChat.groupChatId },
-					);
-					this.persistedCount = 0;
+					this.rollbackFirstPersist(sessionPath);
 					throw error;
 				}
 			} else {
@@ -891,6 +898,34 @@ export class CreatorRuntime {
 	private broadcast(message: unknown): void {
 		for (const socket of this.connections.values()) {
 			this.send(socket, message);
+		}
+	}
+
+	/**
+	 * Roll back a partially-completed first persist using bit flags to decide
+	 * what cleanup is needed. Each bit represents a completed step.
+	 */
+	private async rollbackFirstPersist(sessionPath: string): Promise<void> {
+		const flags = this.firstPersistFlags;
+		this.firstPersistFlags = 0;
+		this.persistedCount = 0;
+
+		if (flags & FIRST_PERSIST_HEADER_WRITTEN) {
+			try {
+				await rm(sessionPath, { force: true });
+			} catch {
+				// Best-effort cleanup
+			}
+		}
+
+		if (flags & FIRST_PERSIST_SESSION_OPENED) {
+			// SessionManager in-memory state was mutated by the failed appends.
+			// Recreate it to purge unpersisted entries from byId/leafId.
+			this.groupSessionManager = SessionManager.create(
+				this.groupSessionManager.getCwd(),
+				this.groupSessionManager.getSessionDir(),
+				{ id: this.state.groupChat.groupChatId },
+			);
 		}
 	}
 
