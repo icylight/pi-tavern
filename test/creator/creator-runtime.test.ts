@@ -285,11 +285,20 @@ describe("CreatorRuntime", () => {
 		await runtime.close();
 	});
 
-	it("second user persona message creates a new round resetting usedMessages", async () => {
+	it("second user persona message creates a new round resetting usedMessages and handRaised", async () => {
 		const root = await createTemporaryDirectory();
 		const runtime = await CreatorRuntime.startNew({
 			cwd: join(root, "project"),
 			agentDir: join(root, "agent"),
+			characters: [
+				{
+					characterId: "dev",
+					name: "Developer",
+					description: "Writes code",
+					path: "/chars/dev.md",
+					prompt: "You are a developer.",
+				},
+			],
 		});
 
 		// First message creates the initial round
@@ -297,15 +306,34 @@ describe("CreatorRuntime", () => {
 		expect(runtime.state.round?.roundMaxMessages).toBe(10);
 		expect(runtime.state.round?.usedMessages).toBe(0);
 
-		// Simulate Characters using up some messages (manually adjust usedMessages)
+		// Join a character and set handRaised
+		const client = new WebSocket(
+			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
+		);
+		await waitForOpen(client);
+		client.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: "s1" }));
+		await waitForMessage(client, "response");
+		client.send(JSON.stringify({ id: "2", type: "claim_character", character_id: "dev" }));
+		await waitForMessage(client, "response");
+		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
+		await waitForMessage(client, "response");
+
+		// Simulate used messages and hand raised from previous round
 		expect(runtime.state.round).toBeDefined();
 		if (runtime.state.round) runtime.state.round.usedMessages = 3;
+		for (const c of runtime.state.onlineCharacters.values()) {
+			c.handRaised = true;
+		}
 
-		// Second message creates a fresh round, resetting usedMessages
+		// Second message creates a fresh round, resetting usedMessages AND clearing handRaised
 		await runtime.submitUserPersonaMessage("Second");
 		expect(runtime.state.round?.roundMaxMessages).toBe(10);
 		expect(runtime.state.round?.usedMessages).toBe(0);
+		for (const c of runtime.state.onlineCharacters.values()) {
+			expect(c.handRaised).toBe(false);
+		}
 
+		client.close();
 		await runtime.close();
 	});
 
