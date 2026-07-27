@@ -6,6 +6,7 @@ import WebSocket from "ws";
 import type { CharacterCard } from "../config/character-card.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { GroupChatStateMessage, ServerMessage } from "../protocol/messages.js";
+import { SHORT_COORDINATION_TIMEOUT_MS } from "../shared/constants.js";
 import { GroupChatInput } from "./group-chat-input.js";
 
 export interface CharacterConnectionTransfer {
@@ -27,7 +28,7 @@ interface PendingRequest {
 	timer: NodeJS.Timeout;
 }
 
-const DEFAULT_REQUEST_TIMEOUT_MS = 5_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
 
 export class CharacterRuntime {
 	readonly groupChatId: string;

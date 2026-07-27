@@ -2,7 +2,7 @@ import { readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import WebSocket from "ws";
-
+import { SHORT_COORDINATION_TIMEOUT_MS } from "../shared/constants.js";
 import {
 	type ActiveGroupChatDescriptor,
 	getActiveDescriptorDirectory,
@@ -108,7 +108,7 @@ async function verifyDescriptor(descriptor: ActiveGroupChatDescriptor): Promise<
 			}
 			resolveVerification(verified);
 		};
-		const timeout = setTimeout(() => finish(false), 5_000);
+		const timeout = setTimeout(() => finish(false), SHORT_COORDINATION_TIMEOUT_MS);
 
 		socket.once("open", () => finish(true));
 		socket.once("error", () => finish(false));

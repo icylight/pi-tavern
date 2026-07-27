@@ -17,6 +17,7 @@ import {
 } from "../discovery/active-descriptor.js";
 import { decodeClientMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { ClientMessage } from "../protocol/messages.js";
+import { SHORT_COORDINATION_TIMEOUT_MS } from "../shared/constants.js";
 import {
 	createGroupChatState,
 	type GroupChatState,
@@ -44,7 +45,6 @@ export interface CreatorRuntimeDependencies {
 }
 
 const DEFAULT_CONFIG_MAX_MESSAGES = 10;
-const DEFAULT_READY_TIMEOUT_MS = 5_000;
 
 export class CreatorRuntime {
 	readonly connections = new Map<string, WebSocket>();
@@ -102,7 +102,7 @@ export class CreatorRuntime {
 			createId: randomUUID,
 			now: () => new Date(),
 			pid: process.pid,
-			readyTimeoutMs: DEFAULT_READY_TIMEOUT_MS,
+			readyTimeoutMs: SHORT_COORDINATION_TIMEOUT_MS,
 			publishDescriptor: publishActiveDescriptor,
 			writeFile: (path, data) => writeFile(path, data),
 			appendFile: (path, data) => appendFile(path, data),

@@ -7,6 +7,7 @@ import { type ClaimedCharacter, loadClaimedCharacter } from "../config/character
 import type { ActiveGroupChatDescriptor } from "../discovery/active-descriptor.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { CharacterSummaryWire, ServerMessage } from "../protocol/messages.js";
+import { SHORT_COORDINATION_TIMEOUT_MS } from "../shared/constants.js";
 import { type CharacterConnectionTransfer, CharacterRuntime } from "./character-runtime.js";
 
 export interface JoinAttemptOptions {
@@ -20,7 +21,7 @@ interface PendingRequest {
 	timer: NodeJS.Timeout;
 }
 
-const DEFAULT_REQUEST_TIMEOUT_MS = 5_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
 
 export class JoinAttempt {
 	readonly availableCharacters: CharacterSummaryWire[];
