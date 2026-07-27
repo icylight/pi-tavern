@@ -340,6 +340,53 @@ describe("PiTavern extension", () => {
 		});
 	});
 
+	it("appends error notification when creator-display projection fails", async () => {
+		const runtime = createMockCreatorRuntime();
+		// Wire submitUserPersonaMessage to fire onPublicMessage like the real impl
+		runtime.submitUserPersonaMessage = vi.fn(async (content: string) => {
+			runtime.onPublicMessage?.({
+				sender: { type: "user_persona" },
+				content,
+				event_id: "evt-1",
+				sequence: 1,
+				timestamp: "2026-01-01T00:00:00.000Z",
+				round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
+			});
+			return "evt-1";
+		});
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		const mock = createMockExtensionAPI();
+		// First appendEntry throws, second succeeds
+		let callCount = 0;
+		vi.mocked(mock.appendEntry).mockImplementation(() => {
+			callCount++;
+			if (callCount === 1) throw new Error("render failure");
+		});
+
+		piTavern(mock as unknown as ExtensionAPI, controller);
+		controller.onStateChange?.();
+
+		const ctx = stubContext();
+		await mock.inputHandlers[0]?.({ type: "input", text: "hello", source: "interactive" } as InputEvent, ctx);
+
+		// First call was the content projection
+		expect(mock.appendEntry).toHaveBeenNthCalledWith(1, "pi-tavern.creator-display", {
+			label: "You",
+			content: "hello",
+			sequence: 1,
+			timestamp: "2026-01-01T00:00:00.000Z",
+		});
+		// Second call is the error notification
+		expect(mock.appendEntry).toHaveBeenNthCalledWith(2, "pi-tavern.creator-display", {
+			label: "System",
+			content: "TUI projection failed: render failure",
+			sequence: 1,
+			timestamp: "2026-01-01T00:00:00.000Z",
+		});
+	});
+
 	it("notifies error and still handles input when submitUserPersonaMessage fails", async () => {
 		const runtime = createMockCreatorRuntime();
 		vi.mocked(runtime.submitUserPersonaMessage).mockRejectedValue(new Error("disk full"));

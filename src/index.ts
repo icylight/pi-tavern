@@ -145,11 +145,25 @@ function wireCreatorDisplay(pi: ExtensionAPI, ctrl: TavernController): void {
 
 	state.runtime.onPublicMessage = (msg) => {
 		const label = msg.sender.type === "user_persona" ? "You" : msg.sender.name;
-		pi.appendEntry("pi-tavern.creator-display", {
-			label,
-			content: msg.content,
-			sequence: msg.sequence,
-			timestamp: msg.timestamp,
-		});
+		try {
+			pi.appendEntry("pi-tavern.creator-display", {
+				label,
+				content: msg.content,
+				sequence: msg.sequence,
+				timestamp: msg.timestamp,
+			});
+		} catch (error) {
+			// Best-effort error notification so creator sees projection failure
+			try {
+				pi.appendEntry("pi-tavern.creator-display", {
+					label: "System",
+					content: `TUI projection failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+					sequence: msg.sequence,
+					timestamp: msg.timestamp,
+				});
+			} catch {
+				// Even error notification failed — nothing more we can do
+			}
+		}
 	};
 }
