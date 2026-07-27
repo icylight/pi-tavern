@@ -66,6 +66,11 @@ export function setGroupMaxMessages(state: GroupChatState, maxMessages: number):
 }
 
 export function startNewRound(state: GroupChatState): RoundState {
+	// Clear hand-raised flags from the previous round
+	for (const character of state.onlineCharacters.values()) {
+		character.handRaised = false;
+	}
+
 	const round: RoundState = {
 		roundMaxMessages: state.groupChat.groupMaxMessages,
 		usedMessages: 0,

@@ -58,7 +58,7 @@ function createMockExtensionAPI(): MockExtensionAPI {
 		registerCommand: vi.fn(),
 		registerTool: vi.fn(),
 		on: vi.fn((_event: string, handler: InputHandler) => {
-			inputHandlers.push(handler);
+			if (_event === "input") inputHandlers.push(handler);
 		}),
 		inputHandlers,
 	};

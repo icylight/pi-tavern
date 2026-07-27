@@ -15,6 +15,17 @@ export class GroupChatInput {
 
 	start(): void {
 		this.handler = (message: ServerMessage) => {
+			if (message.type === "message_history" && Array.isArray(message.messages)) {
+				// Expand message_history into individual public_message events
+				for (const m of message.messages) {
+					if (m && typeof m === "object" && "type" in m && m.type === "public_message") {
+						if (!this.isEnvironmentEvent(m as ServerMessage)) continue;
+						this.batch.push(m as ServerMessage);
+					}
+				}
+				this.resetDebounce();
+				return;
+			}
 			if (!this.isEnvironmentEvent(message)) return;
 			this.batch.push(message);
 			this.resetDebounce();

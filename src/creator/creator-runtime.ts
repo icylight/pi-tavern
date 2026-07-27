@@ -55,6 +55,14 @@ export class CreatorRuntime {
 	private runtimeTail = Promise.resolve();
 	private disposed = false;
 	private flushedCount = 0;
+	private publicMessages: Array<{
+		sender: { type: "user_persona" } | { type: "character"; character_id: string; name: string };
+		content: string;
+		event_id: string;
+		sequence: number;
+		timestamp: string;
+		round: { round_max_messages: number; used_messages: number; remaining_messages: number };
+	}> = [];
 
 	private constructor(
 		readonly webSocketServer: WebSocketServer,
@@ -157,9 +165,29 @@ export class CreatorRuntime {
 			// Persist to group chat session
 			const entryId = this.groupSessionManager.appendCustomMessageEntry("pi-tavern.public-message", content, true, {
 				sender: { type: "user_persona" },
-				round: { roundMaxMessages: round.roundMaxMessages, usedMessages: round.usedMessages },
+				sequence,
+				timestamp,
+				round: {
+					round_max_messages: round.roundMaxMessages,
+					used_messages: round.usedMessages,
+					remaining_messages: Math.max(0, round.roundMaxMessages - round.usedMessages),
+				},
 			});
 			await this.flushGroupSession();
+
+			const message = {
+				sender: { type: "user_persona" as const },
+				content,
+				event_id: entryId,
+				sequence,
+				timestamp,
+				round: {
+					round_max_messages: round.roundMaxMessages,
+					used_messages: round.usedMessages,
+					remaining_messages: Math.max(0, round.roundMaxMessages - round.usedMessages),
+				},
+			};
+			this.publicMessages.push(message);
 
 			// Broadcast to all online Characters
 			this.broadcast({
@@ -169,11 +197,7 @@ export class CreatorRuntime {
 				timestamp,
 				sender: { type: "user_persona" },
 				content,
-				round: {
-					round_max_messages: round.roundMaxMessages,
-					used_messages: round.usedMessages,
-					remaining_messages: Math.max(0, round.roundMaxMessages - round.usedMessages),
-				},
+				round: message.round,
 			});
 
 			return entryId;
@@ -372,12 +396,21 @@ export class CreatorRuntime {
 			type: "character_joined",
 			character: toCharacterSummaryMessage(character),
 		});
+		const recentMessages = this.publicMessages.slice(-10);
 		this.send(socket, {
 			type: "message_history",
-			messages: [],
+			messages: recentMessages.map((m) => ({
+				type: "public_message" as const,
+				event_id: m.event_id,
+				sequence: m.sequence,
+				timestamp: m.timestamp,
+				sender: m.sender,
+				content: m.content,
+				round: m.round,
+			})),
 			cursor: null,
 			has_more: false,
-			total_messages: 0,
+			total_messages: this.publicMessages.length,
 		});
 	}
 
@@ -455,27 +488,43 @@ export class CreatorRuntime {
 						character_id: onlineCharacter.character.characterId,
 						name: onlineCharacter.character.name,
 					},
-					round: { roundMaxMessages: round.roundMaxMessages, usedMessages: round.usedMessages },
+					sequence,
+					timestamp,
+					round: {
+						round_max_messages: round.roundMaxMessages,
+						used_messages: round.usedMessages,
+						remaining_messages: Math.max(0, round.roundMaxMessages - round.usedMessages),
+					},
 				},
 			);
 			await this.flushGroupSession();
+
+			const savedMessage = {
+				sender: {
+					type: "character" as const,
+					character_id: onlineCharacter.character.characterId,
+					name: onlineCharacter.character.name,
+				},
+				content: message.content,
+				event_id: entryId,
+				sequence,
+				timestamp,
+				round: {
+					round_max_messages: round.roundMaxMessages,
+					used_messages: round.usedMessages,
+					remaining_messages: Math.max(0, round.roundMaxMessages - round.usedMessages),
+				},
+			};
+			this.publicMessages.push(savedMessage);
 
 			this.broadcast({
 				type: "public_message",
 				event_id: entryId,
 				sequence,
 				timestamp,
-				sender: {
-					type: "character",
-					character_id: onlineCharacter.character.characterId,
-					name: onlineCharacter.character.name,
-				},
+				sender: savedMessage.sender,
 				content: message.content,
-				round: {
-					round_max_messages: round.roundMaxMessages,
-					used_messages: round.usedMessages,
-					remaining_messages: Math.max(0, round.roundMaxMessages - round.usedMessages),
-				},
+				round: savedMessage.round,
 			});
 
 			this.send(socket, {

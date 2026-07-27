@@ -149,7 +149,13 @@ export class CharacterRuntime {
 	}
 
 	get hasPublicMessages(): boolean {
-		return this.receivedMessages.some((m) => m.type === "public_message" || m.type === "message_history");
+		return this.receivedMessages.some((m) => {
+			if (m.type === "public_message") return true;
+			if (m.type === "message_history" && Array.isArray(m.messages) && m.messages.length > 0) {
+				return true;
+			}
+			return false;
+		});
 	}
 
 	close(): Promise<void> {

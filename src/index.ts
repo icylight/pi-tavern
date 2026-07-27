@@ -69,9 +69,44 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 		},
 	});
 
+	// Inject Character Markdown as system prompt extension when online
+	pi.on("before_agent_start", (event) => {
+		const state = ctrl.getState();
+		if (state.type !== "character") return;
+
+		const character = state.runtime.character;
+		return {
+			systemPrompt: `${event.systemPrompt}\n\n---\n# Character Persona: ${character.name}\n${character.prompt}`,
+		};
+	});
+
+	// Report streaming state to the group chat creator
+	pi.on("agent_start", () => {
+		const state = ctrl.getState();
+		if (state.type === "character") {
+			state.runtime.updateStreaming(true);
+		}
+	});
+
+	pi.on("agent_settled", () => {
+		const state = ctrl.getState();
+		if (state.type === "character") {
+			state.runtime.updateStreaming(false);
+		}
+	});
+
+	// Enable tavern_speak only when in character state; disable otherwise
+	pi.on("session_start", () => {
+		syncActiveTools(pi, ctrl);
+	});
+
 	pi.on("input", async (event, ctx) => {
 		const state = ctrl.getState();
 		if (state.type === "creator") {
+			// Only intercept interactive input, not extension-injected content
+			if (event.source !== "interactive") {
+				return { action: "continue" } as InputEventResult;
+			}
 			try {
 				await state.runtime.submitUserPersonaMessage(event.text);
 			} catch (error) {
@@ -81,4 +116,16 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 		}
 		return { action: "continue" } as InputEventResult;
 	});
+}
+
+function syncActiveTools(pi: ExtensionAPI, ctrl: TavernController): void {
+	const activeTools = pi.getActiveTools();
+	const hasSpeak = activeTools.includes("tavern_speak");
+	const isCharacter = ctrl.getState().type === "character";
+
+	if (isCharacter && !hasSpeak) {
+		pi.setActiveTools([...activeTools, "tavern_speak"]);
+	} else if (!isCharacter && hasSpeak) {
+		pi.setActiveTools(activeTools.filter((t) => t !== "tavern_speak"));
+	}
 }

@@ -141,7 +141,9 @@ describe("CreatorRuntime", () => {
 		expect(lastLine.content).toBe("Hello from user persona");
 		expect(lastLine.display).toBe(true);
 		expect(lastLine.details.sender).toEqual({ type: "user_persona" });
-		expect(lastLine.details.round).toEqual({ roundMaxMessages: 10, usedMessages: 0 });
+		expect(lastLine.details.round).toEqual({ round_max_messages: 10, used_messages: 0, remaining_messages: 10 });
+		expect(typeof lastLine.details.sequence).toBe("number");
+		expect(typeof lastLine.details.timestamp).toBe("string");
 
 		await runtime.close();
 	});
@@ -285,6 +287,9 @@ describe("CreatorRuntime", () => {
 			character_id: "dev",
 			name: "Developer",
 		});
+		expect(characterEntry.details.round).toEqual({ round_max_messages: 10, used_messages: 1, remaining_messages: 9 });
+		expect(typeof characterEntry.details.sequence).toBe("number");
+		expect(typeof characterEntry.details.timestamp).toBe("string");
 
 		client.close();
 		await runtime.close();
