@@ -323,6 +323,26 @@ describe("CreatorRuntime", () => {
 		await runtime.close();
 	});
 
+	it("does not commit round state when first persist fails", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew(
+			{
+				cwd: join(root, "project"),
+				agentDir: join(root, "agent"),
+			},
+			{
+				writeFile: () => Promise.reject(new Error("disk full")),
+			},
+		);
+
+		await expect(runtime.submitUserPersonaMessage("Hello")).rejects.toThrow("disk full");
+
+		// State must not be committed after a failed persist
+		expect(runtime.state.round).toBeNull();
+
+		await runtime.close();
+	});
+
 	it("broadcasts the public message to online characters", async () => {
 		const root = await createTemporaryDirectory();
 		const runtime = await CreatorRuntime.startNew({

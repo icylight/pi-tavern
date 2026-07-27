@@ -39,6 +39,8 @@ export interface CreatorRuntimeDependencies {
 	pid: number;
 	readyTimeoutMs: number;
 	publishDescriptor: (agentDir: string, descriptor: ActiveGroupChatDescriptor) => Promise<string>;
+	writeFile: (path: string, data: string) => Promise<void>;
+	appendFile: (path: string, data: string) => Promise<void>;
 }
 
 const DEFAULT_CONFIG_MAX_MESSAGES = 10;
@@ -51,6 +53,7 @@ export class CreatorRuntime {
 	private closePromise: Promise<void> | null = null;
 	private runtimeTail = Promise.resolve();
 	private disposed = false;
+	private readonly deps: CreatorRuntimeDependencies;
 	private persistedCount = 0;
 	private lastPersistedId: string | null = null;
 	onPublicMessage:
@@ -82,7 +85,9 @@ export class CreatorRuntime {
 		readonly configMaxMessages: number,
 		characters: CharacterCard[],
 		private readonly readyTimeoutMs: number,
+		deps: CreatorRuntimeDependencies,
 	) {
+		this.deps = deps;
 		this.characters = new Map(characters.map((character) => [character.characterId, character]));
 		this.webSocketServer.on("connection", (socket) => this.handleConnection(socket));
 	}
@@ -97,6 +102,8 @@ export class CreatorRuntime {
 			pid: process.pid,
 			readyTimeoutMs: DEFAULT_READY_TIMEOUT_MS,
 			publishDescriptor: publishActiveDescriptor,
+			writeFile: (path, data) => writeFile(path, data),
+			appendFile: (path, data) => appendFile(path, data),
 			...dependencyOverrides,
 		};
 		const groupChatId = dependencies.createId();
@@ -134,6 +141,7 @@ export class CreatorRuntime {
 			configMaxMessages,
 			options.characters ?? [],
 			dependencies.readyTimeoutMs,
+			dependencies,
 		);
 
 		try {
@@ -174,7 +182,7 @@ export class CreatorRuntime {
 					timestamp: new Date().toISOString(),
 					name: normalizedName ?? undefined,
 				};
-				await appendFile(this.getSessionFilePath(), `${JSON.stringify(entry)}\n`);
+				await this.deps.appendFile(this.getSessionFilePath(), `${JSON.stringify(entry)}\n`);
 				entryId = entry.id;
 				this.persistedCount++;
 				this.lastPersistedId = entryId;
@@ -222,7 +230,7 @@ export class CreatorRuntime {
 					timestamp: new Date().toISOString(),
 					data: { group_max_messages: maxMessages },
 				};
-				await appendFile(this.getSessionFilePath(), `${JSON.stringify(entry)}\n`);
+				await this.deps.appendFile(this.getSessionFilePath(), `${JSON.stringify(entry)}\n`);
 				entryId = entry.id;
 				this.persistedCount++;
 				this.lastPersistedId = entryId;
@@ -298,7 +306,7 @@ export class CreatorRuntime {
 				lines.push(JSON.stringify(settingsEntry));
 				lines.push(JSON.stringify(entry));
 
-				await writeFile(this.getSessionFilePath(), `${lines.join("\n")}\n`);
+				await this.deps.writeFile(this.getSessionFilePath(), `${lines.join("\n")}\n`);
 				this.persistedCount = lines.length - (header ? 1 : 0);
 
 				// Re-open through SessionManager so subsequent appends use its API
