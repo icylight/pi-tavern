@@ -149,6 +149,50 @@ describe("CreatorRuntime", () => {
 		await runtime.close();
 	});
 
+	it("second user persona message creates a new round resetting usedMessages", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+		});
+
+		// First message creates the initial round
+		await runtime.submitUserPersonaMessage("First");
+		expect(runtime.state.round?.roundMaxMessages).toBe(10);
+		expect(runtime.state.round?.usedMessages).toBe(0);
+
+		// Simulate Characters using up some messages (manually adjust usedMessages)
+		expect(runtime.state.round).toBeDefined();
+		if (runtime.state.round) runtime.state.round.usedMessages = 3;
+
+		// Second message creates a fresh round, resetting usedMessages
+		await runtime.submitUserPersonaMessage("Second");
+		expect(runtime.state.round?.roundMaxMessages).toBe(10);
+		expect(runtime.state.round?.usedMessages).toBe(0);
+
+		await runtime.close();
+	});
+
+	it("new round inherits updated groupMaxMessages after setMaxMessages", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+		});
+
+		// Create first round with default groupMaxMessages=10
+		await runtime.submitUserPersonaMessage("First");
+		expect(runtime.state.round?.roundMaxMessages).toBe(10);
+
+		// Change the limit and create a new round
+		await runtime.setMaxMessages(5);
+		await runtime.submitUserPersonaMessage("Second");
+		expect(runtime.state.round?.roundMaxMessages).toBe(5);
+		expect(runtime.state.round?.usedMessages).toBe(0);
+
+		await runtime.close();
+	});
+
 	it("broadcasts the public message to online characters", async () => {
 		const root = await createTemporaryDirectory();
 		const runtime = await CreatorRuntime.startNew({
