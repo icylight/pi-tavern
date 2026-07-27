@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
 
@@ -219,57 +219,87 @@ export class CreatorRuntime {
 			// then use its append API for all entries so IDs, parentId chain, and envelopes
 			// are fully managed by SessionManager (persistence.md L6-8).
 			if (this.persistedCount === 0) {
+				const sessionPath = this.getSessionFilePath();
 				const header = this.groupSessionManager.getHeader();
-				await this.deps.writeFile(this.getSessionFilePath(), `${JSON.stringify(header)}\n`);
-				this.groupSessionManager.setSessionFile(this.getSessionFilePath());
+				await this.deps.writeFile(sessionPath, `${JSON.stringify(header)}\n`);
+				this.groupSessionManager.setSessionFile(sessionPath);
 
-				if (this.state.groupChat.name) {
-					this.groupSessionManager.appendSessionInfo(this.state.groupChat.name);
+				try {
+					if (this.state.groupChat.name) {
+						this.groupSessionManager.appendSessionInfo(this.state.groupChat.name);
+						this.persistedCount++;
+					}
+
+					this.groupSessionManager.appendCustomEntry("pi-tavern.group-settings", {
+						group_max_messages: roundMaxMessages,
+					});
 					this.persistedCount++;
+
+					entryId = this.groupSessionManager.appendCustomMessageEntry(
+						"pi-tavern.public-message",
+						formatEntryContent("User Persona", content),
+						true,
+						{
+							sender: { type: "user_persona" as const },
+							content,
+							sequence,
+							timestamp,
+							round: {
+								round_max_messages: roundMaxMessages,
+								used_messages: 0,
+								remaining_messages: roundMaxMessages,
+							},
+						},
+					);
+					this.persistedCount++;
+				} catch (error) {
+					// First persist failed part-way: delete the half-initialized file
+					// so "started" is only true when at least one public message exists.
+					try {
+						await rm(sessionPath, { force: true });
+					} catch {
+						// Best-effort cleanup; ignore deletion failure
+					}
+					// Reset SessionManager to pre-first-persist state
+					this.groupSessionManager = SessionManager.create(
+						this.groupSessionManager.getCwd(),
+						this.groupSessionManager.getSessionDir(),
+						{ id: this.state.groupChat.groupChatId },
+					);
+					this.persistedCount = 0;
+					throw error;
 				}
-
-				this.groupSessionManager.appendCustomEntry("pi-tavern.group-settings", {
-					group_max_messages: roundMaxMessages,
-				});
-				this.persistedCount++;
-
-				entryId = this.groupSessionManager.appendCustomMessageEntry(
-					"pi-tavern.public-message",
-					formatEntryContent("User Persona", content),
-					true,
-					{
-						sender: { type: "user_persona" as const },
-						content,
-						sequence,
-						timestamp,
-						round: {
-							round_max_messages: roundMaxMessages,
-							used_messages: 0,
-							remaining_messages: roundMaxMessages,
-						},
-					},
-				);
-				this.persistedCount++;
 			} else {
-				// Use SessionManager's append API for subsequent persists
-				entryId = this.groupSessionManager.appendCustomMessageEntry(
-					"pi-tavern.public-message",
-					formatEntryContent("User Persona", content),
-					true,
-					{
-						sender: { type: "user_persona" as const },
-						content,
-						sequence,
-						timestamp,
-						round: {
-							round_max_messages: roundMaxMessages,
-							used_messages: 0,
-							remaining_messages: roundMaxMessages,
+				try {
+					entryId = this.groupSessionManager.appendCustomMessageEntry(
+						"pi-tavern.public-message",
+						formatEntryContent("User Persona", content),
+						true,
+						{
+							sender: { type: "user_persona" as const },
+							content,
+							sequence,
+							timestamp,
+							round: {
+								round_max_messages: roundMaxMessages,
+								used_messages: 0,
+								remaining_messages: roundMaxMessages,
+							},
 						},
-					},
-				);
-				this.persistedCount++;
+					);
+					this.persistedCount++;
+				} catch (error) {
+					// SessionManager._appendEntry mutates memory before disk write.
+					// On failure, reload from disk to purge the unpersisted entry.
+					this.groupSessionManager.setSessionFile(this.getSessionFilePath());
+					throw error;
+				}
 			}
+
+			// Read the real entry timestamp from SessionManager for consistency
+			// between disk envelope and broadcast/display timestamps (finding 3).
+			const persisted = this.groupSessionManager.getEntry(entryId);
+			const entryTimestamp = persisted?.timestamp ?? timestamp;
 
 			// Commit state only after successful persist
 			this.state.round = { roundMaxMessages, usedMessages: 0 };
@@ -284,7 +314,7 @@ export class CreatorRuntime {
 				content,
 				event_id: entryId,
 				sequence,
-				timestamp,
+				timestamp: entryTimestamp,
 				round: { round_max_messages: roundMaxMessages, used_messages: 0, remaining_messages: roundMaxMessages },
 			};
 			this.publicMessages.push(message);
@@ -626,6 +656,9 @@ export class CreatorRuntime {
 					details,
 				);
 			} catch (error) {
+				// SessionManager._appendEntry mutates memory before disk write.
+				// Reload from disk to purge the unpersisted entry from byId/leafId.
+				this.groupSessionManager.setSessionFile(this.getSessionFilePath());
 				this.sendFailure(
 					socket,
 					message.id,
@@ -636,6 +669,10 @@ export class CreatorRuntime {
 			}
 
 			this.persistedCount++;
+
+			// Read the real entry timestamp from SessionManager for consistency
+			const persisted = this.groupSessionManager.getEntry(entryId);
+			const entryTimestamp = persisted?.timestamp ?? timestamp;
 
 			// Commit state only after successful persist
 			round.usedMessages = newUsed;
@@ -651,7 +688,7 @@ export class CreatorRuntime {
 				content: message.content,
 				event_id: entryId,
 				sequence,
-				timestamp,
+				timestamp: entryTimestamp,
 				round: {
 					round_max_messages: roundMaxMessages,
 					used_messages: newUsed,

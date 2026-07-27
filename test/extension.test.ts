@@ -256,6 +256,66 @@ describe("PiTavern extension", () => {
 		expect(result.content[0]?.text).toContain("round limit reached");
 	});
 
+	it("enables tavern_speak when entering character state", () => {
+		const runtime = createMockCharacterRuntime({});
+		const controller = new TavernController();
+		// Set internal state to character
+		(controller as unknown as { state: { type: string; runtime: unknown } }).state = {
+			type: "character",
+			runtime,
+		};
+
+		const mock = createMockExtensionAPI();
+		vi.mocked(mock.getActiveTools).mockReturnValue(["existing_tool"]);
+		piTavern(mock as unknown as ExtensionAPI, controller);
+
+		// Trigger state change to sync tools
+		controller.onStateChange?.();
+
+		expect(mock.setActiveTools).toHaveBeenCalledWith(["existing_tool", "tavern_speak"]);
+	});
+
+	it("does not enable tavern_speak when already active", () => {
+		const runtime = createMockCharacterRuntime({});
+		const controller = new TavernController();
+		(controller as unknown as { state: { type: string; runtime: unknown } }).state = {
+			type: "character",
+			runtime,
+		};
+
+		const mock = createMockExtensionAPI();
+		vi.mocked(mock.getActiveTools).mockReturnValue(["tavern_speak"]);
+		piTavern(mock as unknown as ExtensionAPI, controller);
+
+		controller.onStateChange?.();
+
+		expect(mock.setActiveTools).not.toHaveBeenCalled();
+	});
+
+	it("removes tavern_speak when leaving character state", () => {
+		const controller = new TavernController();
+
+		const mock = createMockExtensionAPI();
+		vi.mocked(mock.getActiveTools).mockReturnValue(["tavern_speak", "other"]);
+		piTavern(mock as unknown as ExtensionAPI, controller);
+
+		controller.onStateChange?.();
+
+		expect(mock.setActiveTools).toHaveBeenCalledWith(["other"]);
+	});
+
+	it("does not remove other tools when tavern_speak is not present", () => {
+		const controller = new TavernController();
+
+		const mock = createMockExtensionAPI();
+		vi.mocked(mock.getActiveTools).mockReturnValue(["other"]);
+		piTavern(mock as unknown as ExtensionAPI, controller);
+
+		controller.onStateChange?.();
+
+		expect(mock.setActiveTools).not.toHaveBeenCalled();
+	});
+
 	it("registers an idle tavern-status command", async () => {
 		const commands = new Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">>();
 		const registerCommand = vi.fn((name: string, command: Omit<RegisteredCommand, "name" | "sourceInfo">) => {
