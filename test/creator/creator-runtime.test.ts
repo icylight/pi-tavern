@@ -3,7 +3,7 @@ import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 
 import { CreatorRuntime } from "../../src/creator/creator-runtime.js";
@@ -595,6 +595,70 @@ describe("CreatorRuntime", () => {
 		expect(typeof publicEntry.details.sequence).toBe("number");
 		expect(typeof publicEntry.details.timestamp).toBe("string");
 		expect(publicEntry.details.content).toBe("My public reply");
+
+		client.close();
+		await runtime.close();
+	});
+
+	it("returns speak failure when persist throws and does not mutate state", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			characters: [
+				{
+					characterId: "dev",
+					name: "Developer",
+					description: "Writes code",
+					path: "/chars/dev.md",
+					prompt: "You are a developer.",
+				},
+			],
+		});
+
+		// Join a character
+		const client = new WebSocket(
+			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
+		);
+		await waitForOpen(client);
+		client.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: "session-1" }));
+		await waitForMessage(client, "response");
+		client.send(JSON.stringify({ id: "2", type: "claim_character", character_id: "dev" }));
+		await waitForMessage(client, "response");
+		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
+		await waitForMessage(client, "response");
+
+		// Create a round first
+		await runtime.submitUserPersonaMessage("Start the round");
+
+		const roundBefore = { ...runtime.state.round };
+		const handRaisedBefore = (() => {
+			for (const c of runtime.state.onlineCharacters.values()) return c.handRaised;
+			return undefined;
+		})();
+
+		// Spy on SessionManager to simulate persist failure
+		const sessionManager = (runtime as unknown as { groupSessionManager: { appendCustomMessageEntry: typeof vi.fn } })
+			.groupSessionManager;
+		vi.spyOn(sessionManager, "appendCustomMessageEntry").mockImplementationOnce(() => {
+			throw new Error("disk full");
+		});
+
+		client.send(JSON.stringify({ id: "4", type: "speak", content: "This should fail" }));
+		const speakResponse = await waitForMessage(client, "response");
+
+		// Response indicates failure
+		expect(speakResponse.command).toBe("speak");
+		expect(speakResponse.success).toBe(false);
+		expect(speakResponse.error).toContain("disk full");
+
+		// State must NOT be mutated after a failed persist
+		expect(runtime.state.round?.usedMessages).toBe(roundBefore?.usedMessages ?? 0);
+
+		// handRaised unchanged
+		for (const c of runtime.state.onlineCharacters.values()) {
+			expect(c.handRaised).toBe(handRaisedBefore ?? false);
+		}
 
 		client.close();
 		await runtime.close();
