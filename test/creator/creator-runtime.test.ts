@@ -132,18 +132,19 @@ describe("CreatorRuntime", () => {
 		expect(header.type).toBe("session");
 		expect(header.id).toBe(runtime.state.groupChat.groupChatId);
 
-		// Subsequent line is the public message entry
-		const lastEntry = lines[lines.length - 1];
-		expect(lastEntry).toBeDefined();
-		const lastLine = JSON.parse(lastEntry as string);
-		expect(lastLine.type).toBe("custom_message");
-		expect(lastLine.customType).toBe("pi-tavern.public-message");
-		expect(lastLine.content).toBe("Hello from user persona");
-		expect(lastLine.display).toBe(true);
-		expect(lastLine.details.sender).toEqual({ type: "user_persona" });
-		expect(lastLine.details.round).toEqual({ round_max_messages: 10, used_messages: 0, remaining_messages: 10 });
-		expect(typeof lastLine.details.sequence).toBe("number");
-		expect(typeof lastLine.details.timestamp).toBe("string");
+		// Verify the public message entry is present
+		const publicEntry = lines
+			.map((l) => JSON.parse(l))
+			.find((e: Record<string, unknown>) => e.type === "custom_message");
+		expect(publicEntry).toBeDefined();
+		expect(publicEntry.customType).toBe("pi-tavern.public-message");
+		expect(publicEntry.content).toBe("Hello from user persona");
+		expect(publicEntry.display).toBe(true);
+		expect(publicEntry.details.sender).toEqual({ type: "user_persona" });
+		expect(publicEntry.details.content).toBe("Hello from user persona");
+		expect(publicEntry.details.round).toEqual({ round_max_messages: 10, used_messages: 0, remaining_messages: 10 });
+		expect(typeof publicEntry.details.sequence).toBe("number");
+		expect(typeof publicEntry.details.timestamp).toBe("string");
 
 		await runtime.close();
 	});
@@ -275,21 +276,25 @@ describe("CreatorRuntime", () => {
 		const sessionPath = join(root, "agent", firstFile as string);
 		const lines = (await readFile(sessionPath, "utf8")).trim().split("\n");
 
-		// Last line should be the character public message
-		const lastEntry = lines[lines.length - 1];
-		expect(lastEntry).toBeDefined();
-		const characterEntry = JSON.parse(lastEntry as string);
-		expect(characterEntry.type).toBe("custom_message");
-		expect(characterEntry.customType).toBe("pi-tavern.public-message");
-		expect(characterEntry.content).toBe("My public reply");
-		expect(characterEntry.details.sender).toEqual({
+		// Verify the character public message entry is present
+		const publicEntry = lines
+			.map((l) => JSON.parse(l))
+			.find(
+				(e: Record<string, unknown>) =>
+					e.type === "custom_message" && e.customType === "pi-tavern.public-message" && e.content === "My public reply",
+			);
+		expect(publicEntry).toBeDefined();
+		expect(publicEntry.type).toBe("custom_message");
+		expect(publicEntry.content).toBe("My public reply");
+		expect(publicEntry.details.sender).toEqual({
 			type: "character",
 			character_id: "dev",
 			name: "Developer",
 		});
-		expect(characterEntry.details.round).toEqual({ round_max_messages: 10, used_messages: 1, remaining_messages: 9 });
-		expect(typeof characterEntry.details.sequence).toBe("number");
-		expect(typeof characterEntry.details.timestamp).toBe("string");
+		expect(publicEntry.details.round).toEqual({ round_max_messages: 10, used_messages: 1, remaining_messages: 9 });
+		expect(typeof publicEntry.details.sequence).toBe("number");
+		expect(typeof publicEntry.details.timestamp).toBe("string");
+		expect(publicEntry.details.content).toBe("My public reply");
 
 		client.close();
 		await runtime.close();

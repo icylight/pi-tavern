@@ -18,15 +18,12 @@ import {
 import { decodeClientMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { ClientMessage } from "../protocol/messages.js";
 import {
-	advanceSequence,
-	consumeRoundMessage,
 	createGroupChatState,
 	type GroupChatState,
 	normalizeGroupChatName,
 	setGroupChatName,
 	setGroupMaxMessages,
 	setHandRaised,
-	startNewRound,
 } from "./group-chat-state.js";
 
 export interface StartNewCreatorRuntimeOptions {
@@ -156,24 +153,44 @@ export class CreatorRuntime {
 				throw new Error("User Persona message exceeds 64 KiB");
 			}
 
-			// Every User Persona message starts a new Round
-			const round = startNewRound(this.state);
-
-			const sequence = advanceSequence(this.state);
+			// Compute candidate state values (NOT committed until flush succeeds)
+			const roundMaxMessages = this.state.groupChat.groupMaxMessages;
+			const sequence = this.state.nextSequence + 1;
 			const timestamp = new Date().toISOString();
 
-			// Persist to group chat session
+			// Clear hand-raised flags from previous round (cosmetic, safe pre-flush)
+			for (const character of this.state.onlineCharacters.values()) {
+				character.handRaised = false;
+			}
+
+			// Persist entry to SessionManager (memory only — retried on next flush if this one fails)
 			const entryId = this.groupSessionManager.appendCustomMessageEntry("pi-tavern.public-message", content, true, {
 				sender: { type: "user_persona" },
+				content,
 				sequence,
 				timestamp,
 				round: {
-					round_max_messages: round.roundMaxMessages,
-					used_messages: round.usedMessages,
-					remaining_messages: Math.max(0, round.roundMaxMessages - round.usedMessages),
+					round_max_messages: roundMaxMessages,
+					used_messages: 0,
+					remaining_messages: roundMaxMessages,
 				},
 			});
+
+			// Write name + group_max_messages on first persist
+			if (this.flushedCount === 0) {
+				if (this.state.groupChat.name) {
+					this.groupSessionManager.appendSessionInfo(this.state.groupChat.name);
+				}
+				this.groupSessionManager.appendCustomEntry("pi-tavern.group-max-messages", {
+					group_max_messages: this.state.groupChat.groupMaxMessages,
+				});
+			}
+
 			await this.flushGroupSession();
+
+			// Commit state only after successful persist
+			this.state.round = { roundMaxMessages, usedMessages: 0 };
+			this.state.nextSequence = sequence;
 
 			const message = {
 				sender: { type: "user_persona" as const },
@@ -182,9 +199,9 @@ export class CreatorRuntime {
 				sequence,
 				timestamp,
 				round: {
-					round_max_messages: round.roundMaxMessages,
-					used_messages: round.usedMessages,
-					remaining_messages: Math.max(0, round.roundMaxMessages - round.usedMessages),
+					round_max_messages: roundMaxMessages,
+					used_messages: 0,
+					remaining_messages: roundMaxMessages,
 				},
 			};
 			this.publicMessages.push(message);
@@ -470,14 +487,16 @@ export class CreatorRuntime {
 			return;
 		}
 
-		const published = consumeRoundMessage(this.state);
-		if (published) {
-			// Clear hand raised flag on successful publish
-			setHandRaised(this.state, connection.sessionId, false);
+		// Check quota without committing
+		const canPublish = round.usedMessages < round.roundMaxMessages;
 
-			const sequence = advanceSequence(this.state);
+		if (canPublish) {
+			const newUsed = round.usedMessages + 1;
+			const roundMaxMessages = round.roundMaxMessages;
+			const sequence = this.state.nextSequence + 1;
 			const timestamp = new Date().toISOString();
 
+			// Persist entry to SessionManager (memory only)
 			const entryId = this.groupSessionManager.appendCustomMessageEntry(
 				"pi-tavern.public-message",
 				message.content,
@@ -488,16 +507,22 @@ export class CreatorRuntime {
 						character_id: onlineCharacter.character.characterId,
 						name: onlineCharacter.character.name,
 					},
+					content: message.content,
 					sequence,
 					timestamp,
 					round: {
-						round_max_messages: round.roundMaxMessages,
-						used_messages: round.usedMessages,
-						remaining_messages: Math.max(0, round.roundMaxMessages - round.usedMessages),
+						round_max_messages: roundMaxMessages,
+						used_messages: newUsed,
+						remaining_messages: Math.max(0, roundMaxMessages - newUsed),
 					},
 				},
 			);
 			await this.flushGroupSession();
+
+			// Commit state changes only after successful persist
+			round.usedMessages = newUsed;
+			this.state.nextSequence = sequence;
+			setHandRaised(this.state, connection.sessionId, false);
 
 			const savedMessage = {
 				sender: {
@@ -510,9 +535,9 @@ export class CreatorRuntime {
 				sequence,
 				timestamp,
 				round: {
-					round_max_messages: round.roundMaxMessages,
-					used_messages: round.usedMessages,
-					remaining_messages: Math.max(0, round.roundMaxMessages - round.usedMessages),
+					round_max_messages: roundMaxMessages,
+					used_messages: newUsed,
+					remaining_messages: Math.max(0, roundMaxMessages - newUsed),
 				},
 			};
 			this.publicMessages.push(savedMessage);
@@ -536,11 +561,7 @@ export class CreatorRuntime {
 					published: true,
 					event_id: entryId,
 					sequence,
-					round: {
-						round_max_messages: round.roundMaxMessages,
-						used_messages: round.usedMessages,
-						remaining_messages: Math.max(0, round.roundMaxMessages - round.usedMessages),
-					},
+					round: savedMessage.round,
 				},
 			});
 		} else {
