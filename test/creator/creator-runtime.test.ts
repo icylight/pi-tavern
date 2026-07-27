@@ -295,9 +295,20 @@ describe("CreatorRuntime", () => {
 		await runtime.submitUserPersonaMessage("Start the round");
 		expect(runtime.state.round?.usedMessages).toBe(0);
 
-		// Send a speak message
+		// Capture all incoming messages on the sender's socket
+		const receivedMessages: Record<string, unknown>[] = [];
+		client.on("message", (data) => {
+			receivedMessages.push(JSON.parse(data.toString()) as Record<string, unknown>);
+		});
+
+		// Send a speak message; also verify sender receives their own broadcast
 		client.send(JSON.stringify({ id: "4", type: "speak", content: "My public reply" }));
+
 		const speakResponse = await waitForMessage(client, "response");
+
+		// Sender also receives the public_message broadcast (broadcast includes all online members)
+		const senderEcho = receivedMessages.find((m) => m.type === "public_message" && m.content === "My public reply");
+		expect(senderEcho).toBeDefined();
 
 		expect(speakResponse.command).toBe("speak");
 		expect(speakResponse.success).toBe(true);
