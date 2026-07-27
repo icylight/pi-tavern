@@ -163,14 +163,10 @@ describe("CreatorRuntime", () => {
 		});
 
 		// Connect a WebSocket client and complete the join flow
-		const receivedMessages: unknown[] = [];
 		const client = new WebSocket(
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
 		await waitForOpen(client);
-		client.on("message", (data) => {
-			receivedMessages.push(JSON.parse(data.toString()));
-		});
 
 		// join_group_chat
 		client.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: "session-1" }));
@@ -182,9 +178,6 @@ describe("CreatorRuntime", () => {
 		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
 		const readyResponse = await waitForMessage(client, "response");
 		expect(readyResponse.success).toBe(true);
-
-		// Clear received messages to isolate the public_message broadcast
-		receivedMessages.length = 0;
 
 		// Submit user persona message and wait for the broadcast event
 		interface PublicMessage {
@@ -218,6 +211,137 @@ describe("CreatorRuntime", () => {
 		expect(typeof publicMessage.event_id).toBe("string");
 		expect(typeof publicMessage.sequence).toBe("number");
 		expect(typeof publicMessage.timestamp).toBe("string");
+
+		client.close();
+		await runtime.close();
+	});
+
+	it("publishes a character speak message and increments round usage", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			characters: [
+				{
+					characterId: "dev",
+					name: "Developer",
+					description: "Writes code",
+					path: "/chars/dev.md",
+					prompt: "You are a developer.",
+				},
+			],
+		});
+
+		// Join a character
+		const client = new WebSocket(
+			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
+		);
+		await waitForOpen(client);
+		client.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: "session-1" }));
+		await waitForMessage(client, "response");
+		client.send(JSON.stringify({ id: "2", type: "claim_character", character_id: "dev" }));
+		await waitForMessage(client, "response");
+		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
+		await waitForMessage(client, "response");
+
+		// Create a round first
+		await runtime.submitUserPersonaMessage("Start the round");
+		expect(runtime.state.round?.usedMessages).toBe(0);
+
+		// Send a speak message
+		client.send(JSON.stringify({ id: "4", type: "speak", content: "My public reply" }));
+		const speakResponse = await waitForMessage(client, "response");
+
+		expect(speakResponse.command).toBe("speak");
+		expect(speakResponse.success).toBe(true);
+		expect(speakResponse.data).toEqual({
+			published: true,
+			event_id: expect.any(String) as string,
+			sequence: expect.any(Number) as number,
+			round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
+		});
+
+		// Round usage incremented
+		expect(runtime.state.round?.usedMessages).toBe(1);
+
+		// Message persisted to JSONL
+		const jsonlFiles = await jsonlFilesUnder(join(root, "agent"));
+		expect(jsonlFiles).toHaveLength(1);
+
+		const firstFile = jsonlFiles[0];
+		expect(firstFile).toBeDefined();
+		const sessionPath = join(root, "agent", firstFile as string);
+		const lines = (await readFile(sessionPath, "utf8")).trim().split("\n");
+
+		// Last line should be the character public message
+		const lastEntry = lines[lines.length - 1];
+		expect(lastEntry).toBeDefined();
+		const characterEntry = JSON.parse(lastEntry as string);
+		expect(characterEntry.type).toBe("custom_message");
+		expect(characterEntry.customType).toBe("pi-tavern.public-message");
+		expect(characterEntry.content).toBe("My public reply");
+		expect(characterEntry.details.sender).toEqual({
+			type: "character",
+			character_id: "dev",
+			name: "Developer",
+		});
+
+		client.close();
+		await runtime.close();
+	});
+
+	it("rejects speak when round limit reached and sets hand raised", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			configMaxMessages: 1,
+			characters: [
+				{
+					characterId: "dev",
+					name: "Developer",
+					description: "Writes code",
+					path: "/chars/dev.md",
+					prompt: "You are a developer.",
+				},
+			],
+		});
+
+		// Join a character and create a round with max 1 message
+		const client = new WebSocket(
+			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
+		);
+		await waitForOpen(client);
+		client.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: "session-1" }));
+		await waitForMessage(client, "response");
+		client.send(JSON.stringify({ id: "2", type: "claim_character", character_id: "dev" }));
+		await waitForMessage(client, "response");
+		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
+		await waitForMessage(client, "response");
+
+		await runtime.submitUserPersonaMessage("Start");
+
+		// Exhaust the round
+		client.send(JSON.stringify({ id: "4", type: "speak", content: "First and only" }));
+		const firstResponse = await waitForMessage(client, "response");
+		expect((firstResponse as { data: { published: boolean } }).data.published).toBe(true);
+		expect(runtime.state.round?.usedMessages).toBe(1);
+
+		// Next speak should be rejected
+		client.send(JSON.stringify({ id: "5", type: "speak", content: "Too late" }));
+		const secondResponse = await waitForMessage(client, "response");
+
+		expect(secondResponse.command).toBe("speak");
+		expect(secondResponse.success).toBe(true);
+		expect(secondResponse.data).toEqual({
+			published: false,
+			reason: "round_limit_reached",
+			hand_raised: true,
+			round: { round_max_messages: 1, used_messages: 1, remaining_messages: 0 },
+		});
+
+		// Used messages unchanged
+		expect(runtime.state.round?.usedMessages).toBe(1);
 
 		client.close();
 		await runtime.close();

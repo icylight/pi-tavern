@@ -70,9 +70,19 @@ export const ClientMessageSchema = Type.Union([
 		},
 		{ additionalProperties: false },
 	),
+	Type.Object(
+		{
+			id: RequestIdSchema,
+			type: Type.Literal("speak"),
+			content: Type.String(),
+		},
+		{ additionalProperties: false },
+	),
 ]);
 
 export type ClientMessage = Static<typeof ClientMessageSchema>;
+
+export type SpeakMessage = Extract<ClientMessage, { type: "speak" }>;
 
 const JoinGroupChatResponseSchema = Type.Object(
 	{
@@ -126,6 +136,7 @@ const FailureResponseSchema = Type.Object(
 			Type.Literal("character_ready"),
 			Type.Literal("leave_group_chat"),
 			Type.Literal("get_group_chat_state"),
+			Type.Literal("speak"),
 		]),
 		success: Type.Literal(false),
 		error: Type.String(),
@@ -233,12 +244,52 @@ const PublicMessageSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+const SpeakResponseSchema = Type.Union([
+	Type.Object(
+		{
+			id: RequestIdSchema,
+			type: Type.Literal("response"),
+			command: Type.Literal("speak"),
+			success: Type.Literal(true),
+			data: Type.Object(
+				{
+					published: Type.Literal(true),
+					event_id: Type.String(),
+					sequence: Type.Integer({ minimum: 1 }),
+					round: RoundSnapshotSchema,
+				},
+				{ additionalProperties: false },
+			),
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			id: RequestIdSchema,
+			type: Type.Literal("response"),
+			command: Type.Literal("speak"),
+			success: Type.Literal(true),
+			data: Type.Object(
+				{
+					published: Type.Literal(false),
+					reason: Type.Literal("round_limit_reached"),
+					hand_raised: Type.Literal(true),
+					round: RoundSnapshotSchema,
+				},
+				{ additionalProperties: false },
+			),
+		},
+		{ additionalProperties: false },
+	),
+]);
+
 export const ServerMessageSchema = Type.Union([
 	JoinGroupChatResponseSchema,
 	ClaimCharacterResponseSchema,
 	EmptySuccessResponseSchema,
 	FailureResponseSchema,
 	GroupChatStateResponseSchema,
+	SpeakResponseSchema,
 	CharacterJoinedSchema,
 	CharacterLeftSchema,
 	GroupChatClosedSchema,

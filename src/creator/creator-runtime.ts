@@ -19,11 +19,13 @@ import { decodeClientMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from ".
 import type { ClientMessage } from "../protocol/messages.js";
 import {
 	advanceSequence,
+	consumeRoundMessage,
 	createGroupChatState,
 	type GroupChatState,
 	normalizeGroupChatName,
 	setGroupChatName,
 	setGroupMaxMessages,
+	setHandRaised,
 	startNewRound,
 } from "./group-chat-state.js";
 
@@ -212,7 +214,7 @@ export class CreatorRuntime {
 				socket.close(1002, "Binary frames are not supported");
 				return;
 			}
-			void this.enqueue(() => {
+			void this.enqueue(async () => {
 				if (this.disposed) {
 					socket.close(1001, "Group chat closed");
 					return;
@@ -224,7 +226,7 @@ export class CreatorRuntime {
 					socket.close(1002, "Protocol error");
 					return;
 				}
-				this.handleClientMessage(socket, connection, message);
+				await this.handleClientMessage(socket, connection, message);
 			});
 		});
 		socket.on("close", () => {
@@ -236,7 +238,11 @@ export class CreatorRuntime {
 		socket.on("error", () => undefined);
 	}
 
-	private handleClientMessage(socket: WebSocket, connection: ConnectionContext, message: ClientMessage): void {
+	private async handleClientMessage(
+		socket: WebSocket,
+		connection: ConnectionContext,
+		message: ClientMessage,
+	): Promise<void> {
 		switch (message.type) {
 			case "join_group_chat":
 				this.handleJoinGroupChat(socket, connection, message);
@@ -255,6 +261,9 @@ export class CreatorRuntime {
 				return;
 			case "leave_group_chat":
 				this.handleLeaveGroupChat(socket, connection, message);
+				return;
+			case "speak":
+				await this.handleSpeak(socket, connection, message);
 				return;
 		}
 	}
@@ -400,6 +409,113 @@ export class CreatorRuntime {
 		}
 	}
 
+	private async handleSpeak(
+		socket: WebSocket,
+		connection: ConnectionContext,
+		message: Extract<ClientMessage, { type: "speak" }>,
+	): Promise<void> {
+		if (!connection.online || connection.sessionId === null) {
+			this.sendFailure(socket, message.id, "speak", "Character is not a group member");
+			return;
+		}
+
+		const contentBytes = Buffer.byteLength(message.content, "utf8");
+		if (contentBytes > 64 * 1024) {
+			this.sendFailure(socket, message.id, "speak", "Message exceeds 64 KiB");
+			return;
+		}
+
+		const onlineCharacter = this.state.onlineCharacters.get(connection.sessionId);
+		if (!onlineCharacter) {
+			this.sendFailure(socket, message.id, "speak", "Character is not a group member");
+			return;
+		}
+
+		const round = this.state.round;
+		if (!round) {
+			this.sendFailure(socket, message.id, "speak", "No active round");
+			return;
+		}
+
+		const published = consumeRoundMessage(this.state);
+		if (published) {
+			// Clear hand raised flag on successful publish
+			setHandRaised(this.state, connection.sessionId, false);
+
+			const sequence = advanceSequence(this.state);
+			const timestamp = new Date().toISOString();
+
+			const entryId = this.groupSessionManager.appendCustomMessageEntry(
+				"pi-tavern.public-message",
+				message.content,
+				true,
+				{
+					sender: {
+						type: "character",
+						character_id: onlineCharacter.character.characterId,
+						name: onlineCharacter.character.name,
+					},
+					round: { roundMaxMessages: round.roundMaxMessages, usedMessages: round.usedMessages },
+				},
+			);
+			await this.flushGroupSession();
+
+			this.broadcast({
+				type: "public_message",
+				event_id: entryId,
+				sequence,
+				timestamp,
+				sender: {
+					type: "character",
+					character_id: onlineCharacter.character.characterId,
+					name: onlineCharacter.character.name,
+				},
+				content: message.content,
+				round: {
+					round_max_messages: round.roundMaxMessages,
+					used_messages: round.usedMessages,
+					remaining_messages: Math.max(0, round.roundMaxMessages - round.usedMessages),
+				},
+			});
+
+			this.send(socket, {
+				...(message.id !== undefined ? { id: message.id } : {}),
+				type: "response",
+				command: "speak",
+				success: true,
+				data: {
+					published: true,
+					event_id: entryId,
+					sequence,
+					round: {
+						round_max_messages: round.roundMaxMessages,
+						used_messages: round.usedMessages,
+						remaining_messages: Math.max(0, round.roundMaxMessages - round.usedMessages),
+					},
+				},
+			});
+		} else {
+			setHandRaised(this.state, connection.sessionId, true);
+
+			this.send(socket, {
+				...(message.id !== undefined ? { id: message.id } : {}),
+				type: "response",
+				command: "speak",
+				success: true,
+				data: {
+					published: false,
+					reason: "round_limit_reached",
+					hand_raised: true,
+					round: {
+						round_max_messages: round.roundMaxMessages,
+						used_messages: round.usedMessages,
+						remaining_messages: 0,
+					},
+				},
+			});
+		}
+	}
+
 	private handleLeaveGroupChat(
 		socket: WebSocket,
 		connection: ConnectionContext,
@@ -504,7 +620,13 @@ export class CreatorRuntime {
 	private sendFailure(
 		socket: WebSocket,
 		id: string | undefined,
-		command: "join_group_chat" | "claim_character" | "character_ready" | "leave_group_chat" | "get_group_chat_state",
+		command:
+			| "join_group_chat"
+			| "claim_character"
+			| "character_ready"
+			| "leave_group_chat"
+			| "get_group_chat_state"
+			| "speak",
 		error: string,
 	): void {
 		this.send(socket, {

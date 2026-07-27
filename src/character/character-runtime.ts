@@ -104,6 +104,40 @@ export class CharacterRuntime {
 		});
 	}
 
+	async speak(content: string): Promise<{
+		published: boolean;
+		eventId?: string;
+		sequence?: number;
+		reason?: string;
+		handRaised?: boolean;
+		round?: { roundMaxMessages: number; usedMessages: number; remainingMessages: number };
+	}> {
+		const response = await this.request({ type: "speak", content });
+		if (response.type !== "response" || response.command !== "speak") {
+			throw new Error("Unexpected PiTavern speak response");
+		}
+		if (!response.success) {
+			throw new Error(response.error);
+		}
+		return {
+			published: response.data.published,
+			...(response.data.published
+				? {
+						eventId: response.data.event_id,
+						sequence: response.data.sequence,
+					}
+				: {
+						reason: response.data.reason,
+						handRaised: response.data.hand_raised,
+					}),
+			round: {
+				roundMaxMessages: response.data.round.round_max_messages,
+				usedMessages: response.data.round.used_messages,
+				remainingMessages: response.data.round.remaining_messages,
+			},
+		};
+	}
+
 	close(): Promise<void> {
 		this.closePromise ??= this.closePermanently();
 		return this.closePromise;

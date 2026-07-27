@@ -79,6 +79,21 @@ export function advanceSequence(state: GroupChatState): number {
 	return state.nextSequence;
 }
 
+export function consumeRoundMessage(state: GroupChatState): boolean {
+	if (!state.round || state.round.usedMessages >= state.round.roundMaxMessages) {
+		return false;
+	}
+	state.round.usedMessages += 1;
+	return true;
+}
+
+export function setHandRaised(state: GroupChatState, sessionId: string, raised: boolean): void {
+	const character = state.onlineCharacters.get(sessionId);
+	if (character) {
+		character.handRaised = raised;
+	}
+}
+
 function assertValidMaxMessages(maxMessages: number): void {
 	if (!Number.isSafeInteger(maxMessages) || maxMessages < 0) {
 		throw new Error("maxMessages must be a non-negative safe integer");

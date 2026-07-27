@@ -37,8 +37,17 @@ type InputHandler = (
 	ctx: ExtensionContext,
 ) => Promise<InputEventResult | undefined> | InputEventResult | undefined;
 
+type CapturedTool = {
+	name: string;
+	execute: (
+		id: string,
+		params: { content: string },
+	) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>;
+};
+
 interface MockExtensionAPI {
 	registerCommand: ReturnType<typeof vi.fn>;
+	registerTool: ReturnType<typeof vi.fn>;
 	on: ReturnType<typeof vi.fn>;
 	inputHandlers: InputHandler[];
 }
@@ -47,6 +56,7 @@ function createMockExtensionAPI(): MockExtensionAPI {
 	const inputHandlers: InputHandler[] = [];
 	return {
 		registerCommand: vi.fn(),
+		registerTool: vi.fn(),
 		on: vi.fn((_event: string, handler: InputHandler) => {
 			inputHandlers.push(handler);
 		}),
@@ -101,6 +111,48 @@ async function assertInputResult(controller: TavernController, expectedAction: "
 	expect(result).toEqual({ action: expectedAction });
 }
 
+function captureTools(): {
+	tools: CapturedTool[];
+	api: {
+		registerCommand: ReturnType<typeof vi.fn>;
+		on: ReturnType<typeof vi.fn>;
+		registerTool: ReturnType<typeof vi.fn>;
+	};
+} {
+	const tools: CapturedTool[] = [];
+	const api = {
+		registerCommand: vi.fn(),
+		on: vi.fn(),
+		registerTool: vi.fn((tool: CapturedTool) => {
+			tools.push(tool);
+		}),
+	};
+	return { tools, api };
+}
+
+function createMockCharacterRuntime(speakResult: object): CharacterRuntime {
+	return {
+		character: { characterId: "dev", name: "Dev", description: "Dev" },
+		close: vi.fn(async () => undefined),
+		getGroupChatState: vi.fn(),
+		speak: vi.fn(async () => speakResult),
+	} as unknown as CharacterRuntime;
+}
+
+async function createCharacterController(speakResult: object): Promise<TavernController> {
+	const runtime = createMockCharacterRuntime(speakResult);
+	const attempt = {
+		availableCharacters: [{ character_id: "dev", name: "Dev", description: "Dev" }],
+		isActive: true,
+		claimCharacter: vi.fn(async () => runtime),
+		close: vi.fn(async () => undefined),
+	} as unknown as JoinAttempt;
+	const controller = new TavernController(undefined, async () => attempt);
+	await controller.startJoining(descriptor, "session-1");
+	await controller.claimCharacter("dev");
+	return controller;
+}
+
 describe("PiTavern extension", () => {
 	it("loads and reloads through the pi extension loader", async () => {
 		const agentDir = await mkdtemp(join(tmpdir(), "pi-tavern-m0-"));
@@ -121,13 +173,65 @@ describe("PiTavern extension", () => {
 		}
 	});
 
+	it("registers the tavern_speak tool and reports error when not a character", async () => {
+		const { tools, api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI);
+
+		expect(tools).toHaveLength(1);
+		expect(tools[0]?.name).toBe("tavern_speak");
+
+		const tool = tools[0];
+		if (!tool) throw new Error("no tool");
+		expect(tool).toBeDefined();
+		const result = await tool.execute("call-1", { content: "Hello" });
+		expect(result.isError).toBe(true);
+		expect(result.content[0]?.text).toContain("not currently joined");
+	});
+
+	it("tavern_speak returns published result when character speaks successfully", async () => {
+		const controller = await createCharacterController({
+			published: true,
+			eventId: "evt-1",
+			sequence: 3,
+			round: { roundMaxMessages: 10, usedMessages: 3, remainingMessages: 7 },
+		});
+
+		const { tools, api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI, controller);
+
+		const tool = tools[0];
+		if (!tool) throw new Error("no tool");
+		expect(tool).toBeDefined();
+		const result = await tool.execute("call-1", { content: "My message" });
+		expect(result.content[0]?.text).toContain("Message published");
+		expect(result.content[0]?.text).toContain("3/10");
+	});
+
+	it("tavern_speak returns hand-raised result when round limit reached", async () => {
+		const controller = await createCharacterController({
+			published: false,
+			reason: "round_limit_reached",
+			handRaised: true,
+			round: { roundMaxMessages: 10, usedMessages: 10, remainingMessages: 0 },
+		});
+
+		const { tools, api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI, controller);
+
+		const tool = tools[0];
+		if (!tool) throw new Error("no tool");
+		expect(tool).toBeDefined();
+		const result = await tool.execute("call-1", { content: "Too late" });
+		expect(result.content[0]?.text).toContain("round limit reached");
+	});
+
 	it("registers an idle tavern-status command", async () => {
 		const commands = new Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">>();
 		const registerCommand = vi.fn((name: string, command: Omit<RegisteredCommand, "name" | "sourceInfo">) => {
 			commands.set(name, command);
 		});
 
-		piTavern({ registerCommand, on: vi.fn() } as unknown as ExtensionAPI);
+		piTavern({ registerCommand, on: vi.fn(), registerTool: vi.fn() } as unknown as ExtensionAPI);
 
 		const status = commands.get("tavern-status");
 		expect(status).toBeDefined();
@@ -182,7 +286,6 @@ describe("PiTavern extension", () => {
 
 	it("passes through user input when the controller is idle", async () => {
 		const controller = new TavernController();
-
 		await assertInputResult(controller, "continue");
 	});
 
