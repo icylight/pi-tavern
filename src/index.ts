@@ -166,4 +166,18 @@ function wireCreatorDisplay(pi: ExtensionAPI, ctrl: TavernController): void {
 			}
 		}
 	};
+
+	// Wire fallback error path: when onPublicMessage itself crashes (e.g., pi unavailable)
+	state.runtime.onPublicMessageError = (error, sequence, timestamp) => {
+		try {
+			pi.appendEntry("pi-tavern.creator-display", {
+				label: "System",
+				content: error,
+				sequence,
+				timestamp,
+			});
+		} catch {
+			// Nothing more we can do
+		}
+	};
 }

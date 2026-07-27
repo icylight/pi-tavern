@@ -67,6 +67,8 @@ export class CreatorRuntime {
 		  }) => void)
 		| undefined;
 
+	onPublicMessageError: ((error: string, sequence: number, timestamp: string) => void) | undefined;
+
 	private publicMessages: Array<{
 		sender: { type: "user_persona" } | { type: "character"; character_id: string; name: string };
 		content: string;
@@ -368,8 +370,12 @@ export class CreatorRuntime {
 
 			try {
 				this.onPublicMessage?.(message);
-			} catch {
-				// TUI callback failure silently swallowed — no impact on state or broadcast
+			} catch (error) {
+				this.onPublicMessageError?.(
+					`TUI projection failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+					message.sequence,
+					message.timestamp,
+				);
 			}
 
 			return entryId;
@@ -736,8 +742,12 @@ export class CreatorRuntime {
 
 			try {
 				this.onPublicMessage?.(msg);
-			} catch {
-				// TUI callback failure silently swallowed
+			} catch (error) {
+				this.onPublicMessageError?.(
+					`TUI projection failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+					msg.sequence,
+					msg.timestamp,
+				);
 			}
 
 			this.send(socket, {

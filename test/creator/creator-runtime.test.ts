@@ -480,6 +480,31 @@ describe("CreatorRuntime", () => {
 		await runtime.close();
 	});
 
+	it("fires onPublicMessageError when onPublicMessage callback throws", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+		});
+
+		runtime.onPublicMessage = () => {
+			throw new Error("callback crash");
+		};
+		const errorCalls: Array<{ error: string; sequence: number; timestamp: string }> = [];
+		runtime.onPublicMessageError = (error, sequence, timestamp) => {
+			errorCalls.push({ error, sequence, timestamp });
+		};
+
+		await runtime.submitUserPersonaMessage("Hello");
+
+		expect(errorCalls).toHaveLength(1);
+		expect(errorCalls[0]?.error).toContain("TUI projection failed: callback crash");
+		expect(errorCalls[0]?.sequence).toBe(1);
+		expect(typeof errorCalls[0]?.timestamp).toBe("string");
+
+		await runtime.close();
+	});
+
 	it("publishes a character speak message and increments round usage", async () => {
 		const root = await createTemporaryDirectory();
 		const runtime = await CreatorRuntime.startNew({
