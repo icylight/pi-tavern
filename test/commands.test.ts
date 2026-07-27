@@ -45,7 +45,7 @@ function createRuntime(): CreatorRuntime {
 			state.groupChat.name = normalized;
 			return normalized;
 		}),
-		setMaxMessages: vi.fn((maxMessages: number) => {
+		setMaxMessages: vi.fn(async (maxMessages: number) => {
 			state.groupChat.groupMaxMessages = maxMessages;
 		}),
 		close: vi.fn(async () => undefined),

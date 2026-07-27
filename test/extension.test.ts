@@ -87,7 +87,7 @@ function createMockCreatorRuntime(): CreatorRuntime {
 			startedAt: "2026-07-27T00:00:00.000Z",
 		},
 		setName: vi.fn(async () => "mock"),
-		setMaxMessages: vi.fn(),
+		setMaxMessages: vi.fn(() => Promise.resolve()),
 		close: vi.fn(async () => undefined),
 		submitUserPersonaMessage: vi.fn(() => Promise.resolve("evt-1")),
 	} as unknown as CreatorRuntime;

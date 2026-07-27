@@ -136,58 +136,59 @@ export class CreatorRuntime {
 	}
 
 	async setName(name: string): Promise<string | null> {
-		const normalizedName = normalizeGroupChatName(name);
-		await updateActiveDescriptorName(this.activeDescriptorPath, this.activeDescriptor.instanceId, normalizedName);
-		setGroupChatName(this.state, name);
-		this.activeDescriptor.name = normalizedName;
+		return this.enqueue(async () => {
+			const normalizedName = normalizeGroupChatName(name);
 
-		if (this.persistedCount) {
-			const sessionFile = this.groupSessionManager.getSessionFile();
-			if (sessionFile) {
-				const entry = {
-					type: "session_info" as const,
-					id: randomUUID(),
-					parentId: this.lastPersistedId,
-					timestamp: new Date().toISOString(),
-					name: normalizedName ?? undefined,
-				};
-				await appendFile(
-					sessionFile,
-					`${JSON.stringify(entry)}
-`,
-				);
-				this.persistedCount++;
-				this.lastPersistedId = entry.id;
+			// Empty group chat: update memory only (no file yet)
+			if (!this.persistedCount) {
+				await updateActiveDescriptorName(this.activeDescriptorPath, this.activeDescriptor.instanceId, normalizedName);
+				setGroupChatName(this.state, name);
+				this.activeDescriptor.name = normalizedName;
+				return normalizedName;
 			}
-		}
 
-		return normalizedName;
+			// Active group chat: persist entry first, then commit state
+			const entry = {
+				type: "session_info" as const,
+				id: randomUUID(),
+				parentId: this.lastPersistedId,
+				timestamp: new Date().toISOString(),
+				name: normalizedName ?? undefined,
+			};
+			await appendFile(this.getSessionFilePath(), `${JSON.stringify(entry)}\n`);
+			this.persistedCount++;
+			this.lastPersistedId = entry.id;
+
+			await updateActiveDescriptorName(this.activeDescriptorPath, this.activeDescriptor.instanceId, normalizedName);
+			setGroupChatName(this.state, name);
+			this.activeDescriptor.name = normalizedName;
+			return normalizedName;
+		});
 	}
 
-	setMaxMessages(maxMessages: number): void {
-		setGroupMaxMessages(this.state, maxMessages);
-		void this.appendSettingsEntry();
-	}
+	setMaxMessages(maxMessages: number): Promise<void> {
+		return this.enqueue(async () => {
+			// Empty group chat: update memory only
+			if (!this.persistedCount) {
+				setGroupMaxMessages(this.state, maxMessages);
+				return;
+			}
 
-	private async appendSettingsEntry(): Promise<void> {
-		const sessionFile = this.groupSessionManager.getSessionFile();
-		if (!this.persistedCount || !sessionFile) return;
+			// Active group chat: persist entry first, then commit state
+			const entry = {
+				type: "custom" as const,
+				customType: "pi-tavern.group-settings",
+				id: randomUUID(),
+				parentId: this.lastPersistedId,
+				timestamp: new Date().toISOString(),
+				data: { group_max_messages: maxMessages },
+			};
+			await appendFile(this.getSessionFilePath(), `${JSON.stringify(entry)}\n`);
+			this.persistedCount++;
+			this.lastPersistedId = entry.id;
 
-		const entry = {
-			type: "custom" as const,
-			customType: "pi-tavern.group-settings",
-			id: randomUUID(),
-			parentId: this.lastPersistedId,
-			timestamp: new Date().toISOString(),
-			data: { group_max_messages: this.state.groupChat.groupMaxMessages },
-		};
-		await appendFile(
-			sessionFile,
-			`${JSON.stringify(entry)}
-`,
-		);
-		this.persistedCount++;
-		this.lastPersistedId = entry.id;
+			setGroupMaxMessages(this.state, maxMessages);
+		});
 	}
 
 	submitUserPersonaMessage(content: string): Promise<string> {
@@ -208,7 +209,7 @@ export class CreatorRuntime {
 			const entry = {
 				type: "custom_message" as const,
 				customType: "pi-tavern.public-message",
-				content: `User Persona:\n${content}`,
+				content: formatEntryContent("User Persona", content),
 				display: true,
 				id: entryId,
 				parentId,
@@ -246,6 +247,9 @@ export class CreatorRuntime {
 					timestamp,
 					data: { group_max_messages: this.state.groupChat.groupMaxMessages },
 				};
+
+				// Wire public message parent to settings entry for a single continuous branch
+				entry.parentId = settingsEntry.id;
 
 				const lines: string[] = [];
 				if (header) lines.push(JSON.stringify(header));
@@ -580,7 +584,7 @@ export class CreatorRuntime {
 			const entry = {
 				type: "custom_message" as const,
 				customType: "pi-tavern.public-message",
-				content: `${senderName}:\n${message.content}`,
+				content: formatEntryContent(senderName, message.content),
 				display: true,
 				id: entryId,
 				parentId,
@@ -602,7 +606,18 @@ export class CreatorRuntime {
 				},
 			};
 
-			await appendFile(this.getSessionFilePath(), `${JSON.stringify(entry)}\n`);
+			try {
+				await appendFile(this.getSessionFilePath(), `${JSON.stringify(entry)}\n`);
+			} catch (error) {
+				this.sendFailure(
+					socket,
+					message.id,
+					"speak",
+					`Failed to persist message: ${error instanceof Error ? error.message : String(error)}`,
+				);
+				return;
+			}
+
 			this.persistedCount++;
 			this.lastPersistedId = entryId;
 
@@ -889,4 +904,9 @@ async function closeWebSocketServer(server: WebSocketServer): Promise<void> {
 			}
 		});
 	});
+}
+
+function formatEntryContent(senderLabel: string, body: string): string {
+	const trimmed = body.replace(/\n+$/, "");
+	return `${senderLabel}:\n${trimmed}\n`;
 }

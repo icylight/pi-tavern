@@ -52,7 +52,7 @@ describe("CreatorRuntime", () => {
 		});
 
 		expect(await runtime.setName("  Architecture\nReview  ")).toBe("Architecture Review");
-		runtime.setMaxMessages(18);
+		await runtime.setMaxMessages(18);
 
 		expect(runtime.state.groupChat.name).toBe("Architecture Review");
 		expect(runtime.state.groupChat.groupMaxMessages).toBe(18);

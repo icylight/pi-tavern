@@ -100,7 +100,7 @@ export class TavernController {
 			if (this.state.type !== "creator") {
 				throw new Error("This command is only available to the group chat creator");
 			}
-			this.state.runtime.setMaxMessages(maxMessages);
+			await this.state.runtime.setMaxMessages(maxMessages);
 		});
 	}
 
