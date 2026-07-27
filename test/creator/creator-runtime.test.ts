@@ -316,6 +316,9 @@ describe("CreatorRuntime", () => {
 
 		// Change the limit and create a new round
 		await runtime.setMaxMessages(5);
+		// Current round is unaffected by setMaxMessages
+		expect(runtime.state.round?.roundMaxMessages).toBe(10);
+
 		await runtime.submitUserPersonaMessage("Second");
 		expect(runtime.state.round?.roundMaxMessages).toBe(5);
 		expect(runtime.state.round?.usedMessages).toBe(0);
