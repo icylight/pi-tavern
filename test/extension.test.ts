@@ -50,6 +50,9 @@ interface MockExtensionAPI {
 	registerTool: ReturnType<typeof vi.fn>;
 	registerEntryRenderer: ReturnType<typeof vi.fn>;
 	registerMessageRenderer: ReturnType<typeof vi.fn>;
+	appendEntry: ReturnType<typeof vi.fn>;
+	getActiveTools: ReturnType<typeof vi.fn>;
+	setActiveTools: ReturnType<typeof vi.fn>;
 	on: ReturnType<typeof vi.fn>;
 	inputHandlers: InputHandler[];
 }
@@ -61,6 +64,9 @@ function createMockExtensionAPI(): MockExtensionAPI {
 		registerTool: vi.fn(),
 		registerEntryRenderer: vi.fn(),
 		registerMessageRenderer: vi.fn(),
+		appendEntry: vi.fn(),
+		getActiveTools: vi.fn(() => []),
+		setActiveTools: vi.fn(),
 		on: vi.fn((_event: string, handler: InputHandler) => {
 			if (_event === "input") inputHandlers.push(handler);
 		}),
@@ -123,6 +129,9 @@ function captureTools(): {
 		registerTool: ReturnType<typeof vi.fn>;
 		registerEntryRenderer: ReturnType<typeof vi.fn>;
 		registerMessageRenderer: ReturnType<typeof vi.fn>;
+		appendEntry: ReturnType<typeof vi.fn>;
+		getActiveTools: ReturnType<typeof vi.fn>;
+		setActiveTools: ReturnType<typeof vi.fn>;
 	};
 } {
 	const tools: CapturedTool[] = [];
@@ -134,6 +143,9 @@ function captureTools(): {
 		}),
 		registerEntryRenderer: vi.fn(),
 		registerMessageRenderer: vi.fn(),
+		appendEntry: vi.fn(),
+		getActiveTools: vi.fn(() => []),
+		setActiveTools: vi.fn(),
 	};
 	return { tools, api };
 }
@@ -245,6 +257,9 @@ describe("PiTavern extension", () => {
 			registerTool: vi.fn(),
 			registerEntryRenderer: vi.fn(),
 			registerMessageRenderer: vi.fn(),
+			appendEntry: vi.fn(),
+			getActiveTools: vi.fn(() => []),
+			setActiveTools: vi.fn(),
 		} as unknown as ExtensionAPI);
 
 		const status = commands.get("tavern-status");
@@ -277,6 +292,41 @@ describe("PiTavern extension", () => {
 
 		expect(result).toEqual({ action: "handled" });
 		expect(runtime.submitUserPersonaMessage).toHaveBeenCalledWith("hello");
+	});
+
+	it("appends creator-display entry when user persona message is submitted", async () => {
+		const runtime = createMockCreatorRuntime();
+		// Wire submitUserPersonaMessage to fire onPublicMessage like the real impl
+		runtime.submitUserPersonaMessage = vi.fn(async (content: string) => {
+			runtime.onPublicMessage?.({
+				sender: { type: "user_persona" },
+				content,
+				event_id: "evt-1",
+				sequence: 1,
+				timestamp: "2026-01-01T00:00:00.000Z",
+				round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
+			});
+			return "evt-1";
+		});
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		const mock = createMockExtensionAPI();
+		piTavern(mock as unknown as ExtensionAPI, controller);
+
+		// Trigger the onStateChange to wire up creator display
+		controller.onStateChange?.();
+
+		// Trigger input to submit a user persona message
+		const ctx = stubContext();
+		await mock.inputHandlers[0]?.({ type: "input", text: "hello", source: "interactive" } as InputEvent, ctx);
+
+		expect(mock.appendEntry).toHaveBeenCalledWith("pi-tavern.creator-display", {
+			label: "You",
+			content: "hello",
+			sequence: expect.any(Number),
+			timestamp: expect.any(String),
+		});
 	});
 
 	it("notifies error and still handles input when submitUserPersonaMessage fails", async () => {

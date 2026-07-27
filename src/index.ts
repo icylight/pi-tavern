@@ -1,45 +1,21 @@
 import type { ExtensionAPI, InputEventResult } from "@earendil-works/pi-coding-agent";
-import { Box, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
 import { registerCommands } from "./commands.js";
 import { TavernController } from "./controller/tavern-controller.js";
+import { registerRenderers } from "./ui/renderers.js";
 
 export default function piTavern(pi: ExtensionAPI, controller?: TavernController): void {
 	const ctrl = controller ?? new TavernController();
 	registerCommands(pi, ctrl);
+	registerRenderers(pi);
 
 	// Keep tavern_speak active-tool state in sync with controller state
 	// Wire up creator-display entry appending when controller enters creator state
 	ctrl.onStateChange = () => {
 		syncActiveTools(pi, ctrl);
-		const state = ctrl.getState();
-		if (state.type === "creator") {
-			state.runtime.onPublicMessage = (msg) => {
-				const label = msg.sender.type === "user_persona" ? "You" : msg.sender.name;
-				pi.appendEntry("pi-tavern.creator-display", {
-					label,
-					content: msg.content,
-					sequence: msg.sequence,
-					timestamp: msg.timestamp,
-				});
-			};
-		}
+		wireCreatorDisplay(pi, ctrl);
 	};
-
-	pi.registerEntryRenderer("pi-tavern.creator-display", (entry, _options, theme) => {
-		const data = entry.data as { label: string; content: string };
-		const prefix = theme.fg("accent", `[${data.label}]`);
-		const box = new Box(0, 1, (t) => theme.bg("customMessageBg", t));
-		box.addChild(new Text(`${prefix} ${data.content}`, 0, 0));
-		return box;
-	});
-
-	pi.registerMessageRenderer("pi-tavern.group-chat-input", (message, { outputPad }, theme) => {
-		const box = new Box(outputPad, 1, (t) => theme.bg("customMessageBg", t));
-		box.addChild(new Text(message.content as string, 0, 0));
-		return box;
-	});
 
 	pi.registerTool({
 		name: "tavern_speak",
@@ -161,4 +137,19 @@ function syncActiveTools(pi: ExtensionAPI, ctrl: TavernController): void {
 	} else if (!isCharacter && hasSpeak) {
 		pi.setActiveTools(activeTools.filter((t) => t !== "tavern_speak"));
 	}
+}
+
+function wireCreatorDisplay(pi: ExtensionAPI, ctrl: TavernController): void {
+	const state = ctrl.getState();
+	if (state.type !== "creator") return;
+
+	state.runtime.onPublicMessage = (msg) => {
+		const label = msg.sender.type === "user_persona" ? "You" : msg.sender.name;
+		pi.appendEntry("pi-tavern.creator-display", {
+			label,
+			content: msg.content,
+			sequence: msg.sequence,
+			timestamp: msg.timestamp,
+		});
+	};
 }
