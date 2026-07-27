@@ -20,6 +20,7 @@ export class TavernController {
 	private state: TavernState = { type: "idle" };
 	private transitionTail = Promise.resolve();
 	private connectionToken: object | null = null;
+	onStateChange: (() => void) | undefined;
 
 	constructor(
 		private readonly startCreator: TavernControllerCreatorStarter = (options) => CreatorRuntime.startNew(options),
@@ -38,7 +39,7 @@ export class TavernController {
 			}
 
 			const runtime = await this.startCreator(options);
-			this.state = { type: "creator", runtime };
+			this.setState({ type: "creator", runtime });
 			return runtime;
 		});
 	}
@@ -56,7 +57,7 @@ export class TavernController {
 				},
 			});
 			this.connectionToken = token;
-			this.state = { type: "joining", attempt };
+			this.setState({ type: "joining", attempt });
 			return attempt;
 		});
 	}
@@ -73,12 +74,12 @@ export class TavernController {
 			const attempt = this.state.attempt;
 			try {
 				const runtime = await attempt.claimCharacter(characterId, pi);
-				this.state = { type: "character", runtime };
+				this.setState({ type: "character", runtime });
 				return runtime;
 			} catch (error) {
 				if (!attempt.isActive) {
 					this.connectionToken = null;
-					this.state = { type: "idle" };
+					this.setState({ type: "idle" });
 				}
 				throw error;
 			}
@@ -114,7 +115,7 @@ export class TavernController {
 				await owner.close();
 			} finally {
 				this.connectionToken = null;
-				this.state = { type: "idle" };
+				this.setState({ type: "idle" });
 			}
 		});
 	}
@@ -125,8 +126,13 @@ export class TavernController {
 				return;
 			}
 			this.connectionToken = null;
-			this.state = { type: "idle" };
+			this.setState({ type: "idle" });
 		});
+	}
+
+	private setState(state: TavernState): void {
+		this.state = state;
+		this.onStateChange?.();
 	}
 
 	private async runTransition<T>(operation: () => Promise<T>): Promise<T> {

@@ -17,13 +17,17 @@ export class GroupChatInput {
 		this.handler = (message: ServerMessage) => {
 			if (message.type === "message_history" && Array.isArray(message.messages)) {
 				// Expand message_history into individual public_message events
+				const before = this.batch.length;
 				for (const m of message.messages) {
 					if (m && typeof m === "object" && "type" in m && m.type === "public_message") {
 						if (!this.isEnvironmentEvent(m as ServerMessage)) continue;
 						this.batch.push(m as ServerMessage);
 					}
 				}
-				this.resetDebounce();
+				// Only start debounce if messages were actually added
+				if (this.batch.length > before) {
+					this.resetDebounce();
+				}
 				return;
 			}
 			if (!this.isEnvironmentEvent(message)) return;

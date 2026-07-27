@@ -8,6 +8,9 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	const ctrl = controller ?? new TavernController();
 	registerCommands(pi, ctrl);
 
+	// Keep tavern_speak active-tool state in sync with controller state
+	ctrl.onStateChange = () => syncActiveTools(pi, ctrl);
+
 	pi.registerTool({
 		name: "tavern_speak",
 		label: "Tavern Speak",
@@ -103,8 +106,8 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	pi.on("input", async (event, ctx) => {
 		const state = ctrl.getState();
 		if (state.type === "creator") {
-			// Only intercept interactive input, not extension-injected content
-			if (event.source !== "interactive") {
+			// Exclude extension-injected input to prevent re-broadcast loops
+			if (event.source === "extension") {
 				return { action: "continue" } as InputEventResult;
 			}
 			try {
