@@ -55,10 +55,16 @@ interface MockExtensionAPI {
 	setActiveTools: ReturnType<typeof vi.fn>;
 	on: ReturnType<typeof vi.fn>;
 	inputHandlers: InputHandler[];
+	beforeAgentStartHandlers: Array<
+		(event: { systemPrompt: string }) => { systemPrompt?: string } | undefined | undefined
+	>;
 }
 
 function createMockExtensionAPI(): MockExtensionAPI {
 	const inputHandlers: InputHandler[] = [];
+	const beforeAgentStartHandlers: Array<
+		(event: { systemPrompt: string }) => { systemPrompt?: string } | undefined | undefined
+	> = [];
 	return {
 		registerCommand: vi.fn(),
 		registerTool: vi.fn(),
@@ -67,10 +73,15 @@ function createMockExtensionAPI(): MockExtensionAPI {
 		appendEntry: vi.fn(),
 		getActiveTools: vi.fn(() => []),
 		setActiveTools: vi.fn(),
-		on: vi.fn((_event: string, handler: InputHandler) => {
-			if (_event === "input") inputHandlers.push(handler);
+		on: vi.fn((_event: string, handler: unknown) => {
+			if (_event === "input") inputHandlers.push(handler as InputHandler);
+			if (_event === "before_agent_start")
+				beforeAgentStartHandlers.push(
+					handler as (event: { systemPrompt: string }) => { systemPrompt?: string } | undefined | undefined,
+				);
 		}),
 		inputHandlers,
+		beforeAgentStartHandlers,
 	};
 }
 
@@ -422,5 +433,58 @@ describe("PiTavern extension", () => {
 
 		expect(result).toEqual({ action: "handled" });
 		expect(runtime.submitUserPersonaMessage).toHaveBeenCalledWith("rpc message");
+	});
+
+	it("injects character prompt when in character state", () => {
+		const characterRuntime = {
+			character: {
+				characterId: "dev",
+				name: "Developer",
+				description: "Dev",
+				path: "/chars/dev.md",
+				prompt: "You are a skilled developer.",
+			},
+			close: vi.fn(),
+			getGroupChatState: vi.fn(),
+			updateStreaming: vi.fn(),
+		} as unknown as CharacterRuntime;
+		const controller = new TavernController();
+		// Use internal state setter to bypass transition lock for test setup
+		(controller as unknown as { state: { type: string; runtime: CharacterRuntime } }).state = {
+			type: "character",
+			runtime: characterRuntime,
+		};
+
+		const mock = createMockExtensionAPI();
+		piTavern(mock as unknown as ExtensionAPI, controller);
+
+		expect(mock.beforeAgentStartHandlers).toHaveLength(1);
+
+		const result = mock.beforeAgentStartHandlers[0]?.({ systemPrompt: "Base system prompt." });
+		expect(result?.systemPrompt).toContain("Base system prompt.");
+		expect(result?.systemPrompt).toContain("Character Persona: Developer");
+		expect(result?.systemPrompt).toContain("You are a skilled developer.");
+	});
+
+	it("does not inject character prompt when in idle state", () => {
+		const controller = new TavernController();
+		const mock = createMockExtensionAPI();
+		piTavern(mock as unknown as ExtensionAPI, controller);
+
+		expect(mock.beforeAgentStartHandlers).toHaveLength(1);
+		const result = mock.beforeAgentStartHandlers[0]?.({ systemPrompt: "Base." });
+		expect(result).toBeUndefined();
+	});
+
+	it("does not inject character prompt when in creator state", () => {
+		const runtime = createMockCreatorRuntime();
+		const controller = new TavernController(async () => runtime);
+		controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		const mock = createMockExtensionAPI();
+		piTavern(mock as unknown as ExtensionAPI, controller);
+
+		const result = mock.beforeAgentStartHandlers[0]?.({ systemPrompt: "Base." });
+		expect(result).toBeUndefined();
 	});
 });
