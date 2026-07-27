@@ -333,10 +333,16 @@ describe("PiTavern extension", () => {
 		await mock.inputHandlers[0]?.({ type: "input", text: "hello", source: "interactive" } as InputEvent, ctx);
 
 		expect(mock.appendEntry).toHaveBeenCalledWith("pi-tavern.creator-display", {
-			label: "You",
-			content: "hello",
-			sequence: expect.any(Number),
-			timestamp: expect.any(String),
+			kind: "public_message",
+			group_chat_id: "group-1",
+			event: {
+				event_id: "evt-1",
+				sequence: 1,
+				timestamp: "2026-01-01T00:00:00.000Z",
+				sender: { type: "user_persona" },
+				content: "hello",
+				round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
+			},
 		});
 	});
 
@@ -373,17 +379,29 @@ describe("PiTavern extension", () => {
 
 		// First call was the content projection
 		expect(mock.appendEntry).toHaveBeenNthCalledWith(1, "pi-tavern.creator-display", {
-			label: "You",
-			content: "hello",
-			sequence: 1,
-			timestamp: "2026-01-01T00:00:00.000Z",
+			kind: "public_message",
+			group_chat_id: "group-1",
+			event: {
+				event_id: "evt-1",
+				sequence: 1,
+				timestamp: "2026-01-01T00:00:00.000Z",
+				sender: { type: "user_persona" },
+				content: "hello",
+				round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
+			},
 		});
 		// Second call is the error notification
 		expect(mock.appendEntry).toHaveBeenNthCalledWith(2, "pi-tavern.creator-display", {
-			label: "System",
-			content: "TUI projection failed: render failure",
-			sequence: 1,
-			timestamp: "2026-01-01T00:00:00.000Z",
+			kind: "public_message",
+			group_chat_id: "group-1",
+			event: {
+				event_id: "evt-1",
+				sequence: 1,
+				timestamp: "2026-01-01T00:00:00.000Z",
+				sender: { type: "user_persona" },
+				content: "TUI projection failed: render failure",
+				round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
+			},
 		});
 	});
 

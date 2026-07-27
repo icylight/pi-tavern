@@ -5,6 +5,21 @@ import { registerCommands } from "./commands.js";
 import { TavernController } from "./controller/tavern-controller.js";
 import { registerRenderers } from "./ui/renderers.js";
 
+interface CreatorDisplayEvent {
+	event_id: string;
+	sequence: number;
+	timestamp: string;
+	sender: { type: "user_persona" } | { type: "character"; character_id: string; name: string } | { type: "system" };
+	content: string;
+	round: { round_max_messages: number; used_messages: number; remaining_messages: number };
+}
+
+interface CreatorDisplayEntryData {
+	kind: "public_message";
+	group_chat_id: string;
+	event: CreatorDisplayEvent;
+}
+
 export default function piTavern(pi: ExtensionAPI, controller?: TavernController): void {
 	const ctrl = controller ?? new TavernController();
 	registerCommands(pi, ctrl);
@@ -144,22 +159,34 @@ function wireCreatorDisplay(pi: ExtensionAPI, ctrl: TavernController): void {
 	if (state.type !== "creator") return;
 
 	state.runtime.onPublicMessage = (msg) => {
-		const label = msg.sender.type === "user_persona" ? "You" : msg.sender.name;
-		try {
-			pi.appendEntry("pi-tavern.creator-display", {
-				label,
-				content: msg.content,
+		const data: CreatorDisplayEntryData = {
+			kind: "public_message",
+			group_chat_id: state.runtime.state.groupChat.groupChatId,
+			event: {
+				event_id: msg.event_id,
 				sequence: msg.sequence,
 				timestamp: msg.timestamp,
-			});
+				sender: msg.sender,
+				content: msg.content,
+				round: msg.round,
+			},
+		};
+		try {
+			pi.appendEntry("pi-tavern.creator-display", data);
 		} catch (error) {
 			// Best-effort error notification so creator sees projection failure
 			try {
 				pi.appendEntry("pi-tavern.creator-display", {
-					label: "System",
-					content: `TUI projection failed: ${error instanceof Error ? error.message : "Unknown error"}`,
-					sequence: msg.sequence,
-					timestamp: msg.timestamp,
+					kind: "public_message" as const,
+					group_chat_id: data.group_chat_id,
+					event: {
+						event_id: msg.event_id,
+						sequence: msg.sequence,
+						timestamp: msg.timestamp,
+						sender: msg.sender,
+						content: `TUI projection failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+						round: msg.round,
+					},
 				});
 			} catch {
 				// Even error notification failed — nothing more we can do
@@ -171,10 +198,16 @@ function wireCreatorDisplay(pi: ExtensionAPI, ctrl: TavernController): void {
 	state.runtime.onPublicMessageError = (error, sequence, timestamp) => {
 		try {
 			pi.appendEntry("pi-tavern.creator-display", {
-				label: "System",
-				content: error,
-				sequence,
-				timestamp,
+				kind: "public_message" as const,
+				group_chat_id: state.runtime.state.groupChat.groupChatId,
+				event: {
+					event_id: "",
+					sequence,
+					timestamp,
+					sender: { type: "system" as const },
+					content: error,
+					round: { round_max_messages: 0, used_messages: 0, remaining_messages: 0 },
+				},
 			});
 		} catch {
 			// Nothing more we can do
