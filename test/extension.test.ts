@@ -321,4 +321,42 @@ describe("PiTavern extension", () => {
 
 		await assertInputResult(controller, "continue");
 	});
+
+	it("passes through extension-sourced input even in creator state", async () => {
+		const runtime = createMockCreatorRuntime();
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		const mock = createMockExtensionAPI();
+		piTavern(mock as unknown as ExtensionAPI, controller);
+
+		expect(mock.inputHandlers).toHaveLength(1);
+
+		const ctx = stubContext();
+		const result = await mock.inputHandlers[0]?.(
+			{ type: "input", text: "auto-generated", source: "extension" } as InputEvent,
+			ctx,
+		);
+
+		expect(result).toEqual({ action: "continue" });
+		expect(runtime.submitUserPersonaMessage).not.toHaveBeenCalled();
+	});
+
+	it("accepts rpc-sourced input as user persona message in creator state", async () => {
+		const runtime = createMockCreatorRuntime();
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		const mock = createMockExtensionAPI();
+		piTavern(mock as unknown as ExtensionAPI, controller);
+
+		const ctx = stubContext();
+		const result = await mock.inputHandlers[0]?.(
+			{ type: "input", text: "rpc message", source: "rpc" } as InputEvent,
+			ctx,
+		);
+
+		expect(result).toEqual({ action: "handled" });
+		expect(runtime.submitUserPersonaMessage).toHaveBeenCalledWith("rpc message");
+	});
 });

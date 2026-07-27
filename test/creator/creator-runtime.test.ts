@@ -356,6 +356,61 @@ describe("CreatorRuntime", () => {
 		client.close();
 		await runtime.close();
 	});
+
+	it("sends recent public messages in message_history on join", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			characters: [
+				{
+					characterId: "dev",
+					name: "Developer",
+					description: "Writes code",
+					path: "/chars/dev.md",
+					prompt: "You are a developer.",
+				},
+			],
+		});
+
+		// Create two public messages before joining
+		await runtime.submitUserPersonaMessage("First");
+		await runtime.submitUserPersonaMessage("Second");
+
+		// Join a character
+		const client = new WebSocket(
+			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
+		);
+		await waitForOpen(client);
+		client.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: "session-1" }));
+		await waitForMessage(client, "response");
+		client.send(JSON.stringify({ id: "2", type: "claim_character", character_id: "dev" }));
+		await waitForMessage(client, "response");
+		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
+
+		// Wait for the message_history
+		const historyPromise = new Promise<Record<string, unknown>>((resolve) => {
+			const onMessage = (data: WebSocket.RawData) => {
+				const msg = JSON.parse(data.toString()) as Record<string, unknown>;
+				if (msg.type === "message_history") {
+					client.off("message", onMessage);
+					resolve(msg);
+				}
+			};
+			client.on("message", onMessage);
+		});
+
+		const history = await historyPromise;
+		expect(history.messages).toHaveLength(2);
+		expect((history.messages as Array<{ content: string }>)[0]?.content).toBe("First");
+		expect((history.messages as Array<{ content: string }>)[1]?.content).toBe("Second");
+		expect(history.total_messages).toBe(2);
+		expect(history.has_more).toBe(false);
+		expect(history.cursor).toBeNull();
+
+		client.close();
+		await runtime.close();
+	});
 });
 
 async function jsonlFilesUnder(root: string): Promise<string[]> {
