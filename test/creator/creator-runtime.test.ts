@@ -58,6 +58,12 @@ describe("CreatorRuntime", () => {
 		expect((await readActiveDescriptor(runtime.activeDescriptorPath))?.name).toBe("Architecture Review");
 		expect(await jsonlFilesUnder(join(root, "agent"))).toEqual([]);
 
+		// First message inherits latest groupMaxMessages (18), not configMaxMessages (12)
+		await runtime.submitUserPersonaMessage("Hello");
+		expect(runtime.state.round?.roundMaxMessages).toBe(18);
+
+		expect(await jsonlFilesUnder(join(root, "agent"))).toHaveLength(1);
+
 		await runtime.close();
 	});
 
