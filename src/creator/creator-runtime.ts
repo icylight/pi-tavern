@@ -51,7 +51,8 @@ export class CreatorRuntime {
 	private closePromise: Promise<void> | null = null;
 	private runtimeTail = Promise.resolve();
 	private disposed = false;
-	private flushedCount = 0;
+	private persistedCount = 0;
+	private lastPersistedId: string | null = null;
 	private publicMessages: Array<{
 		sender: { type: "user_persona" } | { type: "character"; character_id: string; name: string };
 		content: string;
@@ -153,44 +154,77 @@ export class CreatorRuntime {
 				throw new Error("User Persona message exceeds 64 KiB");
 			}
 
-			// Compute candidate state values (NOT committed until flush succeeds)
+			// Compute candidate state values (committed only after successful persist)
 			const roundMaxMessages = this.state.groupChat.groupMaxMessages;
 			const sequence = this.state.nextSequence + 1;
 			const timestamp = new Date().toISOString();
+			const entryId = randomUUID();
+			const parentId = this.lastPersistedId;
 
-			// Clear hand-raised flags from previous round (cosmetic, safe pre-flush)
+			// Build entry
+			const entry = {
+				type: "custom_message" as const,
+				customType: "pi-tavern.public-message",
+				content: `User Persona:\n${content}`,
+				display: true,
+				id: entryId,
+				parentId,
+				timestamp,
+				details: {
+					sender: { type: "user_persona" as const },
+					content,
+					sequence,
+					timestamp,
+					round: {
+						round_max_messages: roundMaxMessages,
+						used_messages: 0,
+						remaining_messages: roundMaxMessages,
+					},
+				},
+			};
+
+			// For the very first persist, write header + metadata entries first
+			if (this.persistedCount === 0) {
+				const header = this.groupSessionManager.getHeader();
+				const nameEntry = this.state.groupChat.name
+					? {
+							type: "session_info" as const,
+							id: randomUUID(),
+							parentId: null,
+							timestamp,
+							name: this.state.groupChat.name,
+						}
+					: null;
+				const settingsEntry = {
+					type: "custom" as const,
+					customType: "pi-tavern.group-settings",
+					id: randomUUID(),
+					parentId: nameEntry?.id ?? null,
+					timestamp,
+					data: { group_max_messages: this.state.groupChat.groupMaxMessages },
+				};
+
+				const lines: string[] = [];
+				if (header) lines.push(JSON.stringify(header));
+				if (nameEntry) lines.push(JSON.stringify(nameEntry));
+				lines.push(JSON.stringify(settingsEntry));
+				lines.push(JSON.stringify(entry));
+
+				await writeFile(this.getSessionFilePath(), `${lines.join("\n")}\n`);
+				this.persistedCount = lines.length - (header ? 1 : 0);
+			} else {
+				await appendFile(this.getSessionFilePath(), `${JSON.stringify(entry)}\n`);
+				this.persistedCount++;
+			}
+
+			// Commit state only after successful persist
+			this.lastPersistedId = entryId;
+			this.state.round = { roundMaxMessages, usedMessages: 0 };
+			this.state.nextSequence = sequence;
+			// Clear hand-raised flags from previous round (only on success)
 			for (const character of this.state.onlineCharacters.values()) {
 				character.handRaised = false;
 			}
-
-			// Persist entry to SessionManager (memory only — retried on next flush if this one fails)
-			const entryId = this.groupSessionManager.appendCustomMessageEntry("pi-tavern.public-message", content, true, {
-				sender: { type: "user_persona" },
-				content,
-				sequence,
-				timestamp,
-				round: {
-					round_max_messages: roundMaxMessages,
-					used_messages: 0,
-					remaining_messages: roundMaxMessages,
-				},
-			});
-
-			// Write name + group_max_messages on first persist
-			if (this.flushedCount === 0) {
-				if (this.state.groupChat.name) {
-					this.groupSessionManager.appendSessionInfo(this.state.groupChat.name);
-				}
-				this.groupSessionManager.appendCustomEntry("pi-tavern.group-max-messages", {
-					group_max_messages: this.state.groupChat.groupMaxMessages,
-				});
-			}
-
-			await this.flushGroupSession();
-
-			// Commit state only after successful persist
-			this.state.round = { roundMaxMessages, usedMessages: 0 };
-			this.state.nextSequence = sequence;
 
 			const message = {
 				sender: { type: "user_persona" as const },
@@ -198,15 +232,10 @@ export class CreatorRuntime {
 				event_id: entryId,
 				sequence,
 				timestamp,
-				round: {
-					round_max_messages: roundMaxMessages,
-					used_messages: 0,
-					remaining_messages: roundMaxMessages,
-				},
+				round: { round_max_messages: roundMaxMessages, used_messages: 0, remaining_messages: roundMaxMessages },
 			};
 			this.publicMessages.push(message);
 
-			// Broadcast to all online Characters
 			this.broadcast({
 				type: "public_message",
 				event_id: entryId,
@@ -267,7 +296,14 @@ export class CreatorRuntime {
 					socket.close(1002, "Protocol error");
 					return;
 				}
-				await this.handleClientMessage(socket, connection, message);
+				try {
+					await this.handleClientMessage(socket, connection, message);
+				} catch (error) {
+					if (!this.disposed) {
+						const errorMessage = error instanceof Error ? error.message : String(error);
+						socket.close(1011, errorMessage);
+					}
+				}
 			});
 		});
 		socket.on("close", () => {
@@ -425,8 +461,8 @@ export class CreatorRuntime {
 				content: m.content,
 				round: m.round,
 			})),
-			cursor: null,
-			has_more: false,
+			cursor: this.publicMessages.length > 10 ? "more" : null,
+			has_more: this.publicMessages.length > 10,
 			total_messages: this.publicMessages.length,
 		});
 	}
@@ -487,7 +523,6 @@ export class CreatorRuntime {
 			return;
 		}
 
-		// Check quota without committing
 		const canPublish = round.usedMessages < round.roundMaxMessages;
 
 		if (canPublish) {
@@ -495,17 +530,23 @@ export class CreatorRuntime {
 			const roundMaxMessages = round.roundMaxMessages;
 			const sequence = this.state.nextSequence + 1;
 			const timestamp = new Date().toISOString();
+			const entryId = randomUUID();
+			const parentId = this.lastPersistedId;
 
-			// Persist entry to SessionManager (memory only)
-			const entryId = this.groupSessionManager.appendCustomMessageEntry(
-				"pi-tavern.public-message",
-				message.content,
-				true,
-				{
+			const senderName = onlineCharacter.character.name;
+			const entry = {
+				type: "custom_message" as const,
+				customType: "pi-tavern.public-message",
+				content: `${senderName}:\n${message.content}`,
+				display: true,
+				id: entryId,
+				parentId,
+				timestamp,
+				details: {
 					sender: {
-						type: "character",
+						type: "character" as const,
 						character_id: onlineCharacter.character.characterId,
-						name: onlineCharacter.character.name,
+						name: senderName,
 					},
 					content: message.content,
 					sequence,
@@ -516,19 +557,22 @@ export class CreatorRuntime {
 						remaining_messages: Math.max(0, roundMaxMessages - newUsed),
 					},
 				},
-			);
-			await this.flushGroupSession();
+			};
 
-			// Commit state changes only after successful persist
+			await appendFile(this.getSessionFilePath(), `${JSON.stringify(entry)}\n`);
+			this.persistedCount++;
+			this.lastPersistedId = entryId;
+
+			// Commit state only after successful persist
 			round.usedMessages = newUsed;
 			this.state.nextSequence = sequence;
 			setHandRaised(this.state, connection.sessionId, false);
 
-			const savedMessage = {
+			const msg = {
 				sender: {
 					type: "character" as const,
 					character_id: onlineCharacter.character.characterId,
-					name: onlineCharacter.character.name,
+					name: senderName,
 				},
 				content: message.content,
 				event_id: entryId,
@@ -540,16 +584,16 @@ export class CreatorRuntime {
 					remaining_messages: Math.max(0, roundMaxMessages - newUsed),
 				},
 			};
-			this.publicMessages.push(savedMessage);
+			this.publicMessages.push(msg);
 
 			this.broadcast({
 				type: "public_message",
 				event_id: entryId,
 				sequence,
 				timestamp,
-				sender: savedMessage.sender,
+				sender: msg.sender,
 				content: message.content,
-				round: savedMessage.round,
+				round: msg.round,
 			});
 
 			this.send(socket, {
@@ -561,7 +605,7 @@ export class CreatorRuntime {
 					published: true,
 					event_id: entryId,
 					sequence,
-					round: savedMessage.round,
+					round: msg.round,
 				},
 			});
 		} else {
@@ -720,32 +764,10 @@ export class CreatorRuntime {
 		}
 	}
 
-	private async flushGroupSession(): Promise<void> {
-		const sessionFile = this.groupSessionManager.getSessionFile();
-		if (!sessionFile) return;
-
-		const entries = this.groupSessionManager.getEntries();
-		const newEntries = entries.slice(this.flushedCount);
-		if (newEntries.length === 0) return;
-
-		if (this.flushedCount === 0) {
-			// First flush: write header + all current entries
-			const header = this.groupSessionManager.getHeader();
-			const lines: string[] = [];
-			if (header) {
-				lines.push(JSON.stringify(header));
-			}
-			for (const entry of entries) {
-				lines.push(JSON.stringify(entry));
-			}
-			await writeFile(sessionFile, `${lines.join("\n")}\n`);
-		} else {
-			// Subsequent flushes: append only new entries
-			const lines = newEntries.map((entry) => JSON.stringify(entry));
-			await appendFile(sessionFile, `${lines.join("\n")}\n`);
-		}
-
-		this.flushedCount = entries.length;
+	private getSessionFilePath(): string {
+		const path = this.groupSessionManager.getSessionFile();
+		if (!path) throw new Error("Session file not set");
+		return path;
 	}
 
 	private enqueue<T>(operation: () => T | Promise<T>): Promise<T> {

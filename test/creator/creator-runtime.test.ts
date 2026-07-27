@@ -138,7 +138,7 @@ describe("CreatorRuntime", () => {
 			.find((e: Record<string, unknown>) => e.type === "custom_message");
 		expect(publicEntry).toBeDefined();
 		expect(publicEntry.customType).toBe("pi-tavern.public-message");
-		expect(publicEntry.content).toBe("Hello from user persona");
+		expect(publicEntry.content).toContain("Hello from user persona");
 		expect(publicEntry.display).toBe(true);
 		expect(publicEntry.details.sender).toEqual({ type: "user_persona" });
 		expect(publicEntry.details.content).toBe("Hello from user persona");
@@ -281,11 +281,14 @@ describe("CreatorRuntime", () => {
 			.map((l) => JSON.parse(l))
 			.find(
 				(e: Record<string, unknown>) =>
-					e.type === "custom_message" && e.customType === "pi-tavern.public-message" && e.content === "My public reply",
+					e.type === "custom_message" &&
+					e.customType === "pi-tavern.public-message" &&
+					typeof e.content === "string" &&
+					(e.content as string).includes("My public reply"),
 			);
 		expect(publicEntry).toBeDefined();
 		expect(publicEntry.type).toBe("custom_message");
-		expect(publicEntry.content).toBe("My public reply");
+		expect(publicEntry.content).toContain("My public reply");
 		expect(publicEntry.details.sender).toEqual({
 			type: "character",
 			character_id: "dev",
