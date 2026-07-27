@@ -130,20 +130,88 @@ describe("CreatorRuntime", () => {
 		const header = JSON.parse(firstLine as string);
 		expect(header.type).toBe("session");
 		expect(header.id).toBe(runtime.state.groupChat.groupChatId);
+		expect(typeof header.timestamp).toBe("string");
+		expect(new Date(header.timestamp).getTime()).toBeLessThanOrEqual(Date.now());
+		expect(header.version).toBe(3);
+		expect(header.cwd).toBe(runtime.activeDescriptor.cwd);
 
-		// Verify the public message entry is present
-		const publicEntry = lines
-			.map((l) => JSON.parse(l))
-			.find((e: Record<string, unknown>) => e.type === "custom_message");
+		// Parse all entries for indexed lookup
+		const allEntries = lines.map((l) => JSON.parse(l)) as Record<string, unknown>[];
+
+		// Verify session_info entry (written when group has a name at first persist)
+		const sessionInfoEntry = allEntries.find((e) => e.type === "session_info");
+		expect(sessionInfoEntry).toBeUndefined(); // No name set, so no session_info
+
+		// Verify group-settings entry
+		const settingsEntry = allEntries.find((e) => e.type === "custom" && e.customType === "pi-tavern.group-settings");
+		expect(settingsEntry).toBeDefined();
+		if (!settingsEntry) return;
+		expect(settingsEntry.type).toBe("custom");
+		expect(settingsEntry.customType).toBe("pi-tavern.group-settings");
+		expect(typeof settingsEntry.id).toBe("string");
+		expect(typeof settingsEntry.timestamp).toBe("string");
+		expect(settingsEntry.data).toEqual({ group_max_messages: 10 });
+
+		// Verify the public message entry
+		const publicEntry = allEntries.find((e) => e.type === "custom_message");
 		expect(publicEntry).toBeDefined();
+		if (!publicEntry) return;
 		expect(publicEntry.customType).toBe("pi-tavern.public-message");
-		expect(publicEntry.content).toContain("Hello from user persona");
 		expect(publicEntry.display).toBe(true);
-		expect(publicEntry.details.sender).toEqual({ type: "user_persona" });
-		expect(publicEntry.details.content).toBe("Hello from user persona");
-		expect(publicEntry.details.round).toEqual({ round_max_messages: 10, used_messages: 0, remaining_messages: 10 });
-		expect(typeof publicEntry.details.sequence).toBe("number");
-		expect(typeof publicEntry.details.timestamp).toBe("string");
+		expect(typeof publicEntry.id).toBe("string");
+		expect(typeof publicEntry.timestamp).toBe("string");
+		// parentId chains to settings entry
+		expect(publicEntry.parentId).toBe(settingsEntry.id);
+		// Content follows formatEntryContent pattern
+		expect(publicEntry.content).toBe("User Persona:\nHello from user persona\n");
+		// Details
+		const details = publicEntry.details as Record<string, unknown>;
+		expect(details.sender).toEqual({ type: "user_persona" });
+		expect(details.content).toBe("Hello from user persona");
+		expect(details.sequence).toBe(1);
+		expect(typeof details.timestamp).toBe("string");
+		expect(details.timestamp).toBe(publicEntry.timestamp);
+		expect(details.round).toEqual({
+			round_max_messages: 10,
+			used_messages: 0,
+			remaining_messages: 10,
+		});
+
+		await runtime.close();
+	});
+
+	it("persists session_info entry when group has a name at first persist", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+		});
+
+		// Set name before first message
+		await runtime.setName("My Tavern");
+
+		await runtime.submitUserPersonaMessage("Hello");
+
+		const jsonlFiles = await jsonlFilesUnder(join(root, "agent"));
+		expect(jsonlFiles).toHaveLength(1);
+		const sessionPath = join(root, "agent", jsonlFiles[0] as string);
+		const lines = (await readFile(sessionPath, "utf8")).trim().split("\n");
+		const allEntries = lines.map((l) => JSON.parse(l)) as Record<string, unknown>[];
+
+		// session_info entry is present
+		const sessionInfoEntry = allEntries.find((e) => e.type === "session_info");
+		expect(sessionInfoEntry).toBeDefined();
+		if (!sessionInfoEntry) return;
+		expect(sessionInfoEntry.type).toBe("session_info");
+		expect(sessionInfoEntry.name).toBe("My Tavern");
+		expect(typeof sessionInfoEntry.id).toBe("string");
+		expect(typeof sessionInfoEntry.timestamp).toBe("string");
+
+		// settings entry parentId chains from session_info
+		const settingsEntry = allEntries.find((e) => e.type === "custom" && e.customType === "pi-tavern.group-settings");
+		expect(settingsEntry).toBeDefined();
+		if (!settingsEntry) return;
+		expect(settingsEntry.parentId).toBe(sessionInfoEntry.id);
 
 		await runtime.close();
 	});
