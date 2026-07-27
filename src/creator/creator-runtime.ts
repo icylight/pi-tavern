@@ -140,11 +140,54 @@ export class CreatorRuntime {
 		await updateActiveDescriptorName(this.activeDescriptorPath, this.activeDescriptor.instanceId, normalizedName);
 		setGroupChatName(this.state, name);
 		this.activeDescriptor.name = normalizedName;
+
+		if (this.persistedCount) {
+			const sessionFile = this.groupSessionManager.getSessionFile();
+			if (sessionFile) {
+				const entry = {
+					type: "session_info" as const,
+					id: randomUUID(),
+					parentId: this.lastPersistedId,
+					timestamp: new Date().toISOString(),
+					name: normalizedName ?? undefined,
+				};
+				await appendFile(
+					sessionFile,
+					`${JSON.stringify(entry)}
+`,
+				);
+				this.persistedCount++;
+				this.lastPersistedId = entry.id;
+			}
+		}
+
 		return normalizedName;
 	}
 
 	setMaxMessages(maxMessages: number): void {
 		setGroupMaxMessages(this.state, maxMessages);
+		void this.appendSettingsEntry();
+	}
+
+	private async appendSettingsEntry(): Promise<void> {
+		const sessionFile = this.groupSessionManager.getSessionFile();
+		if (!this.persistedCount || !sessionFile) return;
+
+		const entry = {
+			type: "custom" as const,
+			customType: "pi-tavern.group-settings",
+			id: randomUUID(),
+			parentId: this.lastPersistedId,
+			timestamp: new Date().toISOString(),
+			data: { group_max_messages: this.state.groupChat.groupMaxMessages },
+		};
+		await appendFile(
+			sessionFile,
+			`${JSON.stringify(entry)}
+`,
+		);
+		this.persistedCount++;
+		this.lastPersistedId = entry.id;
 	}
 
 	submitUserPersonaMessage(content: string): Promise<string> {
