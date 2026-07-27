@@ -574,6 +574,11 @@ describe("CreatorRuntime", () => {
 		await runtime.submitUserPersonaMessage("Start the round");
 		expect(runtime.state.round?.usedMessages).toBe(0);
 
+		// Simulate hand raised from a previous quota-exhausted speak
+		for (const c of runtime.state.onlineCharacters.values()) {
+			c.handRaised = true;
+		}
+
 		// Capture all incoming messages on the sender's socket
 		const receivedMessages: Record<string, unknown>[] = [];
 		client.on("message", (data) => {
@@ -600,6 +605,10 @@ describe("CreatorRuntime", () => {
 
 		// Round usage incremented
 		expect(runtime.state.round?.usedMessages).toBe(1);
+		// Own handRaised is cleared after successful speak
+		for (const c of runtime.state.onlineCharacters.values()) {
+			expect(c.handRaised).toBe(false);
+		}
 
 		// Message persisted to JSONL
 		const jsonlFiles = await jsonlFilesUnder(join(root, "agent"));
