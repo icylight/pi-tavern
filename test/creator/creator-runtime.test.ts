@@ -216,6 +216,69 @@ describe("CreatorRuntime", () => {
 		await runtime.close();
 	});
 
+	it("appends session_info after setName when group chat is started", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+		});
+
+		// First message starts the group, persisting header + entries
+		await runtime.submitUserPersonaMessage("First");
+
+		// Change name after first persist → appended via SessionManager.appendSessionInfo
+		await runtime.setName("Renamed Tavern");
+
+		const jsonlFiles = await jsonlFilesUnder(join(root, "agent"));
+		expect(jsonlFiles).toHaveLength(1);
+		const sessionPath = join(root, "agent", jsonlFiles[0] as string);
+		const lines = (await readFile(sessionPath, "utf8")).trim().split("\n");
+		const allEntries = lines.map((l) => JSON.parse(l)) as Record<string, unknown>[];
+
+		// Last entry should be the new session_info
+		const lastEntry = allEntries[allEntries.length - 1];
+		expect(lastEntry).toBeDefined();
+		if (!lastEntry) return;
+		expect(lastEntry.type).toBe("session_info");
+		expect(lastEntry.name).toBe("Renamed Tavern");
+		expect(typeof lastEntry.id).toBe("string");
+		expect(typeof lastEntry.parentId).toBe("string");
+
+		await runtime.close();
+	});
+
+	it("appends group-settings after setMaxMessages when group chat is started", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+		});
+
+		// First message starts the group, persisting header + entries
+		await runtime.submitUserPersonaMessage("First");
+
+		// Change maxMessages after first persist → appended via SessionManager.appendCustomEntry
+		await runtime.setMaxMessages(5);
+
+		const jsonlFiles = await jsonlFilesUnder(join(root, "agent"));
+		expect(jsonlFiles).toHaveLength(1);
+		const sessionPath = join(root, "agent", jsonlFiles[0] as string);
+		const lines = (await readFile(sessionPath, "utf8")).trim().split("\n");
+		const allEntries = lines.map((l) => JSON.parse(l)) as Record<string, unknown>[];
+
+		// Last entry should be the new group-settings
+		const lastEntry = allEntries[allEntries.length - 1];
+		expect(lastEntry).toBeDefined();
+		if (!lastEntry) return;
+		expect(lastEntry.type).toBe("custom");
+		expect(lastEntry.customType).toBe("pi-tavern.group-settings");
+		expect(lastEntry.data).toEqual({ group_max_messages: 5 });
+		expect(typeof lastEntry.id).toBe("string");
+		expect(typeof lastEntry.parentId).toBe("string");
+
+		await runtime.close();
+	});
+
 	it("second user persona message creates a new round resetting usedMessages", async () => {
 		const root = await createTemporaryDirectory();
 		const runtime = await CreatorRuntime.startNew({
