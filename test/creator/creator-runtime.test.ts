@@ -413,6 +413,73 @@ describe("CreatorRuntime", () => {
 		await runtime.close();
 	});
 
+	it("broadcast still delivers to clients when onPublicMessage throws", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			characters: [{ characterId: "dev", name: "Dev", description: "", path: "/x.md", prompt: "" }],
+		});
+
+		const client = new WebSocket(
+			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
+		);
+		await waitForOpen(client);
+		client.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: "s1" }));
+		await waitForMessage(client, "response");
+		client.send(JSON.stringify({ id: "2", type: "claim_character", character_id: "dev" }));
+		await waitForMessage(client, "response");
+		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
+		await waitForMessage(client, "response");
+
+		// Set a throwing onPublicMessage handler
+		runtime.onPublicMessage = () => {
+			throw new Error("TUI broken");
+		};
+
+		// Wait for broadcast
+		const broadcastPromise = new Promise<boolean>((resolve) => {
+			const onMsg = (data: WebSocket.RawData) => {
+				const msg = JSON.parse(data.toString()) as { type: string };
+				if (msg.type === "public_message") {
+					client.off("message", onMsg);
+					resolve(true);
+				}
+			};
+			client.on("message", onMsg);
+		});
+
+		// Should not throw — the onPublicMessage error is caught internally
+		await runtime.submitUserPersonaMessage("Hello");
+
+		// Broadcast still delivered despite onPublicMessage throwing
+		await expect(broadcastPromise).resolves.toBe(true);
+
+		client.close();
+		await runtime.close();
+	});
+
+	it("onPublicMessage fires when broadcaster has no connected clients", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+		});
+
+		let tuiMessage: unknown = null;
+		runtime.onPublicMessage = (msg) => {
+			tuiMessage = msg;
+		};
+
+		// No connected clients → broadcast iteration is a no-op
+		await runtime.submitUserPersonaMessage("Solo message");
+
+		expect(tuiMessage).not.toBeNull();
+		expect((tuiMessage as { content: string }).content).toBe("Solo message");
+
+		await runtime.close();
+	});
+
 	it("publishes a character speak message and increments round usage", async () => {
 		const root = await createTemporaryDirectory();
 		const runtime = await CreatorRuntime.startNew({

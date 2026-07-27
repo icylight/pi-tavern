@@ -351,17 +351,26 @@ export class CreatorRuntime {
 			};
 			this.publicMessages.push(message);
 
-			this.broadcast({
-				type: "public_message",
-				event_id: entryId,
-				sequence,
-				timestamp,
-				sender: { type: "user_persona" },
-				content,
-				round: message.round,
-			});
+			// Broadcast and TUI projection are independent — neither blocks the other
+			try {
+				this.broadcast({
+					type: "public_message",
+					event_id: entryId,
+					sequence,
+					timestamp,
+					sender: { type: "user_persona" },
+					content,
+					round: message.round,
+				});
+			} catch {
+				// Broadcast failure silently swallowed — no impact on state or TUI
+			}
 
-			this.onPublicMessage?.(message);
+			try {
+				this.onPublicMessage?.(message);
+			} catch {
+				// TUI callback failure silently swallowed — no impact on state or broadcast
+			}
 
 			return entryId;
 		});
@@ -710,17 +719,26 @@ export class CreatorRuntime {
 			};
 			this.publicMessages.push(msg);
 
-			this.broadcast({
-				type: "public_message",
-				event_id: entryId,
-				sequence,
-				timestamp,
-				sender: msg.sender,
-				content: message.content,
-				round: msg.round,
-			});
+			// Broadcast and TUI projection are independent — neither blocks the other
+			try {
+				this.broadcast({
+					type: "public_message",
+					event_id: entryId,
+					sequence,
+					timestamp,
+					sender: msg.sender,
+					content: message.content,
+					round: msg.round,
+				});
+			} catch {
+				// Broadcast failure silently swallowed
+			}
 
-			this.onPublicMessage?.(msg);
+			try {
+				this.onPublicMessage?.(msg);
+			} catch {
+				// TUI callback failure silently swallowed
+			}
 
 			this.send(socket, {
 				...(message.id !== undefined ? { id: message.id } : {}),
@@ -879,8 +897,12 @@ export class CreatorRuntime {
 	}
 
 	private send(socket: WebSocket, message: unknown): void {
-		if (socket.readyState === WebSocket.OPEN) {
-			socket.send(encodeMessage(message));
+		try {
+			if (socket.readyState === WebSocket.OPEN) {
+				socket.send(encodeMessage(message));
+			}
+		} catch {
+			// Per-socket failure must not affect other sockets or the caller
 		}
 	}
 
