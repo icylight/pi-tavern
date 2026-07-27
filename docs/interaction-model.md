@@ -61,7 +61,10 @@ Repository
 - 退出一旦完成便不回滚。后续 `/new`、`/resume`、`/fork` 或 `/clone` 即使失败、取消或没有实际完成，PiTavern 也保持 `idle`，不自动恢复或重新加入群聊。
 - `/reload` 不属于上述退出流程。当前 pi session 不变时，Creator 或 Character 通过 reload 专用的一次性运行资源交接保持原群聊身份和 WebSocket，不关闭群聊、不离开、不重新连接。
 - `joining` 不参与 reload 资源交接；reload 时关闭加入连接、释放 Character 预留，新 Extension Runtime 从 `idle` 开始。
+- Creator reload 只交接已经正式在线的 Character；创建者侧尚未完成 `character_ready` 的连接释放预留并关闭，reload 窗口内的新连接也直接关闭。
 - reload handoff 必须在 5 秒内由新 Extension Runtime 接管；超时后释放全部 handoff 资源，随后加载的 Runtime 从 `idle` 开始，不自动恢复。
+- pi 正常退出并触发 `session_shutdown(reason: "quit")` 时，PiTavern 先退出或关闭群聊，再允许 pi 继续退出。清理最多等待 5 秒；超时后停止等待远端确认并强制完成本地 WebSocket 清理。
+- 强杀、崩溃和断电无法保证执行正常退出流程，依靠 WebSocket close、心跳超时和活动描述发现机制收敛。
 
 这与 SillyTavern 的模型一致：用户是独立参与者，创建者不是 Character Card。
 

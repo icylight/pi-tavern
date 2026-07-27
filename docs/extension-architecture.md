@@ -1,6 +1,6 @@
 # PiTavern Extension Architecture
 
-> 状态：讨论中。本文只记录已经确认的顶层结构，以及尚未定稿的架构问题。
+> 状态：已定稿。本文记录 PiTavern 首版 Extension Runtime 的技术结构。
 
 PiTavern 作为 pi-coding-agent 扩展实现。技术设计以 `references/pi` 中的当前实现为准。
 
@@ -252,9 +252,7 @@ pi 原生 `SessionManager.create()` 可以在不立即创建 session 文件的�
 
 二者互不作为对方成功的前提，也不因一方失败而取消另一方。TUI 投影失败时不回滚已经提交的群聊消息，创建者界面应显示投影失败提示。WebSocket 发送失败也不回滚消息，并按照已经确认的连接断开规则清理对应 Character。
 
-具体 `customType`、entry 数据结构和 renderer 样式后续单独讨论。
-
-`CreatorRuntime` 的其他职责和资源边界仍待讨论。
+具体 `customType`、entry 数据结构和 renderer 见本文的 TUI 投影设计。
 
 ### `CharacterRuntime`
 
@@ -346,6 +344,433 @@ Extension 通过 `session_before_switch` 处理 `/new` 和 `/resume`，通过 `s
 
 退出与后续 pi session 操作不构成事务。PiTavern 提交到 `idle` 后，即使后续 `/new`、`/resume`、`/fork` 或 `/clone` 失败、被取消或没有实际完成，也不恢复之前的 Runtime、不重新创建群聊、不重新加入群聊。
 
+### pi Runtime bindings
+
+每次 Extension Factory 加载时创建一份只属于当前 Extension Runtime 的 `PiRuntimeBindings`。WebSocket handler、计时器和其他后台回调不得直接捕获 `ExtensionAPI`，也不得长期保存并直接调用 command/event context。
+
+```ts
+class PiRuntimeBindings {
+  private lifecycle: "unbound" | "active" | "invalid" = "unbound";
+  private piSessionId: string | null = null;
+  private ui: ExtensionUIContext | null = null;
+
+  constructor(readonly pi: ExtensionAPI) {}
+
+  bindSession(
+    piSessionId: string,
+    ui: ExtensionUIContext,
+  ): void {
+    if (this.lifecycle !== "unbound") {
+      throw new Error("Pi runtime bindings have already been bound");
+    }
+
+    this.piSessionId = piSessionId;
+    this.ui = ui;
+    this.lifecycle = "active";
+  }
+
+  assertActive(): void {
+    if (this.lifecycle !== "active") {
+      throw new Error("Pi runtime bindings are no longer active");
+    }
+  }
+
+  invalidate(): void {
+    this.lifecycle = "invalid";
+    this.piSessionId = null;
+    this.ui = null;
+  }
+}
+```
+
+Factory 创建 bindings 时只保存本次 Extension Runtime 的 `ExtensionAPI`。收到 `session_start` 后，使用 `ctx.sessionManager.getSessionId()` 取得当前 pi session ID，并把该 ID 与当前 UI context 一次性绑定；在此之前后台 Runtime 尚未启动，不能调用 session-bound pi API。
+
+Runtime 中所有面向 pi 的操作通过当前 bindings 执行，包括：
+
+- `pi.sendMessage()`；
+- `getActiveTools()` 和 `setActiveTools()`；
+- TUI notify、status 和 widget 更新；
+- 其他依赖当前 Extension Runtime 的 pi API。
+
+`ReloadHandoff` 不保存旧 bindings。只有 handoff 中的 `piSessionId` 与当前 pi session 一致时，新 Runtime 才能使用新 Extension Factory 创建的 bindings 接管底层资源。`/new`、`/resume`、`/fork` 或 `/clone` 后的旧 Runtime 永远不能重新绑定到新 session。
+
+### Runtime 内部生命周期
+
+CreatorRuntime 和 CharacterRuntime 使用内部生命周期保护后台回调：
+
+```ts
+type RuntimeLifecycle = "active" | "detaching" | "disposed";
+```
+
+该生命周期只是实现期资源状态，不进入 `TavernState`，也不向用户展示：
+
+- `active`：正常处理 WebSocket、计时器和 pi 操作；
+- `detaching`：正在为 reload 交接，新 frame 进入 handoff buffer，不再启动新的 pi 操作；
+- `disposed`：Runtime 已经失效，后台回调立即结束。
+
+后台异步操作在开始时和每个 `await` 恢复后都必须重新确认生命周期及 generation：
+
+```ts
+const generation = runtime.generation;
+const result = await operation();
+
+if (
+  runtime.lifecycle !== "active" ||
+  runtime.generation !== generation
+) {
+  return;
+}
+```
+
+不得通过可变的进程级 `currentPi` 把旧 Runtime 回调路由给最新 pi API，因为这可能将旧群聊事件写入已经切换的新 session。
+
+### Runtime 任务串行化
+
+每个 Runtime 使用内部串行任务队列处理 WebSocket frame 和群聊状态修改：
+
+```ts
+socket.on("message", (frame) => {
+  runtimeQueue.enqueue(() => handleFrame(frame));
+});
+```
+
+Creator 的发言额度检查、权威记录持久化、`GroupChatState` 更新和广播提交必须按照 frame 到达顺序通过该队列执行。
+
+Runtime 任务队列与 pi follow-up queue 是两套不同职责：
+
+- Runtime 队列串行处理 WebSocket 协议和群聊状态；
+- pi follow-up queue 管理当前 Character Agent 的输入。
+
+reload detach 时，旧 Runtime 先进入 `detaching`，新 frame 转入 handoff buffer，再等待当前 Runtime 任务完成。等待最多使用 5 秒通用短期协调超时。随后停止计时器、移除旧 handler、使 bindings 失效并发布 handoff。
+
+等待超时时，取消仍可取消的任务；已经完成权威记录持久化的公开消息不回滚。超时后的旧任务不得再调用 pi API 或继续修改已交接状态。
+
+新 Runtime 使用新的 bindings 和代码恢复队列，将 handoff buffer 按接收顺序先入队，再开放 live frame dispatch 并进入 `active`。普通离开、quit 和 pi session 切换则进入 `disposed`，不允许交接或重新绑定。
+
+### Runtime 统一清理接口
+
+CreatorRuntime 和 CharacterRuntime 只暴露两个终止入口：
+
+```ts
+interface ManagedRuntime<Handoff> {
+  close(reason: RuntimeCloseReason): Promise<RuntimeCloseResult>;
+  detachForReload(): Promise<Handoff>;
+}
+
+interface RuntimeCloseResult {
+  timedOut: boolean;
+  errors: Error[];
+}
+
+type RuntimeCloseReason =
+  | "user_leave"
+  | "session_change"
+  | "quit"
+  | "socket_closed"
+  | "heartbeat_timeout"
+  | "group_chat_closed"
+  | "reload_timeout"
+  | "initialization_failed";
+```
+
+- `close()` 永久结束当前 Runtime，资源不能恢复，Controller 最终进入 `idle`；
+- `detachForReload()` 只用于 reload，把资源转移到 handoff，不执行永久关闭；
+- 两条路径不能同时成功。
+
+`close()` 必须幂等。Runtime 保存第一次关闭创建的 Promise，后续关闭调用返回同一个 Promise，不重复发送离开、广播、释放 Character 或关闭资源：
+
+```ts
+close(reason: RuntimeCloseReason): Promise<RuntimeCloseResult> {
+  this.closePromise ??= this.performClose(reason);
+  return this.closePromise;
+}
+```
+
+单个清理步骤失败时记录到 `errors` 并继续后续步骤，不把半失效 Runtime 留在原业务状态。Controller 在清理结束后无论是否超时或包含错误都提交到 `idle`；有 UI 时显示清理警告。
+
+CharacterRuntime 的永久关闭顺序：
+
+1. 将内部 lifecycle 置为 `disposed` 并递增 generation；
+2. 禁止 Runtime 队列接收新任务；
+3. 移除 `tavern_speak`，停用 Character prompt 和群聊输入模块；
+4. 停止防抖和心跳计时器，取消尚未开始的后台任务；
+5. 根据关闭原因尽力发送 `leave_group_chat`；
+6. 关闭 WebSocket，移除 handler；
+7. 丢弃尚未提交的 `pendingEvents`；
+8. 使 `PiRuntimeBindings` 失效。
+
+`user_leave`、`session_change` 和 `quit` 尽力发送 `leave_group_chat`。`socket_closed`、`heartbeat_timeout`、`group_chat_closed` 和 `reload_timeout` 不等待离开响应，直接执行本地清理。当前 Agent run 不 abort，已经提交给 pi session 或 follow-up queue 的内容继续由 pi 管理。
+
+CreatorRuntime 的永久关闭顺序：
+
+1. 将内部 lifecycle 置为 `disposed` 并递增 generation；
+2. WebSocket Server 停止接受新连接，Runtime 队列停止接收新任务；
+3. 等待当前任务完成，最多 5 秒；
+4. 释放全部 Character 预留；
+5. 尽力广播 `group_chat_closed`；
+6. 关闭全部成员 WebSocket 和 WebSocket Server；
+7. 停止心跳及其他计时器；
+8. 删除活动描述；
+9. 释放连接表和运行期 `GroupChatState`；
+10. 使 `PiRuntimeBindings` 失效。
+
+等待当前任务超时时，取消仍可取消的任务；已经成功持久化的公开消息不回滚，随后继续关闭群聊。群聊 session 文件保留，不追加结束 entry。
+
+`detachForReload()` 不调用普通 `close()`。它把 lifecycle 置为 `detaching`，停止 live dispatch，等待当前任务最多 5 秒，移除旧 handler 和计时器，再把仍需保留的资源移动到 `ReloadHandoff`。WebSocket、Character、活动描述、未提交环境事件等资源按照前文 handoff 规则保留。
+
+### 一次性资源所有权
+
+`ReloadHandoff` 使用一次性 `take()` 模拟资源 move：
+
+```ts
+class ReloadHandoff<T> {
+  private payload: T | null;
+
+  take(): T {
+    if (!this.payload) {
+      throw new Error("Reload handoff has already been consumed");
+    }
+
+    const payload = this.payload;
+    this.payload = null;
+    return payload;
+  }
+}
+```
+
+- `take()` 只能成功一次；
+- 旧 Runtime 交接后清空自己的资源引用；
+- 新 Runtime 接管后 handoff 不再拥有资源；
+- 5 秒超时只有 handoff 仍持有资源时才能执行超时清理。
+
+`JoinAttempt` 同样提供幂等 `close(reason)` 和一次性 `takeConnection()`：
+
+- `close()` 后不能再转交连接；
+- `takeConnection()` 后，`JoinAttempt.close()` 不能关闭已经交给 CharacterRuntime 的 WebSocket；
+- Character 预留最多释放一次。
+
+Controller 不直接关闭具体 WebSocket、timer 或 listener，只通过 `runtime.close(reason)`、`runtime.detachForReload()` 和 `JoinAttempt` 的所有权接口执行顶层状态转换。transition lock 串行顶层转换，Runtime 的幂等关闭负责吸收 WebSocket、心跳等后台入口的并发清理。
+
+### TUI 投影
+
+TUI 不维护第二份群聊业务状态。当前 Extension Runtime 创建一个轻量 `TavernUiPresenter`，每次都从 Controller、`GroupChatState` 或 Character 最近取得的群聊状态快照生成只读 view model，再通过当前 `PiRuntimeBindings` 中的有效 UI context 渲染。
+
+```ts
+interface TavernViewModel {
+  status: string | null;
+  widgetLines: string[] | null;
+}
+```
+
+Presenter 可以缓存上一次已经渲染的 view model 以避免重复刷新，但该缓存不具有业务权威性，不能参与协议、额度、成员或恢复判断。
+
+UI context 在当前 Extension Runtime 的 `session_start` 中绑定到 `PiRuntimeBindings`。后台更新只调用 bindings 暴露的 UI 方法，不直接保存或调用旧 command/event context。Runtime shutdown 时先清除当前 status 和 widget，再使 bindings 失效；reload 后由新 Extension Runtime 使用新的 UI context 从交接状态重新生成界面。
+
+#### Footer status
+
+使用固定 key `pi-tavern` 调用 `ctx.ui.setStatus()`：
+
+- `idle`：清除 status；
+- `joining`：显示正在加入或正在准备所选 Character；
+- `creator`：显示 Creator 模式及群聊名称；
+- `character`：显示当前 Character 名称及群聊名称。
+
+Footer 只显示当前模式和身份，不展开在线角色详情。
+
+#### 底部 widget
+
+`creator` 和 `character` 使用固定 key `pi-tavern`，通过：
+
+```ts
+ctx.ui.setWidget("pi-tavern", lines, {
+  placement: "belowEditor",
+});
+```
+
+widget 只显示已经确定的两类摘要：
+
+- 当前总成员数；
+- 当前 `is_streaming: true` 的 Character 名称。
+
+总成员数包含 User Persona，因此为在线 Character 数量加一。Creator 直接从权威 `GroupChatState` 生成；Character 从最近一次 `get_group_chat_state` 快照生成。Character 尚未取得首次状态快照时显示成员数未知，不自行猜测其他在线成员。
+
+`is_streaming` 表示对应 pi Agent 正在生成，不区分由终端私聊还是群聊输入触发。widget 不将其解释为已经产生公开发言。
+
+`idle`、`joining` 以及 Runtime 清理时移除 widget。`/tavern-status` 负责按需展示完整群聊和在线 Character 状态，不把详细列表常驻 widget。
+
+TUI 刷新触发点：
+
+- Controller 状态转换；
+- Creator 的 `GroupChatState` 发生已提交修改；
+- Character 收到新的群聊状态快照；
+- Character 本地 Agent 的 streaming 状态变化；
+- reload handoff 被新 Runtime 接管；
+- Runtime 清理。
+
+UI 更新失败只产生本地展示警告，不改变群聊状态、不回滚公开消息，也不关闭 WebSocket。
+
+#### 创建者主聊天区投影
+
+创建者主聊天区使用 pi 原生 `custom` entry，`customType` 固定为：
+
+```text
+pi-tavern.creator-display
+```
+
+并通过 `registerEntryRenderer()` 注册 renderer。该 entry 持久化在创建者私有 pi session 中，但不进入 LLM context；群聊专用 session 仍是唯一权威记录。
+
+entry data 是 PiTavern 自定义持久化 JSON，因此使用 `snake_case`：
+
+```ts
+interface CreatorDisplayEntryData {
+  kind: "public_message";
+  group_chat_id: string;
+  event: PublicMessageEvent;
+}
+```
+
+renderer 只读取 entry 自身的数据，不读取 live Runtime 或 `GroupChatState`，保证创建者以后恢复自己的私有 pi session 时仍能稳定展示历史投影。
+
+公开消息必须先完成群聊权威记录持久化和 `GroupChatState` 提交，再追加创建者展示 entry。展示 entry 写入失败不回滚群聊消息。
+
+成员加入、离开和举手只属于运行期环境，既不写入群聊专用 session，也不作为展示 entry 写入创建者私有 session。创建者通过当前 UI context 的 notify 和 widget 查看这些运行期变化。
+
+Character 私有 session 中的 `pi-tavern.group-chat-input` 继续使用 `registerMessageRenderer()` 渲染已经提交给当前 pi session 的群聊环境批次。renderer 同样只读取该 custom message 自身的 `content` 和 `details`，不依赖 live Runtime。
+
+## Extension 入口接线
+
+PiTavern 使用一个 pi `ExtensionFactory` 作为组合根。Factory 创建当前 Extension Runtime 的 `PiRuntimeBindings`、`TavernUiPresenter` 和 `TavernController`，然后一次性注册命令、工具、renderer 与生命周期事件。
+
+注册行为沿用 `references/pi` 的原生 Extension API，不在 Runtime 内建立第二套事件总线。
+
+### 命令
+
+Factory 注册以下已确定的命令：
+
+| 命令 | Controller 路由 |
+| --- | --- |
+| `/tavern-new` | `idle → creator`，调用 `CreatorRuntime.startNew()` |
+| `/tavern-resume` | `idle → creator`，选择群聊记录后调用 `CreatorRuntime.resume()` |
+| `/tavern-join` | `idle → joining → character` |
+| `/tavern-leave` | 取消加入、关闭群聊或离开群聊，最终进入 `idle` |
+| `/tavern-status` | 按当前状态展示加入进度、创建者权威状态或 Character 拉取的状态 |
+| `/tavern-set-max` | 仅在 `creator` 中设置当前群聊的 `groupMaxMessages` |
+| `/tavern-name` | 仅在 `creator` 中设置或查看群聊名称 |
+
+命令 handler 不直接操作 WebSocket、timer、`SessionManager` 或提示词，只调用 Controller 的串行转换入口。命令执行期间使用传入的当前 command context 完成交互式选择和确认；该 context 不保存到后台 Runtime。
+
+### 工具与 renderer
+
+Factory 在加载阶段注册：
+
+- 一个 `tavern_speak` tool；
+- `pi-tavern.creator-display` 的 `registerEntryRenderer()`；
+- `pi-tavern.group-chat-input` 的 `registerMessageRenderer()`。
+
+`tavern_speak` 始终完成注册，但只有 `character` 状态将其加入 active tools。工具 execute 通过 Controller 查找当前 `CharacterRuntime`，再次校验连接后发送 `speak` 请求。
+
+两个 renderer 都是无状态纯渲染函数，只读取当前 entry 或 custom message 的持久化数据，不捕获 Controller、Runtime 或 UI context。
+
+### pi 事件
+
+Factory 只订阅首版确实需要的 pi 事件：
+
+| pi 事件 | PiTavern 行为 |
+| --- | --- |
+| `session_start` | 通过 `ctx.sessionManager.getSessionId()` 绑定当前 session ID 和 UI context；接管匹配的 reload handoff 或从 `idle` 开始；重新渲染 TUI |
+| `session_shutdown` | `reload` 时 detach 并发布 handoff；其他原因按既定规则永久关闭当前状态 |
+| `session_before_switch` | `/new`、`/resume` 前执行退出确认与清理，可返回 `cancel: true` |
+| `session_before_fork` | `/fork`、`/clone` 前执行相同的退出确认与清理，可返回 `cancel: true` |
+| `input` | `creator` 状态接管 User Persona 文本，先持久化为公共消息，再返回 `action: "handled"`，不启动创建者 LLM |
+| `before_agent_start` | 仅在 `character` 状态把缓存的 Character Markdown 正文追加到本次 system prompt |
+| `agent_start` | 仅在 `character` 状态将本地 `is_streaming: true` 上报给创建者 |
+| `agent_settled` | 仅在 `character` 状态将本地 `is_streaming: false` 上报给创建者 |
+
+创建者 `input` handler 不处理已经被 pi 识别的 Extension 命令，因为 pi 会先执行命令并跳过 `input` 事件。`event.source === "extension"` 的输入也不作为 User Persona 消息，避免 PiTavern 自己注入的消息再次进入群聊。
+
+生成状态的结束点使用 `agent_settled`，不使用 `agent_end`。按照 pi 的语义，`agent_end` 后仍可能自动重试、自动 compact 后重试或继续处理 follow-up；只有 `agent_settled` 表示当前 Agent 不会自动继续运行。
+
+首版不订阅 `message_update` 或 `turn_*` 来推导生成状态，也不轮询 Agent。`is_streaming` 只在布尔值实际变化时上报；断线或 Runtime 清理不再尝试上报。
+
+## `CreatorRuntime` 最终资源
+
+`CreatorRuntime` 是创建者活动实例的资源所有者，最终持有：
+
+```ts
+class CreatorRuntime {
+  readonly bindings: PiRuntimeBindings;
+  readonly webSocketServer: WebSocketServer;
+  readonly groupSessionManager: SessionManager;
+  readonly state: GroupChatState;
+  readonly activeDescriptor: ActiveGroupChatDescriptor;
+
+  readonly connections: Map<string, WebSocket>;
+  readonly heartbeatStates: Map<string, HeartbeatState>;
+  readonly runtimeQueue: SerialTaskQueue;
+
+  private heartbeatTimer: NodeJS.Timeout;
+  private lifecycle: RuntimeLifecycle;
+  private generation: number;
+  private closePromise: Promise<RuntimeCloseResult> | null;
+}
+```
+
+其中：
+
+- `bindings` 是当前 Extension Runtime 提供的有效 pi 接口引用，reload 时不转移；
+- `webSocketServer` 持有本次活动实例实际监听的灵活端口；
+- `groupSessionManager` 是群聊记录的唯一持久化入口；
+- `state` 是协议、额度、成员和 TUI 的唯一权威内存状态；
+- `activeDescriptor` 表示当前 Runtime 对活动描述文件的所有权；
+- `connections` 与 `state.onlineCharacters` 共同维持正式在线成员约束；
+- `heartbeatStates` 和 `heartbeatTimer` 管理在线连接心跳；
+- `runtimeQueue` 串行处理连接 frame、User Persona 输入和群聊状态提交；
+- lifecycle、generation 与 `closePromise` 实现异步失效保护和幂等关闭。
+
+WebSocket Server 的单个未正式加入连接仍由对应 connection handler 闭包持有 `sessionId`、`reservedCharacterId` 和 5 秒准备超时 timer。它不是正式在线资源，不进入 `connections`；正式加入或连接关闭后，该闭包必须停止准备超时 timer。
+
+### 启动提交点
+
+`startNew()` 和 `resume()` 在返回 `CreatorRuntime` 前完成以下共同启动步骤：
+
+1. 准备群聊 `SessionManager` 和 `GroupChatState`；
+2. 创建仅监听 `127.0.0.1`、由系统分配端口的 WebSocket Server；
+3. 安装 connection handler、Runtime 队列和心跳；
+4. 原子创建活动描述文件；
+5. 将全部资源交给新 `CreatorRuntime`；
+6. Controller 最后提交到 `creator` 并刷新 TUI。
+
+活动描述成功创建是外部可发现的启动提交点。在此之前 `/tavern-join` 不能发现该实例。任一步失败时按初始化逆序清理已经取得的资源，删除可能创建的活动描述，并保持 Controller 为 `idle`；新建空群聊不留下群聊 session 文件。
+
+Controller 进入 `creator` 后，所有 User Persona 消息、WebSocket frame 和群聊状态修改都通过同一个 `runtimeQueue` 串行执行。永久关闭顺序和 reload detach 顺序使用本文已经确定的统一清理接口，不再定义第三个停止入口。
+
+## 运行资源所有权
+
+首版使用单一所有者和显式借用关系：
+
+| 资源 | 稳定所有者 | 转移规则 |
+| --- | --- | --- |
+| 当前 `TavernState` | `TavernController` | 只能在 Controller transition lock 内替换 |
+| 当前 `PiRuntimeBindings` | 当前 Extension Factory 实例 | Runtime 只借用；shutdown 后失效，不进入 handoff |
+| `TavernUiPresenter` | 当前 Extension Factory 实例 | 只借用 Controller/Runtime 快照；不进入 handoff |
+| 加入期 WebSocket | `JoinAttempt` | `character_ready` 成功后由 `takeConnection()` 一次性转给 `CharacterRuntime` |
+| Character 预留 | 创建者 connection handler | 正式加入、关闭或 5 秒超时时释放一次 |
+| 正式 Character WebSocket | 对应 `CharacterRuntime` | reload 时一次性转给 `CharacterReloadHandoff`，再转给新 Runtime |
+| WebSocket Server | `CreatorRuntime` | reload 时一次性转给 `CreatorReloadHandoff`，再转给新 Runtime |
+| 在线成员 WebSocket | `CreatorRuntime.connections` | 与 Server 一起 handoff；普通关闭时由 Creator 关闭 |
+| 群聊 `SessionManager` | `CreatorRuntime` | reload 时转移；普通关闭后文件保留、对象释放 |
+| `GroupChatState` | `CreatorRuntime` | reload 时转移；协议和 TUI 只能读取或通过 Runtime 队列修改 |
+| 活动描述 | `CreatorRuntime` | reload 时保持并转移；永久关闭或启动失败时删除 |
+| Runtime timer/listener/queue | 对应 Runtime | 永不转移旧 callback；reload 时停止并由新 Runtime 重建 |
+| Character prompt 缓存 | `CharacterRuntime` | reload 时随 handoff 转移；离开时释放 |
+| 未提交环境批次 | `CharacterRuntime` | reload 时转移；永久关闭时丢弃 |
+| reload 底层资源 | 一次性 `ReloadHandoff` | `take()` 后所有权转给新 Runtime；超时且未取走时由 handoff 清理 |
+| renderer 注册 | pi Extension Runtime | 无业务状态，不进入任何 Runtime 或 handoff |
+
+任何可关闭资源在同一时刻只能有一个所有者。Controller、Presenter、renderer 和 command handler 不直接关闭底层资源；它们只能请求当前所有者执行 `close()`、`detachForReload()` 或一次性转移。
+
+创建者 connection handler 在 `character_ready` 提交后不再拥有该 WebSocket，其后连接由 `CreatorRuntime.connections` 统一管理。`JoinAttempt` 转交成功后也不再拥有 WebSocket。以上两条所有权变化都必须先完成目标容器写入，再清空原所有者引用，避免异常路径出现无人清理或重复关闭。
+
 ## 与 pi Extension Runtime 的关系
 
 `TavernController` 由 PiTavern 的 Extension Factory 创建，属于该次 pi Extension Runtime。
@@ -379,6 +804,112 @@ reload 期间：
 
 `ReloadHandoff` 只允许同一个 pi session 的下一次 reload Runtime 一次性取回，不是永久全局 Controller，也不用于 `/new`、`/resume`、`/fork` 或 `/clone`。
 
+`ReloadHandoff` 不保存或交接旧的 `TavernController`、`CreatorRuntime`、`CharacterRuntime` 实例。旧实例包含 reload 前的代码和已经失效的 pi API，不能由新 Extension Runtime 继续调用。
+
+handoff 只保存可转移的底层资源和纯状态。新 Extension Runtime 取回 handoff 后，使用 reload 后的代码重新创建 `TavernController` 及对应 Runtime，再把底层资源和状态交给新实例接管。
+
+Creator 侧 handoff 载荷：
+
+```ts
+interface CreatorReloadHandoff {
+  kind: "creator";
+  piSessionId: string;
+
+  webSocketServer: WebSocketServer;
+  groupSessionManager: SessionManager;
+  groupChatState: GroupChatState;
+
+  connections: Map<string, WebSocket>;
+  heartbeatStates: Map<string, HeartbeatState>;
+
+  activeDescriptor: ActiveGroupChatDescriptor;
+
+  bufferedFrames: Map<string, BufferedFrame[]>;
+  closedSessionIds: Set<string>;
+
+  expiresAt: number;
+}
+```
+
+- `piSessionId` 限制只有相同 pi session 的新 Runtime 可以接管；
+- WebSocket Server 保持原监听端口；
+- 群聊 `SessionManager`、`GroupChatState` 和活动描述所有权继续使用；
+- `connections` 只包含已经完成 `character_ready` 的正式在线成员；
+- reload 窗口收到的在线成员 frame 先按 `sessionId` 暂存为原始 frame，新 Runtime 接管后再解析；
+- reload 窗口断开的在线成员记录到 `closedSessionIds`，新 Runtime 接管后执行正常断线清理；
+- 旧心跳计时器和 WebSocket handler 不交接，新 Runtime 使用保存的心跳状态重新建立。
+
+Creator 开始 reload 时，尚未完成 `character_ready` 的连接全部释放 Character 预留并关闭，不进入 handoff。5 秒 reload 窗口内新建立的 WebSocket 也直接关闭，不启动加入流程。
+
+handoff 不包含旧 pi API、command/event context、TUI context、renderer 或计时器。
+
+Character 侧 handoff 载荷：
+
+```ts
+interface CharacterReloadHandoff {
+  kind: "character";
+  piSessionId: string;
+
+  groupChatId: string;
+  socket: WebSocket;
+  character: LoadedCharacter;
+
+  pendingEvents: GroupChatEnvironmentEvent[];
+  debounceDueAt: number | null;
+  pendingStateRequestId: string | null;
+
+  bufferedFrames: BufferedFrame[];
+  socketClosed: boolean;
+
+  heartbeatState: HeartbeatState;
+  expiresAt: number;
+}
+
+interface BufferedFrame {
+  receivedAt: number;
+  data: WebSocket.RawData;
+}
+```
+
+- `piSessionId` 限制只有相同 pi session 的新 Runtime 可以接管；
+- `socket`、`groupChatId` 和 `character` 保持原连接、群聊身份及已缓存的 Character prompt；
+- `pendingEvents` 保存尚未提交给 pi 的环境事件；
+- `debounceDueAt` 保存原 1 秒防抖截止时间；
+- `pendingStateRequestId` 允许新 Runtime 识别 reload 前已经发出的群聊状态请求响应；
+- reload 窗口收到的 frame 按 `receivedAt` 暂存；
+- `socketClosed` 记录 reload 窗口内连接是否已经断开；
+- `heartbeatState` 保存最后一次收到创建者心跳的时间。
+
+旧 CharacterRuntime 交接时：
+
+1. 停止旧防抖和心跳计时器；
+2. 保存未提交事件、防抖截止时间和未完成状态请求标识；
+3. 移除旧 WebSocket handler，安装只负责暂存 frame 和记录连接关闭的 handoff handler；
+4. 清除对旧 pi API 的引用；
+5. 发布一次性 handoff。
+
+新 Extension Runtime 接管时：
+
+1. 验证 `piSessionId`；
+2. 使用 reload 后的代码构造新的 `CharacterRuntime`；
+3. 安装新的 WebSocket handler；
+4. 恢复 Character prompt 和 `tavern_speak`；
+5. 使用保存的心跳状态重新建立心跳检测；
+6. 按 `receivedAt` 顺序处理暂存 frame；
+7. 恢复环境防抖。
+
+防抖恢复规则：
+
+- `debounceDueAt` 仍在未来时，只等待剩余时间；
+- `debounceDueAt` 已经过期时，接管完成后立即处理；
+- reload 窗口收到新的环境消息时，以最后一条消息的 `receivedAt` 重新计算 1 秒截止时间。
+
+如果 `socketClosed` 为 `true`，新 Runtime 不恢复 `character`，而是执行正常断线清理并进入 `idle`。
+
+handoff 不保存 JS Promise、resolver、tool execution callback、已经提交给 pi session 或原生 follow-up queue 的群聊输入，也不保存当前 Agent run。这些已经由 pi 接管的内容在 reload 后继续遵循 pi 原生逻辑，PiTavern 不重复提交。
+
+Character handoff 超过 5 秒仍未接管时，关闭 WebSocket，丢弃未提交的 `pendingEvents` 和 `bufferedFrames`，释放本地 Character 运行资源。服务端按照正常 `disconnected` 规则清理成员；之后加载的新 Runtime 从 `idle` 开始。
+
 `joining` 不参与 reload 交接。旧 Runtime 在 reload shutdown 时关闭加入连接、释放可能存在的 Character 预留并释放 `JoinAttempt`；新 Runtime 从 `idle` 开始。
 
 新 Runtime 必须在 handoff 创建后的 5 秒通用短期协调超时内完成接管。超时时：
@@ -388,18 +919,23 @@ reload 期间：
 - handoff 中尚未提交给 pi 的暂存消息和防抖批次丢弃；
 - 之后加载的新 Runtime 从 `idle` 开始，不自动重连或恢复。
 
-`ReloadHandoff` 的具体资源载荷仍待讨论。
+### quit 清理
 
-## 待讨论
+能够触发 `session_shutdown` 且 `reason: "quit"` 的正常退出，必须等待 PiTavern 先完成群聊退出和本地资源清理，再允许 pi 继续退出：
 
-以下内容尚未定稿，不能作为实现约束：
+- `idle`：不执行额外操作；
+- `joining`：释放 Character 预留、关闭 WebSocket 并释放 `JoinAttempt`；
+- `character`：尽力完成 `leave_group_chat`，再关闭 WebSocket，并移除 Character prompt、群聊输入模块和 `tavern_speak`；
+- `creator`：广播 `group_chat_closed`，关闭全部 Character 连接和 WebSocket Server，删除活动描述并释放 `CreatorRuntime`。
 
-1. Extension 入口具体注册哪些命令、事件、工具和渲染器。
-2. `CreatorRuntime` 持有哪些资源，如何启动与关闭。
-3. quit 时的 `session_shutdown`，以及 `ReloadHandoff` 的具体交接载荷。
-4. WebSocket 后台回调如何安全访问当前有效的 pi Extension API。
-5. Runtime 的清理接口和异步任务终止方式。
-6. TUI 状态由谁维护、如何使用当前有效的 UI context 更新。
-7. 各项运行资源的最终所有权边界。
+群聊关闭不向群聊 session 追加结束 entry，已经提交的群聊记录保持不变。
+
+quit 清理最多等待 5 秒通用短期协调超时。超时后不再等待远端确认，强制关闭本地 WebSocket 资源、完成本地清理并允许 pi 继续退出。
+
+`session_shutdown` 不能覆盖 `kill -9`、进程崩溃、系统断电或 pi 在触发生命周期事件前异常终止。此类情况依靠既有故障机制收敛：
+
+- Character 失效由创建者通过 WebSocket close 或心跳超时清理；
+- Creator 失效由 Character 通过 WebSocket close 或心跳超时检测；
+- 残留活动描述由后续发现流程通过 PID 和实际 WebSocket 身份校验清理。
 
 具体运行状态及已经确认的产品转换规则见 [runtime-state-machine.md](runtime-state-machine.md)。
