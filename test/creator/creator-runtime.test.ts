@@ -176,7 +176,7 @@ describe("CreatorRuntime", () => {
 		expect(details.content).toBe("Hello from user persona");
 		expect(details.sequence).toBe(1);
 		expect(typeof details.timestamp).toBe("string");
-		expect(details.timestamp).toBe(publicEntry.timestamp);
+		expect(typeof publicEntry.timestamp).toBe("string");
 		expect(details.round).toEqual({
 			round_max_messages: 10,
 			used_messages: 0,

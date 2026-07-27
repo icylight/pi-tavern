@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
 
@@ -41,7 +41,6 @@ export interface CreatorRuntimeDependencies {
 	readyTimeoutMs: number;
 	publishDescriptor: (agentDir: string, descriptor: ActiveGroupChatDescriptor) => Promise<string>;
 	writeFile: (path: string, data: string) => Promise<void>;
-	appendFile: (path: string, data: string) => Promise<void>;
 }
 
 const DEFAULT_CONFIG_MAX_MESSAGES = 10;
@@ -55,7 +54,6 @@ export class CreatorRuntime {
 	private disposed = false;
 	private readonly deps: CreatorRuntimeDependencies;
 	private persistedCount = 0;
-	private lastPersistedId: string | null = null;
 	onPublicMessage:
 		| ((msg: {
 				sender: { type: "user_persona" } | { type: "character"; character_id: string; name: string };
@@ -105,7 +103,6 @@ export class CreatorRuntime {
 			readyTimeoutMs: SHORT_COORDINATION_TIMEOUT_MS,
 			publishDescriptor: publishActiveDescriptor,
 			writeFile: (path, data) => writeFile(path, data),
-			appendFile: (path, data) => appendFile(path, data),
 			...dependencyOverrides,
 		};
 		const groupChatId = dependencies.createId();
@@ -168,27 +165,9 @@ export class CreatorRuntime {
 				return normalizedName;
 			}
 
-			// Active group chat: persist entry first, then commit state
-			let entryId: string;
-			if (this.persistedCount > 0) {
-				// Use SessionManager's append API for post-init writes
-				entryId = this.groupSessionManager.appendSessionInfo(normalizedName ?? "");
-				this.persistedCount++;
-				this.lastPersistedId = entryId;
-			} else {
-				// Before first persist: write directly (SessionManager not yet synced to file)
-				const entry = {
-					type: "session_info" as const,
-					id: randomUUID(),
-					parentId: this.lastPersistedId,
-					timestamp: new Date().toISOString(),
-					name: normalizedName ?? undefined,
-				};
-				await this.deps.appendFile(this.getSessionFilePath(), `${JSON.stringify(entry)}\n`);
-				entryId = entry.id;
-				this.persistedCount++;
-				this.lastPersistedId = entryId;
-			}
+			// Active group chat: persist entry via SessionManager
+			this.groupSessionManager.appendSessionInfo(normalizedName ?? "");
+			this.persistedCount++;
 
 			// Commit memory state (authoritative after successful persist)
 			setGroupChatName(this.state, name);
@@ -213,30 +192,11 @@ export class CreatorRuntime {
 				return;
 			}
 
-			// Active group chat: persist entry first, then commit state
-			let entryId: string;
-			if (this.persistedCount > 0) {
-				// Use SessionManager's append API for post-init writes
-				entryId = this.groupSessionManager.appendCustomEntry("pi-tavern.group-settings", {
-					group_max_messages: maxMessages,
-				});
-				this.persistedCount++;
-				this.lastPersistedId = entryId;
-			} else {
-				// Before first persist: write directly (SessionManager not yet synced to file)
-				const entry = {
-					type: "custom" as const,
-					customType: "pi-tavern.group-settings",
-					id: randomUUID(),
-					parentId: this.lastPersistedId,
-					timestamp: new Date().toISOString(),
-					data: { group_max_messages: maxMessages },
-				};
-				await this.deps.appendFile(this.getSessionFilePath(), `${JSON.stringify(entry)}\n`);
-				entryId = entry.id;
-				this.persistedCount++;
-				this.lastPersistedId = entryId;
-			}
+			// Active group chat: persist entry via SessionManager
+			this.groupSessionManager.appendCustomEntry("pi-tavern.group-settings", {
+				group_max_messages: maxMessages,
+			});
+			this.persistedCount++;
 
 			setGroupMaxMessages(this.state, maxMessages);
 		});
@@ -253,66 +213,43 @@ export class CreatorRuntime {
 			const roundMaxMessages = this.state.groupChat.groupMaxMessages;
 			const sequence = this.state.nextSequence + 1;
 			const timestamp = new Date().toISOString();
-			let entryId = this.persistedCount === 0 ? randomUUID() : ""; // Set in first-persist branch, overwritten otherwise
-			const parentId = this.lastPersistedId;
+			let entryId: string;
 
-			// Build entry
-			const entry = {
-				type: "custom_message" as const,
-				customType: "pi-tavern.public-message",
-				content: formatEntryContent("User Persona", content),
-				display: true,
-				id: entryId,
-				parentId,
-				timestamp,
-				details: {
-					sender: { type: "user_persona" as const },
-					content,
-					sequence,
-					timestamp,
-					round: {
-						round_max_messages: roundMaxMessages,
-						used_messages: 0,
-						remaining_messages: roundMaxMessages,
-					},
-				},
-			};
-
-			// For the very first persist, write header + metadata entries first
+			// For the very first persist, seed the file with SessionManager's header,
+			// then use its append API for all entries so IDs, parentId chain, and envelopes
+			// are fully managed by SessionManager (persistence.md L6-8).
 			if (this.persistedCount === 0) {
 				const header = this.groupSessionManager.getHeader();
-				const nameEntry = this.state.groupChat.name
-					? {
-							type: "session_info" as const,
-							id: randomUUID(),
-							parentId: null,
-							timestamp,
-							name: this.state.groupChat.name,
-						}
-					: null;
-				const settingsEntry = {
-					type: "custom" as const,
-					customType: "pi-tavern.group-settings",
-					id: randomUUID(),
-					parentId: nameEntry?.id ?? null,
-					timestamp,
-					data: { group_max_messages: this.state.groupChat.groupMaxMessages },
-				};
-
-				// Wire public message parent to settings entry for a single continuous branch
-				entry.parentId = settingsEntry.id;
-
-				const lines: string[] = [];
-				if (header) lines.push(JSON.stringify(header));
-				if (nameEntry) lines.push(JSON.stringify(nameEntry));
-				lines.push(JSON.stringify(settingsEntry));
-				lines.push(JSON.stringify(entry));
-
-				await this.deps.writeFile(this.getSessionFilePath(), `${lines.join("\n")}\n`);
-				this.persistedCount = lines.length - (header ? 1 : 0);
-
-				// Re-open through SessionManager so subsequent appends use its API
+				await this.deps.writeFile(this.getSessionFilePath(), `${JSON.stringify(header)}\n`);
 				this.groupSessionManager.setSessionFile(this.getSessionFilePath());
+
+				if (this.state.groupChat.name) {
+					this.groupSessionManager.appendSessionInfo(this.state.groupChat.name);
+					this.persistedCount++;
+				}
+
+				this.groupSessionManager.appendCustomEntry("pi-tavern.group-settings", {
+					group_max_messages: roundMaxMessages,
+				});
+				this.persistedCount++;
+
+				entryId = this.groupSessionManager.appendCustomMessageEntry(
+					"pi-tavern.public-message",
+					formatEntryContent("User Persona", content),
+					true,
+					{
+						sender: { type: "user_persona" as const },
+						content,
+						sequence,
+						timestamp,
+						round: {
+							round_max_messages: roundMaxMessages,
+							used_messages: 0,
+							remaining_messages: roundMaxMessages,
+						},
+					},
+				);
+				this.persistedCount++;
 			} else {
 				// Use SessionManager's append API for subsequent persists
 				entryId = this.groupSessionManager.appendCustomMessageEntry(
@@ -335,7 +272,6 @@ export class CreatorRuntime {
 			}
 
 			// Commit state only after successful persist
-			this.lastPersistedId = entryId;
 			this.state.round = { roundMaxMessages, usedMessages: 0 };
 			this.state.nextSequence = sequence;
 			// Clear hand-raised flags from previous round (only on success)
@@ -700,7 +636,6 @@ export class CreatorRuntime {
 			}
 
 			this.persistedCount++;
-			this.lastPersistedId = entryId;
 
 			// Commit state only after successful persist
 			round.usedMessages = newUsed;
