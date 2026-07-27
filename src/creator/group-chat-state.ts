@@ -1,3 +1,5 @@
+import type { CharacterSummary } from "../config/character-card.js";
+
 export interface GroupChatInfo {
 	groupChatId: string;
 	name: string | null;
@@ -10,11 +12,18 @@ export interface RoundState {
 	usedMessages: number;
 }
 
+export interface OnlineCharacterState {
+	sessionId: string;
+	character: CharacterSummary;
+	isStreaming: boolean;
+	handRaised: boolean;
+}
+
 export interface GroupChatState {
 	groupChat: GroupChatInfo;
 	round: RoundState | null;
 	characterReservations: Map<string, string>;
-	onlineCharacters: Map<string, never>;
+	onlineCharacters: Map<string, OnlineCharacterState>;
 }
 
 export interface CreateGroupChatStateOptions {
@@ -35,7 +44,7 @@ export function createGroupChatState(options: CreateGroupChatStateOptions): Grou
 		},
 		round: null,
 		characterReservations: new Map(),
-		onlineCharacters: new Map<string, never>(),
+		onlineCharacters: new Map<string, OnlineCharacterState>(),
 	};
 }
 

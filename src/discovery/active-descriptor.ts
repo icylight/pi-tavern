@@ -22,7 +22,7 @@ const ActiveGroupChatDescriptorSchema = Type.Object(
 		group_chat_id: Type.String(),
 		name: Type.Union([Type.String(), Type.Null()]),
 		cwd: Type.String(),
-		pid: Type.Integer(),
+		pid: Type.Integer({ minimum: 1 }),
 		host: Type.Literal("127.0.0.1"),
 		port: Type.Integer({ minimum: 1, maximum: 65_535 }),
 		started_at: Type.String(),
@@ -35,7 +35,11 @@ type ActiveGroupChatDescriptorJson = Static<typeof ActiveGroupChatDescriptorSche
 const checkActiveGroupChatDescriptor = Compile(ActiveGroupChatDescriptorSchema);
 
 export function getActiveDescriptorPath(agentDir: string, cwd: string, groupChatId: string): string {
-	return join(getGroupChatProjectDirectory(agentDir, cwd), "active", `${groupChatId}.json`);
+	return join(getActiveDescriptorDirectory(agentDir, cwd), `${groupChatId}.json`);
+}
+
+export function getActiveDescriptorDirectory(agentDir: string, cwd: string): string {
+	return join(getGroupChatProjectDirectory(agentDir, cwd), "active");
 }
 
 export function getGroupChatProjectDirectory(agentDir: string, cwd: string): string {
