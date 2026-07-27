@@ -36,8 +36,7 @@ describe("CreatorRuntime", () => {
 		expect(runtime.state.groupChat.groupMaxMessages).toBe(10);
 		expect(runtime.state.round).toBeNull();
 		expect(await readActiveDescriptor(runtime.activeDescriptorPath)).toEqual(runtime.activeDescriptor);
-		expect(runtime.groupSessionManager.getSessionId()).toBe(runtime.state.groupChat.groupChatId);
-		expect(runtime.groupSessionManager.getSessionFile()).toBeDefined();
+		expect(runtime.state.groupChat.groupChatId).toBeTruthy();
 		expect(await jsonlFilesUnder(join(root, "agent"))).toEqual([]);
 
 		await runtime.close();

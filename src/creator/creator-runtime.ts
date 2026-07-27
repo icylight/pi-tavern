@@ -75,7 +75,7 @@ export class CreatorRuntime {
 
 	private constructor(
 		readonly webSocketServer: WebSocketServer,
-		readonly groupSessionManager: SessionManager,
+		private groupSessionManager: SessionManager,
 		readonly state: GroupChatState,
 		readonly activeDescriptor: ActiveGroupChatDescriptor,
 		readonly activeDescriptorPath: string,
@@ -159,16 +159,26 @@ export class CreatorRuntime {
 			}
 
 			// Active group chat: persist entry first, then commit state
-			const entry = {
-				type: "session_info" as const,
-				id: randomUUID(),
-				parentId: this.lastPersistedId,
-				timestamp: new Date().toISOString(),
-				name: normalizedName ?? undefined,
-			};
-			await appendFile(this.getSessionFilePath(), `${JSON.stringify(entry)}\n`);
-			this.persistedCount++;
-			this.lastPersistedId = entry.id;
+			let entryId: string;
+			if (this.persistedCount > 0) {
+				// Use SessionManager's append API for post-init writes
+				entryId = this.groupSessionManager.appendSessionInfo(normalizedName ?? "");
+				this.persistedCount++;
+				this.lastPersistedId = entryId;
+			} else {
+				// Before first persist: write directly (SessionManager not yet synced to file)
+				const entry = {
+					type: "session_info" as const,
+					id: randomUUID(),
+					parentId: this.lastPersistedId,
+					timestamp: new Date().toISOString(),
+					name: normalizedName ?? undefined,
+				};
+				await appendFile(this.getSessionFilePath(), `${JSON.stringify(entry)}\n`);
+				entryId = entry.id;
+				this.persistedCount++;
+				this.lastPersistedId = entryId;
+			}
 
 			// Commit memory state (authoritative after successful persist)
 			setGroupChatName(this.state, name);
@@ -194,17 +204,29 @@ export class CreatorRuntime {
 			}
 
 			// Active group chat: persist entry first, then commit state
-			const entry = {
-				type: "custom" as const,
-				customType: "pi-tavern.group-settings",
-				id: randomUUID(),
-				parentId: this.lastPersistedId,
-				timestamp: new Date().toISOString(),
-				data: { group_max_messages: maxMessages },
-			};
-			await appendFile(this.getSessionFilePath(), `${JSON.stringify(entry)}\n`);
-			this.persistedCount++;
-			this.lastPersistedId = entry.id;
+			let entryId: string;
+			if (this.persistedCount > 0) {
+				// Use SessionManager's append API for post-init writes
+				entryId = this.groupSessionManager.appendCustomEntry("pi-tavern.group-settings", {
+					group_max_messages: maxMessages,
+				});
+				this.persistedCount++;
+				this.lastPersistedId = entryId;
+			} else {
+				// Before first persist: write directly (SessionManager not yet synced to file)
+				const entry = {
+					type: "custom" as const,
+					customType: "pi-tavern.group-settings",
+					id: randomUUID(),
+					parentId: this.lastPersistedId,
+					timestamp: new Date().toISOString(),
+					data: { group_max_messages: maxMessages },
+				};
+				await appendFile(this.getSessionFilePath(), `${JSON.stringify(entry)}\n`);
+				entryId = entry.id;
+				this.persistedCount++;
+				this.lastPersistedId = entryId;
+			}
 
 			setGroupMaxMessages(this.state, maxMessages);
 		});
@@ -221,7 +243,7 @@ export class CreatorRuntime {
 			const roundMaxMessages = this.state.groupChat.groupMaxMessages;
 			const sequence = this.state.nextSequence + 1;
 			const timestamp = new Date().toISOString();
-			const entryId = randomUUID();
+			let entryId = this.persistedCount === 0 ? randomUUID() : ""; // Set in first-persist branch, overwritten otherwise
 			const parentId = this.lastPersistedId;
 
 			// Build entry
@@ -278,8 +300,27 @@ export class CreatorRuntime {
 
 				await writeFile(this.getSessionFilePath(), `${lines.join("\n")}\n`);
 				this.persistedCount = lines.length - (header ? 1 : 0);
+
+				// Re-open through SessionManager so subsequent appends use its API
+				this.groupSessionManager.setSessionFile(this.getSessionFilePath());
 			} else {
-				await appendFile(this.getSessionFilePath(), `${JSON.stringify(entry)}\n`);
+				// Use SessionManager's append API for subsequent persists
+				entryId = this.groupSessionManager.appendCustomMessageEntry(
+					"pi-tavern.public-message",
+					formatEntryContent("User Persona", content),
+					true,
+					{
+						sender: { type: "user_persona" as const },
+						content,
+						sequence,
+						timestamp,
+						round: {
+							round_max_messages: roundMaxMessages,
+							used_messages: 0,
+							remaining_messages: roundMaxMessages,
+						},
+					},
+				);
 				this.persistedCount++;
 			}
 
@@ -598,37 +639,33 @@ export class CreatorRuntime {
 			const roundMaxMessages = round.roundMaxMessages;
 			const sequence = this.state.nextSequence + 1;
 			const timestamp = new Date().toISOString();
-			const entryId = randomUUID();
-			const parentId = this.lastPersistedId;
 
 			const senderName = onlineCharacter.character.name;
-			const entry = {
-				type: "custom_message" as const,
-				customType: "pi-tavern.public-message",
-				content: formatEntryContent(senderName, message.content),
-				display: true,
-				id: entryId,
-				parentId,
+			const details = {
+				sender: {
+					type: "character" as const,
+					character_id: onlineCharacter.character.characterId,
+					name: senderName,
+				},
+				content: message.content,
+				sequence,
 				timestamp,
-				details: {
-					sender: {
-						type: "character" as const,
-						character_id: onlineCharacter.character.characterId,
-						name: senderName,
-					},
-					content: message.content,
-					sequence,
-					timestamp,
-					round: {
-						round_max_messages: roundMaxMessages,
-						used_messages: newUsed,
-						remaining_messages: Math.max(0, roundMaxMessages - newUsed),
-					},
+				round: {
+					round_max_messages: roundMaxMessages,
+					used_messages: newUsed,
+					remaining_messages: Math.max(0, roundMaxMessages - newUsed),
 				},
 			};
 
+			let entryId: string;
 			try {
-				await appendFile(this.getSessionFilePath(), `${JSON.stringify(entry)}\n`);
+				// Use SessionManager's append API for post-init writes
+				entryId = this.groupSessionManager.appendCustomMessageEntry(
+					"pi-tavern.public-message",
+					formatEntryContent(senderName, message.content),
+					true,
+					details,
+				);
 			} catch (error) {
 				this.sendFailure(
 					socket,
