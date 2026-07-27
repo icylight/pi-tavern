@@ -542,6 +542,50 @@ describe("CreatorRuntime", () => {
 		await runtime.close();
 	});
 
+	it("rejects speak when message exceeds 64 KiB", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			characters: [
+				{
+					characterId: "dev",
+					name: "Developer",
+					description: "Writes code",
+					path: "/chars/dev.md",
+					prompt: "You are a developer.",
+				},
+			],
+		});
+
+		// Join a character
+		const client = new WebSocket(
+			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
+		);
+		await waitForOpen(client);
+		client.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: "session-1" }));
+		await waitForMessage(client, "response");
+		client.send(JSON.stringify({ id: "2", type: "claim_character", character_id: "dev" }));
+		await waitForMessage(client, "response");
+		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
+		await waitForMessage(client, "response");
+
+		// Create a round first
+		await runtime.submitUserPersonaMessage("Start the round");
+
+		// Send message exceeding 64 KiB
+		const bigMessage = "x".repeat(64 * 1024 + 1);
+		client.send(JSON.stringify({ id: "4", type: "speak", content: bigMessage }));
+		const speakResponse = await waitForMessage(client, "response");
+
+		expect(speakResponse.command).toBe("speak");
+		expect(speakResponse.success).toBe(false);
+		expect(speakResponse.error).toContain("exceeds 64 KiB");
+
+		client.close();
+		await runtime.close();
+	});
+
 	it("publishes a character speak message and increments round usage", async () => {
 		const root = await createTemporaryDirectory();
 		const runtime = await CreatorRuntime.startNew({
