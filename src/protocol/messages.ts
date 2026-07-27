@@ -205,6 +205,34 @@ const MessageHistorySchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+const RoundSnapshotSchema = Type.Object(
+	{
+		round_max_messages: Type.Integer({ minimum: 0 }),
+		used_messages: Type.Integer({ minimum: 0 }),
+		remaining_messages: Type.Integer({ minimum: 0 }),
+	},
+	{ additionalProperties: false },
+);
+
+const PublicMessageSchema = Type.Object(
+	{
+		type: Type.Literal("public_message"),
+		event_id: Type.String(),
+		sequence: Type.Integer({ minimum: 1 }),
+		timestamp: Type.String(),
+		sender: Type.Union([
+			Type.Object({ type: Type.Literal("user_persona") }, { additionalProperties: false }),
+			Type.Object(
+				{ type: Type.Literal("character"), character_id: Type.String(), name: Type.String() },
+				{ additionalProperties: false },
+			),
+		]),
+		content: Type.String(),
+		round: RoundSnapshotSchema,
+	},
+	{ additionalProperties: false },
+);
+
 export const ServerMessageSchema = Type.Union([
 	JoinGroupChatResponseSchema,
 	ClaimCharacterResponseSchema,
@@ -215,6 +243,7 @@ export const ServerMessageSchema = Type.Union([
 	CharacterLeftSchema,
 	GroupChatClosedSchema,
 	MessageHistorySchema,
+	PublicMessageSchema,
 ]);
 
 export type ServerMessage = Static<typeof ServerMessageSchema>;

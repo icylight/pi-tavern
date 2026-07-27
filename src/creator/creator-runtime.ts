@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { appendFile, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
 
@@ -17,11 +18,13 @@ import {
 import { decodeClientMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { ClientMessage } from "../protocol/messages.js";
 import {
+	advanceSequence,
 	createGroupChatState,
 	type GroupChatState,
 	normalizeGroupChatName,
 	setGroupChatName,
 	setGroupMaxMessages,
+	startNewRound,
 } from "./group-chat-state.js";
 
 export interface StartNewCreatorRuntimeOptions {
@@ -49,6 +52,7 @@ export class CreatorRuntime {
 	private closePromise: Promise<void> | null = null;
 	private runtimeTail = Promise.resolve();
 	private disposed = false;
+	private flushedCount = 0;
 
 	private constructor(
 		readonly webSocketServer: WebSocketServer,
@@ -133,6 +137,45 @@ export class CreatorRuntime {
 
 	setMaxMessages(maxMessages: number): void {
 		setGroupMaxMessages(this.state, maxMessages);
+	}
+
+	submitUserPersonaMessage(content: string): Promise<string> {
+		return this.enqueue(async () => {
+			const contentBytes = Buffer.byteLength(content, "utf8");
+			if (contentBytes > 64 * 1024) {
+				throw new Error("User Persona message exceeds 64 KiB");
+			}
+
+			// Every User Persona message starts a new Round
+			const round = startNewRound(this.state);
+
+			const sequence = advanceSequence(this.state);
+			const timestamp = new Date().toISOString();
+
+			// Persist to group chat session
+			const entryId = this.groupSessionManager.appendCustomMessageEntry("pi-tavern.public-message", content, true, {
+				sender: { type: "user_persona" },
+				round: { roundMaxMessages: round.roundMaxMessages, usedMessages: round.usedMessages },
+			});
+			await this.flushGroupSession();
+
+			// Broadcast to all online Characters
+			this.broadcast({
+				type: "public_message",
+				event_id: entryId,
+				sequence,
+				timestamp,
+				sender: { type: "user_persona" },
+				content,
+				round: {
+					round_max_messages: round.roundMaxMessages,
+					used_messages: round.usedMessages,
+					remaining_messages: Math.max(0, round.roundMaxMessages - round.usedMessages),
+				},
+			});
+
+			return entryId;
+		});
 	}
 
 	close(): Promise<void> {
@@ -483,6 +526,34 @@ export class CreatorRuntime {
 		for (const socket of this.connections.values()) {
 			this.send(socket, message);
 		}
+	}
+
+	private async flushGroupSession(): Promise<void> {
+		const sessionFile = this.groupSessionManager.getSessionFile();
+		if (!sessionFile) return;
+
+		const entries = this.groupSessionManager.getEntries();
+		const newEntries = entries.slice(this.flushedCount);
+		if (newEntries.length === 0) return;
+
+		if (this.flushedCount === 0) {
+			// First flush: write header + all current entries
+			const header = this.groupSessionManager.getHeader();
+			const lines: string[] = [];
+			if (header) {
+				lines.push(JSON.stringify(header));
+			}
+			for (const entry of entries) {
+				lines.push(JSON.stringify(entry));
+			}
+			await writeFile(sessionFile, `${lines.join("\n")}\n`);
+		} else {
+			// Subsequent flushes: append only new entries
+			const lines = newEntries.map((entry) => JSON.stringify(entry));
+			await appendFile(sessionFile, `${lines.join("\n")}\n`);
+		}
+
+		this.flushedCount = entries.length;
 	}
 
 	private enqueue<T>(operation: () => T | Promise<T>): Promise<T> {

@@ -79,19 +79,23 @@ function createMockCreatorRuntime(): CreatorRuntime {
 		setName: vi.fn(async () => "mock"),
 		setMaxMessages: vi.fn(),
 		close: vi.fn(async () => undefined),
+		submitUserPersonaMessage: vi.fn(() => Promise.resolve("evt-1")),
 	} as unknown as CreatorRuntime;
 }
 
-async function assertInputResult(controller: TavernController, expectedAction: string): Promise<void> {
+function stubContext(): ExtensionContext {
+	return { cwd: "/project", ui: { notify: vi.fn() } } as unknown as ExtensionContext;
+}
+
+async function assertInputResult(controller: TavernController, expectedAction: "handled" | "continue"): Promise<void> {
 	const mock = createMockExtensionAPI();
 	piTavern(mock as unknown as ExtensionAPI, controller);
 
 	expect(mock.inputHandlers).toHaveLength(1);
 
-	const ctx = { cwd: "/project" } as unknown as ExtensionContext;
 	const result = await mock.inputHandlers[0]?.(
 		{ type: "input", text: "hello", source: "interactive" } as InputEvent,
-		ctx,
+		stubContext(),
 	);
 
 	expect(result).toEqual({ action: expectedAction });
@@ -137,12 +141,43 @@ describe("PiTavern extension", () => {
 		expect(notify).toHaveBeenCalledWith("No active group chat", "info");
 	});
 
-	it("intercepts user input when the controller is in creator state", async () => {
+	it("submits a user persona message when in creator state", async () => {
 		const runtime = createMockCreatorRuntime();
 		const controller = new TavernController(async () => runtime);
 		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
 
-		await assertInputResult(controller, "handled");
+		const mock = createMockExtensionAPI();
+		piTavern(mock as unknown as ExtensionAPI, controller);
+
+		expect(mock.inputHandlers).toHaveLength(1);
+
+		const ctx = stubContext();
+		const result = await mock.inputHandlers[0]?.(
+			{ type: "input", text: "hello", source: "interactive" } as InputEvent,
+			ctx,
+		);
+
+		expect(result).toEqual({ action: "handled" });
+		expect(runtime.submitUserPersonaMessage).toHaveBeenCalledWith("hello");
+	});
+
+	it("notifies error and still handles input when submitUserPersonaMessage fails", async () => {
+		const runtime = createMockCreatorRuntime();
+		vi.mocked(runtime.submitUserPersonaMessage).mockRejectedValue(new Error("disk full"));
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		const mock = createMockExtensionAPI();
+		piTavern(mock as unknown as ExtensionAPI, controller);
+
+		const ctx = stubContext();
+		const result = await mock.inputHandlers[0]?.(
+			{ type: "input", text: "hello", source: "interactive" } as InputEvent,
+			ctx,
+		);
+
+		expect(result).toEqual({ action: "handled" });
+		expect(ctx.ui.notify).toHaveBeenCalledWith("disk full", "error");
 	});
 
 	it("passes through user input when the controller is idle", async () => {

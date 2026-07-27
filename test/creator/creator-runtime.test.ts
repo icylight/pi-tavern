@@ -1,9 +1,10 @@
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
+import WebSocket from "ws";
 
 import { CreatorRuntime } from "../../src/creator/creator-runtime.js";
 import { readActiveDescriptor } from "../../src/discovery/active-descriptor.js";
@@ -98,6 +99,129 @@ describe("CreatorRuntime", () => {
 		await expectConnectionRefused(allocatedPort as number);
 		expect(await jsonlFilesUnder(join(root, "agent"))).toEqual([]);
 	});
+
+	it("persists a user persona message and creates the first round", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+		});
+
+		await runtime.submitUserPersonaMessage("Hello from user persona");
+
+		// Round created, inheriting groupMaxMessages
+		expect(runtime.state.round).toEqual({
+			roundMaxMessages: 10,
+			usedMessages: 0,
+		});
+
+		// Message persisted to group chat JSONL
+		const jsonlFiles = await jsonlFilesUnder(join(root, "agent"));
+		expect(jsonlFiles).toHaveLength(1);
+
+		const firstFile = jsonlFiles[0];
+		expect(firstFile).toBeDefined();
+		const sessionPath = join(root, "agent", firstFile as string);
+		const lines = (await readFile(sessionPath, "utf8")).trim().split("\n");
+		expect(lines.length).toBeGreaterThanOrEqual(1);
+
+		// First line is the session header
+		const firstLine = lines[0];
+		expect(firstLine).toBeDefined();
+		const header = JSON.parse(firstLine as string);
+		expect(header.type).toBe("session");
+		expect(header.id).toBe(runtime.state.groupChat.groupChatId);
+
+		// Subsequent line is the public message entry
+		const lastEntry = lines[lines.length - 1];
+		expect(lastEntry).toBeDefined();
+		const lastLine = JSON.parse(lastEntry as string);
+		expect(lastLine.type).toBe("custom_message");
+		expect(lastLine.customType).toBe("pi-tavern.public-message");
+		expect(lastLine.content).toBe("Hello from user persona");
+		expect(lastLine.display).toBe(true);
+		expect(lastLine.details.sender).toEqual({ type: "user_persona" });
+		expect(lastLine.details.round).toEqual({ roundMaxMessages: 10, usedMessages: 0 });
+
+		await runtime.close();
+	});
+
+	it("broadcasts the public message to online characters", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			characters: [
+				{
+					characterId: "dev",
+					name: "Developer",
+					description: "Writes code",
+					path: "/chars/dev.md",
+					prompt: "You are a developer.",
+				},
+			],
+		});
+
+		// Connect a WebSocket client and complete the join flow
+		const receivedMessages: unknown[] = [];
+		const client = new WebSocket(
+			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
+		);
+		await waitForOpen(client);
+		client.on("message", (data) => {
+			receivedMessages.push(JSON.parse(data.toString()));
+		});
+
+		// join_group_chat
+		client.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: "session-1" }));
+		await waitForMessage(client, "response");
+		// claim_character
+		client.send(JSON.stringify({ id: "2", type: "claim_character", character_id: "dev" }));
+		await waitForMessage(client, "response");
+		// character_ready
+		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
+		const readyResponse = await waitForMessage(client, "response");
+		expect(readyResponse.success).toBe(true);
+
+		// Clear received messages to isolate the public_message broadcast
+		receivedMessages.length = 0;
+
+		// Submit user persona message and wait for the broadcast event
+		interface PublicMessage {
+			type: string;
+			content: string;
+			sender: { type: string };
+			round: { round_max_messages: number; used_messages: number; remaining_messages: number };
+			event_id: string;
+			sequence: number;
+			timestamp: string;
+		}
+		const broadcastPromise = new Promise<PublicMessage>((resolve) => {
+			const onMessage = (data: WebSocket.RawData) => {
+				const message = JSON.parse(data.toString()) as PublicMessage;
+				if (message.type === "public_message") {
+					client.off("message", onMessage);
+					resolve(message);
+				}
+			};
+			client.on("message", onMessage);
+		});
+
+		await runtime.submitUserPersonaMessage("Hello everyone");
+
+		const publicMessage = await broadcastPromise;
+
+		// Verify the client received the public_message broadcast
+		expect(publicMessage.content).toBe("Hello everyone");
+		expect(publicMessage.sender).toEqual({ type: "user_persona" });
+		expect(publicMessage.round).toEqual({ round_max_messages: 10, used_messages: 0, remaining_messages: 10 });
+		expect(typeof publicMessage.event_id).toBe("string");
+		expect(typeof publicMessage.sequence).toBe("number");
+		expect(typeof publicMessage.timestamp).toBe("string");
+
+		client.close();
+		await runtime.close();
+	});
 });
 
 async function jsonlFilesUnder(root: string): Promise<string[]> {
@@ -120,5 +244,27 @@ async function expectConnectionRefused(port: number): Promise<void> {
 			reject(new Error(`Unexpectedly connected to closed port ${port}`));
 		});
 		socket.once("error", () => resolve());
+	});
+}
+
+function waitForOpen(socket: WebSocket): Promise<void> {
+	return new Promise((resolve, reject) => {
+		socket.once("open", () => resolve());
+		socket.once("error", (error) => reject(error));
+	});
+}
+
+function waitForMessage(socket: WebSocket, expectedType: string): Promise<Record<string, unknown>> {
+	return new Promise((resolve, reject) => {
+		const timeout = setTimeout(() => reject(new Error(`Timed out waiting for ${expectedType}`)), 5000);
+		const onMessage = (data: WebSocket.RawData) => {
+			const message = JSON.parse(data.toString()) as Record<string, unknown>;
+			if (message.type === expectedType) {
+				clearTimeout(timeout);
+				socket.off("message", onMessage);
+				resolve(message);
+			}
+		};
+		socket.on("message", onMessage);
 	});
 }

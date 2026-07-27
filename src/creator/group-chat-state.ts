@@ -22,6 +22,7 @@ export interface OnlineCharacterState {
 export interface GroupChatState {
 	groupChat: GroupChatInfo;
 	round: RoundState | null;
+	nextSequence: number;
 	characterReservations: Map<string, string>;
 	onlineCharacters: Map<string, OnlineCharacterState>;
 }
@@ -43,6 +44,7 @@ export function createGroupChatState(options: CreateGroupChatStateOptions): Grou
 			groupMaxMessages: options.groupMaxMessages,
 		},
 		round: null,
+		nextSequence: 0,
 		characterReservations: new Map(),
 		onlineCharacters: new Map<string, OnlineCharacterState>(),
 	};
@@ -61,6 +63,20 @@ export function setGroupChatName(state: GroupChatState, name: string): string | 
 export function setGroupMaxMessages(state: GroupChatState, maxMessages: number): void {
 	assertValidMaxMessages(maxMessages);
 	state.groupChat.groupMaxMessages = maxMessages;
+}
+
+export function startNewRound(state: GroupChatState): RoundState {
+	const round: RoundState = {
+		roundMaxMessages: state.groupChat.groupMaxMessages,
+		usedMessages: 0,
+	};
+	state.round = round;
+	return round;
+}
+
+export function advanceSequence(state: GroupChatState): number {
+	state.nextSequence += 1;
+	return state.nextSequence;
 }
 
 function assertValidMaxMessages(maxMessages: number): void {
