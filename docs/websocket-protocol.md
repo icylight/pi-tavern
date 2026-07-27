@@ -45,6 +45,45 @@ PiTavern 使用标准 WebSocket `ping` / `pong` 控制帧检测半开连接，�
 
 通用 JSON 命名规则见 [development-conventions.md](development-conventions.md)。
 
+### 非法消息
+
+PiTavern 对协议错误采用 fail-fast：
+
+- frame 不是可解析的 JSON 时，关闭该 WebSocket；
+- JSON 不符合对应 TypeBox schema 时，关闭该 WebSocket；
+- `type` 未知时，关闭该 WebSocket；
+- 不尝试补全字段、转换类型或猜测发送方意图。
+
+合法请求产生的业务失败不属于协议错误。例如 Character 已经被预留、当前没有 Round 或发言额度已经耗尽时，返回对应的 `success: false` 响应，并按照该业务消息已经定义的连接语义继续处理。
+
+### 请求超时
+
+所有 PiTavern WebSocket request/response 使用 5 秒通用短期协调超时：
+
+- 加入阶段任一请求超时，加入方关闭连接、释放 `JoinAttempt` 并回到 `idle`；
+- 正式在线后的状态、历史、离开或 `speak` 请求超时，Character 将当前连接视为失效，关闭 WebSocket 并执行统一断线清理；
+- `tavern_speak` 超时时 tool 返回未公开错误，不能假设服务端已经接受消息；
+- 超时不触发自动重连或请求重试。
+
+服务端对已经完成持久化提交的公开消息不因响应发送超时而回滚。Character 如果没有取得成功响应，只能以后从公开广播或历史中观察该消息是否已经提交，首版不自动重试同一 `speak`，避免重复公开。
+
+### 消息大小
+
+PiTavern 使用两层硬性大小限制：
+
+- 任意 WebSocket frame 最大为 1 MiB；
+- 单条 User Persona 或 Character 公开消息的 `content` 最大为 64 KiB UTF-8 字节。
+
+正文大小使用 `Buffer.byteLength(content, "utf8")` 检查，不使用 JavaScript 字符数量估算。1 MiB frame 上限同时配置在 WebSocket Server 和 Character 客户端；发送前的 codec 也必须检查编码结果，不能只依赖接收方断开。
+
+64 KiB 正文上限保证最近 10 条公开消息及其 sender、Round 和 JSON 元数据能够稳定组成一个不超过 1 MiB 的 `message_history` frame。
+
+超限时：
+
+- User Persona 输入不写入群聊 session、不创建新 Round、不展示或广播为公共消息；
+- `speak` 返回业务失败，不写入群聊、不消耗额度、不设置举手；
+- 不截断、拆分或自动重试正文。
+
 ## 广播
 
 广播（Broadcast）是群聊创建者将同一条逻辑消息发送给当前群聊全部在线 Character 的操作。

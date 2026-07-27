@@ -2,7 +2,7 @@
 
 本文定义单个 pi 进程中的 PiTavern 扩展运行状态。
 
-初步代码结构及尚待讨论的架构问题见 [extension-architecture.md](extension-architecture.md)。
+定稿的代码结构及 Extension Runtime 资源边界见 [extension-architecture.md](extension-architecture.md)。
 
 ## 状态
 

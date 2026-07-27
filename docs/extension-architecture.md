@@ -4,6 +4,253 @@
 
 PiTavern 作为 pi-coding-agent 扩展实现。技术设计以 `references/pi` 中的当前实现为准。
 
+## 源码顶层模块
+
+首版源码使用以下顶层结构：
+
+```text
+src/
+├── index.ts
+├── controller/
+├── creator/
+├── character/
+├── protocol/
+├── persistence/
+├── discovery/
+├── config/
+└── ui/
+```
+
+- `index.ts` 是 pi `ExtensionFactory` 入口和组合根，只负责创建顶层对象并注册 pi 命令、事件、工具及 renderer；
+- `controller/` 实现 `TavernController`、顶层状态转换和 transition lock；
+- `creator/` 实现 `CreatorRuntime`、`GroupChatState`、群聊服务端与创建者侧消息处理；
+- `character/` 实现 `JoinAttempt`、`CharacterRuntime`、Character prompt 和群聊输入接入；
+- `protocol/` 定义、解析和校验 PiTavern WebSocket JSON；
+- `persistence/` 负责可恢复的群聊 session 记录及其读写；
+- `discovery/` 负责活动实例描述的发布、枚举、清理以及 PID 和 WebSocket 身份校验；
+- `config/` 负责全局与项目 PiTavern 配置、Character Markdown 发现和加载；
+- `ui/` 负责 Presenter、view model 及 pi TUI renderer。
+
+`discovery/` 不并入 `persistence/`。活动描述是当前进程的临时发现信息，不属于可恢复的群聊记录；发现过程还包含进程与实际 WebSocket 身份校验，不是单纯的文件存储。
+
+首版不建立顶层 `types/`、`shared/` 或同类公共模块。类型跟随其权威模块定义，并由使用方直接导入：
+
+- WebSocket JSON 类型归 `protocol/`；
+- `GroupChatState` 归 `creator/`；
+- Character Markdown 解析结果归 `config/`；
+- 群聊 session entry 类型归 `persistence/`；
+- TUI view model 归 `ui/`。
+
+只有出现无法归属于现有权威模块、并且已经被多个模块稳定复用的实现后，才重新讨论公共模块，不能为可能的未来复用预先建立。
+
+跨 reload 的资源载荷由原资源模块定义：
+
+- `creator/` 定义 `CreatorReloadHandoff`；
+- `character/` 定义 `CharacterReloadHandoff`；
+- `controller/reload-handoff-registry.ts` 定义两类载荷的一次性进程内 registry，并负责发布、按当前 pi session ID 取回和超时清理。
+
+pi 在 `/reload` 时清除 Extension loader 缓存，并以禁用 module cache 的方式重新加载扩展源码，因此普通模块级变量不能作为跨 reload 的 handoff 存储。registry 使用 `globalThis` 上的 PiTavern 私有 `Symbol.for(...)` key 保存一次性槽位，使重新加载后的扩展代码可以取得旧 Runtime 发布的底层资源。
+
+该全局槽位只能短期保存带 5 秒期限的 `CreatorReloadHandoff` 或 `CharacterReloadHandoff`，不能保存 `TavernController`、`CreatorRuntime`、`CharacterRuntime`、pi API 或 UI context。`take()`、不匹配和超时后的清理继续遵循本文的一次性所有权规则；这不是进程级全局 Controller。
+
+源码目录遵循“按已经存在的职责拆文件、尽可能保持扁平”的原则。首版不建立只有一层实现的 `server/`、`service/`、`repository/` 等包装目录。
+
+`creator/` 固定为：
+
+```text
+creator/
+├── creator-runtime.ts
+├── group-chat-state.ts
+└── creator-reload-handoff.ts
+```
+
+- `creator-runtime.ts` 实现 WebSocket Server、连接处理、Runtime 任务队列、消息提交、广播和关闭；
+- `group-chat-state.ts` 定义唯一权威状态及其纯状态操作；
+- `creator-reload-handoff.ts` 定义 Creator reload 载荷及资源接管辅助。
+
+WebSocket Server 和群聊 `SessionManager` 继续由 `CreatorRuntime` 直接持有，不为了目录形式额外拆出 server、service 或 repository 对象。
+
+`character/` 固定为：
+
+```text
+character/
+├── character-runtime.ts
+├── join-attempt.ts
+├── group-chat-input.ts
+└── character-reload-handoff.ts
+```
+
+- `character-runtime.ts` 实现 Character WebSocket、状态上报、心跳、发言请求和关闭；
+- `join-attempt.ts` 实现三阶段加入和 WebSocket 所有权转交；
+- `group-chat-input.ts` 实现 1 秒环境防抖、拉取最新群聊状态，以及生成并提交 `pi-tavern.group-chat-input`；
+- `character-reload-handoff.ts` 定义 Character reload 载荷及资源接管辅助。
+
+群聊输入已经是边界明确的另一种 pi Agent 输入来源，因此独立成文件，但不建立子目录。Character prompt 注入逻辑首版保留在 `character-runtime.ts`，不为少量接线预先拆出文件。
+
+`protocol/` 固定为：
+
+```text
+protocol/
+├── messages.ts
+└── codec.ts
+```
+
+- `messages.ts` 定义全部 WebSocket wire message、公共结构和可辨识联合类型；
+- `codec.ts` 负责 JSON 解析、运行时校验、协议错误归一化和编码。
+
+协议 schema 使用与 `references/pi` 一致的 TypeBox：
+
+- `messages.ts` 使用 `Type.Object()` 等 schema 定义 wire message；
+- TypeScript 类型通过 `Static<typeof Schema>` 从 schema 推导，不再手写一份重复接口；
+- `codec.ts` 使用 `typebox/compile` 的 `Compile()` 构建运行时 validator；
+- `tavern_speak` 的 pi tool 参数复用同一个 TypeBox 依赖。
+
+首版不引入第二个 schema 库，也不为 WebSocket JSON 手写另一套类型守卫。
+
+首版不按 join、history、state 或 speak 再建立消息子目录。请求 `id` 与本地 Promise 的关联属于 `JoinAttempt` 或 `CharacterRuntime` 的连接运行逻辑，不进入无连接状态的 `protocol/`。
+
+`persistence/` 固定为：
+
+```text
+persistence/
+├── entries.ts
+└── group-chat-session.ts
+```
+
+- `entries.ts` 定义群聊 session header、公开消息和设置 entry 的结构、解析及转换；
+- `group-chat-session.ts` 基于 pi 原生 `SessionManager` 实现新建、恢复、列表、删除、追加消息、状态重建和历史读取。
+
+首版不创建 `GroupChatRepository` 或第二套 session 类。`CreatorRuntime` 继续直接持有 pi `SessionManager`；`group-chat-session.ts` 只提供围绕该对象的函数。
+
+`controller/` 固定为：
+
+```text
+controller/
+├── tavern-controller.ts
+├── pi-runtime-bindings.ts
+└── reload-handoff-registry.ts
+```
+
+- `tavern-controller.ts` 定义顶层状态、transition lock 和命令路由；
+- `pi-runtime-bindings.ts` 封装当前 Extension Runtime 的 pi API、session ID 和 UI context 生命周期；
+- `reload-handoff-registry.ts` 实现前文确定的进程内一次性 reload 槽位。
+
+`config/` 固定为：
+
+```text
+config/
+├── load-config.ts
+└── character-card.ts
+```
+
+- `load-config.ts` 读取并合并全局与项目 `tavern.json`；
+- `character-card.ts` 发现、读取、解析和校验 Character Markdown。
+
+首版不创建 `ConfigManager`。新建群聊或加入流程按需要读取配置；已经启动的 Runtime 继续使用启动时取得的配置快照，不建立配置文件 watcher。
+
+`discovery/` 固定为：
+
+```text
+discovery/
+├── active-descriptor.ts
+└── discover-group-chats.ts
+```
+
+- `active-descriptor.ts` 定义描述结构和路径，负责原子发布、读取及所有者删除；
+- `discover-group-chats.ts` 枚举候选描述、检查 PID、通过实际 WebSocket 地址验证实例身份、清理失效描述并返回可加入列表。
+
+PID 检查只用于快速排除失效候选，实际 WebSocket 地址和实例身份校验仍是发现结果的最终判断。
+
+`ui/` 固定为：
+
+```text
+ui/
+├── tavern-presenter.ts
+└── renderers.ts
+```
+
+- `tavern-presenter.ts` 从权威状态或最近状态快照生成并更新 status、widget 和通知；
+- `renderers.ts` 同时注册 `pi-tavern.creator-display` entry renderer 与 `pi-tavern.group-chat-input` message renderer。
+
+两个 renderer 都是无状态纯函数，首版不为每个 `customType` 单独建立文件。
+
+pi 接线使用 `src/` 根部的两个扁平文件：
+
+```text
+src/
+├── index.ts
+├── commands.ts
+└── events.ts
+```
+
+- `index.ts` 只创建顶层对象，并调用命令、事件、tool 和 renderer 注册函数；
+- `commands.ts` 注册七个 `/tavern-*` 命令；
+- `events.ts` 注册 session、input 和 Agent 生命周期事件。
+
+`tavern_speak` 的注册函数放在 `character/tavern-speak-tool.ts`，因为该工具只服务 `CharacterRuntime`；tool execute 仍通过 Controller 校验当前状态并找到 Runtime。
+
+首版不建立 `utils/`。路径、解析和转换函数放在拥有对应语义的模块；超时常量放在实际定义该约定的模块；串行队列先作为对应 Runtime 的内部实现。只有形成多个模块稳定复用且无法合理归属的代码后，才重新讨论提取。
+
+首版测试与源码分开：
+
+```text
+test/
+├── protocol/
+├── persistence/
+├── discovery/
+├── creator/
+└── character/
+```
+
+不在 `src/` 旁放置 `*.test.ts`。自动化集成测试的每个测试或 worker 使用独立的临时 `PI_CODING_AGENT_DIR`；同一个多人群聊用例中的多个 pi 共享该用例自己的临时目录。
+
+目前确定的完整首版结构为：
+
+```text
+src/
+├── index.ts
+├── commands.ts
+├── events.ts
+├── controller/
+│   ├── tavern-controller.ts
+│   ├── pi-runtime-bindings.ts
+│   └── reload-handoff-registry.ts
+├── creator/
+│   ├── creator-runtime.ts
+│   ├── group-chat-state.ts
+│   └── creator-reload-handoff.ts
+├── character/
+│   ├── character-runtime.ts
+│   ├── join-attempt.ts
+│   ├── group-chat-input.ts
+│   ├── tavern-speak-tool.ts
+│   └── character-reload-handoff.ts
+├── protocol/
+│   ├── messages.ts
+│   └── codec.ts
+├── persistence/
+│   ├── entries.ts
+│   └── group-chat-session.ts
+├── discovery/
+│   ├── active-descriptor.ts
+│   └── discover-group-chats.ts
+├── config/
+│   ├── load-config.ts
+│   └── character-card.ts
+└── ui/
+    ├── tavern-presenter.ts
+    └── renderers.ts
+
+test/
+├── protocol/
+├── persistence/
+├── discovery/
+├── creator/
+└── character/
+```
+
+本节固定首版目录和文件边界。文件内部的函数、类和辅助类型继续按照已确认职责实现，不再为尚未出现的复用预先增加层级。
+
 ## 已确认
 
 首版采用以下顶层结构：

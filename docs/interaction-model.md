@@ -329,6 +329,14 @@ Project: <repo>/.pi/tavern.json
 - 任意来源的角色卡出现重复 `name` 时配置无效。
 - 首版不提供从项目配置中排除某个全局角色的机制。
 
+### 配置错误
+
+- 全局或项目 `tavern.json` 无法解析时，依赖该配置的新建或加入命令失败，并显示具体文件；
+- 配置合并后的字段不符合 schema 时命令失败，不使用猜测值或部分默认值继续运行；
+- 配置导入的任一 Character Markdown 无法读取、frontmatter 非法或缺少必需字段时，创建或加入流程失败并列出对应文件；
+- 不静默跳过无效 Character，避免不同 pi 根据读取时机得到不同的可领取列表；
+- 已经启动的 CreatorRuntime 或 CharacterRuntime 继续使用启动时加载的配置和 Character prompt，不监听文件变化。
+
 ## Tavern 对话
 
 首版不采用 SillyTavern 的 Natural、List、Manual 或 Pooled 候选选择策略。PiTavern 将每条公共消息和最新发言次数广播给所有已连接的角色 pi，由各个 pi 独立决定是否发言。
@@ -442,6 +450,18 @@ tavern_speak({
 - 额度外的内容不写入群聊，保留在调用方私有 pi session，并将调用方标记为举手。
 - 工具结果返回是否已公开、正式消息序号以及最新的发言次数。
 - 不调用该工具表示 Character 本次不公开发言，不需要额外的跳过事件。
+
+Character 的群聊控制提示词和 `tavern_speak` tool description 使用相同的公开回复软约束：
+
+```text
+公开回复应简洁，通常不超过 2000 个字符。
+如果完整分析较长，请把详细内容保留在当前私有 pi session，
+只通过 tavern_speak 发布结论、关键理由和需要其他成员知道的信息。
+```
+
+2000 字符是引导模型保持群聊可读性的软上限，不是协议拒绝条件。超过 2000 字符但仍在 64 KiB UTF-8 协议上限内的完整正文可以公开，PiTavern 不截断或重写模型输出。
+
+提示词软约束不能代替协议安全限制。超过 64 KiB UTF-8 的正文由创建者拒绝，不公开、不消耗 Round 额度，也不设置举手。
 
 ## 代码协作与同步
 
