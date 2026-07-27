@@ -53,6 +53,17 @@ export class CreatorRuntime {
 	private disposed = false;
 	private persistedCount = 0;
 	private lastPersistedId: string | null = null;
+	onPublicMessage:
+		| ((msg: {
+				sender: { type: "user_persona" } | { type: "character"; character_id: string; name: string };
+				content: string;
+				event_id: string;
+				sequence: number;
+				timestamp: string;
+				round: { round_max_messages: number; used_messages: number; remaining_messages: number };
+		  }) => void)
+		| undefined;
+
 	private publicMessages: Array<{
 		sender: { type: "user_persona" } | { type: "character"; character_id: string; name: string };
 		content: string;
@@ -159,9 +170,17 @@ export class CreatorRuntime {
 			this.persistedCount++;
 			this.lastPersistedId = entry.id;
 
-			await updateActiveDescriptorName(this.activeDescriptorPath, this.activeDescriptor.instanceId, normalizedName);
+			// Commit memory state (authoritative after successful persist)
 			setGroupChatName(this.state, name);
 			this.activeDescriptor.name = normalizedName;
+
+			// Best-effort descriptor update (discovery projection; failure is non-fatal)
+			try {
+				await updateActiveDescriptorName(this.activeDescriptorPath, this.activeDescriptor.instanceId, normalizedName);
+			} catch {
+				// Descriptor update failed but memory and JSONL are consistent
+			}
+
 			return normalizedName;
 		});
 	}
@@ -292,6 +311,8 @@ export class CreatorRuntime {
 				content,
 				round: message.round,
 			});
+
+			this.onPublicMessage?.(message);
 
 			return entryId;
 		});
@@ -653,6 +674,8 @@ export class CreatorRuntime {
 				content: message.content,
 				round: msg.round,
 			});
+
+			this.onPublicMessage?.(msg);
 
 			this.send(socket, {
 				...(message.id !== undefined ? { id: message.id } : {}),

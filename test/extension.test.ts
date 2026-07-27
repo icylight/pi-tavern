@@ -48,6 +48,8 @@ type CapturedTool = {
 interface MockExtensionAPI {
 	registerCommand: ReturnType<typeof vi.fn>;
 	registerTool: ReturnType<typeof vi.fn>;
+	registerEntryRenderer: ReturnType<typeof vi.fn>;
+	registerMessageRenderer: ReturnType<typeof vi.fn>;
 	on: ReturnType<typeof vi.fn>;
 	inputHandlers: InputHandler[];
 }
@@ -57,6 +59,8 @@ function createMockExtensionAPI(): MockExtensionAPI {
 	return {
 		registerCommand: vi.fn(),
 		registerTool: vi.fn(),
+		registerEntryRenderer: vi.fn(),
+		registerMessageRenderer: vi.fn(),
 		on: vi.fn((_event: string, handler: InputHandler) => {
 			if (_event === "input") inputHandlers.push(handler);
 		}),
@@ -117,6 +121,8 @@ function captureTools(): {
 		registerCommand: ReturnType<typeof vi.fn>;
 		on: ReturnType<typeof vi.fn>;
 		registerTool: ReturnType<typeof vi.fn>;
+		registerEntryRenderer: ReturnType<typeof vi.fn>;
+		registerMessageRenderer: ReturnType<typeof vi.fn>;
 	};
 } {
 	const tools: CapturedTool[] = [];
@@ -126,6 +132,8 @@ function captureTools(): {
 		registerTool: vi.fn((tool: CapturedTool) => {
 			tools.push(tool);
 		}),
+		registerEntryRenderer: vi.fn(),
+		registerMessageRenderer: vi.fn(),
 	};
 	return { tools, api };
 }
@@ -231,7 +239,13 @@ describe("PiTavern extension", () => {
 			commands.set(name, command);
 		});
 
-		piTavern({ registerCommand, on: vi.fn(), registerTool: vi.fn() } as unknown as ExtensionAPI);
+		piTavern({
+			registerCommand,
+			on: vi.fn(),
+			registerTool: vi.fn(),
+			registerEntryRenderer: vi.fn(),
+			registerMessageRenderer: vi.fn(),
+		} as unknown as ExtensionAPI);
 
 		const status = commands.get("tavern-status");
 		expect(status).toBeDefined();
