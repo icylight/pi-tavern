@@ -450,3 +450,75 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 - `JoinAttempt`（close 事件 → 释放并回到 idle）
 
 **当前检测：** 现有测试覆盖了 WebSocket close 触发 cleanup 的路径。
+
+---
+
+## BC-12: character_joined 事件对加入者本人因消息顺序会从首次环境批次丢失
+
+**状态：** 待修复
+
+**关联设计文档：** `interaction-model.md` L174、`websocket-protocol.md` L304
+
+**发生条件：**
+
+`character_ready` 完成后，Creator 对加入方执行以下顺序：
+
+1. L538 `connections.set(sessionId, socket)`——新 WebSocket 进入广播集合
+2. L555 `broadcast({ type: "character_joined", ... })`——向所有连接（含新加入者）广播加入事件
+3. L558 `send(socket, { type: "message_history", ... })`——向新加入者发送最近历史
+
+Character 按接收顺序处理消息：
+
+- 第 2 步的 `character_joined` 先到达。此时 `isEnvironmentEvent` 检查 `character_joined` 类型 → 返回 `this.runtime.hasPublicMessages`。由于 `message_history` 尚未到达，`hasPublicMessages` 为 `false`，**加入事件被丢弃**。
+- 第 3 步的 `message_history` 后到达，进入防抖批次。但 `character_joined` 已丢失。
+
+**违反的约定：**
+
+> 群聊已有公开消息时该事件作为公共环境事件参与 1 秒防抖。
+
+对于加入者本人，`character_joined` 应在首次环境批次中与 `message_history` 合并，而实际被丢弃。
+
+**涉及组件：**
+
+- `CreatorRuntime`——`character_ready` 消息发送顺序
+- `GroupChatInput.isEnvironmentEvent()`——`hasPublicMessages` 守卫
+- `CharacterRuntime.hasPublicMessages`——通过 `message_history` 设置
+
+**当前检测：** 现有测试直接 mock `hasPublicMessages: true`，未覆盖消息到达的真实顺序。需要端到端测试验证加入者收到的第一条 `character_joined` 确实进入了防抖批次。
+
+---
+
+## BC-13: JSONL header timestamp 与 created_at 不一致
+
+**状态：** 待修复
+
+**关联设计文档：** `persistence.md`（"header timestamp 就是 created_at"）、`websocket-protocol.md` L557
+
+**发生条件：**
+
+`CreatorRuntime.startNew()` 中：
+
+1. L121 `const createdAt = dependencies.now().toISOString()`——生成状态中的 `createdAt`
+2. L129 `SessionManager.create(...)`——SessionManager 内部再次调用系统时间生成 header timestamp
+
+两个时间戳由不同调用生成，可能不同。
+
+**影响：**
+
+- `get_group_chat_state.created_at`、active descriptor 和 JSONL header 的 timestamp 可能不一致。
+- 首次提交失败后用新时间戳重建 SessionManager 时，header timestamp 会再次改变。
+- 这违反 persistence.md 中"header timestamp 就是 created_at"的约定。
+
+**预期行为：**
+
+- `createdAt` 只应生成一次。
+- SessionManager 创建时应传入该 `createdAt` 作为 header timestamp，而非自行生成。
+- rollback 后重建 SessionManager 必须复用同一个 `createdAt`，不能重新调用系统时间。
+
+**涉及组件：**
+
+- `CreatorRuntime.startNew()`
+- `SessionManager.create()`——是否支持传入 header timestamp
+- 首次提交失败 + rollback 路径
+
+**当前检测：** 测试中的 `dependencies.now()` mock 返回固定值，因此两个时间戳碰巧一致，未暴露差异。需要测试验证 `dependencies.now()` 返回值与 JSONL header timestamp 精确相等。

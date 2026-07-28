@@ -716,6 +716,9 @@ describe("CreatorRuntime", () => {
 			character_id: "dev",
 			name: "Developer",
 		});
+
+		// Broadcast timestamp matches the persisted entry timestamp
+		expect((senderEcho as Record<string, unknown>).timestamp).toBe(publicEntry.timestamp);
 		expect(publicEntry.details.round).toEqual({ round_max_messages: 10, used_messages: 1, remaining_messages: 9 });
 		expect(typeof publicEntry.details.sequence).toBe("number");
 		expect(typeof publicEntry.details.timestamp).toBe("string");
