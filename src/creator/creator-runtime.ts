@@ -550,10 +550,9 @@ export class CreatorRuntime {
 			command: "character_ready",
 			success: true,
 		});
-		this.broadcast({
-			type: "character_joined",
-			character: toCharacterSummaryMessage(character),
-		});
+
+		// Send history before join broadcast so hasPublicMessages is true
+		// when the new Character processes its own character_joined event.
 		const recentMessages = this.publicMessages.slice(-10);
 		this.send(socket, {
 			type: "message_history",
@@ -569,6 +568,13 @@ export class CreatorRuntime {
 			cursor: this.publicMessages.length > 10 ? "more" : null,
 			has_more: this.publicMessages.length > 10,
 			total_messages: this.publicMessages.length,
+		});
+
+		// Broadcast character_joined after message_history so the new Character
+		// already has hasPublicMessages=true when processing its own join event.
+		this.broadcast({
+			type: "character_joined",
+			character: toCharacterSummaryMessage(character),
 		});
 	}
 
