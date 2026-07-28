@@ -950,18 +950,15 @@ export class CreatorRuntime {
 		this.persistedCount = 0;
 
 		if (flags & FIRST_PERSIST_HEADER_WRITTEN) {
-			// Delete the half-initialized file.
-			// If deletion fails (e.g. permissions), overwrite with a clean header
-			// so the file does not remain in a broken state with partial entries.
+			// Best-effort: delete the half-initialized file.
+			// If deletion fails, the file remains — but persistedCount is 0 so
+			// the next first-persist will truncate it via writeFile, naturally
+			// cleaning up partial entries without violating the empty-group
+			// convention of "no file until first public message".
 			try {
 				await rm(sessionPath, { force: true });
 			} catch {
-				try {
-					const cleanHeader = { ...this.groupSessionManager.getHeader(), timestamp: this.state.groupChat.createdAt };
-					await this.deps.writeFile(sessionPath, `${JSON.stringify(cleanHeader)}\n`);
-				} catch {
-					// Last resort: nothing more we can do
-				}
+				// File could not be deleted; next first-persist writeFile will overwrite it.
 			}
 		}
 
