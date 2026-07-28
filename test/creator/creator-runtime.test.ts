@@ -137,7 +137,7 @@ describe("CreatorRuntime", () => {
 		expect(header.type).toBe("session");
 		expect(header.id).toBe(runtime.state.groupChat.groupChatId);
 		expect(typeof header.timestamp).toBe("string");
-		expect(new Date(header.timestamp).getTime()).toBeLessThanOrEqual(Date.now());
+		expect(header.timestamp).toBe(runtime.state.groupChat.createdAt);
 		expect(header.version).toBe(3);
 		expect(header.cwd).toBe(runtime.activeDescriptor.cwd);
 

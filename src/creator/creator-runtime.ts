@@ -232,7 +232,8 @@ export class CreatorRuntime {
 			// Bit flags track each step for granular rollback on partial failure.
 			if (this.persistedCount === 0) {
 				const sessionPath = this.getSessionFilePath();
-				const header = this.groupSessionManager.getHeader();
+				// Use canonical createdAt so header timestamp matches state and descriptor
+				const header = { ...this.groupSessionManager.getHeader(), timestamp: this.state.groupChat.createdAt };
 
 				this.firstPersistFlags = 0;
 				try {
@@ -926,7 +927,8 @@ export class CreatorRuntime {
 
 		if (flags & FIRST_PERSIST_SESSION_OPENED) {
 			// SessionManager in-memory state was mutated by the failed appends.
-			// Recreate it to purge unpersisted entries from byId/leafId.
+			// Recreate a fresh instance — the file was already deleted above.
+			// The next first-persist will write the header with canonical createdAt.
 			this.groupSessionManager = SessionManager.create(
 				this.groupSessionManager.getCwd(),
 				this.groupSessionManager.getSessionDir(),
