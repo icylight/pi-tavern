@@ -62,6 +62,9 @@ export class CreatorRuntime {
 	private readonly deps: CreatorRuntimeDependencies;
 	private persistedCount = 0;
 
+	/** Set when the session file cannot be written or recovered. All mutating operations reject. */
+	private persistenceFatal = false;
+
 	/** Tracks which steps have completed during first-persist, for rollback on failure. */
 	private firstPersistFlags = 0;
 
@@ -176,12 +179,13 @@ export class CreatorRuntime {
 				return normalizedName;
 			}
 
+			this.assertWritable();
+
 			// Active group chat: persist entry via SessionManager
 			try {
 				this.groupSessionManager.appendSessionInfo(normalizedName ?? "");
 			} catch (error) {
-				this.recoverSessionManagerFromFailedAppend();
-				throw error;
+				this.recoverSessionManagerFromFailedAppend(error);
 			}
 			this.persistedCount++;
 
@@ -208,14 +212,15 @@ export class CreatorRuntime {
 				return;
 			}
 
+			this.assertWritable();
+
 			// Active group chat: persist entry via SessionManager
 			try {
 				this.groupSessionManager.appendCustomEntry("pi-tavern.group-settings", {
 					group_max_messages: maxMessages,
 				});
 			} catch (error) {
-				this.recoverSessionManagerFromFailedAppend();
-				throw error;
+				this.recoverSessionManagerFromFailedAppend(error);
 			}
 			this.persistedCount++;
 
@@ -225,6 +230,8 @@ export class CreatorRuntime {
 
 	submitUserPersonaMessage(content: string): Promise<string> {
 		return this.enqueue(async () => {
+			this.assertWritable();
+
 			const contentBytes = Buffer.byteLength(content, "utf8");
 			if (contentBytes > 64 * 1024) {
 				throw new Error("User Persona message exceeds 64 KiB");
@@ -309,8 +316,7 @@ export class CreatorRuntime {
 				} catch (error) {
 					// SessionManager._appendEntry mutates memory before disk write.
 					// On failure, purge the unpersisted entry from memory.
-					this.recoverSessionManagerFromFailedAppend();
-					throw error;
+					this.recoverSessionManagerFromFailedAppend(error);
 				}
 			}
 
@@ -648,6 +654,8 @@ export class CreatorRuntime {
 		const canPublish = round.usedMessages < round.roundMaxMessages;
 
 		if (canPublish) {
+			this.assertWritable();
+
 			const newUsed = round.usedMessages + 1;
 			const roundMaxMessages = round.roundMaxMessages;
 			const sequence = this.state.nextSequence + 1;
@@ -682,13 +690,8 @@ export class CreatorRuntime {
 			} catch (error) {
 				// SessionManager._appendEntry mutates memory before disk write.
 				// Purge the unpersisted entry from byId/leafId.
-				this.recoverSessionManagerFromFailedAppend();
-				this.sendFailure(
-					socket,
-					message.id,
-					"speak",
-					`Failed to persist message: ${error instanceof Error ? error.message : String(error)}`,
-				);
+				const reportError = this.recoverSessionManagerAndCatch(error);
+				this.sendFailure(socket, message.id, "speak", `Failed to persist message: ${reportError.message}`);
 				return;
 			}
 
@@ -921,22 +924,50 @@ export class CreatorRuntime {
 	/**
 	 * Recover SessionManager in-memory state after a failed append.
 	 * SessionManager._appendEntry mutates byId/leafId before disk write;
-	 * on failure we must purge the unpersisted entry. The disk file is
-	 * still valid (the write never happened), so setSessionFile is the
-	 * primary recovery. If even that fails, recreate from scratch as a
-	 * last-resort fallback to prevent future operations using corrupt leaf.
+	 * on failure the disk file is still valid (the write never happened)
+	 * so setSessionFile can reload clean state. If even that fails, the
+	 * Runtime is marked persistence-fatal — all future mutating operations
+	 * will reject rather than continue with corrupt/empty in-memory state.
 	 */
-	private recoverSessionManagerFromFailedAppend(): void {
+	private recoverSessionManagerFromFailedAppend(originalError: unknown): never {
 		try {
 			this.groupSessionManager.setSessionFile(this.getSessionFilePath());
-		} catch {
-			// setSessionFile failed — disk may be gone or corrupt.
-			// Recreate a fresh SessionManager as last resort.
-			this.groupSessionManager = SessionManager.create(
-				this.groupSessionManager.getCwd(),
-				this.groupSessionManager.getSessionDir(),
-				{ id: this.state.groupChat.groupChatId },
+			// Recovery succeeded — re-throw the original error so the caller
+			// can report it; the SessionManager is clean for the next operation.
+			throw originalError;
+		} catch (recoveryError) {
+			if (recoveryError === originalError) throw originalError;
+			// setSessionFile itself failed — unrecoverable.
+			this.persistenceFatal = true;
+			throw new Error(
+				`Persistence recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}. ` +
+					`Original error: ${originalError instanceof Error ? originalError.message : String(originalError)}`,
+				{ cause: originalError },
 			);
+		}
+	}
+
+	/**
+	 * Recover and return the error to report. For callers that must continue
+	 * after recovery (e.g., handleSpeak which sends a response).
+	 */
+	private recoverSessionManagerAndCatch(originalError: unknown): Error {
+		try {
+			this.groupSessionManager.setSessionFile(this.getSessionFilePath());
+		} catch (recoveryError) {
+			this.persistenceFatal = true;
+			return new Error(
+				`Persistence recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}. ` +
+					`Original error: ${originalError instanceof Error ? originalError.message : String(originalError)}`,
+				{ cause: originalError },
+			);
+		}
+		return originalError instanceof Error ? originalError : new Error(String(originalError));
+	}
+
+	private assertWritable(): void {
+		if (this.persistenceFatal) {
+			throw new Error("Group chat persistence is broken — further writes are blocked");
 		}
 	}
 

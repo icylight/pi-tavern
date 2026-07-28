@@ -103,19 +103,23 @@ SessionManager._appendEntry() 的内部顺序是：
 - 首次初始化使用 bit flags 记录 header、SessionManager 打开、名称、设置和公共消息的完成状态。
 - 失败路径会等待 `rollbackFirstPersist()` 完成后再让当前 queue task rejected，下一任务不会与正常 rollback 并发。
 - rollback 正常删除文件后会清零 `persistedCount` 并重建 SessionManager；已有测试覆盖部分初始化失败后重试。
-- 如果 `rm()` 失败，当前 fallback 会把文件覆盖成只含 header 的 JSONL，然后继续按 empty 状态运行。
+- `rm()` 失败时当前实现静默忽略，并继续按 empty 状态运行。
 
 **剩余问题：**
 
-- 只含 header 的 JSONL 仍违反“empty 群聊不存在 JSONL”和“可恢复 JSONL 必然是 started”的约定。
-- 重建 SessionManager 后可能使用新的预定文件路径，下一次首次提交可能产生第二个 JSONL。
-- 如果删除和覆盖都失败，错误被静默忽略，Runtime 仍继续运行，无法保证磁盘与内存状态一致。
+- `FIRST_PERSIST_HEADER_WRITTEN` 只在 `writeFile()` 完全成功后设置。真实写盘可能在已经创建或部分写入文件后 rejected；此时 rollback 不会尝试删除残留文件。
+- `FIRST_PERSIST_SESSION_OPENED` 只在 `setSessionFile()` 完全成功后设置。如果打开过程在已经修改部分内部状态后抛错，rollback 不会重建 SessionManager。
+- `rm()` 失败后仍会重建 SessionManager。新 Manager 通常根据当前时间生成新的预定文件路径，因此下一次首次提交不会必然覆盖旧残留文件，可能形成两个 JSONL。
+- 即使新旧路径碰巧相同，用户在失败后直接关闭而不重试时，残留文件仍违反“empty 群聊不存在 JSONL”和“可恢复 JSONL 必然是 started”的约定。
+- 删除失败被静默忽略，Runtime 继续运行，无法保证磁盘与内存状态一致。
 
 **剩余要求：**
 
-1. 删除失败时不得继续声称 Runtime 已恢复到 empty。
-2. 将残留文件移出可恢复 JSONL 范围，或使 Runtime 进入明确的失败/隔离状态并阻止后续提交。
-3. 保留原始持久化错误，同时记录或返回 rollback 失败，不能静默丢失清理结果。
+1. 首次提交任意步骤失败后，无条件尝试 `rm(sessionPath, { force: true })`；文件尚不存在时该操作也是安全的。
+2. 首次提交任意步骤失败后，无条件重建空 SessionManager，不依赖 header 写入或 session 打开的完成 flag。
+3. 删除失败时不得继续声称 Runtime 已恢复到 empty；应进入明确的 persistence fatal/隔离状态并阻止后续写操作。
+4. 保留原始持久化错误，同时记录或返回 rollback 错误，不能静默丢失清理结果。
+5. 如果采用残留文件隔离方案，残留文件必须移出群聊恢复会扫描的 JSONL 范围。
 
 **涉及组件：**
 
@@ -123,7 +127,13 @@ SessionManager._appendEntry() 的内部顺序是：
 - `SessionManager`
 - 空群聊 JSONL 生命周期（persistence.md, interaction-model.md）
 
-**当前检测：** 已覆盖 header、settings 成功后 public message 失败及随后重试；尚未覆盖 `rm()` 失败、fallback 失败和残留文件不会进入恢复列表。
+**当前检测：** 已覆盖 header、settings 成功后 public message 失败及随后重试；尚需覆盖：
+
+- `writeFile()` 创建部分文件后 rejected；
+- `setSessionFile()` 修改部分状态后抛错；
+- `rm()` 失败后 Runtime 禁止继续提交；
+- 失败后直接 close 不留下可恢复的半初始化 JSONL；
+- 正常 rollback 后重试只产生一个 JSONL。
 
 ---
 
