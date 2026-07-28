@@ -792,6 +792,165 @@ describe("CreatorRuntime", () => {
 		await runtime.close();
 	});
 
+	it("recovers SessionManager leaf after append failure so next entry parentId is correct", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			characters: [{ characterId: "dev", name: "Dev", description: "", path: "/x.md", prompt: "" }],
+		});
+
+		// First message establishes the file
+		await runtime.submitUserPersonaMessage("First");
+
+		// Join a character for speak
+		const client = new WebSocket(
+			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
+		);
+		await waitForOpen(client);
+		client.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: "s1" }));
+		await waitForMessage(client, "response");
+		client.send(JSON.stringify({ id: "2", type: "claim_character", character_id: "dev" }));
+		await waitForMessage(client, "response");
+		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
+		await waitForMessage(client, "response");
+
+		// Simulate append failure — leaf is now polluted
+		const sm = (runtime as unknown as { groupSessionManager: { appendCustomMessageEntry: typeof vi.fn } })
+			.groupSessionManager;
+		vi.spyOn(sm, "appendCustomMessageEntry").mockImplementationOnce(() => {
+			throw new Error("disk full");
+		});
+
+		client.send(JSON.stringify({ id: "4", type: "speak", content: "Failing speak" }));
+		const failResponse = await waitForMessage(client, "response");
+		expect(failResponse.success).toBe(false);
+
+		// Recovery: setSessionFile was called, leaf is clean.
+		// A subsequent successful speak should chain parentId to the disk's real leaf,
+		// not the failed (never-persisted) entry.
+		client.send(JSON.stringify({ id: "5", type: "speak", content: "Recovered speak" }));
+		const okResponse = await waitForMessage(client, "response");
+		expect(okResponse.success).toBe(true);
+
+		// Verify the successful message was persisted with correct parentId chain
+		const jsonlFiles = await jsonlFilesUnder(join(root, "agent"));
+		expect(jsonlFiles).toHaveLength(1);
+		const sessionPath = join(root, "agent", jsonlFiles[0] as string);
+		const lines = (await readFile(sessionPath, "utf8")).trim().split("\n");
+		const entries = lines.map((l) => JSON.parse(l)) as Record<string, unknown>[];
+
+		// Last entry should be the recovered speak
+		const lastEntry = entries[entries.length - 1];
+		expect(lastEntry?.type).toBe("custom_message");
+		expect((lastEntry as Record<string, unknown>)?.content).toContain("Recovered speak");
+		// Its parentId must point to a real disk entry, not the failed one
+		const parentId = (lastEntry as Record<string, unknown>)?.parentId as string;
+		expect(typeof parentId).toBe("string");
+		const parentExists = entries.some((e) => e.id === parentId);
+		expect(parentExists).toBe(true);
+
+		client.close();
+		await runtime.close();
+	});
+
+	it("rejects all writes after persistence recovery fails (fatal)", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			characters: [{ characterId: "dev", name: "Dev", description: "", path: "/x.md", prompt: "" }],
+		});
+
+		// First message establishes the file
+		await runtime.submitUserPersonaMessage("First");
+		const roundBefore = { ...runtime.state.round };
+
+		// Simulate: append fails AND setSessionFile also fails → persistence fatal
+		const sm = (
+			runtime as unknown as {
+				groupSessionManager: { appendCustomMessageEntry: typeof vi.fn; setSessionFile: typeof vi.fn };
+			}
+		).groupSessionManager;
+		vi.spyOn(sm, "appendCustomMessageEntry").mockImplementationOnce(() => {
+			throw new Error("disk full");
+		});
+		vi.spyOn(sm, "setSessionFile").mockImplementationOnce(() => {
+			throw new Error("cannot read file");
+		});
+
+		// First write fails with recovery error
+		await expect(runtime.submitUserPersonaMessage("Second")).rejects.toThrow(/ersistence recovery failed/);
+
+		// State unchanged after failed write
+		expect(runtime.state.round?.usedMessages).toBe(roundBefore?.usedMessages);
+
+		// Subsequent writes are rejected
+		await expect(runtime.submitUserPersonaMessage("Third")).rejects.toThrow(/ersistence is broken/);
+		await expect(runtime.setName("New Name")).rejects.toThrow(/ersistence is broken/);
+		await expect(runtime.setMaxMessages(5)).rejects.toThrow(/ersistence is broken/);
+
+		// No new JSONL files
+		expect(await jsonlFilesUnder(join(root, "agent"))).toHaveLength(1);
+
+		await runtime.close();
+	});
+
+	it("rejects speak after persistence fatal without mutating state", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			characters: [{ characterId: "dev", name: "Dev", description: "", path: "/x.md", prompt: "" }],
+		});
+
+		await runtime.submitUserPersonaMessage("First");
+
+		// Join a character
+		const client = new WebSocket(
+			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
+		);
+		await waitForOpen(client);
+		client.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: "s1" }));
+		await waitForMessage(client, "response");
+		client.send(JSON.stringify({ id: "2", type: "claim_character", character_id: "dev" }));
+		await waitForMessage(client, "response");
+		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
+		await waitForMessage(client, "response");
+
+		const roundBefore = { ...runtime.state.round };
+
+		// Trigger fatal: append fails + setSessionFile fails
+		const sm = (
+			runtime as unknown as {
+				groupSessionManager: { appendCustomMessageEntry: typeof vi.fn; setSessionFile: typeof vi.fn };
+			}
+		).groupSessionManager;
+		vi.spyOn(sm, "appendCustomMessageEntry").mockImplementationOnce(() => {
+			throw new Error("disk full");
+		});
+		vi.spyOn(sm, "setSessionFile").mockImplementationOnce(() => {
+			throw new Error("cannot read");
+		});
+
+		client.send(JSON.stringify({ id: "4", type: "speak", content: "Triggers fatal" }));
+		const fatalResponse = await waitForMessage(client, "response");
+		expect(fatalResponse.success).toBe(false);
+		expect(fatalResponse.error).toContain("ersistence recovery failed");
+
+		// State unchanged
+		expect(runtime.state.round?.usedMessages).toBe(roundBefore?.usedMessages);
+
+		// Subsequent speak also rejected (assertWritable in handleSpeak)
+		client.send(JSON.stringify({ id: "5", type: "speak", content: "Should be rejected" }));
+		const rejectedResponse = await waitForMessage(client, "response");
+		expect(rejectedResponse.success).toBe(false);
+		expect(rejectedResponse.error).toContain("ersistence is broken");
+
+		client.close();
+		await runtime.close();
+	});
+
 	it("rejects speak when round limit reached and sets hand raised", async () => {
 		const root = await createTemporaryDirectory();
 		const runtime = await CreatorRuntime.startNew({

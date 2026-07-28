@@ -653,9 +653,16 @@ export class CreatorRuntime {
 
 		const canPublish = round.usedMessages < round.roundMaxMessages;
 
-		if (canPublish) {
+		// If persistence is broken, reject even non-publishing speaks
+		// (state can't be mutated safely).
+		try {
 			this.assertWritable();
+		} catch (error) {
+			this.sendFailure(socket, message.id, "speak", error instanceof Error ? error.message : String(error));
+			return;
+		}
 
+		if (canPublish) {
 			const newUsed = round.usedMessages + 1;
 			const roundMaxMessages = round.roundMaxMessages;
 			const sequence = this.state.nextSequence + 1;
