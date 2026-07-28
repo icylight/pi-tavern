@@ -27,7 +27,7 @@
 
 ## BC-1: SessionManager 内存 leaf 污染
 
-**状态：** 部分修复（阻塞 M3 — setName/setMaxMessages 路径）
+**状态：** 部分修复（阻塞 M3）
 
 **关联审查条目：** M3 第 2 条、第 4 条
 
@@ -52,27 +52,29 @@ SessionManager._appendEntry() 的内部顺序是：
 
 - User Persona 后续公共消息 append 失败后，会用 `SessionManager.setSessionFile(sessionPath)` 从磁盘重新加载。
 - Character `speak` append 失败后，同样会重新加载 SessionManager，再返回 `success: false`。
-- **`setName()` L180** 的 `appendSessionInfo()` 失败后没有恢复——写盘失败但 leaf 已污染。
-- **`setMaxMessages()` L207** 的 `appendCustomEntry()` 失败后同样没有恢复。
-- 下一条成功消息可能把 parentId 指向磁盘上不存在的 entry，形成断链。
+- `setName()` 的 `appendSessionInfo()` 和 `setMaxMessages()` 的 `appendCustomEntry()` 失败后也会重新加载 SessionManager。
+- append 失败不会推进 `persistedCount`，业务 state 只在 append 成功后提交。
+- 当前恢复直接调用 `setSessionFile()`；如果重新读取磁盘也失败，恢复错误会向外抛出，但 Runtime 不会进入隔离状态，后续 queue task 仍可能使用已污染的 SessionManager。
 
 **剩余要求：**
 
-- `setName` 和 `setMaxMessages` 的 append 失败后必须执行与公共消息路径相同的 SessionManager 恢复。
-- 恢复后重新计算 `persistedCount`，或移除该派生计数，避免它与磁盘状态分离。
+- SessionManager 恢复失败时必须阻止后续持久化任务，或重建到一个能够证明与磁盘一致的状态；不能让 queue 在未知 leaf 上继续。
+- 模拟底层 `_appendEntry()` 已修改内存 leaf、随后磁盘 append 失败，而不是在 `_appendEntry()` 执行前直接抛错。
+- 分别验证 `setName()` 和 `setMaxMessages()` 失败后的下一条成功 entry 仍以磁盘真实 leaf 作为 `parentId`。
+- 增加 `setSessionFile()` 自身失败的测试，验证 Runtime 不会继续提交。
 
 **涉及组件：**
 
 - `CreatorRuntime`（`appendCustomMessageEntry`、`appendSessionInfo` 和 `appendCustomEntry` 的全部调用路径）
 - `SessionManager` (上游 _appendEntry 内部行为)
 
-**当前检测：** 公共消息路径的 spy 测试验证了业务 state 不提交。名称和设置路径无失败恢复测试。
+**当前检测：** 公共消息路径已有失败测试；名称和设置路径的恢复代码已实现，但尚无针对真实 leaf 污染顺序及恢复自身失败的测试。
 
 ---
 
 ## BC-2: 第一条公共消息中途失败留下半初始化 JSONL
 
-**状态：** 待修复（阻塞 M3）
+**状态：** 部分修复（阻塞 M3）
 
 **关联审查条目：** M3 第 2 条（"started 由至少一条公开消息推导，无公开消息不留下 JSONL"）
 
@@ -96,31 +98,38 @@ SessionManager._appendEntry() 的内部顺序是：
 
 - 首次 public message append 失败时，删除该 JSONL 文件，恢复到写入前的空状态。
 
-**当前问题：**
+**当前实现：**
 
 - 首次初始化使用 bit flags 记录 header、SessionManager 打开、名称、设置和公共消息的完成状态。
-- 失败后在 catch 块调用 `this.rollbackFirstPersist(sessionPath)`，**但没有 `await`（L276）**。
-- 回滚内部的 `rm()` 是异步操作；当前 queue task 已通过 `throw error` 失败退出，下一个 queue task 可以开始。
-- 未 await 的 rollback 可能与下一个任务产生竞态：删除新任务刚写入的 JSONL、在新任务运行期间替换 `groupSessionManager`、产生内存状态、`persistedCount` 与磁盘文件不一致。
+- 失败路径会等待 `rollbackFirstPersist()` 完成后再让当前 queue task rejected，下一任务不会与正常 rollback 并发。
+- rollback 正常删除文件后会清零 `persistedCount` 并重建 SessionManager；已有测试覆盖部分初始化失败后重试。
+- 如果 `rm()` 失败，当前 fallback 会把文件覆盖成只含 header 的 JSONL，然后继续按 empty 状态运行。
+
+**剩余问题：**
+
+- 只含 header 的 JSONL 仍违反“empty 群聊不存在 JSONL”和“可恢复 JSONL 必然是 started”的约定。
+- 重建 SessionManager 后可能使用新的预定文件路径，下一次首次提交可能产生第二个 JSONL。
+- 如果删除和覆盖都失败，错误被静默忽略，Runtime 仍继续运行，无法保证磁盘与内存状态一致。
 
 **剩余要求：**
 
-1. 必须 `await this.rollbackFirstPersist(sessionPath)`。
-2. 补充"部分初始化失败后重试"的测试，覆盖 rollback 未完成时下一次提交的场景。
+1. 删除失败时不得继续声称 Runtime 已恢复到 empty。
+2. 将残留文件移出可恢复 JSONL 范围，或使 Runtime 进入明确的失败/隔离状态并阻止后续提交。
+3. 保留原始持久化错误，同时记录或返回 rollback 失败，不能静默丢失清理结果。
 
 **涉及组件：**
 
 - `CreatorRuntime.submitUserPersonaMessage()`
-- `GroupSessionManager`
+- `SessionManager`
 - 空群聊 JSONL 生命周期（persistence.md, interaction-model.md）
 
-**当前检测：** 无测试覆盖 header/名称/settings 成功后 public message 失败，也无测试覆盖异步 rollback 的竞态时序。
+**当前检测：** 已覆盖 header、settings 成功后 public message 失败及随后重试；尚未覆盖 `rm()` 失败、fallback 失败和残留文件不会进入恢复列表。
 
 ---
 
 ## BC-3: WebSocket 广播 timestamp 与 JSONL entry timestamp 不一致
 
-**状态：** 部分修复（阻塞 M3 — broadcast 仍用旧值）
+**状态：** 已修复，待补测试
 
 **关联审查条目：** M3 第 2 条、第 6 条
 
@@ -128,22 +137,20 @@ SessionManager._appendEntry() 的内部顺序是：
 
 代码在调用 SessionManager 前用 `new Date()` 生成候选 `timestamp`。append 成功后通过 `getEntry(entryId)` 读取原生 `entryTimestamp`。
 
-**当前问题：**
+**当前实现：**
 
-- `publicMessages` 缓存使用 `entryTimestamp` ✅
-- TUI 投影使用 `entryTimestamp` ✅
-- **broadcast 仍传入候选 `timestamp`，而非 `entryTimestamp`（L713）** ❌
-
-两个时间戳相差 ≥1ms 时，实时广播与以后从群聊记录恢复的同一条消息 timestamp 不一致。
+- User Persona 和 Character append 成功后均通过 `getEntry(entryId)` 取得原生 `entryTimestamp`。
+- `publicMessages`、TUI 投影和 WebSocket broadcast 均使用该原生 timestamp。
+- Character 路径已有广播 timestamp 与 JSONL envelope timestamp 的精确相等断言。
 
 **预期行为：**
 
 - 同一条公共消息的 timestamp 在广播、JSONL 和 publicMessages 中完全一致。
 
-**剩余要求：**
+**测试要求：**
 
-- 广播字段应直接使用 `entryTimestamp`。
-- 增加精确相等断言：同一条消息的 JSONL envelope.timestamp === 广播 timestamp === TUI projection timestamp。
+- 补充 User Persona 路径的 JSONL、广播和 TUI 投影 timestamp 精确相等断言。
+- `details.timestamp` 是另一项独立的持久化契约偏差，见 BC-19。
 
 **涉及组件：**
 
@@ -455,28 +462,30 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 ## BC-12: character_joined 事件对加入者本人因消息顺序会从首次环境批次丢失
 
-**状态：** 待修复
+**状态：** 已修复，待补测试
 
-**关联设计文档：** `interaction-model.md` L174、`websocket-protocol.md` L304
+**关联设计文档：**
 
-**发生条件：**
+- `interaction-model.md` → Character 加入和群聊环境
+- `websocket-protocol.md` → Character 加入广播
 
-`character_ready` 完成后，Creator 对加入方执行以下顺序：
+**原问题：**
 
-1. L538 `connections.set(sessionId, socket)`——新 WebSocket 进入广播集合
-2. L555 `broadcast({ type: "character_joined", ... })`——向所有连接（含新加入者）广播加入事件
-3. L558 `send(socket, { type: "message_history", ... })`——向新加入者发送最近历史
+协议原先要求 Creator 先广播 `character_joined`，再向新 Character 发送 `message_history`。加入者处理 `character_joined` 时尚不知道群聊已有公开消息，`hasPublicMessages` 为 false，导致自己的加入事件被过滤。
 
-Character 按接收顺序处理消息：
+**当前实现：**
 
-- 第 2 步的 `character_joined` 先到达。此时 `isEnvironmentEvent` 检查 `character_joined` 类型 → 返回 `this.runtime.hasPublicMessages`。由于 `message_history` 尚未到达，`hasPublicMessages` 为 `false`，**加入事件被丢弃**。
-- 第 3 步的 `message_history` 后到达，进入防抖批次。但 `character_joined` 已丢失。
+- Creator 改为先向加入者发送 `message_history`，再向全部连接广播 `character_joined`。
+- 非空历史会先让 `hasPublicMessages` 变为 true，因此随后到达的加入事件能够进入同一个防抖批次。
+- 空历史不会启动批次，随后加入事件仍被过滤，符合 empty 群聊不触发 Agent run 的要求。
+- `websocket-protocol.md` 已正式采用 history → joined 顺序：历史是加入前的上下文，加入事件是其后的实时环境变化。
 
-**违反的约定：**
+**测试要求：**
 
-> 群聊已有公开消息时该事件作为公共环境事件参与 1 秒防抖。
-
-对于加入者本人，`character_joined` 应在首次环境批次中与 `message_history` 合并，而实际被丢弃。
+- started 群聊中，新 Character 的首次 `sendMessage()` 同时包含最近历史和自己的加入事件。
+- `details.events` 中历史 `public_message` 保持历史顺序，并排在 `character_joined` 之前。
+- empty 群聊中，空历史和自己的加入事件不触发 `sendMessage()`。
+- 其他在线 Character 仍只收到一次 `character_joined`。
 
 **涉及组件：**
 
@@ -484,56 +493,45 @@ Character 按接收顺序处理消息：
 - `GroupChatInput.isEnvironmentEvent()`——`hasPublicMessages` 守卫
 - `CharacterRuntime.hasPublicMessages`——通过 `message_history` 设置
 
-**当前检测：** 现有测试直接 mock `hasPublicMessages: true`，未覆盖消息到达的真实顺序。需要端到端测试验证加入者收到的第一条 `character_joined` 确实进入了防抖批次。
+**当前检测：** Creator lifecycle 测试已断言 history → joined；尚缺非空历史下首次 GroupChatInput 批次的集成测试。
 
 ---
 
 ## BC-13: JSONL header timestamp 与 created_at 不一致
 
-**状态：** 待修复
+**状态：** 已修复
 
-**关联设计文档：** `persistence.md`（"header timestamp 就是 created_at"）、`websocket-protocol.md` L557
+**关联设计文档：**
 
-**发生条件：**
+- `persistence.md` → pi session header
+- `websocket-protocol.md` → 获取群聊状态
 
-`CreatorRuntime.startNew()` 中：
+**当前实现：**
 
-1. L121 `const createdAt = dependencies.now().toISOString()`——生成状态中的 `createdAt`
-2. L129 `SessionManager.create(...)`——SessionManager 内部再次调用系统时间生成 header timestamp
-
-两个时间戳由不同调用生成，可能不同。
-
-**影响：**
-
-- `get_group_chat_state.created_at`、active descriptor 和 JSONL header 的 timestamp 可能不一致。
-- 首次提交失败后用新时间戳重建 SessionManager 时，header timestamp 会再次改变。
-- 这违反 persistence.md 中"header timestamp 就是 created_at"的约定。
-
-**预期行为：**
-
-- `createdAt` 只应生成一次。
-- SessionManager 创建时应传入该 `createdAt` 作为 header timestamp，而非自行生成。
-- rollback 后重建 SessionManager 必须复用同一个 `createdAt`，不能重新调用系统时间。
+- `createdAt` 在 `CreatorRuntime.startNew()` 中只生成一次，并用于 GroupChatState 和 active descriptor。
+- 第一条消息落盘时，用该 canonical `createdAt` 覆盖 SessionManager 内存 header 的 timestamp。
+- rollback 后即使重建 SessionManager，下一次首次落盘仍使用同一个 `state.groupChat.createdAt`。
+- 测试已精确断言 JSONL header timestamp 等于 GroupChatState `createdAt`。
 
 **涉及组件：**
 
 - `CreatorRuntime.startNew()`
-- `SessionManager.create()`——是否支持传入 header timestamp
+- 首次落盘 header 投影
 - 首次提交失败 + rollback 路径
 
-**当前检测：** 测试中的 `dependencies.now()` mock 返回固定值，因此两个时间戳碰巧一致，未暴露差异。需要测试验证 `dependencies.now()` 返回值与 JSONL header timestamp 精确相等。
+**当前检测：** 已覆盖首次正常落盘的精确相等；rollback 后重试仍由同一代码路径保证，可补专门断言但不再是实现缺口。
 
 ---
 
 ## BC-14: publishDescriptor 失败后留下空 JSONL 文件
 
-**状态：** 已确认不存在（误报）
+**状态：** 已满足
 
 **误报原因：**
 
-`SessionManager.create()` 只创建 session 目录和内存 header，不创建 JSONL 文件。文件真正落盘发生在第一条 User Persona 消息的 `src/creator/creator-runtime.ts:240`，而 `publishDescriptor()` 在此之前完成。
+`SessionManager.create()` 只创建 session 目录和内存 header，不创建 JSONL 文件。文件真正落盘发生在第一条 User Persona 消息的首次持久化路径，而 `publishDescriptor()` 在此之前完成。
 
-现有测试 `test/creator/creator-runtime.test.ts:84` 已覆盖该场景——mock publishDescriptor 失败后断言 JSONL 不存在。
+`test/creator/creator-runtime.test.ts` 已覆盖该场景——mock `publishDescriptor()` 失败后断言 JSONL 不存在。
 
 最多留下空的 session 目录，不违反"空群聊不留下 JSONL"的约定。
 
@@ -541,11 +539,11 @@ Character 按接收顺序处理消息：
 
 ## BC-15: GroupChatInput.flush() 中 sendMessage 异常处理
 
-**状态：** 已确认不需要额外保护
+**状态：** 已满足
 
 **排查结论：**
 
-`pi.sendMessage()` 在 pi 原生实现中（`agent-session.js:1846`）已内置 `.catch()` 处理器：
+`pi.sendMessage()` 在 pi 原生 `AgentSession` runtime binding 中已内置 `.catch()` 处理器：
 
 ```javascript
 sendMessage: (message, options) => {
@@ -560,15 +558,21 @@ sendMessage: (message, options) => {
 - `sendCustomMessage` 是 `async` 函数，无法同步抛错——即使内部 throw，也变成 rejected Promise 被 `.catch()` 捕获。
 - 唯一同步抛错场景是 `this.sendCustomMessage` 本身不是函数，这在正常运行时不存在。
 
-因此 `void this.flush()` 安全：`flush()` 中唯一可能 reject 的 `getGroupChatState` 已被 try-catch 包住，`sendMessage` 不会同步抛错。防抖批次已从 `this.batch` 清空、不会重复提交，丢失的批次由下一次环境消息重新触发防抖自然补偿。
+因此 `void this.flush()` 不会造成未处理的 Promise rejection：`getGroupChatState` 已被 try-catch 包住，`sendMessage` 不会同步抛错。
+
+该结论只说明错误由 pi 原生层上报，不代表批次会自动重试。批次在调用 `sendMessage()` 前已经从 `this.batch` 移除；如果 pi 原生提交失败，本批 events 可能丢失，后续环境消息只能形成新批次，不能补回旧 events。首版接受由 pi 原生错误通道报告且不自行实现重试队列。
 
 ---
 
 ## BC-16: WebSocket 心跳未实现
 
-**状态：** 待实现
+**状态：** 计划于 M5
 
-**关联设计文档：** `websocket-protocol.md` L23-26、`development-conventions.md`（30s ping / 120s 失效）
+**关联设计文档：**
+
+- `websocket-protocol.md` → 连接心跳
+- `development-conventions.md` → 超时与时间常量
+- `implementation-plan.md` → M5：pi 生命周期完整对齐
 
 **文档要求：**
 
@@ -583,31 +587,31 @@ sendMessage: (message, options) => {
 **缺失行为：**
 
 - Creator 不向已连接 Character 发送 WebSocket ping
-- Character 不响应 ping / 不检测 pong 超时
+- Character 由 ws 自动回复 pong，但不检测 120 秒未收到 Creator ping
 - 半开连接（TCP 看似存活但对端已死）不会被检测到
 - Creator 会继续向已死连接广播消息并认为该 Character 在线
 
 **预期实现：**
 
 - Creator 侧：`WebSocketServer` 定时（30s）向每个连接发送 ping；120s 未收到 pong 则主动关闭连接并触发 `disconnected` 清理
-- Character 侧：ws 库自动响应 ping/pong（RFC 6455），无需额外代码；可增加 120s 未收到服务端消息的兜底检测
+- Character 侧：ws 库自动回复 pong；PiTavern 必须记录最近一次 Creator ping，并在 120 秒未收到 ping 时主动终止连接
 
 **涉及组件：**
 
 - `CreatorRuntime`（ping 定时器、pong 超时检测）
-- `CharacterRuntime`（可选：对端无消息超时检测）
+- `CharacterRuntime`（Creator ping 时间记录和 120 秒超时检测）
 
-**当前检测：** 无测试。需要模拟连接静默断开后验证 120s 内 Creator 完成清理。
+**当前检测：** 无测试。本项由 `implementation-plan.md` 明确归入 M5，不阻塞 M3；M5 需要分别验证 Creator 未收到 pong 和 Character 未收到 ping 的清理路径。
 
 ---
 
 ## BC-17: Agent 调用 tavern_speak 时 Character 已断开
 
-**状态：** 已满足
+**状态：** 已满足，待补测试
 
 **排查结论：**
 
-断开时序：WebSocket close → `finishDisconnected` → `handleConnectionClosed`（transition lock）→ state 变 idle → `syncActiveTools` 移除工具。
+断开时序：WebSocket close → `finishDisconnected` → 异步 `handleConnectionClosed`（transition lock）→ state 变 idle → `syncActiveTools` 移除工具。
 
 但 active tools 只影响工具列表可见性，当前 Agent run 已加载的工具定义不受影响。真正的保护在 execute 函数：
 
@@ -618,4 +622,106 @@ if (state.type !== "character") {
 }
 ```
 
-JavaScript 单线程保证 Agent 不会在状态切换"中途"调用工具。断开后的任何 `tavern_speak` 调用命中 state 检查 → 返回 error。现有测试 `"registers the tavern_speak tool and reports error when not a character"` 覆盖了 idle 状态的拒绝逻辑，机制相同。
+Controller 尚未完成 idle transition 的短暂窗口内，工具仍可能读到 `character` 状态；此时 `CharacterRuntime.request()` 会因 socket 已关闭而拒绝，工具返回发送失败。Controller 已进入 idle 后则由 execute 的 state 检查直接拒绝。
+
+**当前检测：** 已覆盖 idle 状态拒绝；尚需覆盖 Runtime 已断开但 Controller 尚未完成 idle transition 的窗口。
+
+---
+
+## BC-18: started 状态下 setMaxMessages 先持久化后校验
+
+**状态：** 待修复（阻塞 M3）
+
+**关联设计文档：**
+
+- `persistence.md` → 群聊设置
+- `extension-architecture.md` → Runtime 任务串行化
+
+**排查结论：**
+
+`CreatorRuntime.enqueue()` 的串行化和失败隔离行为正确：
+
+```typescript
+const task = this.runtimeTail.then(operation);
+this.runtimeTail = task.then(
+    () => undefined,
+    () => undefined,
+);
+```
+
+- 后一个任务只在前一个任务 settle 后开始。
+- 前一个任务 rejected 不会永久阻塞队列。
+- 队列不负责事务回滚；失败任务必须在 settle 前恢复 SessionManager、业务 state 和派生计数，使后一个任务看到一致状态。
+
+公共消息、`setName()` 和 `setMaxMessages()` 的磁盘 append 失败路径已经恢复 SessionManager。因此问题不在 enqueue，而在 mutation 之前是否完成全部校验。
+
+**发生条件：**
+
+通过命令调用 `/tavern-set-max` 时，命令层会先校验非负安全整数，正常用户路径不会触发本问题。但 `CreatorRuntime.setMaxMessages()` 本身仍是可直接调用的状态修改入口。
+
+群聊进入 started 状态后，当前执行顺序是：
+
+1. `appendCustomEntry("pi-tavern.group-settings", ...)` 持久化新设置；
+2. `persistedCount++`；
+3. `setGroupMaxMessages()` 调用 `assertValidMaxMessages()`；
+4. 参数无效时抛错，业务 state 不更新。
+
+直接调用 `runtime.setMaxMessages(-1)` 时，无效设置可能已经进入 JSONL，`persistedCount` 也已推进，然后任务才 rejected。队列会正常执行下一任务，但下一任务观察到的是“内存仍为旧设置、磁盘最后一条设置为无效值”的不一致状态。
+
+empty 状态没有该问题，因为该分支在修改 state 前直接调用 `setGroupMaxMessages()`，校验先于 mutation。
+
+**预期行为：**
+
+- Runtime 自身必须在 empty/started 分支和任何持久化操作之前校验 `maxMessages`。
+- 无效参数不得追加 entry、推进 `persistedCount` 或修改业务 state。
+- 校验失败后，下一项 runtime queue task 应观察到与失败前完全相同的内存和磁盘状态。
+
+**实现要求：**
+
+- 将非负安全整数校验提升到 `setMaxMessages()` queue operation 的开头，或暴露可复用的纯校验函数并在持久化前调用。
+- 保留 `setGroupMaxMessages()` 内部校验作为 state helper 的防御性保护。
+
+**涉及组件：**
+
+- `CreatorRuntime.setMaxMessages()`
+- `setGroupMaxMessages()` / `assertValidMaxMessages()`
+- Runtime queue 的失败后状态不变式
+
+**当前检测：** 命令层已有无效参数测试，但没有直接调用 started Runtime 的测试。需要断言无效调用后 JSONL 内容、`persistedCount` 和 `groupMaxMessages` 均保持不变，并验证随后一条合法操作正常成功。
+
+---
+
+## BC-19: public-message details 保存了第二套 timestamp
+
+**状态：** 待修复
+
+**关联设计文档：** `persistence.md` → 公开消息
+
+**发生条件：**
+
+User Persona 和 Character 公共消息在调用 `appendCustomMessageEntry()` 前生成候选 `timestamp`，并把它写入 `details.timestamp`。SessionManager 随后独立生成 entry envelope 的原生 timestamp。
+
+append 成功后，广播、TUI 和历史缓存已经改用原生 `entry.timestamp`，但 JSONL 内仍可能同时存在两个不同时间：
+
+- `entry.timestamp`：协议和恢复使用的权威时间；
+- `entry.details.timestamp`：append 前生成、未在持久化结构中约定的冗余时间。
+
+**预期行为：**
+
+- 公开消息只使用 entry envelope 的原生 timestamp。
+- `details` 只保存不能从 envelope 直接取得的 sender、content、sequence 和 Round 快照。
+- 同一 entry 中不保留含义重复且可能不一致的第二套 timestamp。
+
+**实现要求：**
+
+- 从 User Persona 和 Character 两条 append 路径移除 `details.timestamp`。
+- 删除测试中对 `publicEntry.details.timestamp` 的断言。
+- 恢复和 WebSocket 转换始终读取 `entry.timestamp`。
+
+**涉及组件：**
+
+- `CreatorRuntime.submitUserPersonaMessage()`
+- `CreatorRuntime.handleSpeak()`
+- `persistence.md` 的 public-message details 结构
+
+**当前检测：** 现有测试反而断言 `details.timestamp` 存在，需要改为断言该字段不存在，并继续保留 envelope、广播和 TUI timestamp 的交叉一致性测试。

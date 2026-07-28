@@ -180,7 +180,7 @@ export class CreatorRuntime {
 			try {
 				this.groupSessionManager.appendSessionInfo(normalizedName ?? "");
 			} catch (error) {
-				this.groupSessionManager.setSessionFile(this.getSessionFilePath());
+				this.recoverSessionManagerFromFailedAppend();
 				throw error;
 			}
 			this.persistedCount++;
@@ -214,7 +214,7 @@ export class CreatorRuntime {
 					group_max_messages: maxMessages,
 				});
 			} catch (error) {
-				this.groupSessionManager.setSessionFile(this.getSessionFilePath());
+				this.recoverSessionManagerFromFailedAppend();
 				throw error;
 			}
 			this.persistedCount++;
@@ -308,8 +308,8 @@ export class CreatorRuntime {
 					this.persistedCount++;
 				} catch (error) {
 					// SessionManager._appendEntry mutates memory before disk write.
-					// On failure, reload from disk to purge the unpersisted entry.
-					this.groupSessionManager.setSessionFile(this.getSessionFilePath());
+					// On failure, purge the unpersisted entry from memory.
+					this.recoverSessionManagerFromFailedAppend();
 					throw error;
 				}
 			}
@@ -681,8 +681,8 @@ export class CreatorRuntime {
 				);
 			} catch (error) {
 				// SessionManager._appendEntry mutates memory before disk write.
-				// Reload from disk to purge the unpersisted entry from byId/leafId.
-				this.groupSessionManager.setSessionFile(this.getSessionFilePath());
+				// Purge the unpersisted entry from byId/leafId.
+				this.recoverSessionManagerFromFailedAppend();
 				this.sendFailure(
 					socket,
 					message.id,
@@ -915,6 +915,28 @@ export class CreatorRuntime {
 	private broadcast(message: unknown): void {
 		for (const socket of this.connections.values()) {
 			this.send(socket, message);
+		}
+	}
+
+	/**
+	 * Recover SessionManager in-memory state after a failed append.
+	 * SessionManager._appendEntry mutates byId/leafId before disk write;
+	 * on failure we must purge the unpersisted entry. The disk file is
+	 * still valid (the write never happened), so setSessionFile is the
+	 * primary recovery. If even that fails, recreate from scratch as a
+	 * last-resort fallback to prevent future operations using corrupt leaf.
+	 */
+	private recoverSessionManagerFromFailedAppend(): void {
+		try {
+			this.groupSessionManager.setSessionFile(this.getSessionFilePath());
+		} catch {
+			// setSessionFile failed — disk may be gone or corrupt.
+			// Recreate a fresh SessionManager as last resort.
+			this.groupSessionManager = SessionManager.create(
+				this.groupSessionManager.getCwd(),
+				this.groupSessionManager.getSessionDir(),
+				{ id: this.state.groupChat.groupChatId },
+			);
 		}
 	}
 
