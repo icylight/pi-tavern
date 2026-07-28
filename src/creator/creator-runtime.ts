@@ -177,7 +177,12 @@ export class CreatorRuntime {
 			}
 
 			// Active group chat: persist entry via SessionManager
-			this.groupSessionManager.appendSessionInfo(normalizedName ?? "");
+			try {
+				this.groupSessionManager.appendSessionInfo(normalizedName ?? "");
+			} catch (error) {
+				this.groupSessionManager.setSessionFile(this.getSessionFilePath());
+				throw error;
+			}
 			this.persistedCount++;
 
 			// Commit memory state (authoritative after successful persist)
@@ -204,9 +209,14 @@ export class CreatorRuntime {
 			}
 
 			// Active group chat: persist entry via SessionManager
-			this.groupSessionManager.appendCustomEntry("pi-tavern.group-settings", {
-				group_max_messages: maxMessages,
-			});
+			try {
+				this.groupSessionManager.appendCustomEntry("pi-tavern.group-settings", {
+					group_max_messages: maxMessages,
+				});
+			} catch (error) {
+				this.groupSessionManager.setSessionFile(this.getSessionFilePath());
+				throw error;
+			}
 			this.persistedCount++;
 
 			setGroupMaxMessages(this.state, maxMessages);

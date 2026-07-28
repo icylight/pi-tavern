@@ -522,3 +522,100 @@ Character 按接收顺序处理消息：
 - 首次提交失败 + rollback 路径
 
 **当前检测：** 测试中的 `dependencies.now()` mock 返回固定值，因此两个时间戳碰巧一致，未暴露差异。需要测试验证 `dependencies.now()` 返回值与 JSONL header timestamp 精确相等。
+
+---
+
+## BC-14: publishDescriptor 失败后留下空 JSONL 文件
+
+**状态：** 已确认不存在（误报）
+
+**误报原因：**
+
+`SessionManager.create()` 只创建 session 目录和内存 header，不创建 JSONL 文件。文件真正落盘发生在第一条 User Persona 消息的 `src/creator/creator-runtime.ts:240`，而 `publishDescriptor()` 在此之前完成。
+
+现有测试 `test/creator/creator-runtime.test.ts:84` 已覆盖该场景——mock publishDescriptor 失败后断言 JSONL 不存在。
+
+最多留下空的 session 目录，不违反"空群聊不留下 JSONL"的约定。
+
+---
+
+## BC-15: GroupChatInput.flush() 中 sendMessage 异常处理
+
+**状态：** 已确认不需要额外保护
+
+**排查结论：**
+
+`pi.sendMessage()` 在 pi 原生实现中（`agent-session.js:1846`）已内置 `.catch()` 处理器：
+
+```javascript
+sendMessage: (message, options) => {
+    this.sendCustomMessage(message, options).catch((err) => {
+        runner.emitError({...});
+    });
+},
+```
+
+- `sendMessage` 返回 `void`，调用 `sendCustomMessage` 后立即返回，不等待异步结果。
+- 所有异步失败（包括 `sendCustomMessage` 内部 `_runAgentPrompt` 抛错）被 `.catch()` 吸收，通过 `runner.emitError()` 上报。
+- `sendCustomMessage` 是 `async` 函数，无法同步抛错——即使内部 throw，也变成 rejected Promise 被 `.catch()` 捕获。
+- 唯一同步抛错场景是 `this.sendCustomMessage` 本身不是函数，这在正常运行时不存在。
+
+因此 `void this.flush()` 安全：`flush()` 中唯一可能 reject 的 `getGroupChatState` 已被 try-catch 包住，`sendMessage` 不会同步抛错。防抖批次已从 `this.batch` 清空、不会重复提交，丢失的批次由下一次环境消息重新触发防抖自然补偿。
+
+---
+
+## BC-16: WebSocket 心跳未实现
+
+**状态：** 待实现
+
+**关联设计文档：** `websocket-protocol.md` L23-26、`development-conventions.md`（30s ping / 120s 失效）
+
+**文档要求：**
+
+> 心跳超时只用于兜底检测半开连接，不是重连窗口。心跳失败后不自动重连，统一执行 `disconnected` 清理。
+
+> 心跳仍使用独立确定的 30 秒 ping 间隔和 120 秒失效阈值。
+
+**当前状态：**
+
+`src/` 和 `test/` 中搜索 `ping`、`pong`、`heartbeat`、`keepalive`、`isAlive` 全部零匹配。ws 库不自动发送 ping——必须显式实现。
+
+**缺失行为：**
+
+- Creator 不向已连接 Character 发送 WebSocket ping
+- Character 不响应 ping / 不检测 pong 超时
+- 半开连接（TCP 看似存活但对端已死）不会被检测到
+- Creator 会继续向已死连接广播消息并认为该 Character 在线
+
+**预期实现：**
+
+- Creator 侧：`WebSocketServer` 定时（30s）向每个连接发送 ping；120s 未收到 pong 则主动关闭连接并触发 `disconnected` 清理
+- Character 侧：ws 库自动响应 ping/pong（RFC 6455），无需额外代码；可增加 120s 未收到服务端消息的兜底检测
+
+**涉及组件：**
+
+- `CreatorRuntime`（ping 定时器、pong 超时检测）
+- `CharacterRuntime`（可选：对端无消息超时检测）
+
+**当前检测：** 无测试。需要模拟连接静默断开后验证 120s 内 Creator 完成清理。
+
+---
+
+## BC-17: Agent 调用 tavern_speak 时 Character 已断开
+
+**状态：** 已满足
+
+**排查结论：**
+
+断开时序：WebSocket close → `finishDisconnected` → `handleConnectionClosed`（transition lock）→ state 变 idle → `syncActiveTools` 移除工具。
+
+但 active tools 只影响工具列表可见性，当前 Agent run 已加载的工具定义不受影响。真正的保护在 execute 函数：
+
+```typescript
+const state = ctrl.getState();
+if (state.type !== "character") {
+    return { isError: true, ... };
+}
+```
+
+JavaScript 单线程保证 Agent 不会在状态切换"中途"调用工具。断开后的任何 `tavern_speak` 调用命中 state 检查 → 返回 error。现有测试 `"registers the tavern_speak tool and reports error when not a character"` 覆盖了 idle 状态的拒绝逻辑，机制相同。
