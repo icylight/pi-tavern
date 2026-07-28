@@ -815,7 +815,10 @@ describe("CreatorRuntime", () => {
 		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
 		await waitForMessage(client, "response");
 
-		// Simulate append failure — leaf is now polluted
+		// Simulate append failure. The spy throws before SessionManager's
+		// _appendEntry mutates in-memory state, so leaf is NOT truly polluted.
+		// However the recovery code path (setSessionFile reload) is exercised
+		// identically, and the parentId assertion below validates correctness.
 		const sm = (runtime as unknown as { groupSessionManager: { appendCustomMessageEntry: typeof vi.fn } })
 			.groupSessionManager;
 		vi.spyOn(sm, "appendCustomMessageEntry").mockImplementationOnce(() => {
@@ -851,6 +854,81 @@ describe("CreatorRuntime", () => {
 		expect(parentExists).toBe(true);
 
 		client.close();
+		await runtime.close();
+	});
+
+	it("recovers SessionManager leaf after setName append failure", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+		});
+
+		await runtime.submitUserPersonaMessage("First");
+
+		// Simulate append failure (exercises recovery path)
+		const sm = (runtime as unknown as { groupSessionManager: { appendSessionInfo: typeof vi.fn } }).groupSessionManager;
+		vi.spyOn(sm, "appendSessionInfo").mockImplementationOnce(() => {
+			throw new Error("disk full");
+		});
+
+		await expect(runtime.setName("After Crash")).rejects.toThrow("disk full");
+
+		// Recovery succeeded — next setName should chain to correct disk leaf
+		await runtime.setName("Recovered Name");
+		expect(runtime.state.groupChat.name).toBe("Recovered Name");
+
+		// Verify the successful session_info was persisted
+		const jsonlFiles = await jsonlFilesUnder(join(root, "agent"));
+		const sessionPath = join(root, "agent", jsonlFiles[0] as string);
+		const lines = (await readFile(sessionPath, "utf8")).trim().split("\n");
+		const entries = lines.map((l) => JSON.parse(l)) as Record<string, unknown>[];
+		const lastSessionInfo = entries.reverse().find((e) => e.type === "session_info");
+		expect(lastSessionInfo).toBeDefined();
+		expect((lastSessionInfo as Record<string, unknown>)?.name).toBe("Recovered Name");
+		// parentId must point to a real disk entry
+		const parentId = (lastSessionInfo as Record<string, unknown>)?.parentId as string;
+		expect(typeof parentId).toBe("string");
+		expect(entries.some((e) => e.id === parentId)).toBe(true);
+
+		await runtime.close();
+	});
+
+	it("recovers SessionManager leaf after setMaxMessages append failure", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+		});
+
+		await runtime.submitUserPersonaMessage("First");
+
+		// Simulate append failure (exercises recovery path)
+		const sm = (runtime as unknown as { groupSessionManager: { appendCustomEntry: typeof vi.fn } }).groupSessionManager;
+		vi.spyOn(sm, "appendCustomEntry").mockImplementationOnce(() => {
+			throw new Error("disk full");
+		});
+
+		await expect(runtime.setMaxMessages(7)).rejects.toThrow("disk full");
+
+		// Recovery succeeded — next setMaxMessages should work
+		await runtime.setMaxMessages(7);
+		expect(runtime.state.groupChat.groupMaxMessages).toBe(7);
+
+		// Verify the successful group-settings entry was persisted
+		const jsonlFiles = await jsonlFilesUnder(join(root, "agent"));
+		const sessionPath = join(root, "agent", jsonlFiles[0] as string);
+		const lines = (await readFile(sessionPath, "utf8")).trim().split("\n");
+		const entries = lines.map((l) => JSON.parse(l)) as Record<string, unknown>[];
+		const lastSettings = entries
+			.reverse()
+			.find((e) => e.type === "custom" && e.customType === "pi-tavern.group-settings");
+		expect(lastSettings).toBeDefined();
+		expect((lastSettings as Record<string, unknown>)?.data).toEqual({ group_max_messages: 7 });
+		const parentId = (lastSettings as Record<string, unknown>)?.parentId as string;
+		expect(typeof parentId).toBe("string");
+		expect(entries.some((e) => e.id === parentId)).toBe(true);
+
 		await runtime.close();
 	});
 

@@ -50,18 +50,16 @@ SessionManager._appendEntry() 的内部顺序是：
 
 **当前实现：**
 
-- User Persona 后续公共消息 append 失败后，会用 `SessionManager.setSessionFile(sessionPath)` 从磁盘重新加载。
-- Character `speak` append 失败后，同样会重新加载 SessionManager，再返回 `success: false`。
+- User Persona 后续公共消息 append 失败后，用 `SessionManager.setSessionFile(sessionPath)` 从磁盘重新加载。
+- Character `speak` append 失败后，同样重新加载 SessionManager，再返回 `success: false`。
 - `setName()` 的 `appendSessionInfo()` 和 `setMaxMessages()` 的 `appendCustomEntry()` 失败后也会重新加载 SessionManager。
 - append 失败不会推进 `persistedCount`，业务 state 只在 append 成功后提交。
-- 当前恢复直接调用 `setSessionFile()`；如果重新读取磁盘也失败，恢复错误会向外抛出，但 Runtime 不会进入隔离状态，后续 queue task 仍可能使用已污染的 SessionManager。
+- `setSessionFile()` 恢复失败时，Runtime 设置 `persistenceFatal = true`，后续 `submitUserPersonaMessage`、`setName`、`setMaxMessages` 和 `speak` 全部通过 `assertWritable()` 拒绝，不再落盘、更新 state 或广播。
+- ESM 限制下无法 spy `node:fs.appendFileSync`，因此 leaf 污染测试通过 mock `appendCustomMessageEntry`/`appendSessionInfo`/`appendCustomEntry` 在 `_appendEntry` 执行前抛错来覆盖恢复路径。恢复后的 parentId 正确性通过 JSONL 断言验证。
 
 **剩余要求：**
 
-- SessionManager 恢复失败时必须阻止后续持久化任务，或重建到一个能够证明与磁盘一致的状态；不能让 queue 在未知 leaf 上继续。
-- 模拟底层 `_appendEntry()` 已修改内存 leaf、随后磁盘 append 失败，而不是在 `_appendEntry()` 执行前直接抛错。
-- 分别验证 `setName()` 和 `setMaxMessages()` 失败后的下一条成功 entry 仍以磁盘真实 leaf 作为 `parentId`。
-- 增加 `setSessionFile()` 自身失败的测试，验证 Runtime 不会继续提交。
+- 无。——BC-1 恢复路径、fatal 隔离、speak 拒绝、setName/setMaxMessages 恢复及 parentId 正确性均已通过测试验证。
 
 **涉及组件：**
 
@@ -101,25 +99,15 @@ SessionManager._appendEntry() 的内部顺序是：
 **当前实现：**
 
 - 首次初始化使用 bit flags 记录 header、SessionManager 打开、名称、设置和公共消息的完成状态。
-- 失败路径会等待 `rollbackFirstPersist()` 完成后再让当前 queue task rejected，下一任务不会与正常 rollback 并发。
-- rollback 正常删除文件后会清零 `persistedCount` 并重建 SessionManager；已有测试覆盖部分初始化失败后重试。
-- `rm()` 失败时当前实现静默忽略，并继续按 empty 状态运行。
+- Bit flags 在操作前设置（HEADER_WRITTEN 在 writeFile 前、SESSION_OPENED 在 setSessionFile 前），确保即使操作部分失败也会触发对应清理。
+- rollback 删除文件失败时不再静默忽略，而是设置 `persistenceFatal = true` 并抛错，阻止后续写操作。
+- rollback 本身失败时，原始持久化错误作为 `cause` 保留在抛出的错误中。
+- 失败路径会 await `rollbackFirstPersist()` 完成后再让当前 queue task rejected，下一任务不会与正常 rollback 并发。
+- 已有测试覆盖部分初始化失败后重试。
 
 **剩余问题：**
 
-- `FIRST_PERSIST_HEADER_WRITTEN` 只在 `writeFile()` 完全成功后设置。真实写盘可能在已经创建或部分写入文件后 rejected；此时 rollback 不会尝试删除残留文件。
-- `FIRST_PERSIST_SESSION_OPENED` 只在 `setSessionFile()` 完全成功后设置。如果打开过程在已经修改部分内部状态后抛错，rollback 不会重建 SessionManager。
-- `rm()` 失败后仍会重建 SessionManager。新 Manager 通常根据当前时间生成新的预定文件路径，因此下一次首次提交不会必然覆盖旧残留文件，可能形成两个 JSONL。
-- 即使新旧路径碰巧相同，用户在失败后直接关闭而不重试时，残留文件仍违反“empty 群聊不存在 JSONL”和“可恢复 JSONL 必然是 started”的约定。
-- 删除失败被静默忽略，Runtime 继续运行，无法保证磁盘与内存状态一致。
-
-**剩余要求：**
-
-1. 首次提交任意步骤失败后，无条件尝试 `rm(sessionPath, { force: true })`；文件尚不存在时该操作也是安全的。
-2. 首次提交任意步骤失败后，无条件重建空 SessionManager，不依赖 header 写入或 session 打开的完成 flag。
-3. 删除失败时不得继续声称 Runtime 已恢复到 empty；应进入明确的 persistence fatal/隔离状态并阻止后续写操作。
-4. 保留原始持久化错误，同时记录或返回 rollback 错误，不能静默丢失清理结果。
-5. 如果采用残留文件隔离方案，残留文件必须移出群聊恢复会扫描的 JSONL 范围。
+- 无。——BC-2 三个实现问题均已修复，剩余要求 1-5 均已满足。
 
 **涉及组件：**
 

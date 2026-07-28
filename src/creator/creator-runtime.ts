@@ -254,11 +254,13 @@ export class CreatorRuntime {
 
 				this.firstPersistFlags = 0;
 				try {
-					await this.deps.writeFile(sessionPath, `${JSON.stringify(header)}\n`);
+					// Set bit before operation so rollback knows this step was attempted
+					// (writeFile may create/partially-write the file before throwing).
 					this.firstPersistFlags |= FIRST_PERSIST_HEADER_WRITTEN;
+					await this.deps.writeFile(sessionPath, `${JSON.stringify(header)}\n`);
 
-					this.groupSessionManager.setSessionFile(sessionPath);
 					this.firstPersistFlags |= FIRST_PERSIST_SESSION_OPENED;
+					this.groupSessionManager.setSessionFile(sessionPath);
 
 					if (this.state.groupChat.name) {
 						this.groupSessionManager.appendSessionInfo(this.state.groupChat.name);
@@ -291,7 +293,14 @@ export class CreatorRuntime {
 					this.firstPersistFlags |= FIRST_PERSIST_MESSAGE_APPENDED;
 					this.persistedCount++;
 				} catch (error) {
-					await this.rollbackFirstPersist(sessionPath);
+					try {
+						await this.rollbackFirstPersist(sessionPath);
+					} catch (rollbackError) {
+						throw new Error(
+							`Rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+							{ cause: error },
+						);
+					}
 					throw error;
 				}
 			} else {
@@ -988,15 +997,17 @@ export class CreatorRuntime {
 		this.persistedCount = 0;
 
 		if (flags & FIRST_PERSIST_HEADER_WRITTEN) {
-			// Best-effort: delete the half-initialized file.
-			// If deletion fails, the file remains — but persistedCount is 0 so
-			// the next first-persist will truncate it via writeFile, naturally
-			// cleaning up partial entries without violating the empty-group
-			// convention of "no file until first public message".
+			// Delete the half-initialized file. If deletion fails,
+			// the Runtime cannot safely continue — it would start
+			// a new session while a broken file remains on disk.
 			try {
 				await rm(sessionPath, { force: true });
 			} catch {
-				// File could not be deleted; next first-persist writeFile will overwrite it.
+				this.persistenceFatal = true;
+				throw new Error(
+					"Failed to delete half-initialized session file during rollback. " +
+						"Persistence is now blocked to prevent duplicate sessions.",
+				);
 			}
 		}
 
