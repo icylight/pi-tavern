@@ -380,6 +380,41 @@ describe("CreatorRuntime", () => {
 		await runtime.close();
 	});
 
+	it("allows retry after first-persist partial failure is rolled back", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+		});
+
+		// Simulate failure on the first appendCustomMessageEntry
+		const sm = (runtime as unknown as { groupSessionManager: { appendCustomMessageEntry: typeof vi.fn } })
+			.groupSessionManager;
+		const spy = vi.spyOn(sm, "appendCustomMessageEntry");
+		spy.mockImplementationOnce(() => {
+			throw new Error("disk full during message append");
+		});
+
+		// First attempt fails
+		await expect(runtime.submitUserPersonaMessage("First")).rejects.toThrow("disk full during message append");
+
+		expect(runtime.state.round).toBeNull();
+		expect((runtime as unknown as { persistedCount: number }).persistedCount).toBe(0);
+
+		// Verify no JSONL file remains after rollback
+		expect(await jsonlFilesUnder(join(root, "agent"))).toEqual([]);
+
+		// Restore real append and retry
+		spy.mockRestore();
+		await runtime.submitUserPersonaMessage("First");
+
+		// Second attempt succeeds
+		expect(runtime.state.round).toEqual({ roundMaxMessages: 10, usedMessages: 0 });
+		expect(await jsonlFilesUnder(join(root, "agent"))).toHaveLength(1);
+
+		await runtime.close();
+	});
+
 	it("broadcasts the public message to online characters", async () => {
 		const root = await createTemporaryDirectory();
 		const runtime = await CreatorRuntime.startNew({

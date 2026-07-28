@@ -273,7 +273,7 @@ export class CreatorRuntime {
 					this.firstPersistFlags |= FIRST_PERSIST_MESSAGE_APPENDED;
 					this.persistedCount++;
 				} catch (error) {
-					this.rollbackFirstPersist(sessionPath);
+					await this.rollbackFirstPersist(sessionPath);
 					throw error;
 				}
 			} else {

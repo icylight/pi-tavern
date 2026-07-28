@@ -2,7 +2,19 @@
 
 本文记录从设计文档交叉审查中发现的边界条件、失败模式和不变约束。每一条记录发生条件、涉及组件和预期行为。
 
-新增边界条件来自审查或线上发现时更新本文；已修复的条件不删除，追加"已修复"状态。
+新增边界条件来自审查或线上发现时更新本文；已修复的条件不删除，而是更新状态和检测结果。
+
+状态统一使用（未完成项可追加“阻塞 Mx”限定）：
+
+- `待修复`
+- `部分修复`
+- `已满足，待补测试`
+- `已满足`
+- `已修复，待补测试`
+- `已修复`
+- `计划于 Mx`
+- `需确认`
+- `设计已接受`
 
 ---
 
@@ -15,7 +27,7 @@
 
 ## BC-1: SessionManager 内存 leaf 污染
 
-**状态：** 待修复
+**状态：** 部分修复（阻塞 M3 — setName/setMaxMessages 路径）
 
 **关联审查条目：** M3 第 2 条、第 4 条
 
@@ -36,23 +48,31 @@ SessionManager._appendEntry() 的内部顺序是：
 - 后续成功 entry 的 parentId 应指向磁盘上实际存在的最后一条 entry，不出现 orphan 分支。
 - 公共消息 append 失败不应推进 state.round.usedMessages 和 sequence。
 
-**实现要求：**
+**当前实现：**
 
-- append 失败后，用 SessionManager.setSessionFile(sessionPath) 从磁盘重新加载，恢复内存 entries、索引和 leaf。
-- 重新计算 persistedCount 以与磁盘保持一致。
+- User Persona 后续公共消息 append 失败后，会用 `SessionManager.setSessionFile(sessionPath)` 从磁盘重新加载。
+- Character `speak` append 失败后，同样会重新加载 SessionManager，再返回 `success: false`。
+- **`setName()` L180** 的 `appendSessionInfo()` 失败后没有恢复——写盘失败但 leaf 已污染。
+- **`setMaxMessages()` L207** 的 `appendCustomEntry()` 失败后同样没有恢复。
+- 下一条成功消息可能把 parentId 指向磁盘上不存在的 entry，形成断链。
+
+**剩余要求：**
+
+- `setName` 和 `setMaxMessages` 的 append 失败后必须执行与公共消息路径相同的 SessionManager 恢复。
+- 恢复后重新计算 `persistedCount`，或移除该派生计数，避免它与磁盘状态分离。
 
 **涉及组件：**
 
-- `CreatorRuntime` (所有调用 appendCustomMessageEntry 的路径)
+- `CreatorRuntime`（`appendCustomMessageEntry`、`appendSessionInfo` 和 `appendCustomEntry` 的全部调用路径）
 - `SessionManager` (上游 _appendEntry 内部行为)
 
-**当前检测：** 现有测试通过 spy 在 _appendEntry 执行前抛错，未覆盖磁盘写入失败的真实顺序。
+**当前检测：** 公共消息路径的 spy 测试验证了业务 state 不提交。名称和设置路径无失败恢复测试。
 
 ---
 
 ## BC-2: 第一条公共消息中途失败留下半初始化 JSONL
 
-**状态：** 待修复
+**状态：** 待修复（阻塞 M3）
 
 **关联审查条目：** M3 第 2 条（"started 由至少一条公开消息推导，无公开消息不留下 JSONL"）
 
@@ -71,18 +91,22 @@ SessionManager._appendEntry() 的内部顺序是：
 - round 仍为 null
 - persistedCount > 0
 - 关闭群聊时不会删除该文件
-- 该文件违反"空群聊（无公开消息）不产生 JSONL"的设计约定
 
 **预期行为：**
 
-- 首次 public message append 失败时，删除该 JSONL 文件，或回滚到写入前的状态。
-- 上一次成功的 SessionManager 应能从磁盘恢复。
+- 首次 public message append 失败时，删除该 JSONL 文件，恢复到写入前的空状态。
 
-**实现要求：**
+**当前问题：**
 
-- 首次初始化失败路径需要：
-  1. 恢复到上一次成功状态的 SessionManager；
-  2. 删除或回滚尚无公开消息的 JSONL 文件。
+- 首次初始化使用 bit flags 记录 header、SessionManager 打开、名称、设置和公共消息的完成状态。
+- 失败后在 catch 块调用 `this.rollbackFirstPersist(sessionPath)`，**但没有 `await`（L276）**。
+- 回滚内部的 `rm()` 是异步操作；当前 queue task 已通过 `throw error` 失败退出，下一个 queue task 可以开始。
+- 未 await 的 rollback 可能与下一个任务产生竞态：删除新任务刚写入的 JSONL、在新任务运行期间替换 `groupSessionManager`、产生内存状态、`persistedCount` 与磁盘文件不一致。
+
+**剩余要求：**
+
+1. 必须 `await this.rollbackFirstPersist(sessionPath)`。
+2. 补充"部分初始化失败后重试"的测试，覆盖 rollback 未完成时下一次提交的场景。
 
 **涉及组件：**
 
@@ -90,67 +114,62 @@ SessionManager._appendEntry() 的内部顺序是：
 - `GroupSessionManager`
 - 空群聊 JSONL 生命周期（persistence.md, interaction-model.md）
 
-**当前检测：** 测试只覆盖了 `writeFile` 失败（header 创建失败），未覆盖 header/名称/settings 成功后 public message 失败。
+**当前检测：** 无测试覆盖 header/名称/settings 成功后 public message 失败，也无测试覆盖异步 rollback 的竞态时序。
 
 ---
 
 ## BC-3: WebSocket 广播 timestamp 与 JSONL entry timestamp 不一致
 
-**状态：** 待修复
+**状态：** 部分修复（阻塞 M3 — broadcast 仍用旧值）
 
 **关联审查条目：** M3 第 2 条、第 6 条
 
 **发生条件：**
 
-- 代码在调用 SessionManager 前用 `new Date()` 生成 timestamp。
-- SessionManager._appendEntry() 创建 entry 时再次调用 `new Date()`。
-- 广播和 publicMessages 缓存使用前者，JSONL envelope 使用后者。
+代码在调用 SessionManager 前用 `new Date()` 生成候选 `timestamp`。append 成功后通过 `getEntry(entryId)` 读取原生 `entryTimestamp`。
 
-两个时间戳相差 ≥1ms 时，实时广播中的 timestamp 与以后从群聊记录恢复的同一条消息 timestamp 不一致。
+**当前问题：**
+
+- `publicMessages` 缓存使用 `entryTimestamp` ✅
+- TUI 投影使用 `entryTimestamp` ✅
+- **broadcast 仍传入候选 `timestamp`，而非 `entryTimestamp`（L713）** ❌
+
+两个时间戳相差 ≥1ms 时，实时广播与以后从群聊记录恢复的同一条消息 timestamp 不一致。
 
 **预期行为：**
 
 - 同一条公共消息的 timestamp 在广播、JSONL 和 publicMessages 中完全一致。
 
-**实现要求：**
+**剩余要求：**
 
-- append 成功后通过 `getEntry(entryId)` 读取原生 entry 的 timestamp。
-- 使用该 timestamp 进行广播、TUI 投影和 publicMessages 追加。
+- 广播字段应直接使用 `entryTimestamp`。
+- 增加精确相等断言：同一条消息的 JSONL envelope.timestamp === 广播 timestamp === TUI projection timestamp。
 
 **涉及组件：**
 
 - `CreatorRuntime.handleSpeak()` 和 `submitUserPersonaMessage()`
 - `SessionManager._appendEntry()`
-- `renderers.ts`（TUI 投影使用时间戳）
-
-**当前检测：** 无测试区分"广播 timestamp"与"JSONL timestamp"是否为同一值。
+- `renderers.ts`
 
 ---
 
 ## BC-4: tavern_speak active-tools 启停缺少测试断言
 
-**状态：** 待修复
+**状态：** 已修复
 
 **关联审查条目：** M3 第 11 条
 
-**发生条件：**
+**已验证行为：**
 
-`syncActiveTools()` 的实现路径存在，但测试中未验证：
-
-- 进入 Character 状态后 active tools 包含 `tavern_speak`
-- idle、joining、creator 状态下 active tools 不包含 `tavern_speak`
-- 主动离开和 WebSocket 断线后 active tools 移除了 `tavern_speak`
-- 操作不覆盖其他扩展或用户启用的工具
+- 进入 Character 状态后增量添加 `tavern_speak`。
+- 离开 Character 状态后只移除 `tavern_speak`。
+- 已有其他 active tools 保持不变。
+- 工具已经处于目标状态时不重复调用 `setActiveTools()`。
 
 **预期行为：**
 
 - `tavern_speak` 的生命周期与 Character 正式在线状态严格绑定。
 - 增量添加和移除，不覆盖其他工具的活跃状态。
-
-**实现要求：**
-
-- 组件测试覆盖四种状态下的 `getActiveTools()` 快照。
-- 验证其他工具在启停操作前后保持不变。
 
 **涉及组件：**
 
@@ -158,15 +177,19 @@ SessionManager._appendEntry() 的内部顺序是：
 - `TavernController` 状态机
 - `ExtensionAPI.getActiveTools()` / `setActiveTools()`
 
-**当前检测：** 测试 mock 提供了 `getActiveTools` / `setActiveTools`，但未对启停行为做断言。
+**当前检测：** `test/extension.test.ts` 已覆盖增量添加、增量移除、保留其他工具以及无变更时不调用 `setActiveTools()`。
 
 ---
 
 ## BC-5: session_shutdown(quit) 未实现优雅退出
 
-**状态：** 待实现
+**状态：** 计划于 M5
 
-**关联设计文档：** `interaction-model.md` L66、`extension-architecture.md` L740-745
+**关联设计文档：**
+
+- `interaction-model.md` → 退出、异常和恢复
+- `extension-architecture.md` → Runtime 统一清理接口
+- `implementation-plan.md` → M5：pi 生命周期完整对齐
 
 **文档要求：**
 
@@ -179,14 +202,14 @@ SessionManager._appendEntry() 的内部顺序是：
 **缺失行为：**
 
 1. 无 `pi.on("session_shutdown", ...)` 监听器
-2. 无法在 pi 退出前执行 `ctrl.leave()`（Character）或 `runtime.close()`（Creator）
+2. 无法在 pi 退出前对所有非 idle 状态执行统一清理
 3. 缺少 5 秒超时后强制清理的定时逻辑
 
 **预期实现：**
 
-- 在 `src/index.ts` 注册 `session_shutdown` handler
-- 区分当前状态：creator → close 群聊、character → leave 群聊、idle/joining → 直接放行
-- 包装 `Promise.race([cleanup, timeout(5000)])` 保护 pi 退出不被阻塞
+- 在 `src/index.ts` 注册 `session_shutdown` handler。
+- `creator`、`character` 和 `joining` 都通过 Controller 的统一清理入口；只有 `idle` 可以直接放行。
+- 超时不仅停止等待，还必须显式强制完成本地 WebSocket、reservation 和活动描述清理。单独使用 `Promise.race()` 不等于强制清理。
 
 **涉及组件：**
 
@@ -194,15 +217,18 @@ SessionManager._appendEntry() 的内部顺序是：
 - `TavernController`（leave/close 入口）
 - `CreatorRuntime`、`CharacterRuntime`（远程通知和清理）
 
-**当前检测：** 无测试。端到端测试可通过启动真实 pi 进程然后发送 quit 信号验证。
+**当前检测：** 无测试。本项按 M5 的组件测试和真实进程验收计划实现，不阻塞 M3。
 
 ---
 
 ## BC-6: WebSocket send 失败静默吞下、不触发断线清理
 
-**状态：** 待修复
+**状态：** 计划于 M5
 
-**关联设计文档：** `websocket-protocol.md` L93-97
+**关联设计文档：**
+
+- `websocket-protocol.md` → 广播
+- `implementation-plan.md` → M5 的全部异常清理
 
 **文档要求：**
 
@@ -211,7 +237,7 @@ SessionManager._appendEntry() 的内部顺序是：
 
 **当前实现：**
 
-`src/creator/creator-runtime.ts` L881-887：
+`src/creator/creator-runtime.ts` 的 `send()`：
 
 ```typescript
 private send(socket: WebSocket, message: unknown): void {
@@ -229,24 +255,32 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 **预期行为：**
 
-- send 失败时，通过 connectionContext 找到对应 sessionId
-- 调用 `removeOnlineCharacter(connection, "disconnected")` 触发清理
-- 广播 `character_left` 给剩余在线 Character
+- send 失败时，通过 connection context 找到对应 sessionId。
+- 将失败连接的清理排入 runtime queue，调用统一断线清理并广播 `character_left`。
+- 清理期间从连接集合移除失败 socket，避免 `character_left` 广播再次命中同一连接并递归失败。
 
 **涉及组件：**
 
 - `CreatorRuntime.send()`
 - `CreatorRuntime.removeOnlineCharacter()`
 
-**当前检测：** 无测试。需要用 mock WebSocket 让 `socket.send` 抛错。
+**当前检测：** 无测试。测试需要同时覆盖：
+
+- `socket.send()` 同步抛错；
+- send callback 异步返回错误；
+- 发送前 socket 已不再是 `OPEN`；
+- 清理广播不会递归命中同一失败连接。
 
 ---
 
 ## BC-7: closePermanently 不在 enqueue 队列中
 
-**状态：** 待修复
+**状态：** 计划于 M5
 
-**关联设计文档：** `extension-architecture.md` L676-684（串行任务队列）
+**关联设计文档：**
+
+- `extension-architecture.md` → Runtime 任务串行化、Runtime 统一清理接口
+- `implementation-plan.md` → M5：pi 生命周期完整对齐
 
 **发生条件：**
 
@@ -269,24 +303,29 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 **预期行为：**
 
-- `closePermanently` 的核心逻辑应通过 `enqueue` 执行
-- 确保所有 pending frame 完成后才关闭
-- 或者在关闭前 drain 队列
+- 先关闭新任务入口并标记 lifecycle，避免新的 frame 入队。
+- drain 当前 runtime queue，最多等待统一短期协调超时。
+- 超时后强制清理本地资源；已经持久化的消息不回滚。
+- 不应简单地在任意上下文中把 `closePermanently()` 再次 enqueue，以免从队列任务内部调用关闭时产生自等待。
 
 **涉及组件：**
 
 - `CreatorRuntime.closePermanently()`
 - `CreatorRuntime.enqueue()`
 
-**当前检测：** 无测试覆盖 close 与 speak 的交错时序。
+**当前检测：** 无测试覆盖 close 与 speak 的交错时序。本项不阻塞 M3。
 
 ---
 
 ## BC-8: reload handoff 未实现
 
-**状态：** 待实现
+**状态：** 计划于 M5
 
-**关联设计文档：** `interaction-model.md` L65、`extension-architecture.md` L50-54
+**关联设计文档：**
+
+- `interaction-model.md` → reload 与 session 生命周期
+- `extension-architecture.md` → reload handoff
+- `implementation-plan.md` → M5：pi 生命周期完整对齐
 
 **文档要求：**
 
@@ -307,8 +346,8 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 1. 创建 `src/controller/reload-handoff-registry.ts`
 2. 定义 `Symbol.for("pi-tavern.reload-handoff")`
-3. 在 `CreatorRuntime` / `CharacterRuntime` 初始化时 publish handoff
-4. 在 `index.ts` extension activate 时尝试 take handoff
+3. 旧 Extension Runtime 仅在收到 reload shutdown/detach 信号时 publish handoff
+4. 新 Extension Runtime activate 时尝试 take handoff
 5. 5 秒超时后自动清理
 
 **涉及组件：**
@@ -317,15 +356,15 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 - `src/index.ts`（activate 时 take）
 - `CreatorRuntime`、`CharacterRuntime`（publish 接管资源）
 
-**当前检测：** 无。需要 reload 场景的端到端测试。
+**当前检测：** 无。按 M5 增加组件测试，并在 M6 使用真实 reload 进程场景验收；不阻塞 M3。
 
 ---
 
 ## BC-9: 1 MiB WebSocket frame 上限——客户端侧检查
 
-**状态：** 需确认
+**状态：** 已满足
 
-**关联设计文档：** `websocket-protocol.md` L77
+**关联设计文档：** `websocket-protocol.md` → 消息大小
 
 **文档要求：**
 
@@ -333,14 +372,11 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 **当前实现：**
 
-- `creator-runtime.ts` L49：`MAX_WEBSOCKET_FRAME = 1_048_576` 用于 `WebSocketServer({ maxPayload: ... })`
-- `character-runtime.ts`：`MAX_WEBSOCKET_FRAME` 在 WebSocket 客户端构造中使用
-- `codec.ts` L91：`encodeMessage` 断言 `result.byteLength <= MAX_WEBSOCKET_FRAME`
-
-**需确认：**
-
-- Character 客户端 WebSocket 构造是否传入了 `maxPayload`？ws 库的 `new WebSocket(url)` 不支持 maxPayload——该选项仅服务端可用
-- 代码中的 `codec.ts` encode 断言 + 服务端 server 配置已形成两层防护，但客户端侧如果接收超大 broadcast 消息，是否有保护？
+- Creator 的 `WebSocketServer` 使用 `maxPayload: MAX_WEBSOCKET_FRAME_BYTES`。
+- Character 的 `JoinAttempt` 使用客户端选项 `maxPayload: MAX_WEBSOCKET_FRAME_BYTES`；转交给 `CharacterRuntime` 后沿用同一 socket。
+- 群聊发现使用的临时 WebSocket 同样配置 1 MiB `maxPayload`。
+- `encodeMessage()` 在发送前检查 UTF-8 编码结果不超过 1 MiB。
+- `ws` 8.x 的客户端 `new WebSocket(address, options)` 支持 `ClientOptions.maxPayload`，该选项不是服务端专属。
 
 **涉及组件：**
 
@@ -352,9 +388,12 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 ## BC-10: speak 持久化成功但响应发送超时——消息不回滚
 
-**状态：** 需确认测试
+**状态：** 已满足，待补测试
 
-**关联设计文档：** `websocket-protocol.md` L68、`persistence.md` L264
+**关联设计文档：**
+
+- `websocket-protocol.md` → 超时与发言响应
+- `persistence.md` → 公开消息提交顺序
 
 **文档要求：**
 
@@ -368,7 +407,7 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 3. broadcast（广播给所有 Character）
 4. send response（返回给发送者）
 
-如果步骤 4 的 send 失败，步骤 1–3 已完成，不会回滚。这与文档一致。
+如果步骤 4 的响应未送达，步骤 1–3 已完成，不会回滚。这与文档一致。这里的“超时”是 CharacterRuntime 等待请求响应超时，不是服务端 `socket.send()` 自身提供了响应超时。
 
 **需确认：**
 
@@ -386,7 +425,10 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 **状态：** 设计已接受
 
-**关联设计文档：** `websocket-protocol.md` L428、`interaction-model.md` L67、L85-87
+**关联设计文档：**
+
+- `websocket-protocol.md` → 群聊关闭与异常退出
+- `interaction-model.md` → 退出、异常和恢复
 
 **文档要求：**
 
