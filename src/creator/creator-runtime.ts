@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { statSync } from "node:fs";
 import { rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
@@ -12,6 +13,7 @@ import {
 	getActiveDescriptorPath,
 	getGroupChatSessionDirectory,
 	publishActiveDescriptor,
+	readActiveDescriptor,
 	removeOwnedActiveDescriptor,
 	updateActiveDescriptorName,
 } from "../discovery/active-descriptor.js";
@@ -33,6 +35,49 @@ export interface StartNewCreatorRuntimeOptions {
 	agentDir: string;
 	configMaxMessages?: number;
 	characters?: CharacterCard[];
+}
+
+export interface ResumeCreatorRuntimeOptions {
+	cwd: string;
+	agentDir: string;
+	sessionPath: string;
+	configMaxMessages?: number;
+	characters?: CharacterCard[];
+}
+
+export interface PublicMessageState {
+	sender: { type: "user_persona" } | { type: "character"; character_id: string; name: string };
+	content: string;
+	event_id: string;
+	sequence: number;
+	timestamp: string;
+	round: { round_max_messages: number; used_messages: number; remaining_messages: number };
+}
+
+interface PersistedRuntimeState {
+	publicMessages: PublicMessageState[];
+	persistedCount: number;
+}
+
+/**
+ * Opaque history cursor. Encodes the sequence boundary: a request with
+ * this cursor returns messages with sequence < seq. Absolute sequence
+ * keeps the cursor position stable while new messages arrive.
+ */
+function encodeCursor(sequence: number): string {
+	return Buffer.from(JSON.stringify({ v: 1, seq: sequence })).toString("base64url");
+}
+
+function decodeCursor(cursor: string): number | null {
+	try {
+		const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as { v?: number; seq?: number };
+		if (parsed.v !== 1 || typeof parsed.seq !== "number" || !Number.isSafeInteger(parsed.seq)) {
+			return null;
+		}
+		return parsed.seq;
+	} catch {
+		return null;
+	}
 }
 
 export interface CreatorRuntimeDependencies {
@@ -83,14 +128,7 @@ export class CreatorRuntime {
 
 	onPublicMessageError: ((error: string, sequence: number, timestamp: string) => void) | undefined;
 
-	private publicMessages: Array<{
-		sender: { type: "user_persona" } | { type: "character"; character_id: string; name: string };
-		content: string;
-		event_id: string;
-		sequence: number;
-		timestamp: string;
-		round: { round_max_messages: number; used_messages: number; remaining_messages: number };
-	}> = [];
+	private publicMessages: PublicMessageState[] = [];
 
 	private constructor(
 		readonly webSocketServer: WebSocketServer,
@@ -102,9 +140,14 @@ export class CreatorRuntime {
 		characters: CharacterCard[],
 		private readonly readyTimeoutMs: number,
 		deps: CreatorRuntimeDependencies,
+		initialPersistedState?: PersistedRuntimeState,
 	) {
 		this.deps = deps;
 		this.characters = new Map(characters.map((character) => [character.characterId, character]));
+		if (initialPersistedState) {
+			this.publicMessages = initialPersistedState.publicMessages;
+			this.persistedCount = initialPersistedState.persistedCount;
+		}
 		this.webSocketServer.on("connection", (socket) => this.handleConnection(socket));
 	}
 
@@ -158,6 +201,153 @@ export class CreatorRuntime {
 			options.characters ?? [],
 			dependencies.readyTimeoutMs,
 			dependencies,
+		);
+
+		try {
+			await dependencies.publishDescriptor(options.agentDir, activeDescriptor);
+			return runtime;
+		} catch (error) {
+			await removeOwnedActiveDescriptor(activeDescriptorPath, instanceId);
+			await closeWebSocketServer(webSocketServer);
+			throw error;
+		}
+	}
+
+	/**
+	 * Resume a previously persisted group chat from its chat history JSONL file.
+	 * Rebuilds name, groupMaxMessages, Round, next sequence, and the public
+	 * message list from the session entries; allocates a fresh instance_id and
+	 * port; restores no member connections. Publishing the active descriptor is
+	 * the atomic exclusive claim — a concurrently resumed group chat loses the
+	 * hard-link race and fails.
+	 */
+	static async resume(
+		options: ResumeCreatorRuntimeOptions,
+		dependencyOverrides: Partial<CreatorRuntimeDependencies> = {},
+	): Promise<CreatorRuntime> {
+		const dependencies: CreatorRuntimeDependencies = {
+			createId: randomUUID,
+			now: () => new Date(),
+			pid: process.pid,
+			readyTimeoutMs: SHORT_COORDINATION_TIMEOUT_MS,
+			publishDescriptor: publishActiveDescriptor,
+			writeFile: (path, data) => writeFile(path, data),
+			rm: (path) => rm(path, { force: true }),
+			...dependencyOverrides,
+		};
+		const cwd = resolve(options.cwd);
+		const configMaxMessages = options.configMaxMessages ?? DEFAULT_CONFIG_MAX_MESSAGES;
+		// Reject missing or empty files up front: SessionManager.open() silently
+		// creates a brand-new random session when the file does not exist or is
+		// empty, which would publish an active descriptor for a phantom group chat.
+		const sessionStat = statSync(options.sessionPath, { throwIfNoEntry: false });
+		if (!sessionStat?.isFile() || sessionStat.size === 0) {
+			throw new Error(`Group chat session file does not exist or is empty: ${options.sessionPath}`);
+		}
+		const groupSessionManager = SessionManager.open(
+			options.sessionPath,
+			getGroupChatSessionDirectory(options.agentDir, cwd),
+			cwd,
+		);
+		const header = groupSessionManager.getHeader();
+		if (!header?.id) {
+			throw new Error("Group chat session file has no id header");
+		}
+
+		// Active instance exclusivity: an already active group chat cannot be resumed.
+		const activeDescriptorPath = getActiveDescriptorPath(options.agentDir, cwd, header.id);
+		const existingActive = await readActiveDescriptor(activeDescriptorPath);
+		if (existingActive) {
+			throw new Error(`Group chat ${header.id} is already active; leave the active group chat before resuming`);
+		}
+
+		// Rebuild PiTavern extension state by scanning the session entries in file order.
+		const entries = groupSessionManager.getEntries();
+		const publicMessages: PublicMessageState[] = [];
+		let name: string | null = null;
+		let groupMaxMessages = configMaxMessages;
+		let round: GroupChatState["round"] = null;
+		let nextSequence = 0;
+		let persistedCount = 0;
+		for (const entry of entries) {
+			if (entry.type === "session_info") {
+				persistedCount++;
+				name = entry.name?.trim() || null;
+			} else if (entry.type === "custom" && entry.customType === "pi-tavern.group-settings") {
+				persistedCount++;
+				const max = (entry.data as { group_max_messages?: number } | undefined)?.group_max_messages;
+				if (typeof max === "number" && Number.isSafeInteger(max) && max >= 0) {
+					groupMaxMessages = max;
+				}
+			} else if (entry.type === "custom_message" && entry.customType === "pi-tavern.public-message") {
+				persistedCount++;
+				const details = entry.details as
+					| {
+							sender: { type: "user_persona" } | { type: "character"; character_id: string; name: string };
+							content: string;
+							sequence: number;
+							round: {
+								round_max_messages: number;
+								used_messages: number;
+								remaining_messages: number;
+							};
+					  }
+					| undefined;
+				if (!details || typeof details.sequence !== "number") {
+					continue;
+				}
+				publicMessages.push({
+					sender: details.sender,
+					content: details.content,
+					event_id: entry.id,
+					sequence: details.sequence,
+					timestamp: entry.timestamp,
+					round: details.round,
+				});
+				nextSequence = details.sequence;
+				round = {
+					roundMaxMessages: details.round.round_max_messages,
+					usedMessages: details.round.used_messages,
+				};
+			}
+		}
+
+		const createdAt = header.timestamp;
+		const state = createGroupChatState({
+			groupChatId: header.id,
+			createdAt,
+			groupMaxMessages,
+		});
+		state.groupChat.name = name;
+		state.round = round;
+		state.nextSequence = nextSequence;
+
+		// Fresh runtime identity: new instance_id and new port; no member connections.
+		const instanceId = dependencies.createId();
+		const startedAt = dependencies.now().toISOString();
+		const webSocketServer = await listenOnLocalhost(`/${header.id}/${instanceId}`);
+		const address = webSocketServer.address() as AddressInfo;
+		const activeDescriptor: ActiveGroupChatDescriptor = {
+			instanceId,
+			groupChatId: header.id,
+			name,
+			cwd,
+			pid: dependencies.pid,
+			host: "127.0.0.1",
+			port: address.port,
+			startedAt,
+		};
+		const runtime = new CreatorRuntime(
+			webSocketServer,
+			groupSessionManager,
+			state,
+			activeDescriptor,
+			activeDescriptorPath,
+			configMaxMessages,
+			options.characters ?? [],
+			dependencies.readyTimeoutMs,
+			dependencies,
+			{ publicMessages, persistedCount },
 		);
 
 		try {
@@ -469,6 +659,12 @@ export class CreatorRuntime {
 			case "get_group_chat_state":
 				this.handleGetGroupChatState(socket, connection, message);
 				return;
+			case "get_message_history":
+				this.handleGetMessageHistory(socket, connection, message);
+				return;
+			case "get_chat_history_file":
+				this.handleGetChatHistoryFile(socket, connection, message);
+				return;
 			case "update_character_state":
 				this.handleUpdateCharacterState(connection, message.is_streaming);
 				return;
@@ -585,6 +781,8 @@ export class CreatorRuntime {
 		// Send history before join broadcast so hasPublicMessages is true
 		// when the new Character processes its own character_joined event.
 		const recentMessages = this.publicMessages.slice(-10);
+		const earliest = recentMessages[0];
+		const hasMore = earliest !== undefined && earliest.sequence > 1;
 		this.send(socket, {
 			type: "message_history",
 			messages: recentMessages.map((m) => ({
@@ -596,8 +794,8 @@ export class CreatorRuntime {
 				content: m.content,
 				round: m.round,
 			})),
-			cursor: this.publicMessages.length > 10 ? "more" : null,
-			has_more: this.publicMessages.length > 10,
+			cursor: hasMore ? encodeCursor(earliest.sequence) : null,
+			has_more: hasMore,
 			total_messages: this.publicMessages.length,
 		});
 
@@ -624,6 +822,80 @@ export class CreatorRuntime {
 			command: "get_group_chat_state",
 			success: true,
 			data: this.getGroupChatStateMessage(connection.sessionId),
+		});
+	}
+
+	private handleGetMessageHistory(
+		socket: WebSocket,
+		connection: ConnectionContext,
+		message: Extract<ClientMessage, { type: "get_message_history" }>,
+	): void {
+		if (!connection.online || connection.sessionId === null) {
+			this.sendFailure(socket, message.id, "get_message_history", "Character is not in the group chat");
+			return;
+		}
+
+		// Cursor is an absolute sequence boundary: return the 10 most recent
+		// messages with sequence < cursorSeq. New messages never shift it.
+		const cursorSeq = message.cursor === undefined || message.cursor === null ? null : decodeCursor(message.cursor);
+		const page =
+			cursorSeq === null
+				? this.publicMessages.slice(-10)
+				: this.publicMessages.filter((m) => m.sequence < cursorSeq).slice(-10);
+		const earliest = page[0];
+		const hasMore = earliest !== undefined && earliest.sequence > 1;
+
+		this.send(socket, {
+			...(message.id !== undefined ? { id: message.id } : {}),
+			type: "response",
+			command: "get_message_history",
+			success: true,
+			data: {
+				messages: page.map((m) => ({
+					type: "public_message" as const,
+					event_id: m.event_id,
+					sequence: m.sequence,
+					timestamp: m.timestamp,
+					sender: m.sender,
+					content: m.content,
+					round: m.round,
+				})),
+				cursor: hasMore ? encodeCursor(earliest.sequence) : null,
+				has_more: hasMore,
+				total_messages: this.publicMessages.length,
+			},
+		});
+	}
+
+	private handleGetChatHistoryFile(
+		socket: WebSocket,
+		connection: ConnectionContext,
+		message: Extract<ClientMessage, { type: "get_chat_history_file" }>,
+	): void {
+		if (!connection.online || connection.sessionId === null) {
+			this.sendFailure(socket, message.id, "get_chat_history_file", "Character is not in the group chat");
+			return;
+		}
+
+		let path: string;
+		try {
+			path = this.getSessionFilePath();
+		} catch {
+			this.sendFailure(socket, message.id, "get_chat_history_file", "Group chat has no chat history file yet");
+			return;
+		}
+		// The file only exists after the first persist; SessionManager may
+		// already know the path before the file is written.
+		if (this.persistedCount === 0) {
+			this.sendFailure(socket, message.id, "get_chat_history_file", "Group chat has no chat history file yet");
+			return;
+		}
+		this.send(socket, {
+			...(message.id !== undefined ? { id: message.id } : {}),
+			type: "response",
+			command: "get_chat_history_file",
+			success: true,
+			data: { path },
 		});
 	}
 
@@ -913,6 +1185,8 @@ export class CreatorRuntime {
 			| "character_ready"
 			| "leave_group_chat"
 			| "get_group_chat_state"
+			| "get_message_history"
+			| "get_chat_history_file"
 			| "speak",
 		error: string,
 	): void {

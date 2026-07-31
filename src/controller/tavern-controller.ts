@@ -1,6 +1,10 @@
 import type { CharacterRuntime } from "../character/character-runtime.js";
 import { JoinAttempt, type JoinAttemptOptions } from "../character/join-attempt.js";
-import { CreatorRuntime, type StartNewCreatorRuntimeOptions } from "../creator/creator-runtime.js";
+import {
+	CreatorRuntime,
+	type ResumeCreatorRuntimeOptions,
+	type StartNewCreatorRuntimeOptions,
+} from "../creator/creator-runtime.js";
 import type { ActiveGroupChatDescriptor } from "../discovery/active-descriptor.js";
 
 export type TavernState =
@@ -10,6 +14,7 @@ export type TavernState =
 	| { type: "character"; runtime: CharacterRuntime };
 
 export type TavernControllerCreatorStarter = (options: StartNewCreatorRuntimeOptions) => Promise<CreatorRuntime>;
+export type TavernControllerResumeStarter = (options: ResumeCreatorRuntimeOptions) => Promise<CreatorRuntime>;
 export type TavernControllerJoinStarter = (
 	descriptor: ActiveGroupChatDescriptor,
 	sessionId: string,
@@ -26,6 +31,7 @@ export class TavernController {
 		private readonly startCreator: TavernControllerCreatorStarter = (options) => CreatorRuntime.startNew(options),
 		private readonly startJoin: TavernControllerJoinStarter = (descriptor, sessionId, options) =>
 			JoinAttempt.connect(descriptor, sessionId, options),
+		private readonly startResumeStarter: TavernControllerResumeStarter = (options) => CreatorRuntime.resume(options),
 	) {}
 
 	getState(): TavernState {
@@ -39,6 +45,18 @@ export class TavernController {
 			}
 
 			const runtime = await this.startCreator(options);
+			this.setState({ type: "creator", runtime });
+			return runtime;
+		});
+	}
+
+	startResume(options: ResumeCreatorRuntimeOptions): Promise<CreatorRuntime> {
+		return this.runTransition(async () => {
+			if (this.state.type !== "idle") {
+				throw new Error("This pi session is already bound to a group chat; leave it first");
+			}
+
+			const runtime = await this.startResumeStarter(options);
 			this.setState({ type: "creator", runtime });
 			return runtime;
 		});

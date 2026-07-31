@@ -198,4 +198,53 @@ describe("TavernController", () => {
 		expect(characterRuntime.close).toHaveBeenCalledTimes(1);
 		expect(controller.getState()).toEqual({ type: "idle" });
 	});
+
+	it("resumes a group chat into creator state", async () => {
+		const runtime = createRuntime();
+		const resumeStarter = vi.fn(async () => runtime);
+		const controller = new TavernController(undefined, undefined, resumeStarter);
+
+		await controller.startResume({
+			cwd: "/project",
+			agentDir: "/agent",
+			sessionPath: "/agent/chats/old.jsonl",
+		});
+
+		expect(resumeStarter).toHaveBeenCalledWith({
+			cwd: "/project",
+			agentDir: "/agent",
+			sessionPath: "/agent/chats/old.jsonl",
+		});
+		expect(controller.getState()).toEqual({ type: "creator", runtime });
+	});
+
+	it("stays idle when resume fails", async () => {
+		const controller = new TavernController(undefined, undefined, async () => {
+			throw new Error("resume failed");
+		});
+
+		await expect(
+			controller.startResume({
+				cwd: "/project",
+				agentDir: "/agent",
+				sessionPath: "/agent/chats/old.jsonl",
+			}),
+		).rejects.toThrow("resume failed");
+		expect(controller.getState()).toEqual({ type: "idle" });
+	});
+
+	it("rejects resume while bound to a group chat", async () => {
+		const runtime = createRuntime();
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		await expect(
+			controller.startResume({
+				cwd: "/project",
+				agentDir: "/agent",
+				sessionPath: "/agent/chats/old.jsonl",
+			}),
+		).rejects.toThrow("already bound to a group chat");
+		expect(controller.getState()).toEqual({ type: "creator", runtime });
+	});
 });

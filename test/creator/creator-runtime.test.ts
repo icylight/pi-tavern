@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1245,6 +1245,287 @@ describe("CreatorRuntime", () => {
 		client.close();
 		await runtime.close();
 	});
+
+	it("sends at most 10 recent messages in message_history on join", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			characters: [
+				{
+					characterId: "dev",
+					name: "Developer",
+					description: "Writes code",
+					path: "/chars/dev.md",
+					prompt: "You are a developer.",
+				},
+			],
+		});
+
+		// Produce 15 public messages
+		for (let i = 1; i <= 15; i++) {
+			await runtime.submitUserPersonaMessage(`Message ${i}`);
+		}
+
+		const { client, messageHistory } = await joinCharacter(runtime, "session-1", "dev");
+		const messages = messageHistory.messages as Array<{ sequence: number }>;
+		expect(messages).toHaveLength(10);
+		expect(messages[0]?.sequence).toBe(6);
+		expect(messages[9]?.sequence).toBe(15);
+		expect(messageHistory.total_messages).toBe(15);
+		expect(messageHistory.has_more).toBe(true);
+		expect(typeof messageHistory.cursor).toBe("string");
+
+		client.close();
+		await runtime.close();
+	});
+
+	it("pages older history with an opaque cursor and keeps cursor position stable", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			characters: [
+				{
+					characterId: "dev",
+					name: "Developer",
+					description: "Writes code",
+					path: "/chars/dev.md",
+					prompt: "You are a developer.",
+				},
+			],
+		});
+
+		for (let i = 1; i <= 15; i++) {
+			await runtime.submitUserPersonaMessage(`Message ${i}`);
+		}
+
+		const { client, messageHistory } = await joinCharacter(runtime, "session-1", "dev");
+		expect(typeof messageHistory.cursor).toBe("string");
+
+		// Request the page before the initial 10-message batch
+		client.send(JSON.stringify({ id: "4", type: "get_message_history", cursor: messageHistory.cursor }));
+		const firstPage = await waitForMessage(client, "response");
+		expect(firstPage.command).toBe("get_message_history");
+		expect(firstPage.success).toBe(true);
+		const data = firstPage.data as Record<string, unknown>;
+		const olderMessages = (data.messages as Array<{ sequence: number }>) ?? [];
+		expect(olderMessages.map((m) => m.sequence)).toEqual([1, 2, 3, 4, 5]);
+		expect(data.cursor).toBeNull();
+		expect(data.has_more).toBe(false);
+		expect(data.total_messages).toBe(15);
+
+		// New messages after the cursor do not shift the page boundary
+		await runtime.submitUserPersonaMessage("Message 16");
+		client.send(JSON.stringify({ id: "5", type: "get_message_history", cursor: messageHistory.cursor }));
+		const secondPage = await waitForMessage(client, "response");
+		const secondData = secondPage.data as Record<string, unknown>;
+		const secondMessages = (secondData.messages as Array<{ sequence: number }>) ?? [];
+		expect(secondMessages.map((m) => m.sequence)).toEqual([1, 2, 3, 4, 5]);
+		expect(secondData.total_messages).toBe(16);
+
+		client.close();
+		await runtime.close();
+	});
+
+	it("returns empty history for an empty group chat", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			characters: [
+				{
+					characterId: "dev",
+					name: "Developer",
+					description: "Writes code",
+					path: "/chars/dev.md",
+					prompt: "You are a developer.",
+				},
+			],
+		});
+
+		const { client, messageHistory } = await joinCharacter(runtime, "session-1", "dev");
+		expect(messageHistory.messages).toEqual([]);
+		expect(messageHistory.cursor).toBeNull();
+		expect(messageHistory.has_more).toBe(false);
+		expect(messageHistory.total_messages).toBe(0);
+
+		// Explicit history request on an empty group chat
+		client.send(JSON.stringify({ id: "4", type: "get_message_history" }));
+		const response = await waitForMessage(client, "response");
+		expect(response.command).toBe("get_message_history");
+		expect(response.success).toBe(true);
+		const data = response.data as Record<string, unknown>;
+		expect(data.messages).toEqual([]);
+		expect(data.cursor).toBeNull();
+		expect(data.has_more).toBe(false);
+		expect(data.total_messages).toBe(0);
+
+		client.close();
+		await runtime.close();
+	});
+
+	it("returns only the current group chat file for get_chat_history_file", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			characters: [
+				{
+					characterId: "dev",
+					name: "Developer",
+					description: "Writes code",
+					path: "/chars/dev.md",
+					prompt: "You are a developer.",
+				},
+			],
+		});
+
+		const { client } = await joinCharacter(runtime, "session-1", "dev");
+
+		// Not started yet: no JSONL file exists, so the request must fail
+		client.send(JSON.stringify({ id: "4", type: "get_chat_history_file" }));
+		const emptyResponse = await waitForMessage(client, "response");
+		expect(emptyResponse.command).toBe("get_chat_history_file");
+		expect(emptyResponse.success).toBe(false);
+
+		// Start the group chat and request the file path
+		await runtime.submitUserPersonaMessage("First");
+		client.send(JSON.stringify({ id: "5", type: "get_chat_history_file" }));
+		const response = await waitForMessage(client, "response");
+		expect(response.command).toBe("get_chat_history_file");
+		expect(response.success).toBe(true);
+		const data = response.data as { path: string };
+		expect(data.path).toBeTruthy();
+		expect(data.path.endsWith(`${runtime.state.groupChat.groupChatId}.jsonl`)).toBe(true);
+		const fileExists = await readFile(data.path, "utf8").then(
+			() => true,
+			() => false,
+		);
+		expect(fileExists).toBe(true);
+
+		// A connection that never completed character_ready is rejected
+		const stranger = new WebSocket(
+			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
+		);
+		await waitForOpen(stranger);
+		stranger.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: "session-9" }));
+		await waitForMessage(stranger, "response");
+		stranger.send(JSON.stringify({ id: "2", type: "get_chat_history_file" }));
+		const rejected = await waitForMessage(stranger, "response");
+		expect(rejected.success).toBe(false);
+
+		stranger.close();
+		client.close();
+		await runtime.close();
+	});
+
+	it("resumes a group chat rebuilding name, settings, round, and sequence", async () => {
+		const root = await createTemporaryDirectory();
+		const agentDir = join(root, "agent");
+		const cwd = join(root, "project");
+		const characters = [
+			{
+				characterId: "dev",
+				name: "Developer",
+				description: "Writes code",
+				path: "/chars/dev.md",
+				prompt: "You are a developer.",
+			},
+		];
+
+		const original = await CreatorRuntime.startNew({ cwd, agentDir, characters });
+		await original.setName("  Architecture\nReview  ");
+		await original.setMaxMessages(5);
+		await original.submitUserPersonaMessage("First");
+		await original.submitUserPersonaMessage("Second");
+		const { client } = await joinCharacter(original, "session-1", "dev");
+		client.send(JSON.stringify({ id: "4", type: "speak", content: "My reply" }));
+		await waitForMessage(client, "response");
+		client.close();
+		await original.close();
+
+		const [sessionFile] = await jsonlFilesUnder(agentDir);
+		expect(sessionFile).toBeDefined();
+		if (!sessionFile) return;
+		const sessionPath = join(agentDir, sessionFile);
+
+		const resumed = await CreatorRuntime.resume({ cwd, agentDir, sessionPath, characters });
+		expect(resumed.state.groupChat.groupChatId).toBe(original.state.groupChat.groupChatId);
+		expect(resumed.state.groupChat.createdAt).toBe(original.state.groupChat.createdAt);
+		expect(resumed.state.groupChat.name).toBe("Architecture Review");
+		expect(resumed.state.groupChat.groupMaxMessages).toBe(5);
+		expect(resumed.state.round).toEqual({ roundMaxMessages: 5, usedMessages: 1 });
+		expect(resumed.state.nextSequence).toBe(3);
+		expect(resumed.activeDescriptor.instanceId).not.toBe(original.activeDescriptor.instanceId);
+		expect(resumed.activeDescriptor.port).not.toBe(original.activeDescriptor.port);
+		expect(resumed.activeDescriptor.name).toBe("Architecture Review");
+		// started_at reflects the resumed instance start, not the original creation time
+		expect(resumed.activeDescriptor.startedAt).not.toBe(original.state.groupChat.createdAt);
+		// Member connections are not restored
+		expect(resumed.state.onlineCharacters.size).toBe(0);
+
+		// The resumed runtime continues appending with the next sequence
+		await resumed.submitUserPersonaMessage("Third");
+		expect(resumed.state.nextSequence).toBe(4);
+		expect(resumed.state.round?.roundMaxMessages).toBe(5);
+		expect(resumed.state.round?.usedMessages).toBe(0);
+		const lines = (await readFile(sessionPath, "utf8")).trim().split("\n");
+		const lastEntry = JSON.parse(lines[lines.length - 1] as string) as { details: { sequence: number } };
+		expect(lastEntry.details.sequence).toBe(4);
+
+		// A new Character receives the disk-rebuilt history on join
+		const joined = await joinCharacter(resumed, "session-2", "dev");
+		const historyMessages = (joined.messageHistory.messages as Array<{ sequence: number; content: string }>) ?? [];
+		expect(joined.messageHistory.total_messages).toBe(4);
+		expect(historyMessages.map((m) => m.sequence)).toEqual([1, 2, 3, 4]);
+		joined.client.close();
+
+		await resumed.close();
+	});
+
+	it("rejects resuming an already active group chat", async () => {
+		const root = await createTemporaryDirectory();
+		const agentDir = join(root, "agent");
+		const cwd = join(root, "project");
+		const original = await CreatorRuntime.startNew({ cwd, agentDir });
+		await original.submitUserPersonaMessage("Hello");
+
+		const [sessionFile] = await jsonlFilesUnder(agentDir);
+		expect(sessionFile).toBeDefined();
+		if (!sessionFile) return;
+		const sessionPath = join(agentDir, sessionFile);
+
+		await expect(CreatorRuntime.resume({ cwd, agentDir, sessionPath })).rejects.toThrow(
+			/already active|active group chat/i,
+		);
+
+		await original.close();
+	});
+
+	it("rejects resuming a session file that does not exist", async () => {
+		const root = await createTemporaryDirectory();
+		const agentDir = join(root, "agent");
+		const cwd = join(root, "project");
+
+		await expect(
+			CreatorRuntime.resume({ cwd, agentDir, sessionPath: join(agentDir, "chats", "missing.jsonl") }),
+		).rejects.toThrow(/does not exist/i);
+	});
+
+	it("rejects resuming a zero-byte session file", async () => {
+		const root = await createTemporaryDirectory();
+		const agentDir = join(root, "agent");
+		const cwd = join(root, "project");
+		const sessionDir = join(agentDir, "tavern", "chats");
+		await mkdir(sessionDir, { recursive: true });
+		const emptyPath = join(sessionDir, "empty.jsonl");
+		await writeFile(emptyPath, "");
+
+		// SessionManager.open() would mint a random new session id for an empty
+		// file; the resume guard must reject it before any descriptor is published.
+		await expect(CreatorRuntime.resume({ cwd, agentDir, sessionPath: emptyPath })).rejects.toThrow(/empty/i);
+	});
 });
 
 async function jsonlFilesUnder(root: string): Promise<string[]> {
@@ -1290,4 +1571,27 @@ function waitForMessage(socket: WebSocket, expectedType: string): Promise<Record
 		};
 		socket.on("message", onMessage);
 	});
+}
+
+async function joinCharacter(
+	runtime: CreatorRuntime,
+	sessionId: string,
+	characterId: string,
+): Promise<{ client: WebSocket; messageHistory: Record<string, unknown> }> {
+	const client = new WebSocket(
+		`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
+	);
+	await waitForOpen(client);
+	client.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: sessionId }));
+	await waitForMessage(client, "response");
+	client.send(JSON.stringify({ id: "2", type: "claim_character", character_id: characterId }));
+	await waitForMessage(client, "response");
+	client.send(JSON.stringify({ id: "3", type: "character_ready" }));
+	// Register the message_history listener BEFORE awaiting the response: the
+	// response and message_history arrive back-to-back, and a listener added
+	// after the response resolves would miss the history frame.
+	const historyPromise = waitForMessage(client, "message_history");
+	await waitForMessage(client, "response");
+	const messageHistory = await historyPromise;
+	return { client, messageHistory };
 }

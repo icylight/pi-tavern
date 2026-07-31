@@ -65,6 +65,21 @@ export const ClientMessageSchema = Type.Union([
 	),
 	Type.Object(
 		{
+			id: RequestIdSchema,
+			type: Type.Literal("get_message_history"),
+			cursor: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			id: RequestIdSchema,
+			type: Type.Literal("get_chat_history_file"),
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
 			type: Type.Literal("update_character_state"),
 			is_streaming: Type.Boolean(),
 		},
@@ -136,6 +151,8 @@ const FailureResponseSchema = Type.Object(
 			Type.Literal("character_ready"),
 			Type.Literal("leave_group_chat"),
 			Type.Literal("get_group_chat_state"),
+			Type.Literal("get_message_history"),
+			Type.Literal("get_chat_history_file"),
 			Type.Literal("speak"),
 		]),
 		success: Type.Literal(false),
@@ -205,17 +222,6 @@ const GroupChatClosedSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-const MessageHistorySchema = Type.Object(
-	{
-		type: Type.Literal("message_history"),
-		messages: Type.Array(Type.Unknown()),
-		cursor: Type.Union([Type.String(), Type.Null()]),
-		has_more: Type.Boolean(),
-		total_messages: Type.Integer({ minimum: 0 }),
-	},
-	{ additionalProperties: false },
-);
-
 const RoundSnapshotSchema = Type.Object(
 	{
 		round_max_messages: Type.Integer({ minimum: 0 }),
@@ -240,6 +246,52 @@ const PublicMessageSchema = Type.Object(
 		]),
 		content: Type.String(),
 		round: RoundSnapshotSchema,
+	},
+	{ additionalProperties: false },
+);
+
+const MessageHistorySchema = Type.Object(
+	{
+		type: Type.Literal("message_history"),
+		messages: Type.Array(PublicMessageSchema),
+		cursor: Type.Union([Type.String(), Type.Null()]),
+		has_more: Type.Boolean(),
+		total_messages: Type.Integer({ minimum: 0 }),
+	},
+	{ additionalProperties: false },
+);
+
+const GetMessageHistoryResponseSchema = Type.Object(
+	{
+		id: RequestIdSchema,
+		type: Type.Literal("response"),
+		command: Type.Literal("get_message_history"),
+		success: Type.Literal(true),
+		data: Type.Object(
+			{
+				messages: Type.Array(PublicMessageSchema),
+				cursor: Type.Union([Type.String(), Type.Null()]),
+				has_more: Type.Boolean(),
+				total_messages: Type.Integer({ minimum: 0 }),
+			},
+			{ additionalProperties: false },
+		),
+	},
+	{ additionalProperties: false },
+);
+
+const GetChatHistoryFileResponseSchema = Type.Object(
+	{
+		id: RequestIdSchema,
+		type: Type.Literal("response"),
+		command: Type.Literal("get_chat_history_file"),
+		success: Type.Literal(true),
+		data: Type.Object(
+			{
+				path: Type.String(),
+			},
+			{ additionalProperties: false },
+		),
 	},
 	{ additionalProperties: false },
 );
@@ -289,6 +341,8 @@ export const ServerMessageSchema = Type.Union([
 	EmptySuccessResponseSchema,
 	FailureResponseSchema,
 	GroupChatStateResponseSchema,
+	GetMessageHistoryResponseSchema,
+	GetChatHistoryFileResponseSchema,
 	SpeakResponseSchema,
 	CharacterJoinedSchema,
 	CharacterLeftSchema,

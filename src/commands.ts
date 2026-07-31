@@ -3,6 +3,12 @@ import type { CharacterRuntime } from "./character/character-runtime.js";
 import { loadTavernConfig, type TavernConfig } from "./config/load-config.js";
 import type { TavernController } from "./controller/tavern-controller.js";
 import type { CreatorRuntime } from "./creator/creator-runtime.js";
+import {
+	type DeleteGroupChatSessionResult,
+	deleteGroupChatSession as deleteGroupChatSessionFile,
+	type GroupChatSessionSummary,
+	listGroupChatSessions as listPersistedGroupChatSessions,
+} from "./creator/group-chat-sessions.js";
 import type { ActiveGroupChatDescriptor } from "./discovery/active-descriptor.js";
 import {
 	type DiscoverGroupChatsOptions,
@@ -14,6 +20,8 @@ export interface RegisterCommandsOptions {
 	configMaxMessages?: number;
 	loadConfig?: (options: { agentDir: string; cwd: string }) => Promise<TavernConfig>;
 	discoverGroupChats?: (options: DiscoverGroupChatsOptions) => Promise<ActiveGroupChatDescriptor[]>;
+	listGroupChatSessions?: (agentDir: string, cwd: string) => Promise<GroupChatSessionSummary[]>;
+	deleteGroupChatSession?: (path: string) => Promise<DeleteGroupChatSessionResult>;
 }
 
 const DEFAULT_CONFIG_MAX_MESSAGES = 10;
@@ -26,6 +34,8 @@ export function registerCommands(
 	const agentDir = options.agentDir ?? getAgentDir();
 	const loadConfig = options.loadConfig ?? loadTavernConfig;
 	const discoverGroupChats = options.discoverGroupChats ?? discoverActiveGroupChats;
+	const listGroupChatSessions = options.listGroupChatSessions ?? listPersistedGroupChatSessions;
+	const deleteGroupChatSession = options.deleteGroupChatSession ?? deleteGroupChatSessionFile;
 
 	pi.registerCommand("tavern-new", {
 		description: "Create a new PiTavern group chat",
@@ -40,6 +50,51 @@ export function registerCommands(
 				});
 				ctx.ui.notify(
 					`Created group chat ${runtime.state.groupChat.groupChatId} at ${runtime.activeDescriptor.host}:${runtime.activeDescriptor.port}`,
+					"info",
+				);
+			} catch (error) {
+				notifyError(ctx.ui.notify, error);
+			}
+		},
+	});
+
+	pi.registerCommand("tavern-resume", {
+		description: "Resume a PiTavern group chat from its history",
+		handler: async (_args, ctx) => {
+			try {
+				if (!ctx.hasUI) {
+					throw new Error("/tavern-resume requires an interactive UI");
+				}
+				const config = await loadConfig({ agentDir, cwd: ctx.cwd });
+				const sessions = await listGroupChatSessions(agentDir, ctx.cwd);
+				const resumable = sessions.filter((session) => !session.active);
+				if (resumable.length === 0) {
+					ctx.ui.notify("No resumable group chat found for this project", "info");
+					return;
+				}
+				const deleteLabel = "Delete a group chat history…";
+				const labels = [...resumable.map(formatSessionLabel), deleteLabel];
+				const choice = await ctx.ui.select("Resume group chat:", labels);
+				if (choice === undefined) {
+					return;
+				}
+				if (choice === deleteLabel) {
+					await runDeleteGroupChatFlow(resumable, ctx.ui.select, ctx.ui.confirm, ctx.ui.notify, deleteGroupChatSession);
+					return;
+				}
+				const session = resumable[labels.indexOf(choice)];
+				if (!session) {
+					return;
+				}
+				const runtime = await controller.startResume({
+					cwd: ctx.cwd,
+					agentDir,
+					sessionPath: session.path,
+					configMaxMessages: options.configMaxMessages ?? config.configMaxMessages ?? DEFAULT_CONFIG_MAX_MESSAGES,
+					characters: config.characters,
+				});
+				ctx.ui.notify(
+					`Resumed group chat ${runtime.state.groupChat.groupChatId} at ${runtime.activeDescriptor.host}:${runtime.activeDescriptor.port}`,
 					"info",
 				);
 			} catch (error) {
@@ -209,6 +264,51 @@ async function selectGroupChat(
 	const selected = await select("Choose a group chat", labels);
 	const index = selected === undefined ? -1 : labels.indexOf(selected);
 	return index >= 0 ? (candidates[index] ?? null) : null;
+}
+
+function formatSessionLabel(session: GroupChatSessionSummary): string {
+	const display = session.name ?? summarizeFirstMessage(session.firstMessage) ?? session.groupChatId;
+	const date = session.created.toISOString().slice(0, 10);
+	return `${display} (${date})`;
+}
+
+function summarizeFirstMessage(firstMessage: string): string | null {
+	const text = firstMessage
+		.replace(/^User Persona:\s*/, "")
+		.replace(/\s+/g, " ")
+		.trim();
+	if (!text) {
+		return null;
+	}
+	return text.length > 40 ? `${text.slice(0, 40)}…` : text;
+}
+
+async function runDeleteGroupChatFlow(
+	sessions: GroupChatSessionSummary[],
+	select: (title: string, options: string[]) => Promise<string | undefined>,
+	confirm: (title: string, message: string) => Promise<boolean>,
+	notify: (message: string, type?: "info" | "warning" | "error") => void,
+	deleteSession: (path: string) => Promise<DeleteGroupChatSessionResult>,
+): Promise<void> {
+	const labels = sessions.map(formatSessionLabel);
+	const choice = await select("Delete group chat history:", labels);
+	if (choice === undefined) {
+		return;
+	}
+	const session = sessions[labels.indexOf(choice)];
+	if (!session) {
+		return;
+	}
+	const confirmed = await confirm("Delete group chat history?", `This cannot be undone: ${session.path}`);
+	if (!confirmed) {
+		return;
+	}
+	const result = await deleteSession(session.path);
+	if (result.ok) {
+		notify(`Deleted group chat history (${result.method})`, "info");
+	} else {
+		notify(`Failed to delete group chat history: ${result.error ?? "unknown error"}`, "error");
+	}
 }
 
 async function selectCharacter(
