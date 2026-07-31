@@ -1698,6 +1698,66 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 		expect(runtime.state.onlineCharacters.has("session-b")).toBe(true);
 		await runtime.close();
 	});
+
+	it("detaches for reload, buffers window frames, and takes over cleanly (BC-8)", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			characters: [
+				{ characterId: "dev", name: "Dev", description: "", path: "/x.md", prompt: "" },
+				{ characterId: "qa", name: "QA", description: "", path: "/y.md", prompt: "" },
+			],
+		});
+		const { client: memberA } = await joinCharacter(runtime, "session-a", "dev");
+		const { client: memberB } = await joinCharacter(runtime, "session-b", "qa");
+		await runtime.submitUserPersonaMessage("Hello"); // starts the round
+
+		// A connection that never completes character_ready.
+		const pendingClient = new WebSocket(
+			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
+		);
+		await waitForOpen(pendingClient);
+		pendingClient.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: "session-pending" }));
+		await waitForMessage(pendingClient, "response");
+
+		const handoff = await runtime.detachForReload("pi-session-1");
+		expect(handoff.connections.size).toBe(2);
+		expect(handoff.bufferedFrames.size).toBe(0);
+
+		// The pending (not-yet-ready) connection is released and closed.
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(pendingClient.readyState).toBe(WebSocket.CLOSED);
+		// Stable members stay connected.
+		expect(memberA.readyState).toBe(WebSocket.OPEN);
+		expect(memberB.readyState).toBe(WebSocket.OPEN);
+		expect(runtime.state.onlineCharacters.size).toBe(2);
+
+		// A reload-window speak is buffered, not processed yet.
+		memberA.send(JSON.stringify({ id: "r1", type: "speak", content: "During reload" }));
+		await new Promise((resolve) => setTimeout(resolve, 80));
+		expect(handoff.bufferedFrames.get("session-a")?.length).toBe(1);
+
+		const taken = await CreatorRuntime.takeHandoff(handoff);
+		expect(taken.activeDescriptor.port).toBe(runtime.activeDescriptor.port);
+		expect(taken.state.groupChat.groupChatId).toBe(runtime.state.groupChat.groupChatId);
+		expect(taken.state.onlineCharacters.has("session-a")).toBe(true);
+		expect(taken.state.onlineCharacters.has("session-b")).toBe(true);
+
+		// The buffered speak was replayed: memberB sees the public message.
+		// (User Persona messages do not consume round quota, so the speak is usedMessages 1.)
+		const publicMessage = await waitForMessage(memberB, "public_message");
+		expect(publicMessage.content).toBe("During reload");
+		expect(taken.state.round?.usedMessages).toBe(1);
+
+		// The taken runtime serves new frames and owns the descriptor.
+		memberB.send(JSON.stringify({ id: "r2", type: "speak", content: "After reload" }));
+		const afterReload = await waitForMessage(memberA, "public_message");
+		expect(afterReload.content).toBe("After reload");
+
+		await taken.close();
+		expect(await readActiveDescriptor(taken.activeDescriptorPath)).toBeNull();
+	});
 });
 
 async function jsonlFilesUnder(root: string): Promise<string[]> {

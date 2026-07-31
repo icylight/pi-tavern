@@ -4,6 +4,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import WebSocket from "ws";
 
 import type { CharacterCard } from "../config/character-card.js";
+import {
+	type BufferedFrame,
+	type CharacterReloadHandoff,
+	getReloadHandoffRegistry,
+} from "../controller/reload-handoff-registry.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { GroupChatStateMessage, ServerMessage } from "../protocol/messages.js";
 import {
@@ -56,12 +61,18 @@ export class CharacterRuntime {
 	private disconnected = false;
 	private lastPingAt = 0;
 	private heartbeatTimer: NodeJS.Timeout | null = null;
+	private lifecycle: "active" | "detaching" | "disposed" = "active";
+	private bufferingHandlers: { message: (data: WebSocket.RawData) => void; close: () => void } | null = null;
 
 	private readonly onPing = (): void => {
 		this.lastPingAt = Date.now();
 	};
 
 	private readonly onMessage = (data: WebSocket.RawData, isBinary: boolean): void => {
+		this.handleIncomingData(data, isBinary);
+	};
+
+	private handleIncomingData(data: WebSocket.RawData, isBinary: boolean): void {
 		if (isBinary) {
 			this.failConnection(new Error("Binary PiTavern frame received"));
 			return;
@@ -74,7 +85,7 @@ export class CharacterRuntime {
 			return;
 		}
 		this.handleServerMessage(message);
-	};
+	}
 
 	private readonly onClose = (): void => {
 		this.finishDisconnected(new Error("PiTavern connection closed"));
@@ -168,6 +179,115 @@ export class CharacterRuntime {
 				remainingMessages: response.data.round.remaining_messages,
 			},
 		};
+	}
+
+	/**
+	 * Detach the runtime for a reload: stop the input pipeline and heartbeat,
+	 * buffer reload-window frames on the live socket, and publish a one-shot
+	 * handoff. The connection, Character identity, un-flushed environment
+	 * events, and the debounce deadline are preserved for the new runtime.
+	 */
+	async detachForReload(piSessionId: string): Promise<CharacterReloadHandoff> {
+		if (this.lifecycle !== "active" || !this.socket || this.disconnected) {
+			throw new Error("CharacterRuntime is not active");
+		}
+		this.lifecycle = "detaching";
+		this.stopHeartbeat();
+		const snapshot = this.groupChatInput?.snapshotForReload() ?? { pendingEvents: [], debounceDueAt: null };
+		this.groupChatInput?.stop();
+		this.groupChatInput = undefined;
+
+		const socket = this.socket;
+		const bufferedFrames: BufferedFrame[] = [];
+		let socketClosed = false;
+		const handlers = {
+			message: (data: WebSocket.RawData) => {
+				bufferedFrames.push({ receivedAt: Date.now(), data });
+			},
+			close: () => {
+				socketClosed = true;
+			},
+		};
+		this.bufferingHandlers = handlers;
+		socket.off("message", this.onMessage);
+		socket.off("close", this.onClose);
+		socket.off("error", this.onError);
+		socket.off("ping", this.onPing);
+		socket.on("message", handlers.message);
+		socket.on("close", handlers.close);
+
+		const handoff: CharacterReloadHandoff = {
+			kind: "character",
+			piSessionId,
+			expiresAt: Date.now() + this.requestTimeoutMs,
+			groupChatId: this.groupChatId,
+			socket,
+			character: this.character,
+			pendingEvents: snapshot.pendingEvents,
+			debounceDueAt: snapshot.debounceDueAt,
+			lastPingAt: this.lastPingAt,
+			bufferedFrames,
+			bufferingHandlers: handlers,
+			socketClosed,
+			cleanup: async () => {
+				if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+					socket.close();
+				}
+			},
+		};
+		this.socket = null;
+		getReloadHandoffRegistry().publish(handoff);
+		return handoff;
+	}
+
+	/**
+	 * Take over a character handoff: re-attach the live socket with fresh
+	 * handlers, restore heartbeat tracking and the environment input pipeline
+	 * (with its pending events and debounce deadline), then replay buffered
+	 * frames in received order. A member that disconnected during the reload
+	 * window is routed into the normal disconnected cleanup instead.
+	 */
+	static async takeHandoff(handoff: CharacterReloadHandoff, pi?: ExtensionAPI): Promise<CharacterRuntime> {
+		if (handoff.socketClosed) {
+			void handoff.cleanup();
+			throw new Error("Character connection closed during reload");
+		}
+		const runtime = new CharacterRuntime({
+			groupChatId: handoff.groupChatId,
+			sessionId: handoff.piSessionId,
+			character: handoff.character,
+		});
+		runtime.activateFromHandoff(handoff, pi);
+		return runtime;
+	}
+
+	private activateFromHandoff(handoff: CharacterReloadHandoff, pi?: ExtensionAPI): void {
+		if (this.socket || this.disconnected) {
+			throw new Error("CharacterRuntime has already been activated or disposed");
+		}
+		const socket = handoff.socket;
+		socket.off("message", handoff.bufferingHandlers.message);
+		socket.off("close", handoff.bufferingHandlers.close);
+		this.socket = socket;
+		this.lastPingAt = handoff.lastPingAt;
+		socket.on("message", this.onMessage);
+		socket.on("close", this.onClose);
+		socket.on("error", this.onError);
+		socket.on("ping", this.onPing);
+		this.startHeartbeat();
+
+		if (pi) {
+			this.groupChatInput = new GroupChatInput(this, pi);
+			this.groupChatInput.start();
+			this.groupChatInput.restoreFromReload({
+				pendingEvents: handoff.pendingEvents,
+				debounceDueAt: handoff.debounceDueAt,
+			});
+		}
+
+		for (const frame of [...handoff.bufferedFrames].sort((a, b) => a.receivedAt - b.receivedAt)) {
+			this.handleIncomingData(frame.data, false);
+		}
 	}
 
 	get hasPublicMessages(): boolean {
