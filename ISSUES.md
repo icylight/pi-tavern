@@ -35,7 +35,7 @@
 
 - **状态**：open
 - **来源**：群聊协作中观察（2026-08-01）
-- **对应 GitHub issue**：[#15](https://github.com/icylight/pi-tavern/issues/15)
+- **对应 GitHub issue**：[#13](https://github.com/icylight/pi-tavern/issues/13)（#15 为重复，已关闭）
 - **现象**：署名「产品经理」的消息（sequence 2、9）内容为 QA 视角（自我介绍 / git log 核实），实际出自 persona=测试工程师 的 session（17:02:24 启动）。
 - **证据链（可复核）**：
   1. 该 session 的 pi 会话文件（`~/.pi/agent/sessions/--home-wangsen-code-pi-tavern--/2026-07-31T17-02-24-*.jsonl`）中 `tavern_speak` 工具结果返回 `Message published (sequence 2)` 与 `(sequence 9)`；
