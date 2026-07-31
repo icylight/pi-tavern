@@ -224,8 +224,28 @@ describe("acceptance: concurrent speaks keep creator order and global quota", ()
 
 		// No 4th public_message is broadcast (give any wrong broadcast a chance).
 		await new Promise((resolveSleep) => setTimeout(resolveSleep, 800));
+
+		// Negative assertions from the receivers' perspective: a buggy
+		// implementation that broadcast/persisted the 4th speak would still
+		// satisfy toContain('"sequence":4') (the 3rd published speak already
+		// holds sequence 4), so the absence must be asserted explicitly.
+		const characterMessagesA = memberA
+			.allFrames()
+			.filter(
+				(m) => m.type === "public_message" && (m.sender as Record<string, unknown> | undefined)?.type === "character",
+			);
+		const characterMessagesB = memberB
+			.allFrames()
+			.filter(
+				(m) => m.type === "public_message" && (m.sender as Record<string, unknown> | undefined)?.type === "character",
+			);
+		expect(characterMessagesA.some((m) => m.sequence === 5 || m.content === "four")).toBe(false);
+		expect(characterMessagesB.some((m) => m.sequence === 5 || m.content === "four")).toBe(false);
+
 		const files = await readGroupChatFile(agentDir, projectDir);
 		expect(files).toContain('"sequence":4');
+		expect(files).not.toContain('"sequence":5');
+		expect(files).not.toContain("four");
 
 		// ── Clean shutdown ─────────────────────────────────────────────────
 		memberA.terminate();
