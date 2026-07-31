@@ -21,6 +21,8 @@ export interface SpawnPiOptions {
 	cwd: string;
 	/** Extra pi CLI flags (e.g. --no-tools). */
 	extraArgs?: string[];
+	/** Extra environment variables for the child process. */
+	env?: Record<string, string>;
 }
 
 export interface RpcEvent {
