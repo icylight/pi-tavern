@@ -227,6 +227,35 @@ export function registerCommands(
 		},
 	});
 
+	// Test-only commands for the process-level acceptance suite. RPC mode has
+	// no input channel and no way to invoke extension tools, so the acceptance
+	// tests need explicit entries to publish a User Persona message and to
+	// trigger a real pi reload. Registered only when PITAVERN_TEST=1.
+	if (process.env.PITAVERN_TEST === "1") {
+		pi.registerCommand("tavern-test-message", {
+			description: "[test] Publish a User Persona message as the creator",
+			handler: async (args, ctx) => {
+				const state = controller.getState();
+				if (state.type !== "creator") {
+					ctx.ui.notify("Only the group chat creator can send User Persona messages", "error");
+					return;
+				}
+				try {
+					await state.runtime.submitUserPersonaMessage(args.trim());
+					ctx.ui.notify("User Persona message published", "info");
+				} catch (error) {
+					notifyError(ctx.ui.notify, error);
+				}
+			},
+		});
+		pi.registerCommand("tavern-test-reload", {
+			description: "[test] Trigger a real pi reload to exercise the handoff",
+			handler: async (_args, ctx) => {
+				await ctx.reload();
+			},
+		});
+	}
+
 	pi.registerCommand("tavern-leave", {
 		description: "Close or leave the current PiTavern group chat",
 		handler: async (_args, ctx) => {

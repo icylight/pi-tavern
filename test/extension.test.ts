@@ -254,6 +254,37 @@ describe("PiTavern extension", () => {
 		expect(result.content[0]?.text).toContain("3/10");
 	});
 
+	it("fails tavern_speak when the runtime connection dropped but the controller is still in character state (BC-17)", async () => {
+		// Window: the WebSocket already closed (runtime disconnected) but the
+		// controller has not completed its idle transition yet. The tool must
+		// report a send failure instead of pretending the message went out.
+		const runtime = createMockCharacterRuntime({});
+		runtime.speak = vi.fn(async () => {
+			throw new Error("PiTavern connection is not open");
+		});
+		const attempt = {
+			availableCharacters: [{ character_id: "dev", name: "Dev", description: "Dev" }],
+			isActive: true,
+			claimCharacter: vi.fn(async () => runtime),
+			close: vi.fn(async () => undefined),
+		} as unknown as JoinAttempt;
+		const controller = new TavernController(undefined, async () => attempt);
+		await controller.startJoining(descriptor, "session-1");
+		await controller.claimCharacter("dev");
+		expect(controller.getState().type).toBe("character");
+
+		const { tools, api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI, controller);
+
+		const tool = tools[0];
+		if (!tool) throw new Error("no tool");
+		const result = await tool.execute("call-1", { content: "Lost message" });
+
+		expect(result.isError).toBe(true);
+		expect(result.content[0]?.text).toContain("Failed to send message");
+		expect(result.content[0]?.text).toContain("PiTavern connection is not open");
+	});
+
 	it("tavern_speak returns hand-raised result when round limit reached", async () => {
 		const controller = await createCharacterController({
 			published: false,

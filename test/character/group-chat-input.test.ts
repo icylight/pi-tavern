@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CharacterRuntime } from "../../src/character/character-runtime.js";
 import { GroupChatInput } from "../../src/character/group-chat-input.js";
-import type { ServerMessage } from "../../src/protocol/messages.js";
+import type { PublicMessage, ServerMessage } from "../../src/protocol/messages.js";
 
 function createMockRuntime(
 	overrides: {
@@ -33,7 +33,7 @@ function createMockPi(): ExtensionAPI {
 	} as unknown as ExtensionAPI;
 }
 
-function aPublicMessage(senderType: "user_persona", overrides?: Partial<ServerMessage>): ServerMessage {
+function aPublicMessage(senderType: "user_persona", overrides?: Partial<PublicMessage>): PublicMessage {
 	return {
 		type: "public_message",
 		event_id: "evt-1",
@@ -43,14 +43,14 @@ function aPublicMessage(senderType: "user_persona", overrides?: Partial<ServerMe
 		content: "Hello",
 		round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
 		...overrides,
-	} as ServerMessage;
+	} as PublicMessage;
 }
 
-function aCharacterPublicMessage(characterId: string, overrides?: Partial<ServerMessage>): ServerMessage {
+function aCharacterPublicMessage(characterId: string, overrides?: Partial<PublicMessage>): ServerMessage {
 	return aPublicMessage("user_persona", {
 		sender: { type: "character", character_id: characterId, name: "Dev" },
 		...overrides,
-	} as Partial<ServerMessage>) as ServerMessage;
+	} as Partial<PublicMessage>) as ServerMessage;
 }
 
 function aCharacterJoined(): ServerMessage {
@@ -243,6 +243,40 @@ describe("GroupChatInput", () => {
 		const message = call[0] as { details: { events: Array<{ type: string }> } };
 		const types = message.details.events.map((e) => e.type);
 		expect(types).toEqual(["character_joined", "character_left"]);
+
+		input.stop();
+	});
+
+	it("orders message_history expansion before the member's own join event (BC-12)", async () => {
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({ hasPublicMessages: true });
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+
+		// The creator sends message_history first, then broadcasts
+		// character_joined; both must land in the same first batch with the
+		// history events before the join event (websocket-protocol.md order).
+		handler({
+			type: "message_history",
+			messages: [aPublicMessage("user_persona", { sequence: 1, content: "First" })],
+			cursor: null,
+			has_more: false,
+			total_messages: 1,
+		});
+		handler(aCharacterJoined());
+
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
+		const message = call[0] as { details: { events: Array<{ type: string; sequence?: number }> } };
+		const events = message.details.events;
+		expect(events.map((e) => e.type)).toEqual(["public_message", "character_joined"]);
+		expect(events[0]?.sequence).toBe(1);
 
 		input.stop();
 	});
