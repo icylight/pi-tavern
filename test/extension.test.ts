@@ -37,6 +37,8 @@ type InputHandler = (
 	ctx: ExtensionContext,
 ) => Promise<InputEventResult | undefined> | InputEventResult | undefined;
 
+type SessionHandler = (event: Record<string, unknown>, ctx: ExtensionContext) => unknown;
+
 type CapturedTool = {
 	name: string;
 	execute: (
@@ -58,6 +60,7 @@ interface MockExtensionAPI {
 	beforeAgentStartHandlers: Array<
 		(event: { systemPrompt: string }) => { systemPrompt?: string } | undefined | undefined
 	>;
+	sessionHandlers: Map<string, SessionHandler[]>;
 }
 
 function createMockExtensionAPI(): MockExtensionAPI {
@@ -65,6 +68,7 @@ function createMockExtensionAPI(): MockExtensionAPI {
 	const beforeAgentStartHandlers: Array<
 		(event: { systemPrompt: string }) => { systemPrompt?: string } | undefined | undefined
 	> = [];
+	const sessionHandlers = new Map<string, SessionHandler[]>();
 	return {
 		registerCommand: vi.fn(),
 		registerTool: vi.fn(),
@@ -79,9 +83,20 @@ function createMockExtensionAPI(): MockExtensionAPI {
 				beforeAgentStartHandlers.push(
 					handler as (event: { systemPrompt: string }) => { systemPrompt?: string } | undefined | undefined,
 				);
+			if (
+				_event === "session_start" ||
+				_event === "session_shutdown" ||
+				_event === "session_before_switch" ||
+				_event === "session_before_fork"
+			) {
+				const handlers = sessionHandlers.get(_event) ?? [];
+				handlers.push(handler as SessionHandler);
+				sessionHandlers.set(_event, handlers);
+			}
 		}),
 		inputHandlers,
 		beforeAgentStartHandlers,
+		sessionHandlers,
 	};
 }
 
@@ -611,5 +626,104 @@ describe("PiTavern extension", () => {
 
 		const result = mock.beforeAgentStartHandlers[0]?.({ systemPrompt: "Base." });
 		expect(result).toBeUndefined();
+	});
+
+	function sessionContext(confirm: ReturnType<typeof vi.fn>): ExtensionContext {
+		return {
+			ui: { confirm, notify: vi.fn() },
+			sessionManager: { getSessionId: () => "pi-session-1" },
+		} as unknown as ExtensionContext;
+	}
+
+	it("cancels /new while bound when the user declines", async () => {
+		const runtime = createMockCreatorRuntime();
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		const mock = createMockExtensionAPI();
+		piTavern(mock as unknown as ExtensionAPI, controller);
+
+		const confirm = vi.fn(async () => false);
+		const result = await mock.sessionHandlers.get("session_before_switch")?.[0]?.(
+			{ type: "session_before_switch", reason: "new" },
+			sessionContext(confirm),
+		);
+
+		expect(result).toEqual({ cancel: true });
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(controller.getState().type).toBe("creator");
+		expect(runtime.close).not.toHaveBeenCalled();
+	});
+
+	it("exits the group chat first when the user confirms /resume", async () => {
+		const runtime = createMockCreatorRuntime();
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		const mock = createMockExtensionAPI();
+		piTavern(mock as unknown as ExtensionAPI, controller);
+
+		const confirm = vi.fn(async () => true);
+		const result = await mock.sessionHandlers.get("session_before_switch")?.[0]?.(
+			{ type: "session_before_switch", reason: "resume" },
+			sessionContext(confirm),
+		);
+
+		expect(result).toEqual({ cancel: false });
+		expect(runtime.close).toHaveBeenCalledTimes(1);
+		expect(controller.getState()).toEqual({ type: "idle" });
+	});
+
+	it("applies the same exit gate to /fork and /clone", async () => {
+		const runtime = createMockCreatorRuntime();
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		const mock = createMockExtensionAPI();
+		piTavern(mock as unknown as ExtensionAPI, controller);
+
+		const confirm = vi.fn(async () => false);
+		const result = await mock.sessionHandlers.get("session_before_fork")?.[0]?.(
+			{ type: "session_before_fork", entryId: "e1", position: "before" },
+			sessionContext(confirm),
+		);
+
+		expect(result).toEqual({ cancel: true });
+		expect(controller.getState().type).toBe("creator");
+	});
+
+	it("closes the bound runtime before pi continues to quit", async () => {
+		const runtime = createMockCreatorRuntime();
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		const mock = createMockExtensionAPI();
+		piTavern(mock as unknown as ExtensionAPI, controller);
+
+		await mock.sessionHandlers.get("session_shutdown")?.[0]?.(
+			{ type: "session_shutdown", reason: "quit" },
+			sessionContext(vi.fn()),
+		);
+
+		expect(runtime.close).toHaveBeenCalledTimes(1);
+		expect(controller.getState()).toEqual({ type: "idle" });
+	});
+
+	it("detaches the creator for a reload shutdown without closing", async () => {
+		const runtime = createMockCreatorRuntime();
+		runtime.detachForReload = vi.fn(async () => ({ kind: "creator" }));
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		const mock = createMockExtensionAPI();
+		piTavern(mock as unknown as ExtensionAPI, controller);
+
+		await mock.sessionHandlers.get("session_shutdown")?.[0]?.(
+			{ type: "session_shutdown", reason: "reload" },
+			sessionContext(vi.fn()),
+		);
+
+		expect(runtime.detachForReload).toHaveBeenCalledWith("pi-session-1");
+		expect(runtime.close).not.toHaveBeenCalled();
 	});
 });

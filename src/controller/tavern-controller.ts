@@ -1,4 +1,4 @@
-import type { CharacterRuntime } from "../character/character-runtime.js";
+import { CharacterRuntime } from "../character/character-runtime.js";
 import { JoinAttempt, type JoinAttemptOptions } from "../character/join-attempt.js";
 import {
 	CreatorRuntime,
@@ -6,6 +6,7 @@ import {
 	type StartNewCreatorRuntimeOptions,
 } from "../creator/creator-runtime.js";
 import type { ActiveGroupChatDescriptor } from "../discovery/active-descriptor.js";
+import { getReloadHandoffRegistry } from "./reload-handoff-registry.js";
 
 export type TavernState =
 	| { type: "idle" }
@@ -136,6 +137,80 @@ export class TavernController {
 				this.setState({ type: "idle" });
 			}
 		});
+	}
+
+	/**
+	 * Confirmation gate for /new, /resume, /fork and /clone while bound to a
+	 * group chat. Idle passes through immediately. A cancelled confirmation
+	 * keeps the current runtime; a confirmed one exits first (never rolled
+	 * back) and then lets the native pi session operation continue.
+	 */
+	async prepareForSessionOperation(confirm: () => Promise<boolean>): Promise<{ cancel: boolean }> {
+		if (this.state.type === "idle") {
+			return { cancel: false };
+		}
+		const confirmed = await confirm();
+		if (!confirmed) {
+			return { cancel: true };
+		}
+		await this.leave();
+		return { cancel: false };
+	}
+
+	/**
+	 * session_shutdown: reload detaches and publishes a handoff (joining is
+	 * closed and restarts idle); every other reason performs the unified
+	 * permanent cleanup before pi continues to exit.
+	 */
+	async handleSessionShutdown(reason: string, piSessionId: string): Promise<void> {
+		if (reason === "reload") {
+			await this.detachForReload(piSessionId);
+			return;
+		}
+		await this.leave();
+	}
+
+	/**
+	 * Take a reload handoff published by the previous Extension Runtime of the
+	 * same pi session and rebuild the controller state from it.
+	 */
+	async takeReloadHandoff(
+		piSessionId: string,
+		pi?: import("@earendil-works/pi-coding-agent").ExtensionAPI,
+	): Promise<void> {
+		const handoff = getReloadHandoffRegistry().take(piSessionId);
+		if (!handoff) {
+			return;
+		}
+		await this.runTransition(async () => {
+			if (handoff.kind === "creator") {
+				const runtime = await CreatorRuntime.takeHandoff(handoff);
+				this.setState({ type: "creator", runtime });
+			} else {
+				const runtime = await CharacterRuntime.takeHandoff(handoff, pi);
+				this.setState({ type: "character", runtime });
+			}
+		});
+	}
+
+	private async detachForReload(piSessionId: string): Promise<void> {
+		const state = this.state;
+		if (state.type === "joining") {
+			// joining does not participate in reload handoff: close the join
+			// connection, release any Character reservation, restart idle.
+			await state.attempt.close();
+			this.connectionToken = null;
+			this.setState({ type: "idle" });
+			return;
+		}
+		if (state.type === "creator") {
+			await state.runtime.detachForReload(piSessionId);
+			return;
+		}
+		if (state.type === "character") {
+			await state.runtime.detachForReload(piSessionId);
+			return;
+		}
 	}
 
 	private handleConnectionClosed(token: object): Promise<void> {

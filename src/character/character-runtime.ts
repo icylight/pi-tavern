@@ -306,6 +306,11 @@ export class CharacterRuntime {
 	}
 
 	private async closePermanently(): Promise<void> {
+		if (this.lifecycle === "detaching") {
+			// close() and detachForReload() are mutually exclusive paths.
+			throw new Error("CharacterRuntime has been detached for reload and cannot be closed");
+		}
+		this.lifecycle = "disposed";
 		if (!this.socket || this.disconnected) {
 			this.finishDisconnected();
 			return;

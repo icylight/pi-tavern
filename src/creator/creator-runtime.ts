@@ -795,6 +795,10 @@ export class CreatorRuntime {
 	}
 
 	private async performClose(_reason: RuntimeCloseReason): Promise<RuntimeCloseResult> {
+		if (this.lifecycle === "detaching") {
+			// close() and detachForReload() are mutually exclusive paths.
+			throw new Error("CreatorRuntime has been detached for reload and cannot be closed");
+		}
 		const errors: Error[] = [];
 		this.lifecycle = "disposed";
 		this.stopHeartbeat();

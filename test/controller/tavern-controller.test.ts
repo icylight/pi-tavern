@@ -68,6 +68,87 @@ describe("TavernController", () => {
 		);
 	});
 
+	it("passes session operations through immediately while idle", async () => {
+		const controller = new TavernController();
+		const confirm = vi.fn(async () => true);
+
+		await expect(controller.prepareForSessionOperation(confirm)).resolves.toEqual({ cancel: false });
+		expect(confirm).not.toHaveBeenCalled();
+	});
+
+	it("keeps the current runtime when the session operation is cancelled", async () => {
+		const runtime = createRuntime();
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		const result = await controller.prepareForSessionOperation(async () => false);
+
+		expect(result).toEqual({ cancel: true });
+		expect(controller.getState()).toEqual({ type: "creator", runtime });
+		expect(runtime.close).not.toHaveBeenCalled();
+	});
+
+	it("exits first when a session operation is confirmed and never rolls back", async () => {
+		const runtime = createRuntime();
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		const result = await controller.prepareForSessionOperation(async () => true);
+
+		expect(result).toEqual({ cancel: false });
+		expect(controller.getState()).toEqual({ type: "idle" });
+		expect(runtime.close).toHaveBeenCalledTimes(1);
+
+		// The exit is not rolled back even when the following native operation fails.
+		expect(controller.getState()).toEqual({ type: "idle" });
+	});
+
+	it("shuts down for quit by closing the bound runtime", async () => {
+		const runtime = createRuntime();
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		await controller.handleSessionShutdown("quit", "pi-session-1");
+
+		expect(runtime.close).toHaveBeenCalledTimes(1);
+		expect(controller.getState()).toEqual({ type: "idle" });
+	});
+
+	it("detaches the creator runtime for a reload shutdown", async () => {
+		const runtime = createRuntime();
+		runtime.detachForReload = vi.fn(async () => ({ kind: "creator" }));
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		await controller.handleSessionShutdown("reload", "pi-session-1");
+
+		expect(runtime.detachForReload).toHaveBeenCalledWith("pi-session-1");
+		expect(runtime.close).not.toHaveBeenCalled();
+	});
+
+	it("closes the joining attempt and restarts idle on reload shutdown", async () => {
+		const attempt = createJoinAttempt(createCharacterRuntime());
+		const controller = new TavernController(undefined, async () => attempt);
+		await controller.startJoining(
+			{
+				instanceId: "instance-1",
+				groupChatId: "group-1",
+				name: null,
+				cwd: "/project",
+				pid: 1234,
+				host: "127.0.0.1" as const,
+				port: 54321,
+				startedAt: "2026-07-27T00:00:00.000Z",
+			},
+			"session-1",
+		);
+
+		await controller.handleSessionShutdown("reload", "pi-session-1");
+
+		expect(attempt.close).toHaveBeenCalledTimes(1);
+		expect(controller.getState()).toEqual({ type: "idle" });
+	});
+
 	it("leaves creator state idempotently and returns to idle", async () => {
 		const runtime = createRuntime();
 		const controller = new TavernController(async () => runtime);

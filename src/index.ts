@@ -120,8 +120,39 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	});
 
 	// Enable tavern_speak only when in character state; disable otherwise
-	pi.on("session_start", () => {
+	pi.on("session_start", (event, ctx) => {
+		if (event.reason === "reload") {
+			void ctrl.takeReloadHandoff(ctx.sessionManager.getSessionId(), pi);
+		}
 		syncActiveTools(pi, ctrl);
+	});
+
+	// /new and /resume: confirm leaving the group chat first when bound.
+	pi.on("session_before_switch", async (_event, ctx) => {
+		const result = await ctrl.prepareForSessionOperation(() =>
+			ctx.ui.confirm(
+				"退出群聊？",
+				"PiTavern 当前已加入群聊。继续将先退出群聊，之后即使本次操作失败或取消也不会自动恢复。",
+			),
+		);
+		return { cancel: result.cancel };
+	});
+
+	// /fork and /clone: the same confirmation gate as /new and /resume.
+	pi.on("session_before_fork", async (_event, ctx) => {
+		const result = await ctrl.prepareForSessionOperation(() =>
+			ctx.ui.confirm(
+				"退出群聊？",
+				"PiTavern 当前已加入群聊。继续将先退出群聊，之后即使本次操作失败或取消也不会自动恢复。",
+			),
+		);
+		return { cancel: result.cancel };
+	});
+
+	// quit: finish group chat cleanup (bounded by the coordination timeout)
+	// before pi continues to exit. reload: detach and publish a handoff.
+	pi.on("session_shutdown", async (event, ctx) => {
+		await ctrl.handleSessionShutdown(event.reason, ctx.sessionManager.getSessionId());
 	});
 
 	pi.on("input", async (event, ctx) => {
