@@ -182,7 +182,7 @@ SessionManager._appendEntry() 的内部顺序是：
 
 ## BC-5: session_shutdown(quit) 未实现优雅退出
 
-**状态：** 计划于 M5
+**状态：** 已修复（M5）
 
 **关联设计文档：**
 
@@ -222,7 +222,7 @@ SessionManager._appendEntry() 的内部顺序是：
 
 ## BC-6: WebSocket send 失败静默吞下、不触发断线清理
 
-**状态：** 计划于 M5
+**状态：** 已修复（M5）
 
 **关联设计文档：**
 
@@ -274,7 +274,7 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 ## BC-7: closePermanently 不在 enqueue 队列中
 
-**状态：** 计划于 M5
+**状态：** 已修复（M5）
 
 **关联设计文档：**
 
@@ -318,7 +318,7 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 ## BC-8: reload handoff 未实现
 
-**状态：** 计划于 M5
+**状态：** 已修复（M5）
 
 **关联设计文档：**
 
@@ -558,7 +558,7 @@ sendMessage: (message, options) => {
 
 ## BC-16: WebSocket 心跳未实现
 
-**状态：** 计划于 M5
+**状态：** 已修复（M5）
 
 **关联设计文档：**
 
