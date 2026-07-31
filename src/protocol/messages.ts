@@ -352,6 +352,7 @@ export const ServerMessageSchema = Type.Union([
 ]);
 
 export type ServerMessage = Static<typeof ServerMessageSchema>;
+export type PublicMessage = Static<typeof PublicMessageSchema>;
 
 export type CharacterSummaryWire = Static<typeof CharacterSummarySchema>;
 export type JoinGroupChatSuccess = Extract<ServerMessage, { command: "join_group_chat"; success: true }>;

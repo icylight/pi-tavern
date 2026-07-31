@@ -10,6 +10,8 @@ npm run test:acceptance
 
 套件位于 `test/acceptance/`，通过 `vitest.acceptance.config.ts` 独立配置，**不纳入日常 `npm test`**（真实 pi 进程启动慢，完整跑约 2 分钟）。
 
+> ⚠️ 真实 pi 进程共享端口与临时目录：`npm run test:acceptance` **必须与 `npm test` / `npm run check` 串行执行**，不能并行，否则进程互相干扰导致假失败。
+
 所有测试：
 
 | 场景 | 测试 | 覆盖 |

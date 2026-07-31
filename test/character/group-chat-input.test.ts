@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CharacterRuntime } from "../../src/character/character-runtime.js";
 import { GroupChatInput } from "../../src/character/group-chat-input.js";
-import type { ServerMessage } from "../../src/protocol/messages.js";
+import type { PublicMessage, ServerMessage } from "../../src/protocol/messages.js";
 
 function createMockRuntime(
 	overrides: {
@@ -33,7 +33,7 @@ function createMockPi(): ExtensionAPI {
 	} as unknown as ExtensionAPI;
 }
 
-function aPublicMessage(senderType: "user_persona", overrides?: Partial<ServerMessage>): ServerMessage {
+function aPublicMessage(senderType: "user_persona", overrides?: Partial<PublicMessage>): PublicMessage {
 	return {
 		type: "public_message",
 		event_id: "evt-1",
@@ -43,14 +43,14 @@ function aPublicMessage(senderType: "user_persona", overrides?: Partial<ServerMe
 		content: "Hello",
 		round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
 		...overrides,
-	} as ServerMessage;
+	} as PublicMessage;
 }
 
-function aCharacterPublicMessage(characterId: string, overrides?: Partial<ServerMessage>): ServerMessage {
+function aCharacterPublicMessage(characterId: string, overrides?: Partial<PublicMessage>): ServerMessage {
 	return aPublicMessage("user_persona", {
 		sender: { type: "character", character_id: characterId, name: "Dev" },
 		...overrides,
-	} as Partial<ServerMessage>) as ServerMessage;
+	} as Partial<PublicMessage>) as ServerMessage;
 }
 
 function aCharacterJoined(): ServerMessage {
