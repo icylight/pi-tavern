@@ -16,6 +16,19 @@
   3. 无活跃轮次时不显示该行。
 - **阻塞**：无，不影响现有契约。
 
+## ISSUE-002: TUI「正在发言」状态不准确
+
+- **状态**：open
+- **来源**：User Persona 群聊反馈（2026-08-01）
+- **现象**：TUI widget 的「正在发言：xxx」状态与实际群聊发言不符——角色在私有 session 做分析（读文件、跑测试等工具调用）时也显示「正在发言」，甚至可能长期悬挂不消失。
+- **根因（已定位）**：`src/index.ts` 的 `agent_start` / `agent_settled` 是 pi 的全局 agent 生命周期事件（references/pi 的 agent-session.ts 在每次 agent 响应开始时 emit），并非「群聊发言」事件：
+  1. 角色私有 session 的任何活动（普通输入、工具调用循环）都会触发 `agent_start` → 发送 `update_character_state {is_streaming: true}`，creator 即显示「正在发言」——语义错配（agent 活跃 ≠ 群聊发言）；
+  2. 若 `agent_settled` 因异常/中断未配对触发，`is_streaming` 卡在 true，TUI 悬挂；
+  3. `updateStreaming`（character-runtime.ts:149）的 send 在 socket 未 open 时会 throw，且事件处理器中未捕获，可能污染 pi 事件循环。
+- **影响**：TUI 误导；结合 ISSUE-001（身份错配），「正在发言」可能显示错误的角色名。
+- **建议方向**：只在「群聊输入触发的 turn」内标记 streaming（如仅当 turn 由 group-chat-input 的 followUp 驱动时）；或 agent_start 后延迟配对 agent_settled 超时兜底清除；socket 未 open 时静默跳过。具体方案待 PM 裁决。
+- **阻塞**：无，不影响现有契约（纯 UI 呈现）。
+
 ## ISSUE-002: 「正在发言」状态显示异常（User Persona 反馈）
 
 - **状态**：open（待复现细节）
