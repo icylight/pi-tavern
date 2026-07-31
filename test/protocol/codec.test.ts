@@ -142,4 +142,58 @@ describe("PiTavern protocol codec", () => {
 			},
 		});
 	});
+
+	it("decodes get_message_history and get_chat_history_file requests", () => {
+		expect(decodeClientMessage(Buffer.from(JSON.stringify({ id: "req-1", type: "get_message_history" })))).toEqual({
+			id: "req-1",
+			type: "get_message_history",
+		});
+		expect(
+			decodeClientMessage(Buffer.from(JSON.stringify({ id: "req-2", type: "get_message_history", cursor: "opaque" }))),
+		).toEqual({ id: "req-2", type: "get_message_history", cursor: "opaque" });
+		expect(
+			decodeClientMessage(Buffer.from(JSON.stringify({ id: "req-3", type: "get_message_history", cursor: null }))),
+		).toEqual({ id: "req-3", type: "get_message_history", cursor: null });
+		expect(decodeClientMessage(Buffer.from(JSON.stringify({ id: "req-4", type: "get_chat_history_file" })))).toEqual({
+			id: "req-4",
+			type: "get_chat_history_file",
+		});
+	});
+
+	it("decodes a get_message_history response with cursor fields", () => {
+		const response = {
+			id: "req-1",
+			type: "response",
+			command: "get_message_history",
+			success: true,
+			data: {
+				messages: [
+					{
+						type: "public_message",
+						event_id: "evt-1",
+						sequence: 1,
+						timestamp: "2026-07-01T00:00:00.000Z",
+						sender: { type: "user_persona" },
+						content: "Hello",
+						round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
+					},
+				],
+				cursor: null,
+				has_more: false,
+				total_messages: 1,
+			},
+		};
+		expect(decodeServerMessage(Buffer.from(JSON.stringify(response)))).toEqual(response);
+	});
+
+	it("decodes a get_chat_history_file response", () => {
+		const response = {
+			id: "req-1",
+			type: "response",
+			command: "get_chat_history_file",
+			success: true,
+			data: { path: "/absolute/path/to/chats/group-1.jsonl" },
+		};
+		expect(decodeServerMessage(Buffer.from(JSON.stringify(response)))).toEqual(response);
+	});
 });
