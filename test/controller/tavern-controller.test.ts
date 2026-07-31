@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CharacterRuntime } from "../../src/character/character-runtime.js";
 import type { JoinAttempt } from "../../src/character/join-attempt.js";
+import type { CreatorReloadHandoff } from "../../src/controller/reload-handoff-registry.js";
 import { TavernController, type TavernControllerCreatorStarter } from "../../src/controller/tavern-controller.js";
 import type { CreatorRuntime } from "../../src/creator/creator-runtime.js";
 
@@ -116,7 +117,9 @@ describe("TavernController", () => {
 
 	it("detaches the creator runtime for a reload shutdown", async () => {
 		const runtime = createRuntime();
-		runtime.detachForReload = vi.fn(async () => ({ kind: "creator" }));
+		runtime.detachForReload = vi.fn(
+			async (_piSessionId: string) => ({ kind: "creator" as const }) as unknown as CreatorReloadHandoff,
+		);
 		const controller = new TavernController(async () => runtime);
 		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
 
