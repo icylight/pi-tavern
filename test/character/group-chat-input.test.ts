@@ -247,6 +247,40 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
+	it("orders message_history expansion before the member's own join event (BC-12)", async () => {
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({ hasPublicMessages: true });
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+
+		// The creator sends message_history first, then broadcasts
+		// character_joined; both must land in the same first batch with the
+		// history events before the join event (websocket-protocol.md order).
+		handler({
+			type: "message_history",
+			messages: [aPublicMessage("user_persona", { sequence: 1, content: "First" })],
+			cursor: null,
+			has_more: false,
+			total_messages: 1,
+		});
+		handler(aCharacterJoined());
+
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
+		const message = call[0] as { details: { events: Array<{ type: string; sequence?: number }> } };
+		const events = message.details.events;
+		expect(events.map((e) => e.type)).toEqual(["public_message", "character_joined"]);
+		expect(events[0]?.sequence).toBe(1);
+
+		input.stop();
+	});
+
 	it("stops the debounce timer and discards batch on stop", () => {
 		vi.useFakeTimers();
 

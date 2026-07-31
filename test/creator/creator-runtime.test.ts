@@ -1529,6 +1529,52 @@ describe("CreatorRuntime", () => {
 });
 
 describe("CreatorRuntime lifecycle alignment (M5)", () => {
+	it("keeps a persisted speak even when its response cannot be delivered (BC-10)", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			characters: [
+				{ characterId: "dev", name: "Dev", description: "", path: "/x.md", prompt: "" },
+				{ characterId: "qa", name: "QA", description: "", path: "/y.md", prompt: "" },
+			],
+		});
+		const { client: memberA } = await joinCharacter(runtime, "session-a", "dev");
+		const { client: memberB } = await joinCharacter(runtime, "session-b", "qa");
+
+		// Register the round-start listener before submitting so the frame is
+		// consumed even if ws dispatches it a tick late.
+		const roundStartPromise = waitForMessage(memberB, "public_message");
+		await runtime.submitUserPersonaMessage("Round start");
+		expect((await roundStartPromise).content).toBe("Round start");
+
+		// The failing member's socket can no longer deliver anything — including
+		// the speak response (stand-in for a response send timeout).
+		const failingSocket = runtime.connections.get("session-a");
+		expect(failingSocket).toBeDefined();
+		if (!failingSocket) return;
+		vi.spyOn(failingSocket, "send").mockImplementation(() => {
+			throw new Error("socket timeout");
+		});
+
+		const broadcastPromise = waitForMessage(memberB, "public_message");
+		memberA.send(JSON.stringify({ id: "s1", type: "speak", content: "committed anyway" }));
+
+		// The committed message is broadcast to the healthy member…
+		const broadcast = await broadcastPromise;
+		expect(broadcast.content).toBe("committed anyway");
+		expect(broadcast.sequence).toBe(2);
+		// …and the session file keeps the persisted message (no rollback).
+		const [sessionFile] = await jsonlFilesUnder(join(root, "agent"));
+		expect(sessionFile).toBeDefined();
+		if (sessionFile) {
+			const contents = await readFile(join(root, "agent", sessionFile), "utf8");
+			expect(contents).toContain("committed anyway");
+		}
+
+		await runtime.close();
+	});
+
 	it("drains in-flight operations before completing close (BC-7)", async () => {
 		const root = await createTemporaryDirectory();
 		let releaseAppend: () => void = () => undefined;
