@@ -15,6 +15,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { CharacterRuntime } from "../src/character/character-runtime.js";
 import type { JoinAttempt } from "../src/character/join-attempt.js";
+import type { CreatorReloadHandoff } from "../src/controller/reload-handoff-registry.js";
 import { TavernController } from "../src/controller/tavern-controller.js";
 import type { CreatorRuntime } from "../src/creator/creator-runtime.js";
 import { createGroupChatState } from "../src/creator/group-chat-state.js";
@@ -709,9 +710,91 @@ describe("PiTavern extension", () => {
 		expect(controller.getState()).toEqual({ type: "idle" });
 	});
 
+	function tuiContext(): ExtensionContext & {
+		ui: {
+			setStatus: ReturnType<typeof vi.fn>;
+			setWidget: ReturnType<typeof vi.fn>;
+			notify: ReturnType<typeof vi.fn>;
+			confirm: ReturnType<typeof vi.fn>;
+		};
+	} {
+		return {
+			ui: {
+				setStatus: vi.fn(),
+				setWidget: vi.fn(),
+				notify: vi.fn(),
+				confirm: vi.fn(),
+			},
+			sessionManager: { getSessionId: () => "pi-session-1" },
+		} as unknown as ExtensionContext & {
+			ui: {
+				setStatus: ReturnType<typeof vi.fn>;
+				setWidget: ReturnType<typeof vi.fn>;
+				notify: ReturnType<typeof vi.fn>;
+				confirm: ReturnType<typeof vi.fn>;
+			};
+		};
+	}
+
+	it("renders footer status and widget from the creator state", async () => {
+		const runtime = createMockCreatorRuntime();
+		runtime.state.groupChat.name = "Architecture Review";
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		const mock = createMockExtensionAPI();
+		piTavern(mock as unknown as ExtensionAPI, controller);
+		const ctx = tuiContext();
+
+		await mock.sessionHandlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+
+		expect(ctx.ui.setStatus).toHaveBeenCalledWith("pi-tavern", "Tavern Creator · Architecture Review");
+		expect(ctx.ui.setWidget).toHaveBeenCalledWith("pi-tavern", ["1 人在线"], { placement: "belowEditor" });
+		expect(controller.getState().type).toBe("creator");
+	});
+
+	it("clears status and widget when idle", async () => {
+		const controller = new TavernController();
+		const mock = createMockExtensionAPI();
+		piTavern(mock as unknown as ExtensionAPI, controller);
+		const ctx = tuiContext();
+
+		await mock.sessionHandlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+
+		expect(ctx.ui.setStatus).toHaveBeenCalledWith("pi-tavern", undefined);
+		expect(ctx.ui.setWidget).toHaveBeenCalledWith("pi-tavern", undefined, { placement: "belowEditor" });
+	});
+
+	it("keeps group chat state intact when TUI rendering fails", async () => {
+		const runtime = createMockCreatorRuntime();
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		const mock = createMockExtensionAPI();
+		piTavern(mock as unknown as ExtensionAPI, controller);
+		const ctx = tuiContext();
+		ctx.ui.setStatus = vi.fn(() => {
+			throw new Error("TUI unavailable");
+		});
+		ctx.ui.setWidget = vi.fn(() => {
+			throw new Error("TUI unavailable");
+		});
+
+		await mock.sessionHandlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+
+		// Rendering failure must not close the runtime or change business state.
+		expect(controller.getState().type).toBe("creator");
+		expect(runtime.close).not.toHaveBeenCalled();
+
+		// A later member state change still refreshes without crashing.
+		expect(() => runtime.onMembersChanged?.()).not.toThrow();
+	});
+
 	it("detaches the creator for a reload shutdown without closing", async () => {
 		const runtime = createMockCreatorRuntime();
-		runtime.detachForReload = vi.fn(async () => ({ kind: "creator" }));
+		runtime.detachForReload = vi.fn(
+			async (_piSessionId: string) => ({ kind: "creator" as const }) as unknown as CreatorReloadHandoff,
+		);
 		const controller = new TavernController(async () => runtime);
 		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
 

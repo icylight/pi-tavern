@@ -4,6 +4,7 @@ import { Type } from "typebox";
 import { registerCommands } from "./commands.js";
 import { TavernController } from "./controller/tavern-controller.js";
 import { registerRenderers } from "./ui/renderers.js";
+import { TavernUiPresenter } from "./ui/tavern-ui-presenter.js";
 
 interface CreatorDisplayEvent {
 	event_id: string;
@@ -22,6 +23,7 @@ interface CreatorDisplayEntryData {
 
 export default function piTavern(pi: ExtensionAPI, controller?: TavernController): void {
 	const ctrl = controller ?? new TavernController();
+	const presenter = new TavernUiPresenter();
 	registerCommands(pi, ctrl);
 	registerRenderers(pi);
 
@@ -30,6 +32,8 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	ctrl.onStateChange = () => {
 		syncActiveTools(pi, ctrl);
 		wireCreatorDisplay(pi, ctrl);
+		wirePresenter(ctrl, presenter);
+		presenter.refresh(ctrl);
 	};
 
 	pi.registerTool({
@@ -121,10 +125,12 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 
 	// Enable tavern_speak only when in character state; disable otherwise
 	pi.on("session_start", (event, ctx) => {
+		presenter.bind(ctx.ui);
 		if (event.reason === "reload") {
-			void ctrl.takeReloadHandoff(ctx.sessionManager.getSessionId(), pi);
+			void ctrl.takeReloadHandoff(ctx.sessionManager.getSessionId(), pi).then(() => presenter.refresh(ctrl));
 		}
 		syncActiveTools(pi, ctrl);
+		presenter.refresh(ctrl);
 	});
 
 	// /new and /resume: confirm leaving the group chat first when bound.
@@ -244,4 +250,14 @@ function wireCreatorDisplay(pi: ExtensionAPI, ctrl: TavernController): void {
 			// Nothing more we can do
 		}
 	};
+}
+
+function wirePresenter(ctrl: TavernController, presenter: TavernUiPresenter): void {
+	const state = ctrl.getState();
+	if (state.type === "creator") {
+		state.runtime.onMembersChanged = () => presenter.refresh(ctrl);
+	}
+	if (state.type === "character") {
+		state.runtime.onStateSnapshot = () => presenter.refresh(ctrl);
+	}
 }

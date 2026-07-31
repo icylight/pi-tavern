@@ -49,6 +49,10 @@ export class CharacterRuntime {
 	readonly character: CharacterCard;
 	readonly receivedMessages: ServerMessage[] = [];
 	onEnvironmentMessage: ((message: ServerMessage) => void) | undefined;
+	/** Latest group chat state snapshot (cached for read-only TUI projection). */
+	lastGroupChatState: GroupChatStateMessage | null = null;
+	/** Fired after a fresh state snapshot arrives (TUI refresh trigger). */
+	onStateSnapshot: ((snapshot: GroupChatStateMessage) => void) | undefined;
 	groupChatInput: GroupChatInput | undefined;
 
 	private socket: WebSocket | null = null;
@@ -137,6 +141,8 @@ export class CharacterRuntime {
 		if (!response.success) {
 			throw new Error(response.error);
 		}
+		this.lastGroupChatState = response.data;
+		this.onStateSnapshot?.(response.data);
 		return response.data;
 	}
 

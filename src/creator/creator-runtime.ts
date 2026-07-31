@@ -153,6 +153,9 @@ export class CreatorRuntime {
 
 	onPublicMessageError: ((error: string, sequence: number, timestamp: string) => void) | undefined;
 
+	/** Fired when online membership or streaming state changes (TUI refresh trigger). */
+	onMembersChanged: (() => void) | undefined;
+
 	private publicMessages: PublicMessageState[] = [];
 
 	private constructor(
@@ -1135,6 +1138,7 @@ export class CreatorRuntime {
 			type: "character_joined",
 			character: toCharacterSummaryMessage(character),
 		});
+		this.onMembersChanged?.();
 	}
 
 	private handleGetGroupChatState(
@@ -1237,6 +1241,7 @@ export class CreatorRuntime {
 		if (onlineCharacter) {
 			onlineCharacter.isStreaming = isStreaming;
 		}
+		this.onMembersChanged?.();
 	}
 
 	private async handleSpeak(
@@ -1469,6 +1474,7 @@ export class CreatorRuntime {
 				reason,
 			});
 		}
+		this.onMembersChanged?.();
 	}
 
 	private getAvailableCharacters(): CharacterCard[] {
