@@ -10,6 +10,7 @@
 	},
 	"scripts": {
 		"test": "vitest --run",
+		"test:acceptance": "vitest --run --config vitest.acceptance.config.ts",
 		"check": "biome check . && tsc --noEmit",
 		"format": "biome check --write ."
 	},
