@@ -19,6 +19,7 @@ import { decodeClientMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from ".
 import type { ClientMessage } from "../protocol/messages.js";
 import { SHORT_COORDINATION_TIMEOUT_MS } from "../shared/constants.js";
 import {
+	assertValidMaxMessages,
 	createGroupChatState,
 	type GroupChatState,
 	normalizeGroupChatName,
@@ -41,6 +42,7 @@ export interface CreatorRuntimeDependencies {
 	readyTimeoutMs: number;
 	publishDescriptor: (agentDir: string, descriptor: ActiveGroupChatDescriptor) => Promise<string>;
 	writeFile: (path: string, data: string) => Promise<void>;
+	rm: (path: string) => Promise<void>;
 }
 
 const DEFAULT_CONFIG_MAX_MESSAGES = 10;
@@ -117,6 +119,7 @@ export class CreatorRuntime {
 			readyTimeoutMs: SHORT_COORDINATION_TIMEOUT_MS,
 			publishDescriptor: publishActiveDescriptor,
 			writeFile: (path, data) => writeFile(path, data),
+			rm: (path) => rm(path, { force: true }),
 			...dependencyOverrides,
 		};
 		const groupChatId = dependencies.createId();
@@ -206,6 +209,10 @@ export class CreatorRuntime {
 
 	setMaxMessages(maxMessages: number): Promise<void> {
 		return this.enqueue(async () => {
+			// Validate BEFORE any persistence or state mutation: an invalid
+			// value must never reach the JSONL or advance persistedCount (BC-18).
+			assertValidMaxMessages(maxMessages);
+
 			// Empty group chat: update memory only
 			if (!this.persistedCount) {
 				setGroupMaxMessages(this.state, maxMessages);
@@ -282,7 +289,6 @@ export class CreatorRuntime {
 							sender: { type: "user_persona" as const },
 							content,
 							sequence,
-							timestamp,
 							round: {
 								round_max_messages: roundMaxMessages,
 								used_messages: 0,
@@ -313,7 +319,6 @@ export class CreatorRuntime {
 							sender: { type: "user_persona" as const },
 							content,
 							sequence,
-							timestamp,
 							round: {
 								round_max_messages: roundMaxMessages,
 								used_messages: 0,
@@ -686,7 +691,6 @@ export class CreatorRuntime {
 				},
 				content: message.content,
 				sequence,
-				timestamp,
 				round: {
 					round_max_messages: roundMaxMessages,
 					used_messages: newUsed,
@@ -1001,7 +1005,7 @@ export class CreatorRuntime {
 			// the Runtime cannot safely continue — it would start
 			// a new session while a broken file remains on disk.
 			try {
-				await rm(sessionPath, { force: true });
+				await this.deps.rm(sessionPath);
 			} catch {
 				this.persistenceFatal = true;
 				throw new Error(

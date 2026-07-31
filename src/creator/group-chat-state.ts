@@ -99,7 +99,7 @@ export function setHandRaised(state: GroupChatState, sessionId: string, raised: 
 	}
 }
 
-function assertValidMaxMessages(maxMessages: number): void {
+export function assertValidMaxMessages(maxMessages: number): void {
 	if (!Number.isSafeInteger(maxMessages) || maxMessages < 0) {
 		throw new Error("maxMessages must be a non-negative safe integer");
 	}

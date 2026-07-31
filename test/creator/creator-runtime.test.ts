@@ -175,7 +175,8 @@ describe("CreatorRuntime", () => {
 		expect(details.sender).toEqual({ type: "user_persona" });
 		expect(details.content).toBe("Hello from user persona");
 		expect(details.sequence).toBe(1);
-		expect(typeof details.timestamp).toBe("string");
+		// details must NOT carry a second timestamp — entry envelope is the single source of time (BC-19)
+		expect(details.timestamp).toBeUndefined();
 		expect(typeof publicEntry.timestamp).toBe("string");
 		expect(details.round).toEqual({
 			round_max_messages: 10,
@@ -360,6 +361,41 @@ describe("CreatorRuntime", () => {
 		await runtime.close();
 	});
 
+	it("rejects invalid setMaxMessages before any persistence or state change (BC-18)", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+		});
+
+		// First message establishes the file and a round
+		await runtime.submitUserPersonaMessage("First");
+		expect(runtime.state.round?.roundMaxMessages).toBe(10);
+		const [sessionFile] = await jsonlFilesUnder(join(root, "agent"));
+		expect(sessionFile).toBeDefined();
+		if (!sessionFile) return;
+		const sessionPath = join(root, "agent", sessionFile);
+		const linesBefore = (await readFile(sessionPath, "utf8")).trim().split("\n");
+		const persistedCountBefore = (runtime as unknown as { persistedCount: number }).persistedCount;
+
+		// Invalid values must be rejected BEFORE any persistence or state mutation
+		for (const invalid of [-1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) {
+			await expect(runtime.setMaxMessages(invalid)).rejects.toThrow("non-negative safe integer");
+		}
+
+		// No entry was appended, persistedCount unchanged, state unchanged
+		const linesAfter = (await readFile(sessionPath, "utf8")).trim().split("\n");
+		expect(linesAfter).toEqual(linesBefore);
+		expect((runtime as unknown as { persistedCount: number }).persistedCount).toBe(persistedCountBefore);
+		expect(runtime.state.groupChat.groupMaxMessages).toBe(10);
+
+		// A subsequent legal operation still succeeds
+		await runtime.setMaxMessages(5);
+		expect(runtime.state.groupChat.groupMaxMessages).toBe(5);
+
+		await runtime.close();
+	});
+
 	it("does not commit round state when first persist fails", async () => {
 		const root = await createTemporaryDirectory();
 		const runtime = await CreatorRuntime.startNew(
@@ -413,6 +449,58 @@ describe("CreatorRuntime", () => {
 		expect(await jsonlFilesUnder(join(root, "agent"))).toHaveLength(1);
 
 		await runtime.close();
+	});
+
+	it("enters persistence-fatal when rollback rm fails (BC-2)", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew(
+			{
+				cwd: join(root, "project"),
+				agentDir: join(root, "agent"),
+			},
+			{
+				rm: () => Promise.reject(new Error("permission denied")),
+			},
+		);
+
+		// Simulate failure on the first public message append → rollback tries to rm the half-initialized file
+		const sm = (runtime as unknown as { groupSessionManager: { appendCustomMessageEntry: typeof vi.fn } })
+			.groupSessionManager;
+		vi.spyOn(sm, "appendCustomMessageEntry").mockImplementationOnce(() => {
+			throw new Error("disk full during message append");
+		});
+
+		// rm fails → rollback reports the deletion failure
+		await expect(runtime.submitUserPersonaMessage("First")).rejects.toThrow(
+			/Failed to delete half-initialized session file/,
+		);
+
+		// Runtime is persistence-fatal: all subsequent writes are rejected
+		await expect(runtime.submitUserPersonaMessage("Second")).rejects.toThrow(/persistence is broken/i);
+
+		await runtime.close();
+	});
+
+	it("leaves no half-initialized JSONL when first persist fails and runtime closes (BC-2)", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+		});
+
+		const sm = (runtime as unknown as { groupSessionManager: { appendCustomMessageEntry: typeof vi.fn } })
+			.groupSessionManager;
+		vi.spyOn(sm, "appendCustomMessageEntry").mockImplementationOnce(() => {
+			throw new Error("disk full during message append");
+		});
+
+		// First persist fails and rolls back cleanly
+		await expect(runtime.submitUserPersonaMessage("First")).rejects.toThrow("disk full during message append");
+		expect(await jsonlFilesUnder(join(root, "agent"))).toEqual([]);
+
+		// Closing right after the failed persist must not resurrect a partial file
+		await runtime.close();
+		expect(await jsonlFilesUnder(join(root, "agent"))).toEqual([]);
 	});
 
 	it("broadcasts the public message to online characters", async () => {
@@ -480,6 +568,22 @@ describe("CreatorRuntime", () => {
 		expect(typeof publicMessage.event_id).toBe("string");
 		expect(typeof publicMessage.sequence).toBe("number");
 		expect(typeof publicMessage.timestamp).toBe("string");
+
+		// BC-3: broadcast timestamp must exactly match the JSONL entry envelope timestamp
+		const [sessionFile] = await jsonlFilesUnder(join(root, "agent"));
+		expect(sessionFile).toBeDefined();
+		if (sessionFile) {
+			const sessionPath = join(root, "agent", sessionFile);
+			const lines = (await readFile(sessionPath, "utf8")).trim().split("\n");
+			const publicEntry = lines
+				.map((line) => JSON.parse(line) as Record<string, unknown>)
+				.find((entry) => entry.type === "custom_message");
+			expect(publicEntry).toBeDefined();
+			if (publicEntry) {
+				expect(publicMessage.timestamp).toBe(publicEntry.timestamp);
+				expect(publicMessage.event_id).toBe(publicEntry.id);
+			}
+		}
 
 		client.close();
 		await runtime.close();
@@ -721,7 +825,8 @@ describe("CreatorRuntime", () => {
 		expect((senderEcho as Record<string, unknown>).timestamp).toBe(publicEntry.timestamp);
 		expect(publicEntry.details.round).toEqual({ round_max_messages: 10, used_messages: 1, remaining_messages: 9 });
 		expect(typeof publicEntry.details.sequence).toBe("number");
-		expect(typeof publicEntry.details.timestamp).toBe("string");
+		// details must NOT carry a second timestamp (BC-19)
+		expect(publicEntry.details.timestamp).toBeUndefined();
 		expect(publicEntry.details.content).toBe("My public reply");
 
 		client.close();

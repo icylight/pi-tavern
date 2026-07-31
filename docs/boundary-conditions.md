@@ -27,7 +27,7 @@
 
 ## BC-1: SessionManager 内存 leaf 污染
 
-**状态：** 部分修复（阻塞 M3）
+**状态：** 已修复
 
 **关联审查条目：** M3 第 2 条、第 4 条
 
@@ -66,13 +66,13 @@ SessionManager._appendEntry() 的内部顺序是：
 - `CreatorRuntime`（`appendCustomMessageEntry`、`appendSessionInfo` 和 `appendCustomEntry` 的全部调用路径）
 - `SessionManager` (上游 _appendEntry 内部行为)
 
-**当前检测：** 公共消息路径已有失败测试；名称和设置路径的恢复代码已实现，但尚无针对真实 leaf 污染顺序及恢复自身失败的测试。
+**当前检测：** `test/creator/creator-runtime.test.ts` 已覆盖公共消息、`setName()` 和 `setMaxMessages()` append 失败后的 SessionManager 恢复、恢复后 parentId 链回真实磁盘 leaf（JSONL 断言）、`setSessionFile()` 恢复失败进入 fatal 隔离，以及 fatal 后 speak 拒绝且不改变状态。ESM 限制下通过 mock `appendCustomMessageEntry`/`appendSessionInfo`/`appendCustomEntry` 在 `_appendEntry` 执行前抛错触发恢复路径。
 
 ---
 
 ## BC-2: 第一条公共消息中途失败留下半初始化 JSONL
 
-**状态：** 部分修复（阻塞 M3）
+**状态：** 已修复
 
 **关联审查条目：** M3 第 2 条（"started 由至少一条公开消息推导，无公开消息不留下 JSONL"）
 
@@ -115,19 +115,13 @@ SessionManager._appendEntry() 的内部顺序是：
 - `SessionManager`
 - 空群聊 JSONL 生命周期（persistence.md, interaction-model.md）
 
-**当前检测：** 已覆盖 header、settings 成功后 public message 失败及随后重试；尚需覆盖：
-
-- `writeFile()` 创建部分文件后 rejected；
-- `setSessionFile()` 修改部分状态后抛错；
-- `rm()` 失败后 Runtime 禁止继续提交；
-- 失败后直接 close 不留下可恢复的半初始化 JSONL；
-- 正常 rollback 后重试只产生一个 JSONL。
+**当前检测：** 已覆盖 `writeFile()` rejected（首次持久化失败不提交状态）、public message append 失败后 rollback 不留下 JSONL、正常 rollback 后重试只产生一个 JSONL、`setSessionFile()` 恢复失败进入 fatal 隔离（后续写操作全部拒绝）、`rm()` 失败进入 fatal（`deps.rm` 注入验证）、首次持久化失败后直接 close 不留下半初始化 JSONL。
 
 ---
 
 ## BC-3: WebSocket 广播 timestamp 与 JSONL entry timestamp 不一致
 
-**状态：** 已修复，待补测试
+**状态：** 已修复
 
 **关联审查条目：** M3 第 2 条、第 6 条
 
@@ -139,7 +133,7 @@ SessionManager._appendEntry() 的内部顺序是：
 
 - User Persona 和 Character append 成功后均通过 `getEntry(entryId)` 取得原生 `entryTimestamp`。
 - `publicMessages`、TUI 投影和 WebSocket broadcast 均使用该原生 timestamp。
-- Character 路径已有广播 timestamp 与 JSONL envelope timestamp 的精确相等断言。
+- 两条路径均有广播 timestamp 与 JSONL envelope timestamp 的精确相等断言。
 
 **预期行为：**
 
@@ -147,7 +141,7 @@ SessionManager._appendEntry() 的内部顺序是：
 
 **测试要求：**
 
-- 补充 User Persona 路径的 JSONL、广播和 TUI 投影 timestamp 精确相等断言。
+- User Persona 路径已补 JSONL 与广播 timestamp 精确相等断言（`test/creator/creator-runtime.test.ts` 广播测试中 `publicMessage.timestamp === entry.timestamp`、`event_id === entry.id`）。
 - `details.timestamp` 是另一项独立的持久化契约偏差，见 BC-19。
 
 **涉及组件：**
@@ -628,7 +622,7 @@ Controller 尚未完成 idle transition 的短暂窗口内，工具仍可能读�
 
 ## BC-18: started 状态下 setMaxMessages 先持久化后校验
 
-**状态：** 待修复（阻塞 M3）
+**状态：** 已修复
 
 **关联设计文档：**
 
@@ -685,13 +679,19 @@ empty 状态没有该问题，因为该分支在修改 state 前直接调用 `se
 - `setGroupMaxMessages()` / `assertValidMaxMessages()`
 - Runtime queue 的失败后状态不变式
 
-**当前检测：** 命令层已有无效参数测试，但没有直接调用 started Runtime 的测试。需要断言无效调用后 JSONL 内容、`persistedCount` 和 `groupMaxMessages` 均保持不变，并验证随后一条合法操作正常成功。
+**当前实现：**
+
+- `assertValidMaxMessages` 已导出（`group-chat-state.ts`），并在 `CreatorRuntime.setMaxMessages()` queue operation 开头调用，先于 empty/started 分支和任何持久化操作。
+- `setGroupMaxMessages()` 内部保留同一校验作为 state helper 的防御性保护。
+- 无效参数不再追加 entry、推进 `persistedCount` 或修改业务 state；校验失败后下一项 runtime queue task 观察到与失败前完全相同的内存和磁盘状态。
+
+**当前检测：** `test/creator/creator-runtime.test.ts` 新增 BC-18 测试——started 状态下直接调用 `setMaxMessages(-1)`、`1.5`、`NaN`、`MAX_SAFE_INTEGER + 1` 全部拒绝，JSONL 内容、`persistedCount` 和 `groupMaxMessages` 保持不变，随后一条合法 `setMaxMessages(5)` 正常成功。
 
 ---
 
 ## BC-19: public-message details 保存了第二套 timestamp
 
-**状态：** 待修复
+**状态：** 已修复
 
 **关联设计文档：** `persistence.md` → 公开消息
 
@@ -712,9 +712,9 @@ append 成功后，广播、TUI 和历史缓存已经改用原生 `entry.timesta
 
 **实现要求：**
 
-- 从 User Persona 和 Character 两条 append 路径移除 `details.timestamp`。
-- 删除测试中对 `publicEntry.details.timestamp` 的断言。
-- 恢复和 WebSocket 转换始终读取 `entry.timestamp`。
+- 已从 User Persona 和 Character 两条 append 路径移除 `details.timestamp`，`details` 只保存 sender、content、sequence 和 Round 快照（与 `persistence.md` 的 details 结构一致）。
+- 测试已改为断言 `details.timestamp` 不存在（`toBeUndefined`）。
+- 恢复和 WebSocket 转换始终读取 entry envelope 的 `entry.timestamp`。
 
 **涉及组件：**
 
@@ -722,4 +722,4 @@ append 成功后，广播、TUI 和历史缓存已经改用原生 `entry.timesta
 - `CreatorRuntime.handleSpeak()`
 - `persistence.md` 的 public-message details 结构
 
-**当前检测：** 现有测试反而断言 `details.timestamp` 存在，需要改为断言该字段不存在，并继续保留 envelope、广播和 TUI timestamp 的交叉一致性测试。
+**当前检测：** 测试断言 `details.timestamp` 不存在（`toBeUndefined`），并保留 envelope、广播和 TUI timestamp 的交叉一致性测试。
