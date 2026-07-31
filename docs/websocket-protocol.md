@@ -295,7 +295,7 @@ Character 已经被预留或已经在线等失败情况使用 pi-coding-agent �
 2. 将 `session_id` 与 WebSocket 写入正式连接集合；
 3. 将 `session_id` 与 Character 写入在线 Character 状态。
 
-成功响应发出后，群聊创建者广播 `character_joined`，再向新 Character 发送最近 10 条 `message_history`。加入方收到成功响应后把准备好的 `CharacterRuntime` 激活，转交 WebSocket，并将 Controller 从 `joining` 切换为 `character`。后续广播和历史消息由 `CharacterRuntime` 接收；Character 在环境批次防抖结束后主动请求 `get_group_chat_state`。
+成功响应发出后，群聊创建者先向新 Character 发送最近 10 条 `message_history`，再向全部在线 Character 广播 `character_joined`。加入方收到成功响应后把准备好的 `CharacterRuntime` 激活，转交 WebSocket，并将 Controller 从 `joining` 切换为 `character`；激活前已到达的历史和广播由 `JoinAttempt` 缓冲并按接收顺序转交。Character 在环境批次防抖结束后主动请求 `get_group_chat_state`。
 
 加入方在发送 `character_ready` 前本地准备失败时，关闭 WebSocket 并回到 `idle`；群聊创建者随连接关闭释放预留。首版不自动重试。
 
@@ -318,7 +318,9 @@ Character 完成 `character_ready` 并正式成为群成员后，群聊创建者
 - 消息只携带公开 Character 摘要，不携带 `is_streaming` 或 `hand_raised`。
 - 群聊已有公开消息时，该消息属于环境事件，进入每个接收方的 1 秒环境防抖批次。
 - 群聊尚无公开消息时，该消息只用于界面通知，不进入环境批次，也不触发 Agent run。
-- 新加入的 Character 只在群聊已有公开消息时，将自己的加入事件和随后收到的 `message_history` 合并到首次环境批次。
+- 新加入的 Character 先处理 `message_history`，再处理自己的 `character_joined` 广播。
+- 群聊已有公开消息时，历史中的 `public_message` 按历史顺序排在自己的加入事件之前，二者合并到同一个首次环境批次。
+- 群聊尚无公开消息时，空 `message_history` 和自己的加入事件都不创建环境批次。
 - 群聊创建者界面同时显示一次 Character 加入通知。
 - 成员关系是临时状态；加入广播不写入群聊记录文件，也不使用 `event_id` 或 `sequence`。
 

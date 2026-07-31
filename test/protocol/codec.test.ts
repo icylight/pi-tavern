@@ -62,4 +62,84 @@ describe("PiTavern protocol codec", () => {
 			}),
 		).toThrow(/1 MiB/);
 	});
+
+	it("decodes a speak client message", () => {
+		const message = decodeClientMessage(
+			Buffer.from(
+				JSON.stringify({
+					id: "req-8",
+					type: "speak",
+					content: "I suggest starting with the persistence layer.",
+				}),
+			),
+		);
+
+		expect(message).toEqual({
+			id: "req-8",
+			type: "speak",
+			content: "I suggest starting with the persistence layer.",
+		});
+	});
+
+	it("decodes a speak response", () => {
+		const published = decodeServerMessage(
+			Buffer.from(
+				JSON.stringify({
+					id: "req-8",
+					type: "response",
+					command: "speak",
+					success: true,
+					data: {
+						published: true,
+						event_id: "evt-1",
+						sequence: 1,
+						round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
+					},
+				}),
+			),
+		);
+
+		expect(published).toEqual({
+			id: "req-8",
+			type: "response",
+			command: "speak",
+			success: true,
+			data: {
+				published: true,
+				event_id: "evt-1",
+				sequence: 1,
+				round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
+			},
+		});
+
+		const rejected = decodeServerMessage(
+			Buffer.from(
+				JSON.stringify({
+					id: "req-9",
+					type: "response",
+					command: "speak",
+					success: true,
+					data: {
+						published: false,
+						reason: "round_limit_reached",
+						hand_raised: true,
+						round: { round_max_messages: 10, used_messages: 10, remaining_messages: 0 },
+					},
+				}),
+			),
+		);
+
+		expect(rejected).toEqual({
+			id: "req-9",
+			type: "response",
+			command: "speak",
+			success: true,
+			data: {
+				published: false,
+				reason: "round_limit_reached",
+				hand_raised: true,
+				round: { round_max_messages: 10, used_messages: 10, remaining_messages: 0 },
+			},
+		});
+	});
 });

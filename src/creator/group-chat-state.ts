@@ -22,6 +22,7 @@ export interface OnlineCharacterState {
 export interface GroupChatState {
 	groupChat: GroupChatInfo;
 	round: RoundState | null;
+	nextSequence: number;
 	characterReservations: Map<string, string>;
 	onlineCharacters: Map<string, OnlineCharacterState>;
 }
@@ -43,6 +44,7 @@ export function createGroupChatState(options: CreateGroupChatStateOptions): Grou
 			groupMaxMessages: options.groupMaxMessages,
 		},
 		round: null,
+		nextSequence: 0,
 		characterReservations: new Map(),
 		onlineCharacters: new Map<string, OnlineCharacterState>(),
 	};
@@ -63,7 +65,41 @@ export function setGroupMaxMessages(state: GroupChatState, maxMessages: number):
 	state.groupChat.groupMaxMessages = maxMessages;
 }
 
-function assertValidMaxMessages(maxMessages: number): void {
+export function startNewRound(state: GroupChatState): RoundState {
+	// Clear hand-raised flags from the previous round
+	for (const character of state.onlineCharacters.values()) {
+		character.handRaised = false;
+	}
+
+	const round: RoundState = {
+		roundMaxMessages: state.groupChat.groupMaxMessages,
+		usedMessages: 0,
+	};
+	state.round = round;
+	return round;
+}
+
+export function advanceSequence(state: GroupChatState): number {
+	state.nextSequence += 1;
+	return state.nextSequence;
+}
+
+export function consumeRoundMessage(state: GroupChatState): boolean {
+	if (!state.round || state.round.usedMessages >= state.round.roundMaxMessages) {
+		return false;
+	}
+	state.round.usedMessages += 1;
+	return true;
+}
+
+export function setHandRaised(state: GroupChatState, sessionId: string, raised: boolean): void {
+	const character = state.onlineCharacters.get(sessionId);
+	if (character) {
+		character.handRaised = raised;
+	}
+}
+
+export function assertValidMaxMessages(maxMessages: number): void {
 	if (!Number.isSafeInteger(maxMessages) || maxMessages < 0) {
 		throw new Error("maxMessages must be a non-negative safe integer");
 	}

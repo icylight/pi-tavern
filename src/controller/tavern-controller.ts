@@ -20,6 +20,7 @@ export class TavernController {
 	private state: TavernState = { type: "idle" };
 	private transitionTail = Promise.resolve();
 	private connectionToken: object | null = null;
+	onStateChange: (() => void) | undefined;
 
 	constructor(
 		private readonly startCreator: TavernControllerCreatorStarter = (options) => CreatorRuntime.startNew(options),
@@ -38,7 +39,7 @@ export class TavernController {
 			}
 
 			const runtime = await this.startCreator(options);
-			this.state = { type: "creator", runtime };
+			this.setState({ type: "creator", runtime });
 			return runtime;
 		});
 	}
@@ -56,12 +57,15 @@ export class TavernController {
 				},
 			});
 			this.connectionToken = token;
-			this.state = { type: "joining", attempt };
+			this.setState({ type: "joining", attempt });
 			return attempt;
 		});
 	}
 
-	claimCharacter(characterId: string): Promise<CharacterRuntime> {
+	claimCharacter(
+		characterId: string,
+		pi?: import("@earendil-works/pi-coding-agent").ExtensionAPI,
+	): Promise<CharacterRuntime> {
 		return this.runTransition(async () => {
 			if (this.state.type !== "joining") {
 				throw new Error("This pi session is not joining a group chat");
@@ -69,13 +73,13 @@ export class TavernController {
 
 			const attempt = this.state.attempt;
 			try {
-				const runtime = await attempt.claimCharacter(characterId);
-				this.state = { type: "character", runtime };
+				const runtime = await attempt.claimCharacter(characterId, pi);
+				this.setState({ type: "character", runtime });
 				return runtime;
 			} catch (error) {
 				if (!attempt.isActive) {
 					this.connectionToken = null;
-					this.state = { type: "idle" };
+					this.setState({ type: "idle" });
 				}
 				throw error;
 			}
@@ -96,7 +100,7 @@ export class TavernController {
 			if (this.state.type !== "creator") {
 				throw new Error("This command is only available to the group chat creator");
 			}
-			this.state.runtime.setMaxMessages(maxMessages);
+			await this.state.runtime.setMaxMessages(maxMessages);
 		});
 	}
 
@@ -111,7 +115,7 @@ export class TavernController {
 				await owner.close();
 			} finally {
 				this.connectionToken = null;
-				this.state = { type: "idle" };
+				this.setState({ type: "idle" });
 			}
 		});
 	}
@@ -122,8 +126,13 @@ export class TavernController {
 				return;
 			}
 			this.connectionToken = null;
-			this.state = { type: "idle" };
+			this.setState({ type: "idle" });
 		});
+	}
+
+	private setState(state: TavernState): void {
+		this.state = state;
+		this.onStateChange?.();
 	}
 
 	private async runTransition<T>(operation: () => Promise<T>): Promise<T> {

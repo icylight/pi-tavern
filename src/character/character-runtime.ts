@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import WebSocket from "ws";
 
 import type { CharacterCard } from "../config/character-card.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { GroupChatStateMessage, ServerMessage } from "../protocol/messages.js";
+import { SHORT_COORDINATION_TIMEOUT_MS } from "../shared/constants.js";
+import { GroupChatInput } from "./group-chat-input.js";
 
 export interface CharacterConnectionTransfer {
 	socket: WebSocket;
@@ -25,13 +28,15 @@ interface PendingRequest {
 	timer: NodeJS.Timeout;
 }
 
-const DEFAULT_REQUEST_TIMEOUT_MS = 5_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
 
 export class CharacterRuntime {
 	readonly groupChatId: string;
 	readonly sessionId: string;
 	readonly character: CharacterCard;
 	readonly receivedMessages: ServerMessage[] = [];
+	onEnvironmentMessage: ((message: ServerMessage) => void) | undefined;
+	groupChatInput: GroupChatInput | undefined;
 
 	private socket: WebSocket | null = null;
 	private readonly pendingRequests = new Map<string, PendingRequest>();
@@ -73,7 +78,7 @@ export class CharacterRuntime {
 		return new CharacterRuntime(options);
 	}
 
-	activate(transfer: CharacterConnectionTransfer): void {
+	activate(transfer: CharacterConnectionTransfer, pi?: ExtensionAPI): void {
 		if (this.socket || this.disconnected) {
 			throw new Error("CharacterRuntime has already been activated or disposed");
 		}
@@ -81,6 +86,12 @@ export class CharacterRuntime {
 		this.socket.on("message", this.onMessage);
 		this.socket.on("close", this.onClose);
 		this.socket.on("error", this.onError);
+
+		if (pi) {
+			this.groupChatInput = new GroupChatInput(this, pi);
+			this.groupChatInput.start();
+		}
+
 		for (const message of transfer.bufferedMessages) {
 			this.handleServerMessage(message);
 		}
@@ -101,6 +112,50 @@ export class CharacterRuntime {
 		this.send({
 			type: "update_character_state",
 			is_streaming: isStreaming,
+		});
+	}
+
+	async speak(content: string): Promise<{
+		published: boolean;
+		eventId?: string;
+		sequence?: number;
+		reason?: string;
+		handRaised?: boolean;
+		round?: { roundMaxMessages: number; usedMessages: number; remainingMessages: number };
+	}> {
+		const response = await this.request({ type: "speak", content });
+		if (response.type !== "response" || response.command !== "speak") {
+			throw new Error("Unexpected PiTavern speak response");
+		}
+		if (!response.success) {
+			throw new Error(response.error);
+		}
+		return {
+			published: response.data.published,
+			...(response.data.published
+				? {
+						eventId: response.data.event_id,
+						sequence: response.data.sequence,
+					}
+				: {
+						reason: response.data.reason,
+						handRaised: response.data.hand_raised,
+					}),
+			round: {
+				roundMaxMessages: response.data.round.round_max_messages,
+				usedMessages: response.data.round.used_messages,
+				remainingMessages: response.data.round.remaining_messages,
+			},
+		};
+	}
+
+	get hasPublicMessages(): boolean {
+		return this.receivedMessages.some((m) => {
+			if (m.type === "public_message") return true;
+			if (m.type === "message_history" && Array.isArray(m.messages) && m.messages.length > 0) {
+				return true;
+			}
+			return false;
 		});
 	}
 
@@ -171,6 +226,9 @@ export class CharacterRuntime {
 		}
 
 		this.receivedMessages.push(message);
+
+		this.onEnvironmentMessage?.(message);
+
 		if (message.type === "group_chat_closed") {
 			this.finishDisconnected();
 		}
@@ -189,6 +247,8 @@ export class CharacterRuntime {
 			return;
 		}
 		this.disconnected = true;
+		this.groupChatInput?.stop();
+		this.groupChatInput = undefined;
 		const socket = this.socket;
 		this.socket = null;
 		if (socket) {

@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import WebSocket from "ws";
 
 import { type ClaimedCharacter, loadClaimedCharacter } from "../config/character-card.js";
 import type { ActiveGroupChatDescriptor } from "../discovery/active-descriptor.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { CharacterSummaryWire, ServerMessage } from "../protocol/messages.js";
+import { SHORT_COORDINATION_TIMEOUT_MS } from "../shared/constants.js";
 import { type CharacterConnectionTransfer, CharacterRuntime } from "./character-runtime.js";
 
 export interface JoinAttemptOptions {
@@ -19,7 +21,7 @@ interface PendingRequest {
 	timer: NodeJS.Timeout;
 }
 
-const DEFAULT_REQUEST_TIMEOUT_MS = 5_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
 
 export class JoinAttempt {
 	readonly availableCharacters: CharacterSummaryWire[];
@@ -116,7 +118,7 @@ export class JoinAttempt {
 		}
 	}
 
-	async claimCharacter(characterId: string): Promise<CharacterRuntime> {
+	async claimCharacter(characterId: string, pi?: ExtensionAPI): Promise<CharacterRuntime> {
 		const claimResponse = await this.request({
 			type: "claim_character",
 			character_id: characterId,
@@ -145,7 +147,7 @@ export class JoinAttempt {
 			if (!readyResponse.success) {
 				throw new Error(readyResponse.error);
 			}
-			runtime.activate(this.takeConnection());
+			runtime.activate(this.takeConnection(), pi);
 			return runtime;
 		} catch (error) {
 			await this.close();

@@ -89,15 +89,15 @@ describe("CreatorRuntime Character join lifecycle", () => {
 			success: true,
 		});
 		expect(await peer.next()).toEqual({
-			type: "character_joined",
-			character: toSummaryMessage(characters[0] as CharacterCard),
-		});
-		expect(await peer.next()).toEqual({
 			type: "message_history",
 			messages: [],
 			cursor: null,
 			has_more: false,
 			total_messages: 0,
+		});
+		expect(await peer.next()).toEqual({
+			type: "character_joined",
+			character: toSummaryMessage(characters[0] as CharacterCard),
 		});
 
 		expect(runtime.state.characterReservations.size).toBe(0);

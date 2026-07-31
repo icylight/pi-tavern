@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
 
@@ -16,12 +17,15 @@ import {
 } from "../discovery/active-descriptor.js";
 import { decodeClientMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { ClientMessage } from "../protocol/messages.js";
+import { SHORT_COORDINATION_TIMEOUT_MS } from "../shared/constants.js";
 import {
+	assertValidMaxMessages,
 	createGroupChatState,
 	type GroupChatState,
 	normalizeGroupChatName,
 	setGroupChatName,
 	setGroupMaxMessages,
+	setHandRaised,
 } from "./group-chat-state.js";
 
 export interface StartNewCreatorRuntimeOptions {
@@ -37,10 +41,18 @@ export interface CreatorRuntimeDependencies {
 	pid: number;
 	readyTimeoutMs: number;
 	publishDescriptor: (agentDir: string, descriptor: ActiveGroupChatDescriptor) => Promise<string>;
+	writeFile: (path: string, data: string) => Promise<void>;
+	rm: (path: string) => Promise<void>;
 }
 
 const DEFAULT_CONFIG_MAX_MESSAGES = 10;
-const DEFAULT_READY_TIMEOUT_MS = 5_000;
+
+/** Bit flags tracking first-persist milestones for granular rollback on failure. */
+const FIRST_PERSIST_HEADER_WRITTEN = 1 << 0;
+const FIRST_PERSIST_SESSION_OPENED = 1 << 1;
+const FIRST_PERSIST_NAME_APPENDED = 1 << 2;
+const FIRST_PERSIST_SETTINGS_APPENDED = 1 << 3;
+const FIRST_PERSIST_MESSAGE_APPENDED = 1 << 4;
 
 export class CreatorRuntime {
 	readonly connections = new Map<string, WebSocket>();
@@ -49,17 +61,49 @@ export class CreatorRuntime {
 	private closePromise: Promise<void> | null = null;
 	private runtimeTail = Promise.resolve();
 	private disposed = false;
+	private readonly deps: CreatorRuntimeDependencies;
+	private persistedCount = 0;
+
+	/** Set when the session file cannot be written or recovered. All mutating operations reject. */
+	private persistenceFatal = false;
+
+	/** Tracks which steps have completed during first-persist, for rollback on failure. */
+	private firstPersistFlags = 0;
+
+	onPublicMessage:
+		| ((msg: {
+				sender: { type: "user_persona" } | { type: "character"; character_id: string; name: string };
+				content: string;
+				event_id: string;
+				sequence: number;
+				timestamp: string;
+				round: { round_max_messages: number; used_messages: number; remaining_messages: number };
+		  }) => void)
+		| undefined;
+
+	onPublicMessageError: ((error: string, sequence: number, timestamp: string) => void) | undefined;
+
+	private publicMessages: Array<{
+		sender: { type: "user_persona" } | { type: "character"; character_id: string; name: string };
+		content: string;
+		event_id: string;
+		sequence: number;
+		timestamp: string;
+		round: { round_max_messages: number; used_messages: number; remaining_messages: number };
+	}> = [];
 
 	private constructor(
 		readonly webSocketServer: WebSocketServer,
-		readonly groupSessionManager: SessionManager,
+		private groupSessionManager: SessionManager,
 		readonly state: GroupChatState,
 		readonly activeDescriptor: ActiveGroupChatDescriptor,
 		readonly activeDescriptorPath: string,
 		readonly configMaxMessages: number,
 		characters: CharacterCard[],
 		private readonly readyTimeoutMs: number,
+		deps: CreatorRuntimeDependencies,
 	) {
+		this.deps = deps;
 		this.characters = new Map(characters.map((character) => [character.characterId, character]));
 		this.webSocketServer.on("connection", (socket) => this.handleConnection(socket));
 	}
@@ -72,8 +116,10 @@ export class CreatorRuntime {
 			createId: randomUUID,
 			now: () => new Date(),
 			pid: process.pid,
-			readyTimeoutMs: DEFAULT_READY_TIMEOUT_MS,
+			readyTimeoutMs: SHORT_COORDINATION_TIMEOUT_MS,
 			publishDescriptor: publishActiveDescriptor,
+			writeFile: (path, data) => writeFile(path, data),
+			rm: (path) => rm(path, { force: true }),
 			...dependencyOverrides,
 		};
 		const groupChatId = dependencies.createId();
@@ -111,6 +157,7 @@ export class CreatorRuntime {
 			configMaxMessages,
 			options.characters ?? [],
 			dependencies.readyTimeoutMs,
+			dependencies,
 		);
 
 		try {
@@ -124,15 +171,219 @@ export class CreatorRuntime {
 	}
 
 	async setName(name: string): Promise<string | null> {
-		const normalizedName = normalizeGroupChatName(name);
-		await updateActiveDescriptorName(this.activeDescriptorPath, this.activeDescriptor.instanceId, normalizedName);
-		setGroupChatName(this.state, name);
-		this.activeDescriptor.name = normalizedName;
-		return normalizedName;
+		return this.enqueue(async () => {
+			const normalizedName = normalizeGroupChatName(name);
+
+			// Empty group chat: update memory only (no file yet)
+			if (!this.persistedCount) {
+				await updateActiveDescriptorName(this.activeDescriptorPath, this.activeDescriptor.instanceId, normalizedName);
+				setGroupChatName(this.state, name);
+				this.activeDescriptor.name = normalizedName;
+				return normalizedName;
+			}
+
+			this.assertWritable();
+
+			// Active group chat: persist entry via SessionManager
+			try {
+				this.groupSessionManager.appendSessionInfo(normalizedName ?? "");
+			} catch (error) {
+				this.recoverSessionManagerFromFailedAppend(error);
+			}
+			this.persistedCount++;
+
+			// Commit memory state (authoritative after successful persist)
+			setGroupChatName(this.state, name);
+			this.activeDescriptor.name = normalizedName;
+
+			// Best-effort descriptor update (discovery projection; failure is non-fatal)
+			try {
+				await updateActiveDescriptorName(this.activeDescriptorPath, this.activeDescriptor.instanceId, normalizedName);
+			} catch {
+				// Descriptor update failed but memory and JSONL are consistent
+			}
+
+			return normalizedName;
+		});
 	}
 
-	setMaxMessages(maxMessages: number): void {
-		setGroupMaxMessages(this.state, maxMessages);
+	setMaxMessages(maxMessages: number): Promise<void> {
+		return this.enqueue(async () => {
+			// Validate BEFORE any persistence or state mutation: an invalid
+			// value must never reach the JSONL or advance persistedCount (BC-18).
+			assertValidMaxMessages(maxMessages);
+
+			// Empty group chat: update memory only
+			if (!this.persistedCount) {
+				setGroupMaxMessages(this.state, maxMessages);
+				return;
+			}
+
+			this.assertWritable();
+
+			// Active group chat: persist entry via SessionManager
+			try {
+				this.groupSessionManager.appendCustomEntry("pi-tavern.group-settings", {
+					group_max_messages: maxMessages,
+				});
+			} catch (error) {
+				this.recoverSessionManagerFromFailedAppend(error);
+			}
+			this.persistedCount++;
+
+			setGroupMaxMessages(this.state, maxMessages);
+		});
+	}
+
+	submitUserPersonaMessage(content: string): Promise<string> {
+		return this.enqueue(async () => {
+			this.assertWritable();
+
+			const contentBytes = Buffer.byteLength(content, "utf8");
+			if (contentBytes > 64 * 1024) {
+				throw new Error("User Persona message exceeds 64 KiB");
+			}
+
+			// Compute candidate state values (committed only after successful persist)
+			const roundMaxMessages = this.state.groupChat.groupMaxMessages;
+			const sequence = this.state.nextSequence + 1;
+			const timestamp = new Date().toISOString();
+			let entryId: string;
+
+			// For the very first persist, seed the file with SessionManager's header,
+			// then use its append API for all entries so IDs, parentId chain, and envelopes
+			// are fully managed by SessionManager (persistence.md L6-8).
+			// Bit flags track each step for granular rollback on partial failure.
+			if (this.persistedCount === 0) {
+				const sessionPath = this.getSessionFilePath();
+				// Use canonical createdAt so header timestamp matches state and descriptor
+				const header = { ...this.groupSessionManager.getHeader(), timestamp: this.state.groupChat.createdAt };
+
+				this.firstPersistFlags = 0;
+				try {
+					// Set bit before operation so rollback knows this step was attempted
+					// (writeFile may create/partially-write the file before throwing).
+					this.firstPersistFlags |= FIRST_PERSIST_HEADER_WRITTEN;
+					await this.deps.writeFile(sessionPath, `${JSON.stringify(header)}\n`);
+
+					this.firstPersistFlags |= FIRST_PERSIST_SESSION_OPENED;
+					this.groupSessionManager.setSessionFile(sessionPath);
+
+					if (this.state.groupChat.name) {
+						this.groupSessionManager.appendSessionInfo(this.state.groupChat.name);
+						this.firstPersistFlags |= FIRST_PERSIST_NAME_APPENDED;
+						this.persistedCount++;
+					}
+
+					this.groupSessionManager.appendCustomEntry("pi-tavern.group-settings", {
+						group_max_messages: roundMaxMessages,
+					});
+					this.firstPersistFlags |= FIRST_PERSIST_SETTINGS_APPENDED;
+					this.persistedCount++;
+
+					entryId = this.groupSessionManager.appendCustomMessageEntry(
+						"pi-tavern.public-message",
+						formatEntryContent("User Persona", content),
+						true,
+						{
+							sender: { type: "user_persona" as const },
+							content,
+							sequence,
+							round: {
+								round_max_messages: roundMaxMessages,
+								used_messages: 0,
+								remaining_messages: roundMaxMessages,
+							},
+						},
+					);
+					this.firstPersistFlags |= FIRST_PERSIST_MESSAGE_APPENDED;
+					this.persistedCount++;
+				} catch (error) {
+					try {
+						await this.rollbackFirstPersist(sessionPath);
+					} catch (rollbackError) {
+						throw new Error(
+							`Rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+							{ cause: error },
+						);
+					}
+					throw error;
+				}
+			} else {
+				try {
+					entryId = this.groupSessionManager.appendCustomMessageEntry(
+						"pi-tavern.public-message",
+						formatEntryContent("User Persona", content),
+						true,
+						{
+							sender: { type: "user_persona" as const },
+							content,
+							sequence,
+							round: {
+								round_max_messages: roundMaxMessages,
+								used_messages: 0,
+								remaining_messages: roundMaxMessages,
+							},
+						},
+					);
+					this.persistedCount++;
+				} catch (error) {
+					// SessionManager._appendEntry mutates memory before disk write.
+					// On failure, purge the unpersisted entry from memory.
+					this.recoverSessionManagerFromFailedAppend(error);
+				}
+			}
+
+			// Read the real entry timestamp from SessionManager for consistency
+			// between disk envelope and broadcast/display timestamps (finding 3).
+			const persisted = this.groupSessionManager.getEntry(entryId);
+			const entryTimestamp = persisted?.timestamp ?? timestamp;
+
+			// Commit state only after successful persist
+			this.state.round = { roundMaxMessages, usedMessages: 0 };
+			this.state.nextSequence = sequence;
+			// Clear hand-raised flags from previous round (only on success)
+			for (const character of this.state.onlineCharacters.values()) {
+				character.handRaised = false;
+			}
+
+			const message = {
+				sender: { type: "user_persona" as const },
+				content,
+				event_id: entryId,
+				sequence,
+				timestamp: entryTimestamp,
+				round: { round_max_messages: roundMaxMessages, used_messages: 0, remaining_messages: roundMaxMessages },
+			};
+			this.publicMessages.push(message);
+
+			// Broadcast and TUI projection are independent — neither blocks the other
+			try {
+				this.broadcast({
+					type: "public_message",
+					event_id: entryId,
+					sequence,
+					timestamp: entryTimestamp,
+					sender: { type: "user_persona" },
+					content,
+					round: message.round,
+				});
+			} catch {
+				// Broadcast failure silently swallowed — no impact on state or TUI
+			}
+
+			try {
+				this.onPublicMessage?.(message);
+			} catch (error) {
+				this.onPublicMessageError?.(
+					`TUI projection failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+					message.sequence,
+					message.timestamp,
+				);
+			}
+
+			return entryId;
+		});
 	}
 
 	close(): Promise<void> {
@@ -169,7 +420,7 @@ export class CreatorRuntime {
 				socket.close(1002, "Binary frames are not supported");
 				return;
 			}
-			void this.enqueue(() => {
+			void this.enqueue(async () => {
 				if (this.disposed) {
 					socket.close(1001, "Group chat closed");
 					return;
@@ -181,7 +432,14 @@ export class CreatorRuntime {
 					socket.close(1002, "Protocol error");
 					return;
 				}
-				this.handleClientMessage(socket, connection, message);
+				try {
+					await this.handleClientMessage(socket, connection, message);
+				} catch (error) {
+					if (!this.disposed) {
+						const errorMessage = error instanceof Error ? error.message : String(error);
+						socket.close(1011, errorMessage);
+					}
+				}
 			});
 		});
 		socket.on("close", () => {
@@ -193,7 +451,11 @@ export class CreatorRuntime {
 		socket.on("error", () => undefined);
 	}
 
-	private handleClientMessage(socket: WebSocket, connection: ConnectionContext, message: ClientMessage): void {
+	private async handleClientMessage(
+		socket: WebSocket,
+		connection: ConnectionContext,
+		message: ClientMessage,
+	): Promise<void> {
 		switch (message.type) {
 			case "join_group_chat":
 				this.handleJoinGroupChat(socket, connection, message);
@@ -212,6 +474,9 @@ export class CreatorRuntime {
 				return;
 			case "leave_group_chat":
 				this.handleLeaveGroupChat(socket, connection, message);
+				return;
+			case "speak":
+				await this.handleSpeak(socket, connection, message);
 				return;
 		}
 	}
@@ -316,16 +581,31 @@ export class CreatorRuntime {
 			command: "character_ready",
 			success: true,
 		});
+
+		// Send history before join broadcast so hasPublicMessages is true
+		// when the new Character processes its own character_joined event.
+		const recentMessages = this.publicMessages.slice(-10);
+		this.send(socket, {
+			type: "message_history",
+			messages: recentMessages.map((m) => ({
+				type: "public_message" as const,
+				event_id: m.event_id,
+				sequence: m.sequence,
+				timestamp: m.timestamp,
+				sender: m.sender,
+				content: m.content,
+				round: m.round,
+			})),
+			cursor: this.publicMessages.length > 10 ? "more" : null,
+			has_more: this.publicMessages.length > 10,
+			total_messages: this.publicMessages.length,
+		});
+
+		// Broadcast character_joined after message_history so the new Character
+		// already has hasPublicMessages=true when processing its own join event.
 		this.broadcast({
 			type: "character_joined",
 			character: toCharacterSummaryMessage(character),
-		});
-		this.send(socket, {
-			type: "message_history",
-			messages: [],
-			cursor: null,
-			has_more: false,
-			total_messages: 0,
 		});
 	}
 
@@ -354,6 +634,172 @@ export class CreatorRuntime {
 		const onlineCharacter = this.state.onlineCharacters.get(connection.sessionId);
 		if (onlineCharacter) {
 			onlineCharacter.isStreaming = isStreaming;
+		}
+	}
+
+	private async handleSpeak(
+		socket: WebSocket,
+		connection: ConnectionContext,
+		message: Extract<ClientMessage, { type: "speak" }>,
+	): Promise<void> {
+		if (!connection.online || connection.sessionId === null) {
+			this.sendFailure(socket, message.id, "speak", "Character is not a group member");
+			return;
+		}
+
+		const contentBytes = Buffer.byteLength(message.content, "utf8");
+		if (contentBytes > 64 * 1024) {
+			this.sendFailure(socket, message.id, "speak", "Message exceeds 64 KiB");
+			return;
+		}
+
+		const onlineCharacter = this.state.onlineCharacters.get(connection.sessionId);
+		if (!onlineCharacter) {
+			this.sendFailure(socket, message.id, "speak", "Character is not a group member");
+			return;
+		}
+
+		const round = this.state.round;
+		if (!round) {
+			this.sendFailure(socket, message.id, "speak", "No active round");
+			return;
+		}
+
+		const canPublish = round.usedMessages < round.roundMaxMessages;
+
+		// If persistence is broken, reject even non-publishing speaks
+		// (state can't be mutated safely).
+		try {
+			this.assertWritable();
+		} catch (error) {
+			this.sendFailure(socket, message.id, "speak", error instanceof Error ? error.message : String(error));
+			return;
+		}
+
+		if (canPublish) {
+			const newUsed = round.usedMessages + 1;
+			const roundMaxMessages = round.roundMaxMessages;
+			const sequence = this.state.nextSequence + 1;
+			const timestamp = new Date().toISOString();
+
+			const senderName = onlineCharacter.character.name;
+			const details = {
+				sender: {
+					type: "character" as const,
+					character_id: onlineCharacter.character.characterId,
+					name: senderName,
+				},
+				content: message.content,
+				sequence,
+				round: {
+					round_max_messages: roundMaxMessages,
+					used_messages: newUsed,
+					remaining_messages: Math.max(0, roundMaxMessages - newUsed),
+				},
+			};
+
+			let entryId: string;
+			try {
+				// Use SessionManager's append API for post-init writes
+				entryId = this.groupSessionManager.appendCustomMessageEntry(
+					"pi-tavern.public-message",
+					formatEntryContent(senderName, message.content),
+					true,
+					details,
+				);
+			} catch (error) {
+				// SessionManager._appendEntry mutates memory before disk write.
+				// Purge the unpersisted entry from byId/leafId.
+				const reportError = this.recoverSessionManagerAndCatch(error);
+				this.sendFailure(socket, message.id, "speak", `Failed to persist message: ${reportError.message}`);
+				return;
+			}
+
+			this.persistedCount++;
+
+			// Read the real entry timestamp from SessionManager for consistency
+			const persisted = this.groupSessionManager.getEntry(entryId);
+			const entryTimestamp = persisted?.timestamp ?? timestamp;
+
+			// Commit state only after successful persist
+			round.usedMessages = newUsed;
+			this.state.nextSequence = sequence;
+			setHandRaised(this.state, connection.sessionId, false);
+
+			const msg = {
+				sender: {
+					type: "character" as const,
+					character_id: onlineCharacter.character.characterId,
+					name: senderName,
+				},
+				content: message.content,
+				event_id: entryId,
+				sequence,
+				timestamp: entryTimestamp,
+				round: {
+					round_max_messages: roundMaxMessages,
+					used_messages: newUsed,
+					remaining_messages: Math.max(0, roundMaxMessages - newUsed),
+				},
+			};
+			this.publicMessages.push(msg);
+
+			// Broadcast and TUI projection are independent — neither blocks the other
+			try {
+				this.broadcast({
+					type: "public_message",
+					event_id: entryId,
+					sequence,
+					timestamp: entryTimestamp,
+					sender: msg.sender,
+					content: message.content,
+					round: msg.round,
+				});
+			} catch {
+				// Broadcast failure silently swallowed
+			}
+
+			try {
+				this.onPublicMessage?.(msg);
+			} catch (error) {
+				this.onPublicMessageError?.(
+					`TUI projection failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+					msg.sequence,
+					msg.timestamp,
+				);
+			}
+
+			this.send(socket, {
+				...(message.id !== undefined ? { id: message.id } : {}),
+				type: "response",
+				command: "speak",
+				success: true,
+				data: {
+					published: true,
+					event_id: entryId,
+					sequence,
+					round: msg.round,
+				},
+			});
+		} else {
+			setHandRaised(this.state, connection.sessionId, true);
+
+			this.send(socket, {
+				...(message.id !== undefined ? { id: message.id } : {}),
+				type: "response",
+				command: "speak",
+				success: true,
+				data: {
+					published: false,
+					reason: "round_limit_reached",
+					hand_raised: true,
+					round: {
+						round_max_messages: round.roundMaxMessages,
+						used_messages: round.usedMessages,
+						remaining_messages: 0,
+					},
+				},
+			});
 		}
 	}
 
@@ -461,7 +907,13 @@ export class CreatorRuntime {
 	private sendFailure(
 		socket: WebSocket,
 		id: string | undefined,
-		command: "join_group_chat" | "claim_character" | "character_ready" | "leave_group_chat" | "get_group_chat_state",
+		command:
+			| "join_group_chat"
+			| "claim_character"
+			| "character_ready"
+			| "leave_group_chat"
+			| "get_group_chat_state"
+			| "speak",
 		error: string,
 	): void {
 		this.send(socket, {
@@ -474,8 +926,12 @@ export class CreatorRuntime {
 	}
 
 	private send(socket: WebSocket, message: unknown): void {
-		if (socket.readyState === WebSocket.OPEN) {
-			socket.send(encodeMessage(message));
+		try {
+			if (socket.readyState === WebSocket.OPEN) {
+				socket.send(encodeMessage(message));
+			}
+		} catch {
+			// Per-socket failure must not affect other sockets or the caller
 		}
 	}
 
@@ -483,6 +939,98 @@ export class CreatorRuntime {
 		for (const socket of this.connections.values()) {
 			this.send(socket, message);
 		}
+	}
+
+	/**
+	 * Recover SessionManager in-memory state after a failed append.
+	 * SessionManager._appendEntry mutates byId/leafId before disk write;
+	 * on failure the disk file is still valid (the write never happened)
+	 * so setSessionFile can reload clean state. If even that fails, the
+	 * Runtime is marked persistence-fatal — all future mutating operations
+	 * will reject rather than continue with corrupt/empty in-memory state.
+	 */
+	private recoverSessionManagerFromFailedAppend(originalError: unknown): never {
+		try {
+			this.groupSessionManager.setSessionFile(this.getSessionFilePath());
+			// Recovery succeeded — re-throw the original error so the caller
+			// can report it; the SessionManager is clean for the next operation.
+			throw originalError;
+		} catch (recoveryError) {
+			if (recoveryError === originalError) throw originalError;
+			// setSessionFile itself failed — unrecoverable.
+			this.persistenceFatal = true;
+			throw new Error(
+				`Persistence recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}. ` +
+					`Original error: ${originalError instanceof Error ? originalError.message : String(originalError)}`,
+				{ cause: originalError },
+			);
+		}
+	}
+
+	/**
+	 * Recover and return the error to report. For callers that must continue
+	 * after recovery (e.g., handleSpeak which sends a response).
+	 */
+	private recoverSessionManagerAndCatch(originalError: unknown): Error {
+		try {
+			this.groupSessionManager.setSessionFile(this.getSessionFilePath());
+		} catch (recoveryError) {
+			this.persistenceFatal = true;
+			return new Error(
+				`Persistence recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}. ` +
+					`Original error: ${originalError instanceof Error ? originalError.message : String(originalError)}`,
+				{ cause: originalError },
+			);
+		}
+		return originalError instanceof Error ? originalError : new Error(String(originalError));
+	}
+
+	private assertWritable(): void {
+		if (this.persistenceFatal) {
+			throw new Error("Group chat persistence is broken — further writes are blocked");
+		}
+	}
+
+	/**
+	 * Roll back a partially-completed first persist using bit flags to decide
+	 * what cleanup is needed. Each bit represents a completed step.
+	 */
+	private async rollbackFirstPersist(sessionPath: string): Promise<void> {
+		const flags = this.firstPersistFlags;
+		this.firstPersistFlags = 0;
+		this.persistedCount = 0;
+
+		if (flags & FIRST_PERSIST_HEADER_WRITTEN) {
+			// Delete the half-initialized file. If deletion fails,
+			// the Runtime cannot safely continue — it would start
+			// a new session while a broken file remains on disk.
+			try {
+				await this.deps.rm(sessionPath);
+			} catch {
+				this.persistenceFatal = true;
+				throw new Error(
+					"Failed to delete half-initialized session file during rollback. " +
+						"Persistence is now blocked to prevent duplicate sessions.",
+				);
+			}
+		}
+
+		if (flags & FIRST_PERSIST_SESSION_OPENED) {
+			// SessionManager in-memory state was mutated by the failed appends.
+			// Recreate a fresh instance — the file was already deleted above.
+			// The next first-persist will write the header with canonical createdAt.
+			this.groupSessionManager = SessionManager.create(
+				this.groupSessionManager.getCwd(),
+				this.groupSessionManager.getSessionDir(),
+				{ id: this.state.groupChat.groupChatId },
+			);
+		}
+	}
+
+	private getSessionFilePath(): string {
+		const path = this.groupSessionManager.getSessionFile();
+		if (!path) throw new Error("Session file not set");
+		return path;
 	}
 
 	private enqueue<T>(operation: () => T | Promise<T>): Promise<T> {
@@ -561,4 +1109,9 @@ async function closeWebSocketServer(server: WebSocketServer): Promise<void> {
 			}
 		});
 	});
+}
+
+function formatEntryContent(senderLabel: string, body: string): string {
+	const trimmed = body.replace(/\n+$/, "");
+	return `${senderLabel}:\n${trimmed}\n`;
 }
