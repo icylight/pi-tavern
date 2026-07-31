@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1511,6 +1511,20 @@ describe("CreatorRuntime", () => {
 		await expect(
 			CreatorRuntime.resume({ cwd, agentDir, sessionPath: join(agentDir, "chats", "missing.jsonl") }),
 		).rejects.toThrow(/does not exist/i);
+	});
+
+	it("rejects resuming a zero-byte session file", async () => {
+		const root = await createTemporaryDirectory();
+		const agentDir = join(root, "agent");
+		const cwd = join(root, "project");
+		const sessionDir = join(agentDir, "tavern", "chats");
+		await mkdir(sessionDir, { recursive: true });
+		const emptyPath = join(sessionDir, "empty.jsonl");
+		await writeFile(emptyPath, "");
+
+		// SessionManager.open() would mint a random new session id for an empty
+		// file; the resume guard must reject it before any descriptor is published.
+		await expect(CreatorRuntime.resume({ cwd, agentDir, sessionPath: emptyPath })).rejects.toThrow(/empty/i);
 	});
 });
 

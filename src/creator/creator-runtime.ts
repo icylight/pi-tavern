@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { statSync } from "node:fs";
 import { rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
@@ -237,11 +237,12 @@ export class CreatorRuntime {
 		};
 		const cwd = resolve(options.cwd);
 		const configMaxMessages = options.configMaxMessages ?? DEFAULT_CONFIG_MAX_MESSAGES;
-		// Reject missing files up front: SessionManager.open() silently creates
-		// a brand-new random session when the file does not exist, which would
-		// publish an active descriptor for a phantom group chat.
-		if (!existsSync(options.sessionPath)) {
-			throw new Error(`Group chat session file does not exist: ${options.sessionPath}`);
+		// Reject missing or empty files up front: SessionManager.open() silently
+		// creates a brand-new random session when the file does not exist or is
+		// empty, which would publish an active descriptor for a phantom group chat.
+		const sessionStat = statSync(options.sessionPath, { throwIfNoEntry: false });
+		if (!sessionStat?.isFile() || sessionStat.size === 0) {
+			throw new Error(`Group chat session file does not exist or is empty: ${options.sessionPath}`);
 		}
 		const groupSessionManager = SessionManager.open(
 			options.sessionPath,
