@@ -72,17 +72,22 @@ function register(
 function createContext(): {
 	context: ExtensionCommandContext;
 	notify: ReturnType<typeof vi.fn>;
+	select: ReturnType<typeof vi.fn>;
+	confirm: ReturnType<typeof vi.fn>;
 } {
 	const notify = vi.fn();
 	const select = vi.fn();
+	const confirm = vi.fn(async () => true);
 	return {
 		context: {
 			cwd: "/project",
 			hasUI: true,
-			ui: { notify, select },
+			ui: { notify, select, confirm },
 			sessionManager: { getSessionId: () => "session-1" },
 		} as unknown as ExtensionCommandContext,
 		notify,
+		select,
+		confirm,
 	};
 }
 
@@ -92,6 +97,7 @@ describe("PiTavern commands", () => {
 
 		expect([...commands.keys()]).toEqual([
 			"tavern-new",
+			"tavern-resume",
 			"tavern-join",
 			"tavern-status",
 			"tavern-name",
@@ -269,5 +275,159 @@ describe("PiTavern commands", () => {
 
 		expect(runtime.close).toHaveBeenCalledTimes(1);
 		expect(controller.getState()).toEqual({ type: "idle" });
+	});
+
+	it("resumes a selected group chat with its session path", async () => {
+		const runtime = createRuntime();
+		const resumeStarter = vi.fn(async () => runtime);
+		const controller = new TavernController(undefined, undefined, resumeStarter);
+		const commands = register(controller, {
+			listGroupChatSessions: vi.fn(async () => [
+				{
+					path: "/isolated-agent/chats/old.jsonl",
+					groupChatId: "group-old",
+					name: null,
+					firstMessage: "User Persona:\nLet's design",
+					created: new Date("2026-07-01T00:00:00.000Z"),
+					active: false,
+				},
+			]),
+		});
+		const { context, select } = createContext();
+		select.mockResolvedValue("Let's design (2026-07-01)");
+
+		await commands.get("tavern-resume")?.handler("", context);
+
+		expect(resumeStarter).toHaveBeenCalledWith({
+			cwd: "/project",
+			agentDir: "/isolated-agent",
+			sessionPath: "/isolated-agent/chats/old.jsonl",
+			configMaxMessages: 10,
+			characters: [],
+		});
+		expect(controller.getState()).toEqual({ type: "creator", runtime });
+	});
+
+	it("excludes active group chats from the resume list", async () => {
+		const controller = new TavernController();
+		const commands = register(controller, {
+			listGroupChatSessions: vi.fn(async () => [
+				{
+					path: "/isolated-agent/chats/active.jsonl",
+					groupChatId: "group-active",
+					name: "Active Chat",
+					firstMessage: "",
+					created: new Date("2026-07-01T00:00:00.000Z"),
+					active: true,
+				},
+				{
+					path: "/isolated-agent/chats/old.jsonl",
+					groupChatId: "group-old",
+					name: "Old Chat",
+					firstMessage: "",
+					created: new Date("2026-07-02T00:00:00.000Z"),
+					active: false,
+				},
+			]),
+		});
+		const { context, select } = createContext();
+		select.mockResolvedValue("Old Chat (2026-07-02)");
+
+		await commands.get("tavern-resume")?.handler("", context);
+
+		const options = select.mock.calls[0]?.[1] as string[];
+		expect(options.some((option) => option.includes("Active Chat"))).toBe(false);
+		expect(options.some((option) => option.includes("Old Chat"))).toBe(true);
+		expect(select.mock.calls[0]?.[0]).toBe("Resume group chat:");
+	});
+
+	it("deletes a group chat history after confirmation", async () => {
+		const controller = new TavernController();
+		const deleteSession = vi.fn(async () => ({ ok: true, method: "trash" as const }));
+		const commands = register(controller, {
+			listGroupChatSessions: vi.fn(async () => [
+				{
+					path: "/isolated-agent/chats/old.jsonl",
+					groupChatId: "group-old",
+					name: "Old Chat",
+					firstMessage: "",
+					created: new Date("2026-07-01T00:00:00.000Z"),
+					active: false,
+				},
+			]),
+			deleteGroupChatSession: deleteSession,
+		});
+		const { context, select, confirm, notify } = createContext();
+		select.mockResolvedValueOnce("Delete a group chat history…").mockResolvedValueOnce("Old Chat (2026-07-01)");
+
+		await commands.get("tavern-resume")?.handler("", context);
+
+		expect(confirm).toHaveBeenCalledWith(
+			"Delete group chat history?",
+			expect.stringContaining("/isolated-agent/chats/old.jsonl"),
+		);
+		expect(deleteSession).toHaveBeenCalledWith("/isolated-agent/chats/old.jsonl");
+		expect(notify).toHaveBeenCalledWith("Deleted group chat history (trash)", "info");
+	});
+
+	it("does not delete when the confirmation is cancelled", async () => {
+		const controller = new TavernController();
+		const deleteSession = vi.fn(async () => ({ ok: true, method: "trash" as const }));
+		const commands = register(controller, {
+			listGroupChatSessions: vi.fn(async () => [
+				{
+					path: "/isolated-agent/chats/old.jsonl",
+					groupChatId: "group-old",
+					name: "Old Chat",
+					firstMessage: "",
+					created: new Date("2026-07-01T00:00:00.000Z"),
+					active: false,
+				},
+			]),
+			deleteGroupChatSession: deleteSession,
+		});
+		const { context, select, confirm } = createContext();
+		select.mockResolvedValueOnce("Delete a group chat history…").mockResolvedValueOnce("Old Chat (2026-07-01)");
+		confirm.mockResolvedValue(false);
+
+		await commands.get("tavern-resume")?.handler("", context);
+
+		expect(deleteSession).not.toHaveBeenCalled();
+	});
+
+	it("reports no resumable group chats", async () => {
+		const controller = new TavernController();
+		const commands = register(controller, {
+			listGroupChatSessions: vi.fn(async () => []),
+		});
+		const { context, notify } = createContext();
+
+		await commands.get("tavern-resume")?.handler("", context);
+
+		expect(notify).toHaveBeenCalledWith("No resumable group chat found for this project", "info");
+	});
+
+	it("rejects resume while already bound to a group chat", async () => {
+		const runtime = createRuntime();
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+		const commands = register(controller, {
+			listGroupChatSessions: vi.fn(async () => [
+				{
+					path: "/isolated-agent/chats/old.jsonl",
+					groupChatId: "group-old",
+					name: "Old Chat",
+					firstMessage: "",
+					created: new Date("2026-07-01T00:00:00.000Z"),
+					active: false,
+				},
+			]),
+		});
+		const { context, select, notify } = createContext();
+		select.mockResolvedValue("Old Chat (2026-07-01)");
+
+		await commands.get("tavern-resume")?.handler("", context);
+
+		expect(notify).toHaveBeenCalledWith(expect.stringContaining("already bound to a group chat"), "error");
 	});
 });
