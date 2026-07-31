@@ -9,6 +9,11 @@ import WebSocket, { WebSocketServer } from "ws";
 
 import type { CharacterCard, CharacterSummary } from "../config/character-card.js";
 import {
+	type BufferedFrame,
+	type CreatorReloadHandoff,
+	getReloadHandoffRegistry,
+} from "../controller/reload-handoff-registry.js";
+import {
 	type ActiveGroupChatDescriptor,
 	getActiveDescriptorPath,
 	getGroupChatSessionDirectory,
@@ -19,7 +24,12 @@ import {
 } from "../discovery/active-descriptor.js";
 import { decodeClientMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { ClientMessage } from "../protocol/messages.js";
-import { SHORT_COORDINATION_TIMEOUT_MS } from "../shared/constants.js";
+import {
+	HEARTBEAT_PING_INTERVAL_MS,
+	HEARTBEAT_TIMEOUT_MS,
+	SHORT_COORDINATION_TIMEOUT_MS,
+} from "../shared/constants.js";
+import type { RuntimeCloseReason, RuntimeCloseResult } from "../shared/runtime-close.js";
 import {
 	assertValidMaxMessages,
 	createGroupChatState,
@@ -88,6 +98,12 @@ export interface CreatorRuntimeDependencies {
 	publishDescriptor: (agentDir: string, descriptor: ActiveGroupChatDescriptor) => Promise<string>;
 	writeFile: (path: string, data: string) => Promise<void>;
 	rm: (path: string) => Promise<void>;
+	/** Interval between WebSocket heartbeat pings (defaults to 30s). */
+	heartbeatIntervalMs: number;
+	/** Pong timeout threshold (defaults to 120s); overdue members are terminated. */
+	heartbeatTimeoutMs: number;
+	/** How long close()/detachForReload() waits for the runtime queue to drain. */
+	drainTimeoutMs: number;
 }
 
 const DEFAULT_CONFIG_MAX_MESSAGES = 10;
@@ -103,11 +119,20 @@ export class CreatorRuntime {
 	readonly connections = new Map<string, WebSocket>();
 	readonly characters: Map<string, CharacterCard>;
 
-	private closePromise: Promise<void> | null = null;
+	/** Per-member heartbeat bookkeeping, keyed by pi session id. */
+	readonly heartbeatStates = new Map<string, HeartbeatState>();
+
+	private lifecycle: "active" | "detaching" | "disposed" = "active";
+	private closePromise: Promise<RuntimeCloseResult> | null = null;
 	private runtimeTail = Promise.resolve();
-	private disposed = false;
 	private readonly deps: CreatorRuntimeDependencies;
 	private persistedCount = 0;
+	private heartbeatTimer: NodeJS.Timeout | null = null;
+	private serverConnectionHandler: ((socket: WebSocket) => void) | null = null;
+	private rejectConnectionsHandler: ((socket: WebSocket) => void) | null = null;
+
+	/** Maps each live socket back to its connection context for failure cleanup. */
+	private readonly connectionBySocket = new WeakMap<WebSocket, ConnectionContext>();
 
 	/** Set when the session file cannot be written or recovered. All mutating operations reject. */
 	private persistenceFatal = false;
@@ -127,6 +152,9 @@ export class CreatorRuntime {
 		| undefined;
 
 	onPublicMessageError: ((error: string, sequence: number, timestamp: string) => void) | undefined;
+
+	/** Fired when online membership or streaming state changes (TUI refresh trigger). */
+	onMembersChanged: (() => void) | undefined;
 
 	private publicMessages: PublicMessageState[] = [];
 
@@ -148,7 +176,7 @@ export class CreatorRuntime {
 			this.publicMessages = initialPersistedState.publicMessages;
 			this.persistedCount = initialPersistedState.persistedCount;
 		}
-		this.webSocketServer.on("connection", (socket) => this.handleConnection(socket));
+		this.startHeartbeat();
 	}
 
 	static async startNew(
@@ -163,6 +191,9 @@ export class CreatorRuntime {
 			publishDescriptor: publishActiveDescriptor,
 			writeFile: (path, data) => writeFile(path, data),
 			rm: (path) => rm(path, { force: true }),
+			heartbeatIntervalMs: HEARTBEAT_PING_INTERVAL_MS,
+			heartbeatTimeoutMs: HEARTBEAT_TIMEOUT_MS,
+			drainTimeoutMs: SHORT_COORDINATION_TIMEOUT_MS,
 			...dependencyOverrides,
 		};
 		const groupChatId = dependencies.createId();
@@ -205,6 +236,7 @@ export class CreatorRuntime {
 
 		try {
 			await dependencies.publishDescriptor(options.agentDir, activeDescriptor);
+			runtime.attachServerHandler();
 			return runtime;
 		} catch (error) {
 			await removeOwnedActiveDescriptor(activeDescriptorPath, instanceId);
@@ -233,6 +265,9 @@ export class CreatorRuntime {
 			publishDescriptor: publishActiveDescriptor,
 			writeFile: (path, data) => writeFile(path, data),
 			rm: (path) => rm(path, { force: true }),
+			heartbeatIntervalMs: HEARTBEAT_PING_INTERVAL_MS,
+			heartbeatTimeoutMs: HEARTBEAT_TIMEOUT_MS,
+			drainTimeoutMs: SHORT_COORDINATION_TIMEOUT_MS,
 			...dependencyOverrides,
 		};
 		const cwd = resolve(options.cwd);
@@ -352,12 +387,188 @@ export class CreatorRuntime {
 
 		try {
 			await dependencies.publishDescriptor(options.agentDir, activeDescriptor);
+			runtime.attachServerHandler();
 			return runtime;
 		} catch (error) {
 			await removeOwnedActiveDescriptor(activeDescriptorPath, instanceId);
 			await closeWebSocketServer(webSocketServer);
 			throw error;
 		}
+	}
+
+	/**
+	 * Detach the runtime for a reload: keep stable members and the WebSocket
+	 * server alive, buffer reload-window frames, and publish a one-shot
+	 * handoff. Not-yet-online connections are released and closed; new
+	 * connections during the reload window are closed immediately.
+	 */
+	async detachForReload(piSessionId: string): Promise<CreatorReloadHandoff> {
+		if (this.lifecycle !== "active") {
+			throw new Error("CreatorRuntime is not active");
+		}
+		this.lifecycle = "detaching";
+		this.stopHeartbeat();
+		await this.drainRuntimeQueue(this.deps.drainTimeoutMs);
+
+		// Release connections that never completed character_ready.
+		for (const socket of this.webSocketServer.clients) {
+			const connection = this.connectionBySocket.get(socket);
+			if (connection && (!connection.online || connection.sessionId === null)) {
+				this.releaseReservation(connection);
+				socket.close(1001, "Group chat closed");
+			}
+		}
+
+		// The server keeps listening on the same port; new connections during
+		// the reload window are rejected immediately.
+		this.webSocketServer.removeAllListeners("connection");
+		this.serverConnectionHandler = null;
+		this.rejectConnectionsHandler = (socket) => socket.close(1001, "Group chat closed");
+		this.webSocketServer.on("connection", this.rejectConnectionsHandler);
+
+		// Buffer reload-window frames and record disconnects per member.
+		const bufferedFrames = new Map<string, BufferedFrame[]>();
+		const bufferingHandlers = new Map<string, { message: (data: WebSocket.RawData) => void; close: () => void }>();
+		const closedSessionIds = new Set<string>();
+		for (const [sessionId, socket] of this.connections) {
+			const connection = this.connectionBySocket.get(socket);
+			if (connection) {
+				this.detachSocketHandlers(socket, connection);
+			}
+			const handlers = {
+				message: (data: WebSocket.RawData) => {
+					const frames = bufferedFrames.get(sessionId) ?? [];
+					frames.push({ receivedAt: Date.now(), data });
+					bufferedFrames.set(sessionId, frames);
+				},
+				close: () => {
+					closedSessionIds.add(sessionId);
+				},
+			};
+			bufferingHandlers.set(sessionId, handlers);
+			socket.on("message", handlers.message);
+			socket.on("close", handlers.close);
+		}
+
+		const handoff: CreatorReloadHandoff = {
+			kind: "creator",
+			piSessionId,
+			expiresAt: Date.now() + this.deps.drainTimeoutMs,
+			webSocketServer: this.webSocketServer,
+			groupSessionManager: this.groupSessionManager,
+			groupChatState: this.state,
+			connections: this.connections,
+			heartbeatStates: this.heartbeatStates,
+			activeDescriptor: this.activeDescriptor,
+			activeDescriptorPath: this.activeDescriptorPath,
+			configMaxMessages: this.configMaxMessages,
+			characters: [...this.characters.values()],
+			publicMessages: [...this.publicMessages],
+			persistedCount: this.persistedCount,
+			bufferedFrames,
+			bufferingHandlers,
+			closedSessionIds,
+			cleanup: async () => {
+				for (const socket of this.connections.values()) {
+					socket.close(1001, "Group chat closed");
+				}
+				await closeWebSocketServer(this.webSocketServer);
+				await removeOwnedActiveDescriptor(this.activeDescriptorPath, this.activeDescriptor.instanceId);
+				this.connections.clear();
+				this.heartbeatStates.clear();
+			},
+		};
+		getReloadHandoffRegistry().publish(handoff);
+		return handoff;
+	}
+
+	/**
+	 * Take over a creator handoff published by the previous Extension Runtime:
+	 * re-attaches member sockets with fresh handlers, replays buffered frames
+	 * in received order, cleans up members that disconnected during the window,
+	 * and resumes heartbeats. The group chat identity and listening port are
+	 * preserved.
+	 */
+	static async takeHandoff(
+		handoff: CreatorReloadHandoff,
+		dependencyOverrides: Partial<CreatorRuntimeDependencies> = {},
+	): Promise<CreatorRuntime> {
+		const dependencies: CreatorRuntimeDependencies = {
+			createId: randomUUID,
+			now: () => new Date(),
+			pid: process.pid,
+			readyTimeoutMs: SHORT_COORDINATION_TIMEOUT_MS,
+			publishDescriptor: publishActiveDescriptor,
+			writeFile: (path, data) => writeFile(path, data),
+			rm: (path) => rm(path, { force: true }),
+			heartbeatIntervalMs: HEARTBEAT_PING_INTERVAL_MS,
+			heartbeatTimeoutMs: HEARTBEAT_TIMEOUT_MS,
+			drainTimeoutMs: SHORT_COORDINATION_TIMEOUT_MS,
+			...dependencyOverrides,
+		};
+		const runtime = new CreatorRuntime(
+			handoff.webSocketServer,
+			handoff.groupSessionManager,
+			handoff.groupChatState,
+			handoff.activeDescriptor,
+			handoff.activeDescriptorPath,
+			handoff.configMaxMessages,
+			handoff.characters,
+			dependencies.readyTimeoutMs,
+			dependencies,
+			{ publicMessages: handoff.publicMessages, persistedCount: handoff.persistedCount },
+		);
+
+		// Move the connection table and heartbeat states into the new runtime.
+		runtime.connections.clear();
+		for (const [sessionId, socket] of handoff.connections) {
+			runtime.connections.set(sessionId, socket);
+		}
+		runtime.heartbeatStates.clear();
+		for (const [sessionId, state] of handoff.heartbeatStates) {
+			runtime.heartbeatStates.set(sessionId, { lastPongAt: state.lastPongAt });
+		}
+
+		// Re-attach member sockets with fresh connection contexts and handlers.
+		for (const [sessionId, socket] of runtime.connections) {
+			const buffering = handoff.bufferingHandlers.get(sessionId);
+			if (buffering) {
+				socket.off("message", buffering.message);
+				socket.off("close", buffering.close);
+			}
+			const connection: ConnectionContext = {
+				sessionId,
+				reservedCharacterId: null,
+				online: true,
+				readyTimer: null,
+				handlers: null,
+			};
+			runtime.connectionBySocket.set(socket, connection);
+			runtime.attachSocketHandlers(socket, connection);
+		}
+
+		// Replay reload-window frames in received order, then clean up members
+		// that disconnected during the window.
+		for (const [sessionId, frames] of handoff.bufferedFrames) {
+			const socket = runtime.connections.get(sessionId);
+			const connection = socket ? runtime.connectionBySocket.get(socket) : undefined;
+			if (!socket || !connection) {
+				continue;
+			}
+			for (const frame of [...frames].sort((a, b) => a.receivedAt - b.receivedAt)) {
+				await runtime.handleSocketMessage(socket, connection, frame.data, false);
+			}
+		}
+		for (const sessionId of handoff.closedSessionIds) {
+			const socket = runtime.connections.get(sessionId);
+			const connection = socket ? runtime.connectionBySocket.get(socket) : undefined;
+			if (socket && connection) {
+				runtime.removeOnlineCharacter(connection, "disconnected");
+			}
+		}
+
+		runtime.attachServerHandler();
+		return runtime;
 	}
 
 	async setName(name: string): Promise<string | null> {
@@ -576,17 +787,34 @@ export class CreatorRuntime {
 		});
 	}
 
-	close(): Promise<void> {
-		this.closePromise ??= this.closePermanently();
+	/**
+	 * Permanently end the runtime. Idempotent: concurrent calls share the same
+	 * result. The runtime queue is drained first (bounded by the coordination
+	 * timeout); when it never drains, local cleanup still force-completes.
+	 */
+	close(reason: RuntimeCloseReason = "user_leave"): Promise<RuntimeCloseResult> {
+		this.closePromise ??= this.performClose(reason);
 		return this.closePromise;
 	}
 
-	private async closePermanently(): Promise<void> {
-		this.disposed = true;
-		this.broadcast({
-			type: "group_chat_closed",
-			group_chat_id: this.state.groupChat.groupChatId,
-		});
+	private async performClose(_reason: RuntimeCloseReason): Promise<RuntimeCloseResult> {
+		if (this.lifecycle === "detaching") {
+			// close() and detachForReload() are mutually exclusive paths.
+			throw new Error("CreatorRuntime has been detached for reload and cannot be closed");
+		}
+		const errors: Error[] = [];
+		this.lifecycle = "disposed";
+		this.stopHeartbeat();
+		const timedOut = await this.drainRuntimeQueue(this.deps.drainTimeoutMs);
+
+		try {
+			this.broadcast({
+				type: "group_chat_closed",
+				group_chat_id: this.state.groupChat.groupChatId,
+			});
+		} catch (error) {
+			errors.push(asError(error));
+		}
 		for (const socket of this.webSocketServer.clients) {
 			socket.close(1001, "Group chat closed");
 		}
@@ -594,7 +822,68 @@ export class CreatorRuntime {
 		this.connections.clear();
 		this.state.onlineCharacters.clear();
 		this.state.characterReservations.clear();
-		await removeOwnedActiveDescriptor(this.activeDescriptorPath, this.activeDescriptor.instanceId);
+		this.heartbeatStates.clear();
+		try {
+			await removeOwnedActiveDescriptor(this.activeDescriptorPath, this.activeDescriptor.instanceId);
+		} catch (error) {
+			errors.push(asError(error));
+		}
+		return { timedOut, errors };
+	}
+
+	/** Wait for the runtime queue to drain, up to timeoutMs; returns true when timed out. */
+	private async drainRuntimeQueue(timeoutMs: number): Promise<boolean> {
+		let timer: NodeJS.Timeout | undefined;
+		try {
+			return await Promise.race([
+				this.runtimeTail.then(() => false),
+				new Promise<boolean>((resolve) => {
+					timer = setTimeout(() => resolve(true), timeoutMs);
+					timer.unref?.();
+				}),
+			]);
+		} finally {
+			if (timer) clearTimeout(timer);
+		}
+	}
+
+	private startHeartbeat(): void {
+		if (this.heartbeatTimer) {
+			return;
+		}
+		this.heartbeatTimer = setInterval(() => this.heartbeatTick(), this.deps.heartbeatIntervalMs);
+		this.heartbeatTimer.unref?.();
+	}
+
+	private stopHeartbeat(): void {
+		if (this.heartbeatTimer) {
+			clearInterval(this.heartbeatTimer);
+			this.heartbeatTimer = null;
+		}
+	}
+
+	private heartbeatTick(): void {
+		const now = this.deps.now().getTime();
+		for (const [sessionId, socket] of this.connections) {
+			const state = this.heartbeatStates.get(sessionId);
+			if (!state) {
+				continue;
+			}
+			if (now - state.lastPongAt > this.deps.heartbeatTimeoutMs) {
+				// Half-open connection: terminating emits close → unified disconnected cleanup.
+				socket.terminate();
+				continue;
+			}
+			socket.ping();
+		}
+	}
+
+	/** Install the server's connection handler (also used after reload takeover). */
+	private attachServerHandler(): void {
+		this.webSocketServer.removeAllListeners("connection");
+		this.rejectConnectionsHandler = null;
+		this.serverConnectionHandler = (socket) => this.handleConnection(socket);
+		this.webSocketServer.on("connection", this.serverConnectionHandler);
 	}
 
 	private handleConnection(socket: WebSocket): void {
@@ -603,42 +892,85 @@ export class CreatorRuntime {
 			reservedCharacterId: null,
 			online: false,
 			readyTimer: null,
+			handlers: null,
 		};
+		this.connectionBySocket.set(socket, connection);
+		this.attachSocketHandlers(socket, connection);
+	}
 
-		socket.on("message", (data, isBinary) => {
-			if (isBinary) {
-				socket.close(1002, "Binary frames are not supported");
-				return;
+	private attachSocketHandlers(socket: WebSocket, connection: ConnectionContext): void {
+		const handlers = {
+			message: (data: WebSocket.RawData, isBinary: boolean) => {
+				void this.enqueue(() => this.handleSocketMessage(socket, connection, data, isBinary));
+			},
+			pong: () => this.handleSocketPong(connection),
+			close: () => this.handleSocketClose(connection),
+			error: () => undefined,
+		};
+		connection.handlers = handlers;
+		socket.on("message", handlers.message);
+		socket.on("pong", handlers.pong);
+		socket.on("close", handlers.close);
+		socket.on("error", handlers.error);
+	}
+
+	private detachSocketHandlers(socket: WebSocket, connection: ConnectionContext): void {
+		const handlers = connection.handlers;
+		connection.handlers = null;
+		if (!handlers) {
+			return;
+		}
+		socket.off("message", handlers.message);
+		socket.off("pong", handlers.pong);
+		socket.off("close", handlers.close);
+		socket.off("error", handlers.error);
+	}
+
+	private async handleSocketMessage(
+		socket: WebSocket,
+		connection: ConnectionContext,
+		data: WebSocket.RawData,
+		isBinary: boolean,
+	): Promise<void> {
+		if (isBinary) {
+			socket.close(1002, "Binary frames are not supported");
+			return;
+		}
+		if (this.lifecycle !== "active") {
+			socket.close(1001, "Group chat closed");
+			return;
+		}
+		let message: ClientMessage;
+		try {
+			message = decodeClientMessage(data);
+		} catch {
+			socket.close(1002, "Protocol error");
+			return;
+		}
+		try {
+			await this.handleClientMessage(socket, connection, message);
+		} catch (error) {
+			if (this.lifecycle === "active") {
+				const errorMessage = error instanceof Error ? error.message : String(error);
+				socket.close(1011, errorMessage);
 			}
-			void this.enqueue(async () => {
-				if (this.disposed) {
-					socket.close(1001, "Group chat closed");
-					return;
-				}
-				let message: ClientMessage;
-				try {
-					message = decodeClientMessage(data);
-				} catch {
-					socket.close(1002, "Protocol error");
-					return;
-				}
-				try {
-					await this.handleClientMessage(socket, connection, message);
-				} catch (error) {
-					if (!this.disposed) {
-						const errorMessage = error instanceof Error ? error.message : String(error);
-						socket.close(1011, errorMessage);
-					}
-				}
-			});
+		}
+	}
+
+	private handleSocketPong(connection: ConnectionContext): void {
+		if (connection.sessionId !== null) {
+			const state = this.heartbeatStates.get(connection.sessionId);
+			if (state) {
+				state.lastPongAt = this.deps.now().getTime();
+			}
+		}
+	}
+
+	private handleSocketClose(connection: ConnectionContext): void {
+		void this.enqueue(() => {
+			this.releaseReservation(connection);
+			this.removeOnlineCharacter(connection, "disconnected");
 		});
-		socket.on("close", () => {
-			void this.enqueue(() => {
-				this.releaseReservation(connection);
-				this.removeOnlineCharacter(connection, "disconnected");
-			});
-		});
-		socket.on("error", () => undefined);
 	}
 
 	private async handleClientMessage(
@@ -763,6 +1095,7 @@ export class CreatorRuntime {
 		this.state.characterReservations.delete(reservedCharacterId);
 		connection.reservedCharacterId = null;
 		this.connections.set(sessionId, socket);
+		this.heartbeatStates.set(sessionId, { lastPongAt: this.deps.now().getTime() });
 		this.state.onlineCharacters.set(sessionId, {
 			sessionId,
 			character: toCharacterSummary(character),
@@ -805,6 +1138,7 @@ export class CreatorRuntime {
 			type: "character_joined",
 			character: toCharacterSummaryMessage(character),
 		});
+		this.onMembersChanged?.();
 	}
 
 	private handleGetGroupChatState(
@@ -907,6 +1241,7 @@ export class CreatorRuntime {
 		if (onlineCharacter) {
 			onlineCharacter.isStreaming = isStreaming;
 		}
+		this.onMembersChanged?.();
 	}
 
 	private async handleSpeak(
@@ -1130,6 +1465,7 @@ export class CreatorRuntime {
 		const onlineCharacter = this.state.onlineCharacters.get(connection.sessionId);
 		connection.online = false;
 		this.connections.delete(connection.sessionId);
+		this.heartbeatStates.delete(connection.sessionId);
 		this.state.onlineCharacters.delete(connection.sessionId);
 		if (onlineCharacter) {
 			this.broadcast({
@@ -1138,6 +1474,7 @@ export class CreatorRuntime {
 				reason,
 			});
 		}
+		this.onMembersChanged?.();
 	}
 
 	private getAvailableCharacters(): CharacterCard[] {
@@ -1203,10 +1540,33 @@ export class CreatorRuntime {
 		try {
 			if (socket.readyState === WebSocket.OPEN) {
 				socket.send(encodeMessage(message));
+				return;
 			}
 		} catch {
-			// Per-socket failure must not affect other sockets or the caller
+			// Fall through: the socket is unusable.
 		}
+		// During close/detach the runtime performs its own cleanup; a send
+		// failure must not race the termination flow.
+		if (this.lifecycle === "active") {
+			this.handleSendFailure(socket);
+		}
+	}
+
+	/**
+	 * Route a failed send into the unified disconnected cleanup. The socket is
+	 * removed from the connection table first so the character_left broadcast
+	 * cannot hit the same dead socket recursively.
+	 */
+	private handleSendFailure(socket: WebSocket): void {
+		const connection = this.connectionBySocket.get(socket);
+		if (!connection || !connection.online || connection.sessionId === null) {
+			return;
+		}
+		this.connections.delete(connection.sessionId);
+		this.heartbeatStates.delete(connection.sessionId);
+		void this.enqueue(() => {
+			this.removeOnlineCharacter(connection, "disconnected");
+		});
 	}
 
 	private broadcast(message: unknown): void {
@@ -1322,6 +1682,22 @@ interface ConnectionContext {
 	reservedCharacterId: string | null;
 	online: boolean;
 	readyTimer: NodeJS.Timeout | null;
+	/** Event handler references so detachForReload can swap in buffering handlers. */
+	handlers: {
+		message: (data: WebSocket.RawData, isBinary: boolean) => void;
+		pong: () => void;
+		close: () => void;
+		error: () => void;
+	} | null;
+}
+
+/** Per-member heartbeat bookkeeping (times are epoch milliseconds). */
+interface HeartbeatState {
+	lastPongAt: number;
+}
+
+function asError(error: unknown): Error {
+	return error instanceof Error ? error : new Error(String(error));
 }
 
 function toCharacterSummary(character: CharacterCard): CharacterSummary {

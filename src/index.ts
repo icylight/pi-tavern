@@ -4,6 +4,7 @@ import { Type } from "typebox";
 import { registerCommands } from "./commands.js";
 import { TavernController } from "./controller/tavern-controller.js";
 import { registerRenderers } from "./ui/renderers.js";
+import { TavernUiPresenter } from "./ui/tavern-ui-presenter.js";
 
 interface CreatorDisplayEvent {
 	event_id: string;
@@ -22,6 +23,7 @@ interface CreatorDisplayEntryData {
 
 export default function piTavern(pi: ExtensionAPI, controller?: TavernController): void {
 	const ctrl = controller ?? new TavernController();
+	const presenter = new TavernUiPresenter();
 	registerCommands(pi, ctrl);
 	registerRenderers(pi);
 
@@ -30,6 +32,8 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	ctrl.onStateChange = () => {
 		syncActiveTools(pi, ctrl);
 		wireCreatorDisplay(pi, ctrl);
+		wirePresenter(ctrl, presenter);
+		presenter.refresh(ctrl);
 	};
 
 	pi.registerTool({
@@ -120,8 +124,41 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	});
 
 	// Enable tavern_speak only when in character state; disable otherwise
-	pi.on("session_start", () => {
+	pi.on("session_start", (event, ctx) => {
+		presenter.bind(ctx.ui);
+		if (event.reason === "reload") {
+			void ctrl.takeReloadHandoff(ctx.sessionManager.getSessionId(), pi).then(() => presenter.refresh(ctrl));
+		}
 		syncActiveTools(pi, ctrl);
+		presenter.refresh(ctrl);
+	});
+
+	// /new and /resume: confirm leaving the group chat first when bound.
+	pi.on("session_before_switch", async (_event, ctx) => {
+		const result = await ctrl.prepareForSessionOperation(() =>
+			ctx.ui.confirm(
+				"退出群聊？",
+				"PiTavern 当前已加入群聊。继续将先退出群聊，之后即使本次操作失败或取消也不会自动恢复。",
+			),
+		);
+		return { cancel: result.cancel };
+	});
+
+	// /fork and /clone: the same confirmation gate as /new and /resume.
+	pi.on("session_before_fork", async (_event, ctx) => {
+		const result = await ctrl.prepareForSessionOperation(() =>
+			ctx.ui.confirm(
+				"退出群聊？",
+				"PiTavern 当前已加入群聊。继续将先退出群聊，之后即使本次操作失败或取消也不会自动恢复。",
+			),
+		);
+		return { cancel: result.cancel };
+	});
+
+	// quit: finish group chat cleanup (bounded by the coordination timeout)
+	// before pi continues to exit. reload: detach and publish a handoff.
+	pi.on("session_shutdown", async (event, ctx) => {
+		await ctrl.handleSessionShutdown(event.reason, ctx.sessionManager.getSessionId());
 	});
 
 	pi.on("input", async (event, ctx) => {
@@ -213,4 +250,14 @@ function wireCreatorDisplay(pi: ExtensionAPI, ctrl: TavernController): void {
 			// Nothing more we can do
 		}
 	};
+}
+
+function wirePresenter(ctrl: TavernController, presenter: TavernUiPresenter): void {
+	const state = ctrl.getState();
+	if (state.type === "creator") {
+		state.runtime.onMembersChanged = () => presenter.refresh(ctrl);
+	}
+	if (state.type === "character") {
+		state.runtime.onStateSnapshot = () => presenter.refresh(ctrl);
+	}
 }

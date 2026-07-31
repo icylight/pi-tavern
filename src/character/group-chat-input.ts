@@ -2,8 +2,14 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ServerMessage } from "../protocol/messages.js";
 import type { CharacterRuntime } from "./character-runtime.js";
 
+export interface GroupChatInputReloadSnapshot {
+	pendingEvents: ServerMessage[];
+	debounceDueAt: number | null;
+}
+
 export class GroupChatInput {
 	private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+	private debounceDueAt: number | null = null;
 	private batch: ServerMessage[] = [];
 	private handler: ((message: ServerMessage) => void) | undefined;
 	private stopped = false;
@@ -45,6 +51,36 @@ export class GroupChatInput {
 		this.batch = [];
 	}
 
+	/**
+	 * Capture un-flushed environment events and the debounce deadline for a
+	 * reload handoff. The snapshot is consumed exactly once by the new runtime.
+	 */
+	snapshotForReload(): GroupChatInputReloadSnapshot {
+		return {
+			pendingEvents: [...this.batch],
+			debounceDueAt: this.debounceDueAt,
+		};
+	}
+
+	/** Restore a snapshot taken before reload; must be called after start(). */
+	restoreFromReload(snapshot: GroupChatInputReloadSnapshot): void {
+		this.batch = [...snapshot.pendingEvents];
+		if (snapshot.debounceDueAt !== null) {
+			const remaining = snapshot.debounceDueAt - Date.now();
+			if (remaining <= 0) {
+				// Already due: process immediately after the current tick.
+				setTimeout(() => {
+					if (!this.stopped) void this.flush();
+				}, 0);
+			} else {
+				this.debounceTimer = setTimeout(() => {
+					this.debounceTimer = null;
+					void this.flush();
+				}, remaining);
+			}
+		}
+	}
+
 	hasPendingBatch(): boolean {
 		return this.debounceTimer !== null;
 	}
@@ -71,8 +107,10 @@ export class GroupChatInput {
 		if (this.debounceTimer) {
 			clearTimeout(this.debounceTimer);
 		}
+		this.debounceDueAt = Date.now() + 1000;
 		this.debounceTimer = setTimeout(() => {
 			this.debounceTimer = null;
+			this.debounceDueAt = null;
 			void this.flush();
 		}, 1000);
 	}
@@ -81,6 +119,7 @@ export class GroupChatInput {
 		if (this.debounceTimer) {
 			clearTimeout(this.debounceTimer);
 			this.debounceTimer = null;
+			this.debounceDueAt = null;
 		}
 	}
 

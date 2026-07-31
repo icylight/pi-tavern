@@ -4,9 +4,18 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import WebSocket from "ws";
 
 import type { CharacterCard } from "../config/character-card.js";
+import {
+	type BufferedFrame,
+	type CharacterReloadHandoff,
+	getReloadHandoffRegistry,
+} from "../controller/reload-handoff-registry.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { GroupChatStateMessage, ServerMessage } from "../protocol/messages.js";
-import { SHORT_COORDINATION_TIMEOUT_MS } from "../shared/constants.js";
+import {
+	HEARTBEAT_PING_INTERVAL_MS,
+	HEARTBEAT_TIMEOUT_MS,
+	SHORT_COORDINATION_TIMEOUT_MS,
+} from "../shared/constants.js";
 import { GroupChatInput } from "./group-chat-input.js";
 
 export interface CharacterConnectionTransfer {
@@ -20,6 +29,10 @@ export interface PrepareCharacterRuntimeOptions {
 	character: CharacterCard;
 	requestTimeoutMs?: number;
 	onDisconnected?: () => void;
+	/** Interval between heartbeat checks (defaults to 30s). */
+	heartbeatIntervalMs?: number;
+	/** Creator-ping timeout threshold (defaults to 120s); overdue → terminate. */
+	heartbeatTimeoutMs?: number;
 }
 
 interface PendingRequest {
@@ -36,16 +49,34 @@ export class CharacterRuntime {
 	readonly character: CharacterCard;
 	readonly receivedMessages: ServerMessage[] = [];
 	onEnvironmentMessage: ((message: ServerMessage) => void) | undefined;
+	/** Latest group chat state snapshot (cached for read-only TUI projection). */
+	lastGroupChatState: GroupChatStateMessage | null = null;
+	/** Fired after a fresh state snapshot arrives (TUI refresh trigger). */
+	onStateSnapshot: ((snapshot: GroupChatStateMessage) => void) | undefined;
 	groupChatInput: GroupChatInput | undefined;
 
 	private socket: WebSocket | null = null;
 	private readonly pendingRequests = new Map<string, PendingRequest>();
 	private readonly requestTimeoutMs: number;
 	private readonly onDisconnected: (() => void) | undefined;
+	private readonly heartbeatIntervalMs: number;
+	private readonly heartbeatTimeoutMs: number;
 	private closePromise: Promise<void> | null = null;
 	private disconnected = false;
+	private lastPingAt = 0;
+	private heartbeatTimer: NodeJS.Timeout | null = null;
+	private lifecycle: "active" | "detaching" | "disposed" = "active";
+	private bufferingHandlers: { message: (data: WebSocket.RawData) => void; close: () => void } | null = null;
+
+	private readonly onPing = (): void => {
+		this.lastPingAt = Date.now();
+	};
 
 	private readonly onMessage = (data: WebSocket.RawData, isBinary: boolean): void => {
+		this.handleIncomingData(data, isBinary);
+	};
+
+	private handleIncomingData(data: WebSocket.RawData, isBinary: boolean): void {
 		if (isBinary) {
 			this.failConnection(new Error("Binary PiTavern frame received"));
 			return;
@@ -58,7 +89,7 @@ export class CharacterRuntime {
 			return;
 		}
 		this.handleServerMessage(message);
-	};
+	}
 
 	private readonly onClose = (): void => {
 		this.finishDisconnected(new Error("PiTavern connection closed"));
@@ -72,6 +103,8 @@ export class CharacterRuntime {
 		this.character = options.character;
 		this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 		this.onDisconnected = options.onDisconnected;
+		this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? HEARTBEAT_PING_INTERVAL_MS;
+		this.heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? HEARTBEAT_TIMEOUT_MS;
 	}
 
 	static prepare(options: PrepareCharacterRuntimeOptions): CharacterRuntime {
@@ -86,6 +119,9 @@ export class CharacterRuntime {
 		this.socket.on("message", this.onMessage);
 		this.socket.on("close", this.onClose);
 		this.socket.on("error", this.onError);
+		this.socket.on("ping", this.onPing);
+		this.lastPingAt = Date.now();
+		this.startHeartbeat();
 
 		if (pi) {
 			this.groupChatInput = new GroupChatInput(this, pi);
@@ -105,6 +141,8 @@ export class CharacterRuntime {
 		if (!response.success) {
 			throw new Error(response.error);
 		}
+		this.lastGroupChatState = response.data;
+		this.onStateSnapshot?.(response.data);
 		return response.data;
 	}
 
@@ -149,6 +187,115 @@ export class CharacterRuntime {
 		};
 	}
 
+	/**
+	 * Detach the runtime for a reload: stop the input pipeline and heartbeat,
+	 * buffer reload-window frames on the live socket, and publish a one-shot
+	 * handoff. The connection, Character identity, un-flushed environment
+	 * events, and the debounce deadline are preserved for the new runtime.
+	 */
+	async detachForReload(piSessionId: string): Promise<CharacterReloadHandoff> {
+		if (this.lifecycle !== "active" || !this.socket || this.disconnected) {
+			throw new Error("CharacterRuntime is not active");
+		}
+		this.lifecycle = "detaching";
+		this.stopHeartbeat();
+		const snapshot = this.groupChatInput?.snapshotForReload() ?? { pendingEvents: [], debounceDueAt: null };
+		this.groupChatInput?.stop();
+		this.groupChatInput = undefined;
+
+		const socket = this.socket;
+		const bufferedFrames: BufferedFrame[] = [];
+		let socketClosed = false;
+		const handlers = {
+			message: (data: WebSocket.RawData) => {
+				bufferedFrames.push({ receivedAt: Date.now(), data });
+			},
+			close: () => {
+				socketClosed = true;
+			},
+		};
+		this.bufferingHandlers = handlers;
+		socket.off("message", this.onMessage);
+		socket.off("close", this.onClose);
+		socket.off("error", this.onError);
+		socket.off("ping", this.onPing);
+		socket.on("message", handlers.message);
+		socket.on("close", handlers.close);
+
+		const handoff: CharacterReloadHandoff = {
+			kind: "character",
+			piSessionId,
+			expiresAt: Date.now() + this.requestTimeoutMs,
+			groupChatId: this.groupChatId,
+			socket,
+			character: this.character,
+			pendingEvents: snapshot.pendingEvents,
+			debounceDueAt: snapshot.debounceDueAt,
+			lastPingAt: this.lastPingAt,
+			bufferedFrames,
+			bufferingHandlers: handlers,
+			socketClosed,
+			cleanup: async () => {
+				if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+					socket.close();
+				}
+			},
+		};
+		this.socket = null;
+		getReloadHandoffRegistry().publish(handoff);
+		return handoff;
+	}
+
+	/**
+	 * Take over a character handoff: re-attach the live socket with fresh
+	 * handlers, restore heartbeat tracking and the environment input pipeline
+	 * (with its pending events and debounce deadline), then replay buffered
+	 * frames in received order. A member that disconnected during the reload
+	 * window is routed into the normal disconnected cleanup instead.
+	 */
+	static async takeHandoff(handoff: CharacterReloadHandoff, pi?: ExtensionAPI): Promise<CharacterRuntime> {
+		if (handoff.socketClosed) {
+			void handoff.cleanup();
+			throw new Error("Character connection closed during reload");
+		}
+		const runtime = new CharacterRuntime({
+			groupChatId: handoff.groupChatId,
+			sessionId: handoff.piSessionId,
+			character: handoff.character,
+		});
+		runtime.activateFromHandoff(handoff, pi);
+		return runtime;
+	}
+
+	private activateFromHandoff(handoff: CharacterReloadHandoff, pi?: ExtensionAPI): void {
+		if (this.socket || this.disconnected) {
+			throw new Error("CharacterRuntime has already been activated or disposed");
+		}
+		const socket = handoff.socket;
+		socket.off("message", handoff.bufferingHandlers.message);
+		socket.off("close", handoff.bufferingHandlers.close);
+		this.socket = socket;
+		this.lastPingAt = handoff.lastPingAt;
+		socket.on("message", this.onMessage);
+		socket.on("close", this.onClose);
+		socket.on("error", this.onError);
+		socket.on("ping", this.onPing);
+		this.startHeartbeat();
+
+		if (pi) {
+			this.groupChatInput = new GroupChatInput(this, pi);
+			this.groupChatInput.start();
+			this.groupChatInput.restoreFromReload({
+				pendingEvents: handoff.pendingEvents,
+				debounceDueAt: handoff.debounceDueAt,
+			});
+		}
+
+		for (const frame of [...handoff.bufferedFrames].sort((a, b) => a.receivedAt - b.receivedAt)) {
+			this.handleIncomingData(frame.data, false);
+		}
+	}
+
 	get hasPublicMessages(): boolean {
 		return this.receivedMessages.some((m) => {
 			if (m.type === "public_message") return true;
@@ -165,6 +312,11 @@ export class CharacterRuntime {
 	}
 
 	private async closePermanently(): Promise<void> {
+		if (this.lifecycle === "detaching") {
+			// close() and detachForReload() are mutually exclusive paths.
+			throw new Error("CharacterRuntime has been detached for reload and cannot be closed");
+		}
+		this.lifecycle = "disposed";
 		if (!this.socket || this.disconnected) {
 			this.finishDisconnected();
 			return;
@@ -234,6 +386,26 @@ export class CharacterRuntime {
 		}
 	}
 
+	private startHeartbeat(): void {
+		if (this.heartbeatTimer) {
+			return;
+		}
+		this.heartbeatTimer = setInterval(() => {
+			if (Date.now() - this.lastPingAt > this.heartbeatTimeoutMs) {
+				// No creator ping for the timeout window: the connection is half-open.
+				this.failConnection(new Error("PiTavern heartbeat timeout"));
+			}
+		}, this.heartbeatIntervalMs);
+		this.heartbeatTimer.unref?.();
+	}
+
+	private stopHeartbeat(): void {
+		if (this.heartbeatTimer) {
+			clearInterval(this.heartbeatTimer);
+			this.heartbeatTimer = null;
+		}
+	}
+
 	private failConnection(error: Error): void {
 		const socket = this.socket;
 		if (socket && socket.readyState !== WebSocket.CLOSED) {
@@ -247,6 +419,7 @@ export class CharacterRuntime {
 			return;
 		}
 		this.disconnected = true;
+		this.stopHeartbeat();
 		this.groupChatInput?.stop();
 		this.groupChatInput = undefined;
 		const socket = this.socket;
@@ -255,6 +428,7 @@ export class CharacterRuntime {
 			socket.off("message", this.onMessage);
 			socket.off("close", this.onClose);
 			socket.off("error", this.onError);
+			socket.off("ping", this.onPing);
 			if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
 				socket.close();
 			}
