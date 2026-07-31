@@ -13,6 +13,10 @@ import { type CharacterConnectionTransfer, CharacterRuntime } from "./character-
 export interface JoinAttemptOptions {
 	requestTimeoutMs?: number;
 	onDisconnected?: () => void;
+	/** Interval between heartbeat checks on the transferred Character connection. */
+	heartbeatIntervalMs?: number;
+	/** Creator-ping timeout threshold on the transferred Character connection. */
+	heartbeatTimeoutMs?: number;
 }
 
 interface PendingRequest {
@@ -31,6 +35,8 @@ export class JoinAttempt {
 	private readonly pendingRequests = new Map<string, PendingRequest>();
 	private readonly requestTimeoutMs: number;
 	private readonly onDisconnected: (() => void) | undefined;
+	private readonly heartbeatIntervalMs: number | undefined;
+	private readonly heartbeatTimeoutMs: number | undefined;
 	private transferred = false;
 	private closed = false;
 
@@ -79,6 +85,8 @@ export class JoinAttempt {
 		this.availableCharacters = availableCharacters;
 		this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 		this.onDisconnected = options.onDisconnected;
+		this.heartbeatIntervalMs = options.heartbeatIntervalMs;
+		this.heartbeatTimeoutMs = options.heartbeatTimeoutMs;
 		this.socket.on("message", this.onMessage);
 		this.socket.on("close", this.onClose);
 		this.socket.on("error", this.onError);
@@ -139,6 +147,8 @@ export class JoinAttempt {
 				character,
 				requestTimeoutMs: this.requestTimeoutMs,
 				...(this.onDisconnected ? { onDisconnected: this.onDisconnected } : {}),
+				...(this.heartbeatIntervalMs !== undefined ? { heartbeatIntervalMs: this.heartbeatIntervalMs } : {}),
+				...(this.heartbeatTimeoutMs !== undefined ? { heartbeatTimeoutMs: this.heartbeatTimeoutMs } : {}),
 			});
 			const readyResponse = await this.request({ type: "character_ready" });
 			if (readyResponse.type !== "response" || readyResponse.command !== "character_ready") {

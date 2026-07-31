@@ -19,7 +19,12 @@ import {
 } from "../discovery/active-descriptor.js";
 import { decodeClientMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { ClientMessage } from "../protocol/messages.js";
-import { SHORT_COORDINATION_TIMEOUT_MS } from "../shared/constants.js";
+import {
+	HEARTBEAT_PING_INTERVAL_MS,
+	HEARTBEAT_TIMEOUT_MS,
+	SHORT_COORDINATION_TIMEOUT_MS,
+} from "../shared/constants.js";
+import type { RuntimeCloseReason, RuntimeCloseResult } from "../shared/runtime-close.js";
 import {
 	assertValidMaxMessages,
 	createGroupChatState,
@@ -88,6 +93,12 @@ export interface CreatorRuntimeDependencies {
 	publishDescriptor: (agentDir: string, descriptor: ActiveGroupChatDescriptor) => Promise<string>;
 	writeFile: (path: string, data: string) => Promise<void>;
 	rm: (path: string) => Promise<void>;
+	/** Interval between WebSocket heartbeat pings (defaults to 30s). */
+	heartbeatIntervalMs: number;
+	/** Pong timeout threshold (defaults to 120s); overdue members are terminated. */
+	heartbeatTimeoutMs: number;
+	/** How long close()/detachForReload() waits for the runtime queue to drain. */
+	drainTimeoutMs: number;
 }
 
 const DEFAULT_CONFIG_MAX_MESSAGES = 10;
@@ -103,11 +114,18 @@ export class CreatorRuntime {
 	readonly connections = new Map<string, WebSocket>();
 	readonly characters: Map<string, CharacterCard>;
 
-	private closePromise: Promise<void> | null = null;
+	/** Per-member heartbeat bookkeeping, keyed by pi session id. */
+	readonly heartbeatStates = new Map<string, HeartbeatState>();
+
+	private lifecycle: "active" | "detaching" | "disposed" = "active";
+	private closePromise: Promise<RuntimeCloseResult> | null = null;
 	private runtimeTail = Promise.resolve();
-	private disposed = false;
 	private readonly deps: CreatorRuntimeDependencies;
 	private persistedCount = 0;
+	private heartbeatTimer: NodeJS.Timeout | null = null;
+
+	/** Maps each live socket back to its connection context for failure cleanup. */
+	private readonly connectionBySocket = new WeakMap<WebSocket, ConnectionContext>();
 
 	/** Set when the session file cannot be written or recovered. All mutating operations reject. */
 	private persistenceFatal = false;
@@ -149,6 +167,7 @@ export class CreatorRuntime {
 			this.persistedCount = initialPersistedState.persistedCount;
 		}
 		this.webSocketServer.on("connection", (socket) => this.handleConnection(socket));
+		this.startHeartbeat();
 	}
 
 	static async startNew(
@@ -163,6 +182,9 @@ export class CreatorRuntime {
 			publishDescriptor: publishActiveDescriptor,
 			writeFile: (path, data) => writeFile(path, data),
 			rm: (path) => rm(path, { force: true }),
+			heartbeatIntervalMs: HEARTBEAT_PING_INTERVAL_MS,
+			heartbeatTimeoutMs: HEARTBEAT_TIMEOUT_MS,
+			drainTimeoutMs: SHORT_COORDINATION_TIMEOUT_MS,
 			...dependencyOverrides,
 		};
 		const groupChatId = dependencies.createId();
@@ -233,6 +255,9 @@ export class CreatorRuntime {
 			publishDescriptor: publishActiveDescriptor,
 			writeFile: (path, data) => writeFile(path, data),
 			rm: (path) => rm(path, { force: true }),
+			heartbeatIntervalMs: HEARTBEAT_PING_INTERVAL_MS,
+			heartbeatTimeoutMs: HEARTBEAT_TIMEOUT_MS,
+			drainTimeoutMs: SHORT_COORDINATION_TIMEOUT_MS,
 			...dependencyOverrides,
 		};
 		const cwd = resolve(options.cwd);
@@ -576,17 +601,30 @@ export class CreatorRuntime {
 		});
 	}
 
-	close(): Promise<void> {
-		this.closePromise ??= this.closePermanently();
+	/**
+	 * Permanently end the runtime. Idempotent: concurrent calls share the same
+	 * result. The runtime queue is drained first (bounded by the coordination
+	 * timeout); when it never drains, local cleanup still force-completes.
+	 */
+	close(reason: RuntimeCloseReason = "user_leave"): Promise<RuntimeCloseResult> {
+		this.closePromise ??= this.performClose(reason);
 		return this.closePromise;
 	}
 
-	private async closePermanently(): Promise<void> {
-		this.disposed = true;
-		this.broadcast({
-			type: "group_chat_closed",
-			group_chat_id: this.state.groupChat.groupChatId,
-		});
+	private async performClose(_reason: RuntimeCloseReason): Promise<RuntimeCloseResult> {
+		const errors: Error[] = [];
+		this.lifecycle = "disposed";
+		this.stopHeartbeat();
+		const timedOut = await this.drainRuntimeQueue(this.deps.drainTimeoutMs);
+
+		try {
+			this.broadcast({
+				type: "group_chat_closed",
+				group_chat_id: this.state.groupChat.groupChatId,
+			});
+		} catch (error) {
+			errors.push(asError(error));
+		}
 		for (const socket of this.webSocketServer.clients) {
 			socket.close(1001, "Group chat closed");
 		}
@@ -594,7 +632,60 @@ export class CreatorRuntime {
 		this.connections.clear();
 		this.state.onlineCharacters.clear();
 		this.state.characterReservations.clear();
-		await removeOwnedActiveDescriptor(this.activeDescriptorPath, this.activeDescriptor.instanceId);
+		this.heartbeatStates.clear();
+		try {
+			await removeOwnedActiveDescriptor(this.activeDescriptorPath, this.activeDescriptor.instanceId);
+		} catch (error) {
+			errors.push(asError(error));
+		}
+		return { timedOut, errors };
+	}
+
+	/** Wait for the runtime queue to drain, up to timeoutMs; returns true when timed out. */
+	private async drainRuntimeQueue(timeoutMs: number): Promise<boolean> {
+		let timer: NodeJS.Timeout | undefined;
+		try {
+			return await Promise.race([
+				this.runtimeTail.then(() => false),
+				new Promise<boolean>((resolve) => {
+					timer = setTimeout(() => resolve(true), timeoutMs);
+					timer.unref?.();
+				}),
+			]);
+		} finally {
+			if (timer) clearTimeout(timer);
+		}
+	}
+
+	private startHeartbeat(): void {
+		if (this.heartbeatTimer) {
+			return;
+		}
+		this.heartbeatTimer = setInterval(() => this.heartbeatTick(), this.deps.heartbeatIntervalMs);
+		this.heartbeatTimer.unref?.();
+	}
+
+	private stopHeartbeat(): void {
+		if (this.heartbeatTimer) {
+			clearInterval(this.heartbeatTimer);
+			this.heartbeatTimer = null;
+		}
+	}
+
+	private heartbeatTick(): void {
+		const now = this.deps.now().getTime();
+		for (const [sessionId, socket] of this.connections) {
+			const state = this.heartbeatStates.get(sessionId);
+			if (!state) {
+				continue;
+			}
+			if (now - state.lastPongAt > this.deps.heartbeatTimeoutMs) {
+				// Half-open connection: terminating emits close → unified disconnected cleanup.
+				socket.terminate();
+				continue;
+			}
+			socket.ping();
+		}
 	}
 
 	private handleConnection(socket: WebSocket): void {
@@ -604,6 +695,7 @@ export class CreatorRuntime {
 			online: false,
 			readyTimer: null,
 		};
+		this.connectionBySocket.set(socket, connection);
 
 		socket.on("message", (data, isBinary) => {
 			if (isBinary) {
@@ -611,7 +703,7 @@ export class CreatorRuntime {
 				return;
 			}
 			void this.enqueue(async () => {
-				if (this.disposed) {
+				if (this.lifecycle !== "active") {
 					socket.close(1001, "Group chat closed");
 					return;
 				}
@@ -625,12 +717,20 @@ export class CreatorRuntime {
 				try {
 					await this.handleClientMessage(socket, connection, message);
 				} catch (error) {
-					if (!this.disposed) {
+					if (this.lifecycle === "active") {
 						const errorMessage = error instanceof Error ? error.message : String(error);
 						socket.close(1011, errorMessage);
 					}
 				}
 			});
+		});
+		socket.on("pong", () => {
+			if (connection.sessionId !== null) {
+				const state = this.heartbeatStates.get(connection.sessionId);
+				if (state) {
+					state.lastPongAt = this.deps.now().getTime();
+				}
+			}
 		});
 		socket.on("close", () => {
 			void this.enqueue(() => {
@@ -763,6 +863,7 @@ export class CreatorRuntime {
 		this.state.characterReservations.delete(reservedCharacterId);
 		connection.reservedCharacterId = null;
 		this.connections.set(sessionId, socket);
+		this.heartbeatStates.set(sessionId, { lastPongAt: this.deps.now().getTime() });
 		this.state.onlineCharacters.set(sessionId, {
 			sessionId,
 			character: toCharacterSummary(character),
@@ -1130,6 +1231,7 @@ export class CreatorRuntime {
 		const onlineCharacter = this.state.onlineCharacters.get(connection.sessionId);
 		connection.online = false;
 		this.connections.delete(connection.sessionId);
+		this.heartbeatStates.delete(connection.sessionId);
 		this.state.onlineCharacters.delete(connection.sessionId);
 		if (onlineCharacter) {
 			this.broadcast({
@@ -1203,10 +1305,33 @@ export class CreatorRuntime {
 		try {
 			if (socket.readyState === WebSocket.OPEN) {
 				socket.send(encodeMessage(message));
+				return;
 			}
 		} catch {
-			// Per-socket failure must not affect other sockets or the caller
+			// Fall through: the socket is unusable.
 		}
+		// During close/detach the runtime performs its own cleanup; a send
+		// failure must not race the termination flow.
+		if (this.lifecycle === "active") {
+			this.handleSendFailure(socket);
+		}
+	}
+
+	/**
+	 * Route a failed send into the unified disconnected cleanup. The socket is
+	 * removed from the connection table first so the character_left broadcast
+	 * cannot hit the same dead socket recursively.
+	 */
+	private handleSendFailure(socket: WebSocket): void {
+		const connection = this.connectionBySocket.get(socket);
+		if (!connection || !connection.online || connection.sessionId === null) {
+			return;
+		}
+		this.connections.delete(connection.sessionId);
+		this.heartbeatStates.delete(connection.sessionId);
+		void this.enqueue(() => {
+			this.removeOnlineCharacter(connection, "disconnected");
+		});
 	}
 
 	private broadcast(message: unknown): void {
@@ -1322,6 +1447,15 @@ interface ConnectionContext {
 	reservedCharacterId: string | null;
 	online: boolean;
 	readyTimer: NodeJS.Timeout | null;
+}
+
+/** Per-member heartbeat bookkeeping (times are epoch milliseconds). */
+interface HeartbeatState {
+	lastPongAt: number;
+}
+
+function asError(error: unknown): Error {
+	return error instanceof Error ? error : new Error(String(error));
 }
 
 function toCharacterSummary(character: CharacterCard): CharacterSummary {

@@ -1528,6 +1528,178 @@ describe("CreatorRuntime", () => {
 	});
 });
 
+describe("CreatorRuntime lifecycle alignment (M5)", () => {
+	it("drains in-flight operations before completing close (BC-7)", async () => {
+		const root = await createTemporaryDirectory();
+		let releaseAppend: () => void = () => undefined;
+		let gate = Promise.resolve();
+		let gated = false;
+		const runtime = await CreatorRuntime.startNew(
+			{ cwd: join(root, "project"), agentDir: join(root, "agent") },
+			{
+				writeFile: async (path, data) => {
+					if (!gated) {
+						gated = true;
+						gate = new Promise<void>((resolve) => {
+							releaseAppend = resolve;
+						});
+						await gate;
+					}
+					await writeFile(path, data);
+				},
+				drainTimeoutMs: 500,
+			},
+		);
+
+		// The first persist is gated inside the runtime queue.
+		const submitPromise = runtime.submitUserPersonaMessage("Hello");
+		await vi.waitFor(() => expect(gated).toBe(true));
+
+		let closeSettled = false;
+		const closePromise = runtime.close().then((result) => {
+			closeSettled = true;
+			return result;
+		});
+
+		// close must wait for the in-flight task instead of interleaving with it.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(closeSettled).toBe(false);
+
+		releaseAppend();
+		const result = await closePromise;
+		await submitPromise;
+		expect(result.timedOut).toBe(false);
+
+		// The message was persisted, and close still completed all local cleanup.
+		expect(await jsonlFilesUnder(join(root, "agent"))).toHaveLength(1);
+		expect(await readActiveDescriptor(runtime.activeDescriptorPath)).toBeNull();
+		expect(runtime.webSocketServer.address()).toBeNull();
+	});
+
+	it("force-completes local cleanup when the queue never drains (BC-7)", async () => {
+		const root = await createTemporaryDirectory();
+		let gated = false;
+		const runtime = await CreatorRuntime.startNew(
+			{ cwd: join(root, "project"), agentDir: join(root, "agent") },
+			{
+				writeFile: async (path, data) => {
+					if (!gated) {
+						gated = true;
+						await new Promise(() => undefined); // never resolves
+					}
+					await writeFile(path, data);
+				},
+				drainTimeoutMs: 50,
+			},
+		);
+
+		void runtime.submitUserPersonaMessage("Hello");
+		await vi.waitFor(() => expect(gated).toBe(true));
+
+		const result = await runtime.close();
+		expect(result.timedOut).toBe(true);
+
+		// Local cleanup completes regardless: descriptor removed, server closed.
+		expect(await readActiveDescriptor(runtime.activeDescriptorPath)).toBeNull();
+		expect(runtime.webSocketServer.address()).toBeNull();
+	});
+
+	it("returns the same close result for concurrent close calls", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+		});
+
+		const [first, second, third] = await Promise.all([runtime.close(), runtime.close(), runtime.close()]);
+		expect(first).toBe(second);
+		expect(second).toBe(third);
+		expect(first.timedOut).toBe(false);
+		expect(first.errors).toEqual([]);
+	});
+
+	it("keeps a responsive member online across heartbeat cycles", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew(
+			{
+				cwd: join(root, "project"),
+				agentDir: join(root, "agent"),
+				characters: [{ characterId: "dev", name: "Dev", description: "", path: "/x.md", prompt: "" }],
+			},
+			{ heartbeatIntervalMs: 30, heartbeatTimeoutMs: 120 },
+		);
+		await joinCharacter(runtime, "session-1", "dev");
+
+		// Several ping/pong cycles with an auto-responding client.
+		await new Promise((resolve) => setTimeout(resolve, 300));
+
+		expect(runtime.state.onlineCharacters.has("session-1")).toBe(true);
+		expect(runtime.connections.has("session-1")).toBe(true);
+		await runtime.close();
+	});
+
+	it("cleans up a member that never responds to heartbeat pings", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew(
+			{
+				cwd: join(root, "project"),
+				agentDir: join(root, "agent"),
+				characters: [
+					{ characterId: "dev", name: "Dev", description: "", path: "/x.md", prompt: "" },
+					{ characterId: "qa", name: "QA", description: "", path: "/y.md", prompt: "" },
+				],
+			},
+			{ heartbeatIntervalMs: 30, heartbeatTimeoutMs: 120 },
+		);
+		const { client: healthy } = await joinCharacter(runtime, "session-healthy", "dev");
+		await joinCharacter(runtime, "session-dead", "qa", { autoPong: false });
+
+		// The dead member is cleaned up via the unified disconnected path.
+		const left = await waitForMessage(healthy, "character_left");
+		expect(left.reason).toBe("disconnected");
+		expect(runtime.state.onlineCharacters.has("session-dead")).toBe(false);
+		expect(runtime.connections.has("session-dead")).toBe(false);
+		expect(runtime.state.onlineCharacters.has("session-healthy")).toBe(true);
+		await runtime.close();
+	});
+
+	it("cleans up a member whose socket send fails during broadcast (BC-6)", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew(
+			{
+				cwd: join(root, "project"),
+				agentDir: join(root, "agent"),
+				characters: [
+					{ characterId: "dev", name: "Dev", description: "", path: "/x.md", prompt: "" },
+					{ characterId: "qa", name: "QA", description: "", path: "/y.md", prompt: "" },
+				],
+			},
+			{ heartbeatIntervalMs: 30_000, heartbeatTimeoutMs: 120_000 },
+		);
+		await joinCharacter(runtime, "session-a", "dev");
+		const { client: memberB } = await joinCharacter(runtime, "session-b", "qa");
+
+		const failingSocket = runtime.connections.get("session-a");
+		expect(failingSocket).toBeDefined();
+		if (!failingSocket) return;
+		vi.spyOn(failingSocket, "send").mockImplementation(() => {
+			throw new Error("socket failure");
+		});
+
+		const leftPromise = waitForMessage(memberB, "character_left");
+		await runtime.submitUserPersonaMessage("Hello");
+		// memberB still receives the broadcast…
+		expect(await waitForMessage(memberB, "public_message")).toBeDefined();
+		// …and then the failed member's departure.
+		const left = await leftPromise;
+		expect(left.reason).toBe("disconnected");
+		expect(runtime.connections.has("session-a")).toBe(false);
+		expect(runtime.state.onlineCharacters.has("session-a")).toBe(false);
+		expect(runtime.state.onlineCharacters.has("session-b")).toBe(true);
+		await runtime.close();
+	});
+});
+
 async function jsonlFilesUnder(root: string): Promise<string[]> {
 	try {
 		const entries = await readdir(root, { recursive: true });
@@ -1577,9 +1749,11 @@ async function joinCharacter(
 	runtime: CreatorRuntime,
 	sessionId: string,
 	characterId: string,
+	options: { autoPong?: boolean } = {},
 ): Promise<{ client: WebSocket; messageHistory: Record<string, unknown> }> {
 	const client = new WebSocket(
 		`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
+		{ autoPong: options.autoPong ?? true },
 	);
 	await waitForOpen(client);
 	client.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: sessionId }));

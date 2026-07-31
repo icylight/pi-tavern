@@ -6,7 +6,11 @@ import WebSocket from "ws";
 import type { CharacterCard } from "../config/character-card.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { GroupChatStateMessage, ServerMessage } from "../protocol/messages.js";
-import { SHORT_COORDINATION_TIMEOUT_MS } from "../shared/constants.js";
+import {
+	HEARTBEAT_PING_INTERVAL_MS,
+	HEARTBEAT_TIMEOUT_MS,
+	SHORT_COORDINATION_TIMEOUT_MS,
+} from "../shared/constants.js";
 import { GroupChatInput } from "./group-chat-input.js";
 
 export interface CharacterConnectionTransfer {
@@ -20,6 +24,10 @@ export interface PrepareCharacterRuntimeOptions {
 	character: CharacterCard;
 	requestTimeoutMs?: number;
 	onDisconnected?: () => void;
+	/** Interval between heartbeat checks (defaults to 30s). */
+	heartbeatIntervalMs?: number;
+	/** Creator-ping timeout threshold (defaults to 120s); overdue → terminate. */
+	heartbeatTimeoutMs?: number;
 }
 
 interface PendingRequest {
@@ -42,8 +50,16 @@ export class CharacterRuntime {
 	private readonly pendingRequests = new Map<string, PendingRequest>();
 	private readonly requestTimeoutMs: number;
 	private readonly onDisconnected: (() => void) | undefined;
+	private readonly heartbeatIntervalMs: number;
+	private readonly heartbeatTimeoutMs: number;
 	private closePromise: Promise<void> | null = null;
 	private disconnected = false;
+	private lastPingAt = 0;
+	private heartbeatTimer: NodeJS.Timeout | null = null;
+
+	private readonly onPing = (): void => {
+		this.lastPingAt = Date.now();
+	};
 
 	private readonly onMessage = (data: WebSocket.RawData, isBinary: boolean): void => {
 		if (isBinary) {
@@ -72,6 +88,8 @@ export class CharacterRuntime {
 		this.character = options.character;
 		this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 		this.onDisconnected = options.onDisconnected;
+		this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? HEARTBEAT_PING_INTERVAL_MS;
+		this.heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? HEARTBEAT_TIMEOUT_MS;
 	}
 
 	static prepare(options: PrepareCharacterRuntimeOptions): CharacterRuntime {
@@ -86,6 +104,9 @@ export class CharacterRuntime {
 		this.socket.on("message", this.onMessage);
 		this.socket.on("close", this.onClose);
 		this.socket.on("error", this.onError);
+		this.socket.on("ping", this.onPing);
+		this.lastPingAt = Date.now();
+		this.startHeartbeat();
 
 		if (pi) {
 			this.groupChatInput = new GroupChatInput(this, pi);
@@ -234,6 +255,26 @@ export class CharacterRuntime {
 		}
 	}
 
+	private startHeartbeat(): void {
+		if (this.heartbeatTimer) {
+			return;
+		}
+		this.heartbeatTimer = setInterval(() => {
+			if (Date.now() - this.lastPingAt > this.heartbeatTimeoutMs) {
+				// No creator ping for the timeout window: the connection is half-open.
+				this.failConnection(new Error("PiTavern heartbeat timeout"));
+			}
+		}, this.heartbeatIntervalMs);
+		this.heartbeatTimer.unref?.();
+	}
+
+	private stopHeartbeat(): void {
+		if (this.heartbeatTimer) {
+			clearInterval(this.heartbeatTimer);
+			this.heartbeatTimer = null;
+		}
+	}
+
 	private failConnection(error: Error): void {
 		const socket = this.socket;
 		if (socket && socket.readyState !== WebSocket.CLOSED) {
@@ -247,6 +288,7 @@ export class CharacterRuntime {
 			return;
 		}
 		this.disconnected = true;
+		this.stopHeartbeat();
 		this.groupChatInput?.stop();
 		this.groupChatInput = undefined;
 		const socket = this.socket;
@@ -255,6 +297,7 @@ export class CharacterRuntime {
 			socket.off("message", this.onMessage);
 			socket.off("close", this.onClose);
 			socket.off("error", this.onError);
+			socket.off("ping", this.onPing);
 			if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
 				socket.close();
 			}

@@ -122,9 +122,42 @@ describe("JoinAttempt and CharacterRuntime", () => {
 			group_chat_id: creator.state.groupChat.groupChatId,
 		});
 	});
+
+	it("does not treat heartbeat frames as environment messages", async () => {
+		const { creator, character } = await startCreator({ heartbeatIntervalMs: 30, heartbeatTimeoutMs: 120 });
+		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-1");
+		const runtime = await attempt.claimCharacter(character.characterId);
+		const messageCountAfterJoin = runtime.receivedMessages.length;
+
+		// Several ping/pong cycles happen without any new environment message.
+		await new Promise((resolve) => setTimeout(resolve, 250));
+
+		expect(runtime.receivedMessages.length).toBe(messageCountAfterJoin);
+	});
+
+	it("terminates the connection when the creator stops sending heartbeats", async () => {
+		const { creator, character } = await startCreator({
+			// Creator never pings within the test window.
+			heartbeatIntervalMs: 60_000,
+			heartbeatTimeoutMs: 60_000,
+		});
+		const disconnected = vi.fn();
+		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-1", {
+			onDisconnected: disconnected,
+			heartbeatIntervalMs: 30,
+			heartbeatTimeoutMs: 120,
+		});
+		await attempt.claimCharacter(character.characterId);
+
+		// The Character actively terminates the half-open connection.
+		await vi.waitFor(() => expect(disconnected).toHaveBeenCalledTimes(1), { timeout: 2000 });
+		expect(creator.state.onlineCharacters.has("session-1")).toBe(false);
+	});
 });
 
-async function startCreator(): Promise<{
+async function startCreator(
+	creatorOverrides: Partial<import("../../src/creator/creator-runtime.js").CreatorRuntimeDependencies> = {},
+): Promise<{
 	creator: CreatorRuntime;
 	character: CharacterCard;
 }> {
@@ -134,11 +167,14 @@ async function startCreator(): Promise<{
 	await mkdir(join(root, "characters"), { recursive: true });
 	await writeFile(characterPath, "---\nname: Architect\ndescription: Architecture\n---\nArchitect prompt");
 	const character = await loadCharacterCard(characterPath, configPath);
-	const creator = await CreatorRuntime.startNew({
-		cwd: join(root, "project"),
-		agentDir: join(root, "agent"),
-		characters: [character],
-	});
+	const creator = await CreatorRuntime.startNew(
+		{
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			characters: [character],
+		},
+		creatorOverrides,
+	);
 	creatorRuntimes.push(creator);
 	return { creator, character };
 }
