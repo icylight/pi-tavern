@@ -303,4 +303,54 @@ describe("GroupChatInput", () => {
 		vi.advanceTimersByTime(2000);
 		expect(pi.sendMessage).not.toHaveBeenCalled();
 	});
+
+	it("pages older history when message_history has_more is set (ISSUE-008)", async () => {
+		vi.useFakeTimers();
+
+		// First page: 10 newest (sequences 11-20), has_more with a cursor.
+		const firstPage = Array.from({ length: 10 }, (_, i) =>
+			aPublicMessage("user_persona", { event_id: `evt-${20 - i}`, sequence: 20 - i, content: `msg ${20 - i}` }),
+		);
+		const olderPage = Array.from({ length: 10 }, (_, i) =>
+			aPublicMessage("user_persona", { event_id: `evt-${10 - i}`, sequence: 10 - i, content: `msg ${10 - i}` }),
+		);
+
+		const runtime = createMockRuntime({
+			getGroupChatState: async () => ({}),
+		});
+		runtime.fetchMessageHistoryPage = vi.fn(async (cursor: string | null) => {
+			if (cursor === "cursor-20") {
+				return { messages: olderPage, cursor: null, hasMore: false, totalMessages: 20 };
+			}
+			return { messages: [], cursor: null, hasMore: false, totalMessages: 20 };
+		});
+
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+
+		handler({
+			type: "message_history",
+			messages: firstPage,
+			cursor: "cursor-20",
+			has_more: true,
+			total_messages: 20,
+		} as unknown as ServerMessage);
+
+		// Let the fire-and-forget paging complete, then flush.
+		await vi.advanceTimersByTimeAsync(0);
+		expect(runtime.fetchMessageHistoryPage).toHaveBeenCalledWith("cursor-20");
+
+		await vi.advanceTimersByTimeAsync(2000);
+		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
+		const message = call[0] as { details: { events: Array<{ type: string; sequence?: number }> } };
+		const sequences = message.details.events.map((e) => e.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
+		// All 20 messages (both pages) are present.
+		expect(sequences).toHaveLength(20);
+		expect(sequences[0]).toBe(1);
+		expect(sequences[19]).toBe(20);
+
+		input.stop();
+	});
 });
