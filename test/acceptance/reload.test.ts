@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { PiProcess } from "./pi-process.js";
+import { joinCharacterWs } from "./ws-helper.js";
 
 describe("acceptance: reload keeps confirmed connections and identity", () => {
 	let root: string;
@@ -22,7 +23,14 @@ describe("acceptance: reload keeps confirmed connections and identity", () => {
 			join(agentDir, "characters", "architect.md"),
 			"---\nname: Architect\ndescription: Architecture\n---\nArchitect prompt",
 		);
-		await writeFile(join(agentDir, "tavern.json"), JSON.stringify({ characters: ["characters/architect.md"] }));
+		await writeFile(
+			join(agentDir, "characters", "reviewer.md"),
+			"---\nname: Reviewer\ndescription: Reviews designs\n---\nReviewer prompt",
+		);
+		await writeFile(
+			join(agentDir, "tavern.json"),
+			JSON.stringify({ characters: ["characters/architect.md", "characters/reviewer.md"] }),
+		);
 	});
 
 	afterAll(async () => {
@@ -59,6 +67,16 @@ describe("acceptance: reload keeps confirmed connections and identity", () => {
 				(e.widgetLines as string[])?.[0] === "2 人在线",
 		);
 
+		// A raw WebSocket member holds a confirmed connection across the
+		// reload: its socket stays open and keeps receiving broadcasts.
+		const member = await joinCharacterWs(descriptor, "ws-session-reload", "characters/reviewer.md");
+		await creator.waitFor(
+			(e) =>
+				e.type === "extension_ui_request" &&
+				e.method === "setWidget" &&
+				(e.widgetLines as string[])?.[0] === "3 人在线",
+		);
+
 		// Trigger a real pi reload on the creator via the test-only command
 		// (RPC mode exposes ctx.reload() through commandContextActions).
 		await creator.runCommand("/tavern-test-reload");
@@ -69,24 +87,30 @@ describe("acceptance: reload keeps confirmed connections and identity", () => {
 			(e) =>
 				e.type === "extension_ui_request" &&
 				e.method === "setWidget" &&
-				(e.widgetLines as string[])?.[0] === "2 人在线",
+				(e.widgetLines as string[])?.[0] === "3 人在线",
 			60_000,
 		);
 		expect(creator.exited).toBe(false);
 		expect(descriptor.port).toBe(originalPort);
 
 		// The character was never told to leave: no character_left was emitted.
-		// A fresh message still reaches the character after the reload.
+		// A fresh message still reaches the members after the reload.
 		await creator.runCommand("/tavern-test-message Hello after reload");
 		await creator.waitFor(
 			(e) =>
 				e.type === "extension_ui_request" && e.method === "notify" && e.message === "User Persona message published",
 		);
-		// The character's own connection is still the confirmed one (creator
-		// widget still shows 2 人在线 — the character did not re-join).
-		expect(creator.exited).toBe(false);
+		// The raw member received the post-reload broadcast on its original
+		// connection: the reloaded creator serves the same sockets.
+		const delivered = await member.waitFor(
+			(m) => m.type === "public_message" && m.content === "Hello after reload",
+			30_000,
+		);
+		expect((delivered.sequence as number) ?? 0).toBeGreaterThan(0);
+		expect(member.allFrames().some((m) => m.type === "character_left" || m.type === "group_chat_closed")).toBe(false);
 
 		await character.runCommand("/tavern-leave");
+		member.terminate();
 		await creator.waitFor(
 			(e) =>
 				e.type === "extension_ui_request" &&

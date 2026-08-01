@@ -3,117 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import WebSocket from "ws";
+import type WebSocket from "ws";
 
-import type { ActiveGroupChatDescriptor } from "../../src/discovery/active-descriptor.js";
 import { PiProcess } from "./pi-process.js";
-
-/**
- * Raw WebSocket client that buffers every frame it receives (ws drops frames
- * that arrive before a listener is attached, so join-time frames must be
- * captured from the very first message).
- */
-class BufferedWsClient {
-	private readonly frames: Record<string, unknown>[] = [];
-	private readonly frameWaiters: Array<() => void> = [];
-
-	constructor(readonly socket: WebSocket) {
-		socket.on("message", (data) => {
-			const message = JSON.parse(data.toString()) as Record<string, unknown>;
-			this.frames.push(message);
-			for (const waiter of [...this.frameWaiters]) waiter();
-		});
-	}
-
-	allFrames(): Record<string, unknown>[] {
-		return [...this.frames];
-	}
-
-	async waitFor(
-		predicate: (message: Record<string, unknown>) => boolean,
-		timeoutMs = 30_000,
-		fromIndex = 0,
-	): Promise<Record<string, unknown>> {
-		const deadline = Date.now() + timeoutMs;
-		for (;;) {
-			const existing = this.frames.slice(fromIndex).find(predicate);
-			if (existing) {
-				return existing;
-			}
-			if (Date.now() > deadline) {
-				throw new Error("timeout waiting for WebSocket message");
-			}
-			await new Promise<void>((resolveWait) => {
-				const waiter = (): void => {
-					const index = this.frameWaiters.indexOf(waiter);
-					if (index !== -1) this.frameWaiters.splice(index, 1);
-					resolveWait();
-				};
-				this.frameWaiters.push(waiter);
-			});
-		}
-	}
-
-	async collect(
-		predicate: (message: Record<string, unknown>) => boolean,
-		count: number,
-		timeoutMs = 30_000,
-	): Promise<Record<string, unknown>[]> {
-		const collected: Record<string, unknown>[] = [];
-		const deadline = Date.now() + timeoutMs;
-		for (;;) {
-			const matched = this.frames.filter((m) => !collected.includes(m) && predicate(m));
-			collected.push(...matched);
-			if (collected.length >= count) {
-				return collected.slice(0, count);
-			}
-			if (Date.now() > deadline) {
-				throw new Error("timeout collecting WebSocket messages");
-			}
-			await new Promise<void>((resolveWait) => {
-				const waiter = (): void => {
-					const index = this.frameWaiters.indexOf(waiter);
-					if (index !== -1) this.frameWaiters.splice(index, 1);
-					resolveWait();
-				};
-				this.frameWaiters.push(waiter);
-			});
-		}
-	}
-
-	send(message: Record<string, unknown>): void {
-		this.socket.send(JSON.stringify(message));
-	}
-
-	terminate(): void {
-		this.socket.terminate();
-	}
-}
+import { joinCharacterWs } from "./ws-helper.js";
 
 /** Connect a raw WebSocket client and complete the join flow. */
-async function joinCharacterWs(
-	descriptor: ActiveGroupChatDescriptor,
-	sessionId: string,
-	characterId: string,
-): Promise<BufferedWsClient> {
-	const client = new BufferedWsClient(
-		new WebSocket(
-			`ws://${descriptor.host}:${descriptor.port}/` +
-				`${encodeURIComponent(descriptor.groupChatId)}/${encodeURIComponent(descriptor.instanceId)}`,
-		),
-	);
-	await new Promise<void>((resolveOpen, rejectOpen) => {
-		client.socket.once("open", () => resolveOpen());
-		client.socket.once("error", (error) => rejectOpen(error));
-	});
-	client.send({ id: "1", type: "join_group_chat", session_id: sessionId });
-	await client.waitFor((m) => m.type === "response" && m.command === "join_group_chat");
-	client.send({ id: "2", type: "claim_character", character_id: characterId });
-	await client.waitFor((m) => m.type === "response" && m.command === "claim_character");
-	client.send({ id: "3", type: "character_ready" });
-	await client.waitFor((m) => m.type === "response" && m.command === "character_ready");
-	return client;
-}
 
 describe("acceptance: concurrent speaks keep creator order and global quota", () => {
 	let root: string;
@@ -214,6 +109,16 @@ describe("acceptance: concurrent speaks keep creator order and global quota", ()
 		expect(sequencesA).toEqual([2, 3, 4]);
 		expect(sequencesB).toEqual([2, 3, 4]);
 
+		// Cross identity check: each published message's sender name must be
+		// the persona its connection claimed (Architect x2, Reviewer x1). The
+		// sender-to-sequence mapping is nondeterministic (interleaved sends),
+		// so assert the multiset, not per-sequence names (ISSUE-003 point:
+		// protocol-level attribution follows the claimed character).
+		const senderNamesA = seenByA.map((m) => (m.sender as Record<string, unknown>).name).sort();
+		const senderNamesB = seenByB.map((m) => (m.sender as Record<string, unknown>).name).sort();
+		expect(senderNamesA).toEqual(["Architect", "Architect", "Reviewer"]);
+		expect(senderNamesB).toEqual(["Architect", "Architect", "Reviewer"]);
+
 		// ── Quota: the round allows 3 speaks; the 4th is not published ─────
 		const baseline = memberA.allFrames().length;
 		memberA.send({ id: "s4", type: "speak", content: "four" });
@@ -246,6 +151,12 @@ describe("acceptance: concurrent speaks keep creator order and global quota", ()
 		expect(files).toContain('"sequence":4');
 		expect(files).not.toContain('"sequence":5');
 		expect(files).not.toContain("four");
+		// Persisted senders match the claimed personas (entry content is
+		// "<senderLabel>:\n<body>\n" per formatEntryContent; in the JSONL file
+		// the newline is escaped as \\n).
+		expect(files).toContain("Architect:\\none");
+		expect(files).toContain("Architect:\\nthree");
+		expect(files).toContain("Reviewer:\\ntwo");
 
 		// ── Clean shutdown ─────────────────────────────────────────────────
 		memberA.terminate();
