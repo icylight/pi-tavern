@@ -1,8 +1,9 @@
 # 需求：角色获取新消息的交互调整（推送 + 拉取混合）
 
-> 状态：**需求形态已确认**（2026-08-01 与 User Persona 采访对齐），待群聊三方评审后进入实施计划。
+> 状态：**需求形态已确认、技术方案已冻结**（2026-08-01 与 User Persona 采访对齐 + 三方评审通过），待实施。
+> GitHub issue：**#24**（https://github.com/icylight/pi-tavern/issues/24，本地 ISSUE-012）。
 > 分支：`feat/new-message-fetch`（已从 main 切出）。
-> 本文档是需求的事实来源；协议/实现细节以 Dev 的技术方案为准，验收标准以本文档第 7 节为准。
+> 本文档是需求的事实来源；协议/实现细节以第 10 节冻结方案为准，验收标准以第 7 节为准。
 
 ## 1. 背景与动机
 
@@ -92,9 +93,40 @@
 - 不做周期定时轮询兜底（以缺口检测 + 重连差分同步替代）
 - 不做多端已读同步（PiTavern 每个角色单一 session）
 
-## 9. 待定点
+## 9. 待定点（已全部解决，2026-08-01 三方评审）
 
-- X 的取值（建议 5 秒，待群聊确认）
-- 广播通知的新消息类型命名与字段（Dev 技术方案）
-- 增量拉取命令命名与返回形态（Dev 技术方案）
-- 游标持久化载体（文件路径/格式，Dev 技术方案）
+- ~~X 的取值~~ → 单测层 ≤5s、验收层 ≤10s（QA 建议 + Dev 认可，PM 裁定）
+- ~~广播通知的新消息类型命名与字段~~ → `group_chat_update`（见第 10 节）
+- ~~增量拉取命令命名与返回形态~~ → `fetch_messages_since`（见第 10 节）
+- ~~游标持久化载体~~ → `<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>.json`（见第 10 节）
+
+## 10. 技术方案要点（已冻结，Dev 2026-08-01，三方评审通过）
+
+### 10.1 协议层
+
+- 广播通知化：public_message 广播 → 新 ServerMessage `group_chat_update`（`latest_sequence` + `preview_messages` 最近 3 条 + `total_messages`）
+- 新增增量命令：ClientMessage `fetch_messages_since`（`since_sequence`）→ 响应 messages（sequence > since 全量，天然补齐缺口）+ `latest_sequence`
+- 保留：`message_history`（join 全量）、`get_message_history`（向后翻页）——与增量命令并存
+
+### 10.2 游标载体（角色侧本地持久化）
+
+- 文件：`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>.json`，内容 `{ character_id, last_sequence, updated_at }`
+- 更新时机：**每次成功投递后**更新（投递失败游标不动 → 重启不丢）
+
+### 10.3 角色侧（group-chat-input.ts）
+
+- 去 1s 防抖：收到 `group_chat_update` → 立即 `fetch_messages_since(游标)`
+- 投递仍 followUp（pi 官方语义 = agent run 结束后投递，不打断已满足，需求点 4 零改动）
+- 缺口检测：`latest_sequence ≠ 游标+1` → fetch 按 sequence 过滤天然补齐
+- join/重连差分：有游标 → `fetch_messages_since`；无游标 → 现有全量分页
+- 单飞行锁：fetch 进行中收到新通知 → 完成后补拉（防并发竞态）
+- 自己的 echo 仍过滤（isOwnEcho 复用）
+
+### 10.4 统一逻辑
+
+- 上下文以 fetch 结果为准；preview 仅供 TUI 显示，内容同源不重复（PM 口径裁定：同源一致，数量不强制相等）
+
+### 10.5 可测性契约（QA 缺口 5/6，Dev 已纳入）
+
+1. **run 状态信号**：复用 pi 扩展 API 的 agent_start/agent_settled 事件（src/index.ts 已监听，ISSUE-002 语境），桥接为 `CharacterRuntime.isAgentActive()` + `onAgentSettled` 回调；投递逻辑：拉取完成时若 isAgentActive → 排队；onAgentSettled → 立即 flush。顺带修复 ISSUE-002 的 streaming 语义错配（该事件目前被误用为"正在发言"）。
+2. **观察通道**：沿用 `PITAVERN_TEST=1` testNotify 通道（ISSUE-007 先例）——投递内容经 notify 暴露，验收断言「通知预览 = 注入内容同源」。
