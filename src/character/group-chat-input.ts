@@ -317,6 +317,19 @@ export class GroupChatInput {
 	}
 
 	/**
+	 * ISSUE-013 B3: flag the increment mark (A2) from outside — used when a
+	 * stale-rejected speak wants the missed increment delivered through the
+	 * unified pipeline after the current run settles. No new mechanism: the
+	 * settle hook pulls once and covers everything after the cursor.
+	 */
+	markIncrementPending(): void {
+		if (this.stopped) {
+			return;
+		}
+		this.incrementPending = true;
+	}
+
+	/**
 	 * Deliver a batch of events to the agent context. When called with no
 	 * arguments the pending window is delivered. Never interrupts a running
 	 * turn: while the Agent is mid-run the events stay pending and the settle
@@ -346,19 +359,6 @@ export class GroupChatInput {
 		}
 
 		if (this.stopped) return;
-
-		// ISSUE-013 B1: anything delivered to the context is "seen" — keep
-		// last-seen in sync with the delivery path (speak then won't be
-		// judged stale against messages already shown to the model).
-		let seen = -1;
-		for (const e of toDeliver) {
-			if (e.type === "public_message" && e.sequence > seen) {
-				seen = e.sequence;
-			}
-		}
-		if (seen >= 0) {
-			this.runtime.advanceLastSeen(seen);
-		}
 
 		const content = this.buildContent(toDeliver, groupChatState);
 

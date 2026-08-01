@@ -1310,9 +1310,35 @@ export class CreatorRuntime {
 		// entirely (smooth protocol evolution). A stale speak is a business
 		// refusal (mirrors round_limit_reached): not published, no quota
 		// consumed, no hand raised.
+		//
+		// B6: the check excludes the requester's own messages — the client's
+		// single cursor never advances past its own published message (the
+		// echo is filtered client-side), so a naive "latest sequence" compare
+		// would falsely reject the next speak against itself. Tail scan for
+		// the most recent message by anyone else: no extra state, and the
+		// requester's trailing run is usually 0-1 messages.
+		let latestOtherSequence = 0;
+		for (let i = this.publicMessages.length - 1; i >= 0; i--) {
+			const candidate = this.publicMessages[i];
+			if (candidate === undefined) {
+				continue;
+			}
+			if (
+				candidate.sender.type === "character" &&
+				candidate.sender.character_id === onlineCharacter.character.characterId
+			) {
+				continue;
+			}
+			latestOtherSequence = candidate.sequence;
+			break;
+		}
 		const latestPublic = this.publicMessages[this.publicMessages.length - 1];
 		const latestSequence = latestPublic !== undefined ? latestPublic.sequence : 0;
-		if (message.based_on_sequence !== undefined && message.based_on_sequence < latestSequence) {
+		if (message.based_on_sequence !== undefined && message.based_on_sequence < latestOtherSequence) {
+			// missing_sequences is the plain contiguous range to the latest
+			// sequence (informational only): the client re-pulls from its
+			// cursor via fetch_messages_since and isOwnEcho filters its own
+			// messages — no need for a precise other-message range here.
 			this.send(socket, {
 				...(message.id !== undefined ? { id: message.id } : {}),
 				type: "response",

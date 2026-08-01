@@ -89,22 +89,14 @@ export class CharacterRuntime {
 	private cursorSequence: number | null = null;
 
 	/**
-	 * ISSUE-013 B1/B6: last sequence the character has actually SEEN (either
-	 * delivered to the context or its own published message). Distinct from
-	 * the delivery cursor (A5): the cursor only advances on delivery, while
-	 * lastSeen also advances past the character's own published message —
-	 * otherwise the next speak is judged stale against itself. In-memory
-	 * only: on restart it falls back to the persisted cursor.
+	 * ISSUE-013 B5: per-round stale auto-recovery budget. Tracked against the
+	 * round snapshot returned with each speak response; the key changes when
+	 * the round does (new round or others publishing), which resets the
+	 * budget. Beyond the budget the client stops flagging the A2 injection
+	 * and reports the refusal for manual re-decision.
 	 */
-	private lastSeenSequence: number | null = null;
-
-	/**
-	 * Advance the last-seen sequence. Never moves backwards; used by the
-	 * delivery path (flush) and by stale-recovery pulls in the speak tool.
-	 */
-	advanceLastSeen(sequence: number): void {
-		this.lastSeenSequence = Math.max(this.lastSeenSequence ?? 0, sequence);
-	}
+	private staleRecoveryKey: string | null = null;
+	private staleRecoveryCount = 0;
 	private closePromise: Promise<void> | null = null;
 	private disconnected = false;
 	private lastPingAt = 0;
@@ -338,16 +330,6 @@ export class CharacterRuntime {
 		}
 	}
 
-	/**
-	 * ISSUE-013 B5: per-round stale auto-recovery budget. Tracked against the
-	 * round snapshot returned with each speak response; the key changes when
-	 * the round does (new round or others publishing), which resets the
-	 * budget. Beyond the budget the client stops auto-pulling and reports
-	 * the refusal to the LLM for manual re-decision.
-	 */
-	private staleRecoveryKey: string | null = null;
-	private staleRecoveryCount = 0;
-
 	async speak(content: string): Promise<{
 		published: boolean;
 		eventId?: string;
@@ -359,11 +341,13 @@ export class CharacterRuntime {
 		autoRecover?: boolean;
 		round?: { roundMaxMessages: number; usedMessages: number; remainingMessages: number };
 	}> {
-		// ISSUE-013 B1: the client always carries its last-seen sequence — the
-		// concept of the delivery cursor plus anything seen since (notably the
-		// character's own published messages, B6). Legacy servers ignore the
-		// field; our server checks it.
-		const basedOnSequence = this.lastSeenSequence ?? this.loadCursor() ?? 0;
+		// ISSUE-013 B1: the client always carries its delivery cursor (the
+		// last successfully delivered sequence — A5: advanced only by the
+		// delivery path). The client never advances it on its own; the server
+		// excludes the requester's own messages from the staleness check (B6),
+		// so the cursor sitting before one's own published message never
+		// causes a false rejection. Legacy servers ignore the field.
+		const basedOnSequence = this.loadCursor() ?? 0;
 		const response = await this.request({ type: "speak", content, based_on_sequence: basedOnSequence });
 		if (response.type !== "response" || response.command !== "speak") {
 			throw new Error("Unexpected PiTavern speak response");
@@ -377,13 +361,6 @@ export class CharacterRuntime {
 			remainingMessages: response.data.round.remaining_messages,
 		};
 		if (response.data.published) {
-			// ISSUE-013 B6: advance last-seen past our own message — the echo is
-			// filtered client-side so it never reaches the delivery path, and
-			// the next speak would be judged stale against ourselves. This must
-			// NOT touch the delivery cursor (A5): a settle refetch after the run
-			// starts from the cursor and would skip anything that arrived
-			// mid-run but was never delivered.
-			this.advanceLastSeen(response.data.latest_sequence);
 			this.staleRecoveryKey = null;
 			this.staleRecoveryCount = 0;
 			return {
@@ -415,6 +392,17 @@ export class CharacterRuntime {
 			handRaised: response.data.hand_raised,
 			round,
 		};
+	}
+
+	/**
+	 * ISSUE-013 B3: flag the A2 "increment pending" mark so the settle hook
+	 * pulls the missed increment through the unified delivery pipeline.
+	 * Called by the speak tool when a stale refusal needs auto-recovery; the
+	 * tool itself returns only a short notice (no message text — the full
+	 * increment arrives in the next turn via the normal group chat input).
+	 */
+	markIncrementPending(): void {
+		this.groupChatInput?.markIncrementPending();
 	}
 
 	/**

@@ -71,45 +71,15 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 					};
 				}
 				if (result.reason === "stale") {
-					// ISSUE-013 B3/B5: auto-pull the increment in-tool and merge it
-					// into the return so the LLM can re-decide in this same run —
-					// no followUp injection, no run interruption. Budgeted per
-					// round; beyond the budget just report the refusal.
-					let extra = "";
-					if (result.autoRecover && result.missingTo !== undefined) {
-						try {
-							const page = await state.runtime.fetchMessagesSince((result.missingFrom ?? 1) - 1);
-							if (page && page.messages.length > 0) {
-								// The pulled increment IS delivered (via this tool
-								// return), so it counts as seen — otherwise the next
-								// speak would be stale-rejected against it again.
-								state.runtime.advanceLastSeen(page.latestSequence);
-								const lines: string[] = [];
-								let firstSeq: number | undefined;
-								for (const m of page.messages) {
-									if (m.type !== "public_message") {
-										continue;
-									}
-									if (firstSeq === undefined) {
-										firstSeq = m.sequence;
-									}
-									const sender = m.sender.type === "user_persona" ? "User Persona" : m.sender.name;
-									lines.push(`[seq ${m.sequence}] ${sender}: ${m.content}`);
-								}
-								// Cap the merged text (mirrors the speak 64 KiB frame
-								// discipline): floods only get a bounded window here;
-								// the full increment reaches the context via the normal
-								// group-chat-input pipeline.
-								const joined = lines.join("\n");
-								extra =
-									`\n\nNew messages you had not seen (seq ${firstSeq ?? "?"}..${page.latestSequence}):\n` +
-									joined.slice(0, 6000) +
-									(joined.length > 6000 ? "\n…(truncated — full history arrives via the group chat input)" : "");
-							}
-						} catch {
-							// Pull failure: report the refusal as-is; the normal
-							// group-chat-input pipeline will deliver the increment.
-						}
+					// ISSUE-013 B3 (final, per User "怎么简单怎么来"): no in-tool pull,
+					// no cache, no truncation — just flag the existing A2 increment
+					// mark and return a short notice. The settle hook pulls once
+					// through the unified pipeline (identity line, snapshot, echo
+					// filter) and the LLM re-decides in the next turn with the
+					// full context. B5: budgeted per round — beyond it, only the
+					// notice, no auto-recovery.
+					if (result.autoRecover) {
+						state.runtime.markIncrementPending();
 					}
 					return {
 						content: [
@@ -120,10 +90,9 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 									`(you last saw seq ${result.missingFrom !== undefined ? result.missingFrom - 1 : "?"}; ` +
 									`messages ${result.missingFrom}..${result.missingTo} arrived before your speak). ` +
 									`Your message was not counted against the round quota and no hand was raised.` +
-									extra +
-									`\nRe-decide: revise your message based on the new messages, or drop it. ` +
-									`(Auto-recovery budget: ${result.autoRecover ? "used" : "exhausted"} this round — ` +
-									`${result.autoRecover ? "this was pulled automatically" : "no further automatic pulls; wait for the group chat input"}.)`,
+									(result.autoRecover
+										? `\nThe new messages will be delivered to you after this turn (auto-recovery ${result.autoRecover ? 1 : 0}/2 this round); re-decide then — revise or drop.`
+										: `\nAuto-recovery budget exhausted this round — wait for the group chat input before speaking again.`),
 							},
 						],
 						details: undefined,
