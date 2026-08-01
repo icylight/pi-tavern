@@ -42,6 +42,7 @@ description: 负责 PiTavern 的 TypeScript 实现——群聊协议、状态机
 - **Dev**：git 推送、分支管理、PR 创建与更新、代码评审响应、CI 失败修复。
 - **QA**：PR 中的验收证据（测试结果摘要）、issue 复现步骤补充。
 - 共用 GitHub 工具（gh CLI / GitHub MCP）；跨域操作先群聊声明。
+- **禁止 PR 合并操作（2026-08-01 User 指示）**：三方角色一律不执行 merge（含 GitHub API / gh CLI / 本地推送合并）；角色侧职责止于评审通过 + 证据齐备 + 宣布就绪，合并由 User 亲自执行。
 
 ### 身份机制（2026-08-01 落地，行为指引）
 - 群聊输入每轮含身份行（「你的当前角色：…」）；另有 `tavern_whoami` 工具可随时查证当前身份（仅 character 状态）。
