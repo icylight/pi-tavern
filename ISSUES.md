@@ -60,6 +60,7 @@
 - **根因（已定位）**：`src/character/character-runtime.ts` 的 `detachForReload` 将 `this.character`（旧 `CharacterCard` 对象，含旧 prompt）写入 handoff（:231）；`takeHandoff` 直接用 `handoff.character` 重建 runtime（:264），**不重新读取角色卡文件**；`src/index.ts:107` 的 `before_agent_start` 每轮从 `runtime.character` 注入 systemPrompt——因此 reload 后提示词不刷新。
 - **建议方案**：`takeHandoff` 恢复后按 handoff 中卡的 path/configPath 重新 `loadCharacterCard`；重读失败时保留旧卡并 notify 告警；新 join 已走 `loadClaimedCharacter` 不受影响。
 - **验收建议**：修改角色卡 → reload → 新消息注入的 persona 包含新内容；重读失败时告警且不崩溃。
+- **测试安排（QA 2026-08-01）**：复用 ISSUE-003 的注入观察钩子（`[tavern-test-injection]` notify，见 edd30c3 契约），用例同域（test/acceptance/）；建议 Dev 实现时将 ISSUE-003 身份行与 ISSUE-005 注入观察统一在一个通道。
 - **阻塞**：无，不影响现有契约；与 ISSUE-003（身份行）文件域不同（reload-handoff vs group-chat-input），可独立排期。
 
 ## ISSUE-004: 三方角色频繁修改相同文件导致工作区冲突
