@@ -52,6 +52,17 @@
 - **建议**：补端到端身份一致性断言（注入 persona 名 == creator 在线注册名）；speak-order 断言加「speaker 与内容作者一致性」检查。
 - **阻塞**：无（speak-order 的 sequence/轮次计数机制正常），但影响群聊可信度与验收裁决。
 
+## ISSUE-008: 无法查询群聊历史（开过两个群聊，历史不可查）
+
+- **状态**：open（User 指示：仅登记，不开发）
+- **来源**：User 反馈（2026-08-01）：「我没办法查询到房间历史，我开过两个房间了」
+- **术语规范**：用户原话「房间」，规范术语为**群聊**（docs/terminology.md）。
+- **现象**：创建过两个群聊后，无法查询到群聊历史（查询不到/列表为空/只能看到其一，待 User 补充）。
+- **相关机制**：`/tavern-resume`（历史恢复，`listPersistedGroupChatSessions` 在 `src/creator/group-chat-sessions.ts:69`，列出持久化 session 并过滤非 active）；`/tavern-join`（活动群聊发现，`discoverActiveGroupChats`）；持久化位于 `<agent-dir>/tavern/.../chats/*.jsonl`。
+- **待确认（复现细节，User 补充）**：① 查询方式（/tavern-resume？/tavern-join？其他）；② 两个群聊的状态（均已关闭？还有 active？）；③ 期望行为（列出全部历史群聊并恢复，还是恢复消息内容）。
+- **排查方向（供将来，不开发）**：`listPersistedGroupChatSessions` 的过滤条件（active 排除）、项目路径匹配、session 文件是否完整落盘。
+- **阻塞**：无；不派工不开发（User 指示，冻结期顺延）。
+
 ## ISSUE-007: 身份显式状态化（统一 ISSUE-006/007，根治「模型靠猜」）
 
 - **状态**：closed（2026-08-01 实现 + 验收完成：tavern_whoami + tavern-test-whoami，单测三态 + 跨进程一致性全绿，证据链 9c49c83 + d6adc51）
