@@ -95,6 +95,7 @@
 - **建议方案**：`takeHandoff` 恢复后按 handoff 中卡的 path/configPath 重新 `loadCharacterCard`；重读失败时保留旧卡并 notify 告警；新 join 已走 `loadClaimedCharacter` 不受影响。
 - **验收建议**：修改角色卡 → reload → 新消息注入的 persona 包含新内容；重读失败时告警且不崩溃。
 - **测试安排（QA 2026-08-01）**：复用 ISSUE-003 的注入观察钩子（`[tavern-test-injection]` notify，见 edd30c3 契约），用例同域（test/acceptance/）；建议 Dev 实现时将 ISSUE-003 身份行与 ISSUE-005 注入观察统一在一个通道。
+- **测试计划（QA 2026-08-01，按 a740ce1 四标准）**：① 重读卡——真实 pi join → 改卡 description → /tavern-test-reload → whoami/身份行断言新内容（test-reload 命令 + notify rebind 已确认可用）；② 失败兜底——损坏 frontmatter → reload → 不崩溃 + 告警 notify + whoami 返回旧卡；③ 回归——reload.test.ts 与全量验收全绿。用例属 test/acceptance/（reload-card-refresh.test.ts 或扩展 reload.test.ts），实现落地后提交。
 - **阻塞**：无，不影响现有契约；与 ISSUE-003（身份行）文件域不同（reload-handoff vs group-chat-input），可独立排期。
 
 ## ISSUE-004: 三方角色频繁修改相同文件导致工作区冲突
