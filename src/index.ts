@@ -80,6 +80,10 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 						try {
 							const page = await state.runtime.fetchMessagesSince((result.missingFrom ?? 1) - 1);
 							if (page && page.messages.length > 0) {
+								// The pulled increment IS delivered (via this tool
+								// return), so it counts as seen — otherwise the next
+								// speak would be stale-rejected against it again.
+								state.runtime.advanceLastSeen(page.latestSequence);
 								const lines: string[] = [];
 								let firstSeq: number | undefined;
 								for (const m of page.messages) {

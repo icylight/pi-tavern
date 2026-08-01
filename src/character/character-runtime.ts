@@ -87,6 +87,24 @@ export class CharacterRuntime {
 	private readonly heartbeatTimeoutMs: number;
 	private readonly cursorStorePath: string | undefined;
 	private cursorSequence: number | null = null;
+
+	/**
+	 * ISSUE-013 B1/B6: last sequence the character has actually SEEN (either
+	 * delivered to the context or its own published message). Distinct from
+	 * the delivery cursor (A5): the cursor only advances on delivery, while
+	 * lastSeen also advances past the character's own published message —
+	 * otherwise the next speak is judged stale against itself. In-memory
+	 * only: on restart it falls back to the persisted cursor.
+	 */
+	private lastSeenSequence: number | null = null;
+
+	/**
+	 * Advance the last-seen sequence. Never moves backwards; used by the
+	 * delivery path (flush) and by stale-recovery pulls in the speak tool.
+	 */
+	advanceLastSeen(sequence: number): void {
+		this.lastSeenSequence = Math.max(this.lastSeenSequence ?? 0, sequence);
+	}
 	private closePromise: Promise<void> | null = null;
 	private disconnected = false;
 	private lastPingAt = 0;
@@ -341,10 +359,11 @@ export class CharacterRuntime {
 		autoRecover?: boolean;
 		round?: { roundMaxMessages: number; usedMessages: number; remainingMessages: number };
 	}> {
-		// ISSUE-013 B1: the client always carries its last-seen sequence (the
-		// same concept as the delivery cursor — last successfully delivered
-		// sequence). Legacy servers ignore the field; our server checks it.
-		const basedOnSequence = this.loadCursor() ?? 0;
+		// ISSUE-013 B1: the client always carries its last-seen sequence — the
+		// concept of the delivery cursor plus anything seen since (notably the
+		// character's own published messages, B6). Legacy servers ignore the
+		// field; our server checks it.
+		const basedOnSequence = this.lastSeenSequence ?? this.loadCursor() ?? 0;
 		const response = await this.request({ type: "speak", content, based_on_sequence: basedOnSequence });
 		if (response.type !== "response" || response.command !== "speak") {
 			throw new Error("Unexpected PiTavern speak response");
@@ -359,11 +378,12 @@ export class CharacterRuntime {
 		};
 		if (response.data.published) {
 			// ISSUE-013 B6: advance last-seen past our own message — the echo is
-			// filtered client-side so the pull cursor would never advance on its
-			// own, and the next speak would be judged stale against ourselves.
-			if (response.data.latest_sequence > basedOnSequence) {
-				this.saveCursor(response.data.latest_sequence);
-			}
+			// filtered client-side so it never reaches the delivery path, and
+			// the next speak would be judged stale against ourselves. This must
+			// NOT touch the delivery cursor (A5): a settle refetch after the run
+			// starts from the cursor and would skip anything that arrived
+			// mid-run but was never delivered.
+			this.advanceLastSeen(response.data.latest_sequence);
 			this.staleRecoveryKey = null;
 			this.staleRecoveryCount = 0;
 			return {
