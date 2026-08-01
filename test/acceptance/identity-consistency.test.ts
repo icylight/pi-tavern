@@ -161,16 +161,17 @@ describe("acceptance: identity consistency (ISSUE-003)", () => {
 
 	/**
 	 * CONTRACT (ISSUE-003 fix, owner: Dev, src/character/group-chat-input.ts;
-	 * acceptance per docs/acceptance.md 6831a5e):
+	 * acceptance per docs/acceptance.md cab1fd7, three-field final format):
 	 *
 	 * 1. buildContent() must append an identity line after the
 	 *    "PiTavern 群聊环境更新" header, exactly parseable as:
 	 *
-	 *        你是：<name>（<characterId>）
+	 *        你的当前角色：<persona 名>（character_id=<characterId>，注册名=<name>）
 	 *
-	 *    - name：本 session 注册的角色卡 name（persona 名；注册名与 persona 名
-	 *      同源于 runtime.character 单字段，无需第三字段，见 6831a5e）
+	 *    - persona 名：本 session 注册的角色卡 name（如 Architect）
 	 *    - characterId：相对 config 目录的卡片路径（如 characters/architect.md）
+	 *    - 注册名：creator 在线注册名（当前与 persona 名同源，均取
+	 *      runtime.character.name；契约保留显式三字段，见 cab1fd7）
 	 *
 	 * 2. When PITAVERN_TEST=1, expose the identity line for acceptance tests
 	 *    via pi.ui.notify() with prefix "[tavern-test-injection] " (RPC mode
@@ -180,7 +181,7 @@ describe("acceptance: identity consistency (ISSUE-003)", () => {
 	 * per the agreed discipline (PM 2026-08-01) no red tests are introduced
 	 * before the implementation lands. Unskip when Dev ships the channel.
 	 */
-	it.skip("injected group-chat input carries the identity line (persona, character_id)", async () => {
+	it.skip("injected group-chat input carries the identity line (persona, character_id, registered name)", async () => {
 		await creator.runCommand("/tavern-test-message Hello identity check");
 		const injection = await architect.waitFor(
 			(e) =>
@@ -190,9 +191,10 @@ describe("acceptance: identity consistency (ISSUE-003)", () => {
 				e.message.startsWith("[tavern-test-injection] "),
 		);
 		const line = String(injection.message).slice("[tavern-test-injection] ".length);
-		const match = /^你是：(.+?)（(.+?)）$/.exec(line);
+		const match = /你的当前角色：(.+?)（character_id=(.+?)，注册名=(.+?)）/.exec(line);
 		expect(match).not.toBeNull();
 		expect(match?.[1]).toBe("Architect");
 		expect(match?.[2]).toBe("characters/architect.md");
+		expect(match?.[3]).toBe("Architect");
 	});
 });
