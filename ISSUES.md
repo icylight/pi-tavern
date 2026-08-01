@@ -43,5 +43,14 @@
   3. 该 session 注入的群聊输入（`pi-tavern.group-chat-input`）自报 `character_id=../characters/pm.md`、`is_self=产品经理`，但注入的 persona 为 qa.md（测试工程师）。
 - **结论**：存在「注册身份（pm.md）与注入 persona（qa.md）不一致」的 session；群聊中「产品经理」身份的发言作者实际是 QA persona session，并非 PM 模型串文案。
 - **待排查**：join 时选错角色卡，还是 claim/注册竞态（两个 QA persona session 几乎同时加入：17:02:24 / 17:02:27）。
+- **缓解措施（2026-08-01，PM 落地）**：角色卡新增「0.5 协作守则」——所有 `tavern_speak` 消息强制以【产品经理】【开发工程师】【测试工程师】开头，收到消息以内容署名为作者判断依据；内容署名与系统 sender 不一致时当场指出。根因排查（join 选卡/注册竞态）仍待 Dev。
 - **建议**：补端到端身份一致性断言（注入 persona 名 == creator 在线注册名）；speak-order 断言加「speaker 与内容作者一致性」检查。
 - **阻塞**：无（speak-order 的 sequence/轮次计数机制正常），但影响群聊可信度与验收裁决。
+
+## ISSUE-004: 三方角色频繁修改相同文件导致工作区冲突
+
+- **状态**：closed（2026-08-01 以角色卡协作守则解决）
+- **来源**：User Persona 群聊反馈（2026-08-01）
+- **现象**：产品经理/开发/测试三个 session 共享同一仓库工作区，常同时改动 `test/acceptance/*.test.ts`、`ISSUES.md`、`characters/*.md` 等文件，互相覆盖、提交混乱（本次修订期间即观察到角色卡被并发写入）。
+- **解决**：`characters/*.md` 新增「0.5 协作守则」：文件所有权表（每类文件唯一属主，非属主默认只读）+ 工作区纪律（动手前查 git status、改完立即独立提交、非属主文件先声明后改）。
+- **跟踪**：后续若仍有冲突，升级为分仓/子模块方案。
