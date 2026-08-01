@@ -42,6 +42,17 @@ npm run test:acceptance
 4. **被动层保留**：群聊输入身份行（三字段）不变，继续每轮告知（兜底）；
 5. **ISSUE-006 统一裁决（User 2026-08-01「统一」）**：006 并入本需求，不独立实施；frontmatter `identity` 字段与 system prompt 每轮注入取消，身份感知由身份行（被动告知）+ whoami（主动查证）统一承担。
 
+### reload 角色卡刷新（ISSUE-005，2026-08-01 派工）
+
+character session 已 join 后修改角色卡文件，reload 后注入内容必须反映新卡：
+
+1. **重读卡**：`takeHandoff` 按 handoff 中卡的 path/configPath 重新 `loadCharacterCard`，reload 后的 turn 注入（身份行/完整 persona）为新卡内容；
+2. **失败兜底**：重读失败时保留旧卡继续运行，并经 notify 告警，不崩溃、不断连；
+3. **可观察**：改动后经现有观察通道验证（身份行注入 notify / tavern-whoami 返回新 description）；
+4. **回归**：现有 reload 行为不变——成员连接、身份、端口保持（reload.test.ts 不破坏）。
+
+验收方式：`npm run test:acceptance` 全绿 + 新增 reload 身份刷新用例。
+
 ### TUI 发言次数显示（ISSUE-001，2026-08-01 User 指示）
 
 TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，必须显示当前角色的发言额度使用情况：
