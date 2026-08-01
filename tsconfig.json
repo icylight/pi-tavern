@@ -10,7 +10,9 @@
 		"exactOptionalPropertyTypes": true,
 		"verbatimModuleSyntax": true,
 		"skipLibCheck": true,
-		"types": ["node", "vitest/globals"]
+		"types": ["node", "vitest/globals"],
+		"incremental": true,
+		"tsBuildInfoFile": "node_modules/.cache/tsconfig.tsbuildinfo"
 	},
 	"include": ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
 }
