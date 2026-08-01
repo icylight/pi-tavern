@@ -254,6 +254,21 @@ export function registerCommands(
 				await ctx.reload();
 			},
 		});
+		pi.registerCommand("tavern-test-whoami", {
+			description: "[test] Report the registered character identity (ISSUE-007 observation channel)",
+			handler: async (_args, ctx) => {
+				const state = controller.getState();
+				if (state.type !== "character") {
+					ctx.ui.notify("Not in character state", "error");
+					return;
+				}
+				const character = state.runtime.character;
+				ctx.ui.notify(
+					`[tavern-test-whoami] name=${character.name} character_id=${character.characterId} description=${character.description}`,
+					"info",
+				);
+			},
+		});
 	}
 
 	pi.registerCommand("tavern-leave", {
