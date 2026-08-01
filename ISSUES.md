@@ -33,7 +33,7 @@
 
 ## ISSUE-003: 发言身份与注入 persona 不一致（speaker 归属异常）
 
-- **状态**：open
+- **状态**：open（根因已确认 2026-08-01）
 - **来源**：群聊协作中观察（2026-08-01）
 - **对应 GitHub issue**：[#13](https://github.com/icylight/pi-tavern/issues/13)（#15 为重复，已关闭）
 - **现象**：署名「产品经理」的消息（sequence 2、9）内容为 QA 视角（自我介绍 / git log 核实），实际出自 persona=测试工程师 的 session（17:02:24 启动）。
@@ -43,6 +43,8 @@
   3. 该 session 注入的群聊输入（`pi-tavern.group-chat-input`）自报 `character_id=../characters/pm.md`、`is_self=产品经理`，但注入的 persona 为 qa.md（测试工程师）。
 - **结论**：存在「注册身份（pm.md）与注入 persona（qa.md）不一致」的 session；群聊中「产品经理」身份的发言作者实际是 QA persona session，并非 PM 模型串文案。
 - **待排查**：join 时选错角色卡，还是 claim/注册竞态（两个 QA persona session 几乎同时加入：17:02:24 / 17:02:27）。
+- **根因（已确认，QA 供证 2026-08-01）**：群聊广播指令没有「收件人」标记——QA session 将 User Persona 发给 PM 的指示误认为给自己的，以 PM 身份提交了 1a2e560 并群聊署名【产品经理】；Dev 同样存在旧版卡片认知（a18fe4f 署名错位）。即：注入 persona 与注册身份可能不一致，且 session 会把广播指令当作给自己的。
+- **修复方向（QA 建议，PM 采纳）**：`group-chat-input` 注入内容强制带身份行（如「当前角色：测试工程师」，含 character_id 与 persona 名），并补端到端断言：注入 persona 名 == creator 在线注册名；speak-order 断言加「speaker 与内容作者一致性」检查。
 - **缓解措施（2026-08-01，PM 落地）**：角色卡新增「0.5 协作守则」——所有 `tavern_speak` 消息强制以【产品经理】【开发工程师】【测试工程师】开头，收到消息以内容署名为作者判断依据；内容署名与系统 sender 不一致时当场指出。根因排查（join 选卡/注册竞态）仍待 Dev。
 - **建议**：补端到端身份一致性断言（注入 persona 名 == creator 在线注册名）；speak-order 断言加「speaker 与内容作者一致性」检查。
 - **阻塞**：无（speak-order 的 sequence/轮次计数机制正常），但影响群聊可信度与验收裁决。
