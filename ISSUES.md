@@ -61,6 +61,7 @@
 - **形态候选（待 User 确认 + Dev 评估）**：a) 工具（如 tavern_whoami：返回当前角色名/character_id，与注册记录一致）b) 上下文 API / 每轮 persistent message c) 其他。
 - **与 ISSUE-003 边界**：ISSUE-003 为缓解层（身份行每轮告知，堵住猜的窗口），按现有契约闭环；ISSUE-007 为根治层，独立立项，不并入 ISSUE-003 验收（范围稳定）。
 - **验收方向（QA 2026-08-01）**：whoami 类接口返回 == 注册记录，确定性断言不依赖 LLM 是否读了提示；身份行降级为兜底。
+- **测试可行性（QA 2026-08-01 补充）**：a) persistent message 方案——验收测试直接读 character 的 session JSONL 断言每轮必含身份（比 notify 通道更底层更真实）；b) 工具/命令方案——单测工具注册与 handler 返回值 == runtime.character，验收层断言工具存在且响应一致。两种形态都不依赖 LLM 行为。
 - **依赖**：User 形态确认（a/b/c）→ Dev 技术评估 → 契约声明。
 - **阻塞**：无。
 
