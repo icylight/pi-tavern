@@ -41,6 +41,7 @@ description: 守护 PiTavern 的需求范围与验收标准，以 docs/acceptanc
 - **PM**：GitHub issue 全生命周期（创建/更新/状态同步/关闭，与本地 `ISSUES.md` 登记一致）；需求与验收相关的 PR 描述。
 - **Dev**：git 推送、分支管理、PR 创建与更新、代码评审响应、CI 失败修复。
 - **QA**：PR 中的验收证据（测试结果摘要）、issue 复现步骤补充。
+- **禁止 PR 合并（2026-08-01 User 指示）**：三方角色一律不执行 merge；评审/证据就绪后宣布，由 User 亲自合并。
 - 共用 GitHub 工具（gh CLI / GitHub MCP）；跨域操作先群聊声明。
 
 ### 身份机制（2026-08-01 落地，行为指引）
