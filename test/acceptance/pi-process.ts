@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { readdir } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ActiveGroupChatDescriptor } from "../../src/discovery/active-descriptor.js";
 import {
@@ -38,6 +38,7 @@ export class PiProcess {
 	readonly child: ChildProcess;
 	readonly label: string;
 	private readonly events: RpcEvent[] = [];
+	private readonly stderrChunks: string[] = [];
 	private readonly waiters: Array<(event: RpcEvent) => void> = [];
 	private buffered = "";
 	private commandId = 0;
@@ -65,6 +66,7 @@ export class PiProcess {
 			{
 				env: {
 					...process.env,
+					...(options.env ?? {}),
 					PI_CODING_AGENT_DIR: options.agentDir,
 					TERM: "dumb",
 				},
@@ -229,7 +231,65 @@ export class PiProcess {
 		}
 	}
 
+	/** Number of parsed stdout events (diagnostics). */
+	countEvents(): number {
+		return this.events.length;
+	}
+
+	/** Parsed stdout events (diagnostics). */
+	dumpEvents(): RpcEvent[] {
+		return [...this.events];
+	}
+
+	/** Accumulated stderr text (diagnostics + headless auto-join notices). */
+	getStderr(): string {
+		return this.stderrChunks.join("");
+	}
+
+	/** Wait until stderr contains the given substring (polling, best effort). */
+	async waitForStderr(substring: string, timeoutMs = STEP_TIMEOUT_MS): Promise<void> {
+		const deadline = Date.now() + timeoutMs;
+		for (;;) {
+			if (this.getStderr().includes(substring)) {
+				return;
+			}
+			if (Date.now() > deadline) {
+				throw new Error(
+					`[${this.label}] timeout waiting for stderr text: ${substring}; got: ${this.getStderr().slice(-800)}`,
+				);
+			}
+			await new Promise((resolveWait) => setTimeout(resolveWait, 200));
+		}
+	}
+
+	/** CPU share over a sampling window (utime+stime delta / wall clock). */
+	async sampleCpuPercent(sampleMs = 3_000): Promise<number> {
+		const pid = this.child.pid;
+		if (pid === undefined) {
+			throw new Error("process has no pid");
+		}
+		const readTicks = async (): Promise<number> => {
+			try {
+				const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+				// utime (14) + stime (15), in clock ticks (usually 100/s).
+				const fields = stat.split(" ");
+				return Number(fields[13]) + Number(fields[14]);
+			} catch {
+				return -1;
+			}
+		};
+		const before = await readTicks();
+		await new Promise((resolveWait) => setTimeout(resolveWait, sampleMs));
+		const after = await readTicks();
+		if (before < 0 || after < 0) {
+			throw new Error(`cannot read /proc/${pid}/stat`);
+		}
+		const hertz = 100; // CLK_TCK on Linux
+		return (after - before) / (sampleMs / 1000) / hertz;
+	}
+
 	private onStderr(chunk: Buffer): void {
+		this.stderrChunks.push(chunk.toString());
 		// Keep stderr available for diagnostics; acceptance failures print it.
 		process.stderr.write(`[${this.label}] ${chunk.toString()}`);
 	}
