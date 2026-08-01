@@ -36,7 +36,10 @@ export class GroupChatInput {
 	start(): void {
 		this.handler = (message: ServerMessage) => {
 			if (message.type === "message_history" && Array.isArray(message.messages)) {
-				// Expand message_history into individual public_message events
+				// Expand message_history into individual public_message events.
+				// ISSUE-008: the join-time snapshot only carries the 10 most
+				// recent messages; when has_more is set, walk the remaining
+				// history via the cursor so older messages are not lost.
 				const before = this.batch.length;
 				for (const m of message.messages) {
 					if (m && typeof m === "object" && "type" in m && m.type === "public_message") {
@@ -48,6 +51,12 @@ export class GroupChatInput {
 				if (this.batch.length > before) {
 					this.resetDebounce();
 				}
+				// Paging is deliberately fire-and-forget: the flush already
+				// scheduled below carries the first page; the older pages are
+				// appended as they arrive and flushed by a follow-up debounce.
+				if (message.has_more) {
+					this.pageOlderHistory(message.cursor).catch(() => undefined);
+				}
 				return;
 			}
 			if (!this.isEnvironmentEvent(message)) return;
@@ -55,6 +64,44 @@ export class GroupChatInput {
 			this.resetDebounce();
 		};
 		this.runtime.onEnvironmentMessage = this.handler;
+	}
+
+	/**
+	 * Walk the remaining group chat history page by page (oldest pages are
+	 * last) and append every public message to the pending batch. Any failure
+	 * aborts the walk: the first page is already queued, and a reconnect will
+	 * resync history anyway. ISSUE-008.
+	 */
+	private async pageOlderHistory(cursor: string | null): Promise<void> {
+		try {
+			let nextCursor: string | null = cursor;
+			// A1 guard: never re-request the same cursor twice. A server that
+			// fails to advance (or echoes a stale cursor) must not loop forever.
+			const seenCursors = new Set<string>();
+			while (nextCursor !== null && !this.stopped) {
+				if (seenCursors.has(nextCursor)) {
+					break;
+				}
+				seenCursors.add(nextCursor);
+				const page = await this.runtime.fetchMessageHistoryPage(nextCursor);
+				if (!page) {
+					return;
+				}
+				for (const m of page.messages) {
+					if (m && typeof m === "object" && "type" in m && m.type === "public_message") {
+						if (!this.isEnvironmentEvent(m as ServerMessage)) continue;
+						this.batch.push(m as ServerMessage);
+					}
+				}
+				this.resetDebounce();
+				nextCursor = page.cursor;
+				if (!page.hasMore) {
+					break;
+				}
+			}
+		} catch {
+			// Best effort: keep whatever history was already collected.
+		}
 	}
 
 	stop(): void {

@@ -64,6 +64,18 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 
 验收方式：`npm run check` 零告警 + 手动验收（真实群聊中开启轮次观察 widget 三态：轮次中/发言后递增/无轮次）。纯 UI 呈现层，不改协议/持久化/schema。
 
+### 群聊历史可查（ISSUE-008，2026-08-01 验收，修复分支 fix/issue-008-group-chat-history）
+
+服务端 join 时仅推送最近 10 条公开消息（`slice(-10)`）；协议已定义 cursor 分页（`message_history` 带 `cursor`/`has_more`，`get_message_history` 服务端已实现），但客户端从未发送该命令 → 历史 >10 条时更早消息不可查。修复：客户端收到 `has_more=true` 时按 cursor 循环拉取剩余历史并注入群聊输入。
+
+1. **A1 循环翻页**：join/恢复收到 `has_more=true` 时按 cursor 循环发送 `get_message_history` 直至 `has_more=false`；重复 cursor 守卫（已见集合，服务端不前进即终止）杜绝无限循环；
+2. **A2 全量注入**：所有页 `public_message` 进入群聊输入 `details.events`（与首屏同批），最早消息可检索；
+3. **A3 单测**：mock 分页响应（2 页 20 条）→ 断言循环拉取次数与注入消息数（无重复/遗漏）；
+4. **A4 验收**：真实流程 12 条消息 → 新 character join → 快照契约恰 10 条 + `has_more=true` + `cursor` 非空 + `total_messages=12`；端到端烟雾（join 后进程稳定、在线数正常）；
+5. **A5 边界**：`has_more=false` 不发起分页请求（单测断言零调用）；断连/异常优雅降级（保留已收集历史，重连重新同步）。
+
+实现：`CharacterRuntime.fetchMessageHistoryPage(cursor)` + `GroupChatInput` has_more 循环（fire-and-forget，首屏不阻塞）。验收证据：验收套件 7 文件 12 用例全绿（含 history-paging）、单测 176/176、check 零告警。已知边界：RPC 模式输入不可直接观察，全量注入断言由单测 A3 + 恢复场景兜底。
+
 ### 测试门控命令
 
 RPC 模式没有输入通道、也无法调用扩展工具，因此 `PITAVERN_TEST=1`（`npm run test:acceptance` 自动设置）时额外注册：

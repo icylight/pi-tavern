@@ -147,6 +147,55 @@ export class CharacterRuntime {
 		return response.data;
 	}
 
+	/**
+	 * Fetch one page of group chat history from the creator, ordered newest
+	 * first. The cursor (opaque server-provided sequence boundary) advances
+	 * towards older messages; pass the cursor from a message_history event or
+	 * a previous page response to page further back. Returns null when the
+	 * server rejects the request (e.g. connection dropped mid-window).
+	 * ISSUE-008: the join-time message_history only carries the 10 most
+	 * recent messages; this is how the client walks the remaining history.
+	 */
+	async fetchMessageHistoryPage(cursor: string | null): Promise<{
+		messages: ServerMessage[];
+		cursor: string | null;
+		hasMore: boolean;
+		totalMessages: number;
+	} | null> {
+		let response: ServerMessage;
+		try {
+			response = await this.request({
+				type: "get_message_history",
+				...(cursor !== null ? { cursor } : {}),
+			});
+		} catch (error) {
+			// The connection may have dropped while paging; the caller keeps
+			// whatever history it already has rather than failing the turn.
+			if (this.disconnected) {
+				return null;
+			}
+			throw error;
+		}
+		if (response.type !== "response" || response.command !== "get_message_history") {
+			throw new Error("Unexpected PiTavern history response");
+		}
+		if (!response.success) {
+			throw new Error(response.error);
+		}
+		const data = response.data as {
+			messages: ServerMessage[];
+			cursor: string | null;
+			has_more: boolean;
+			total_messages: number;
+		};
+		return {
+			messages: data.messages,
+			cursor: data.cursor,
+			hasMore: data.has_more,
+			totalMessages: data.total_messages,
+		};
+	}
+
 	updateStreaming(isStreaming: boolean): void {
 		this.send({
 			type: "update_character_state",
