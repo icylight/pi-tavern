@@ -33,7 +33,7 @@
 
 ## ISSUE-003: 发言身份与注入 persona 不一致（speaker 归属异常）
 
-- **状态**：open（根因已确认 2026-08-01）
+- **状态**：in-progress（2026-08-01 User Persona 指令：本分支修复，QA 安排用例）
 - **来源**：群聊协作中观察（2026-08-01）
 - **对应 GitHub issue**：[#13](https://github.com/icylight/pi-tavern/issues/13)（#15 为重复，已关闭）
 - **现象**：署名「产品经理」的消息（sequence 2、9）内容为 QA 视角（自我介绍 / git log 核实），实际出自 persona=测试工程师 的 session（17:02:24 启动）。
