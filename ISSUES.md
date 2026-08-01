@@ -71,6 +71,7 @@
 - **复现记录**：① 19:19 全量失败（曾归因 User reload 干扰）② 20:13 全量失败 ③ 20:15 全量再失败——连续全量触发；单独跑 1/1 通过；历史全量也有全绿时点（19:50/19:51）→ 间歇性竞态。
 - **影响**：PR CI 可能间歇红灯，阻塞分支交付。
 - **根因方向（待排查，不开发）**：多文件并行 spawn 真实 pi 进程的资源/时序竞争，或 hand_raised 断言等待窗口不足；与 speak-order 额度上限逻辑相关（第 4 条超限举手）。
+- **疑似根因（Dev 2026-08-01 只读分析）**：断言窗口竞态——`fourth = memberA.waitFor(response && command==="speak", 30s, baseline)`，baseline 为 `allFrames().length` 快照；全量并行高负载时 s4 response 可能在 baseline 前到达并被历史重放（pi-process.ts:93 `events.find`）匹配到旧 speak response（s1/s2/s3），其 hand_raised 为 undefined → 断言失败。单独运行时序宽松不触发。修复方向（解冻后）：waitFor 增加 `id === "s4"` 匹配，或 baseline 后限定新事件。
 - **待办**：User 解除冻结后排查（可考虑断言超时窗口、并行隔离或串行化）；当前不影响已验收的 ISSUE-003/007/005 结论（各自单独验证均绿）。
 - **阻塞**：PR 绿灯（中风险，间歇）。
 
