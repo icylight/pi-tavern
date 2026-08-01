@@ -22,6 +22,17 @@ npm run test:acceptance
 | 异常终止收敛 | `crash-convergence.test.ts` | kill -9 Character → creator 收敛成员；kill -9 Creator → character 回 idle；残留 descriptor 被后续发现流程清理 |
 | reload 保持连接 | `reload.test.ts` | 真实 `/reload`（经测试命令触发 `ctx.reload()`）：成员连接、身份、端口保持，reload 后消息仍可达 |
 
+### 身份一致性（ISSUE-003 修复验收）
+
+通讯错位根因：群聊广播无收件人标记，session 会把发给别人的指令当成自己的；且存在注入 persona 与注册身份不一致的 session。修复后必须满足：
+
+1. **身份行注入**：`group-chat-input` 注入内容必须包含显式身份行（当前角色 persona 名 + `character_id` + creator 在线注册名），使 session 能区分「发给我的」与「广播」；
+2. **注册/注入一致**：端到端断言注入 persona 名 == creator 在线注册名；不一致时 join 流程必须失败或明确提示，不得静默错配；
+3. **speaker 一致**：speak-order 断言每条消息的 sender 与消息来源 session 的注入 persona 一致（内容作者一致性）；
+4. **并发不串**：两个 character 同时 join（现有 ecd7e6a 并发场景）时注册身份互不串扰，群聊中每个注册名只对应一个注入 persona。
+
+验收方式：`npm run test:acceptance` 全绿 + 上述断言存在且非空（不接受仅靠人工检查）。
+
 ### 测试门控命令
 
 RPC 模式没有输入通道、也无法调用扩展工具，因此 `PITAVERN_TEST=1`（`npm run test:acceptance` 自动设置）时额外注册：
