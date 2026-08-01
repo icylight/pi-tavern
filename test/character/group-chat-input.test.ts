@@ -24,6 +24,11 @@ function createMockRuntime(
 		getGroupChatState: overrides.getGroupChatState ?? (async () => ({})),
 		hasPublicMessages: overrides.hasPublicMessages ?? false,
 		onEnvironmentMessage: undefined,
+		onAgentSettled: undefined,
+		isAgentActive: false,
+		loadCursor: () => null,
+		saveCursor: () => undefined,
+		fetchMessagesSince: async () => ({ messages: [], latestSequence: 0, totalMessages: 0 }),
 	} as unknown as CharacterRuntime;
 }
 
@@ -416,6 +421,177 @@ describe("GroupChatInput", () => {
 		await vi.advanceTimersByTimeAsync(2000);
 
 		expect(runtime.fetchMessageHistoryPage).not.toHaveBeenCalled();
+
+		input.stop();
+	});
+
+	it("M7 A1: group_chat_update pulls immediately without the 1s debounce", async () => {
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({
+			getGroupChatState: async () => ({}),
+		});
+		runtime.fetchMessagesSince = vi.fn(async (since: number) => ({
+			messages: [aPublicMessage("user_persona", { sequence: since + 1 })],
+			latestSequence: since + 1,
+			totalMessages: since + 1,
+		}));
+		runtime.loadCursor = vi.fn(() => 4);
+		runtime.saveCursor = vi.fn();
+		runtime.isAgentActive = false;
+
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+
+		handler({
+			type: "group_chat_update",
+			latest_sequence: 5,
+			preview_messages: [aPublicMessage("user_persona", { sequence: 5 })],
+			total_messages: 5,
+		} as unknown as ServerMessage);
+
+		// No fake-time advance at all: the pull is immediate (A1).
+		await vi.advanceTimersByTimeAsync(0);
+		expect(runtime.fetchMessagesSince).toHaveBeenCalledWith(4);
+		expect(runtime.saveCursor).toHaveBeenCalledWith(5);
+
+		// Delivered immediately since the agent is idle (no debounce wait).
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+
+		input.stop();
+	});
+
+	it("M7 A3/A4: pull returns strictly increasing no-gap messages after cursor", async () => {
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({
+			getGroupChatState: async () => ({}),
+		});
+		runtime.fetchMessagesSince = vi.fn(async (since: number) => {
+			// Simulates a missed notification: cursor is 1, server has 2..5.
+			const messages = [2, 3, 4, 5]
+				.filter((seq) => seq > since)
+				.map((seq) => aPublicMessage("user_persona", { sequence: seq }));
+			return { messages, latestSequence: 5, totalMessages: 5 };
+		});
+		runtime.loadCursor = vi.fn(() => 1);
+		runtime.saveCursor = vi.fn();
+		runtime.isAgentActive = false;
+
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+
+		handler({
+			type: "group_chat_update",
+			latest_sequence: 5,
+			preview_messages: [aPublicMessage("user_persona", { sequence: 5 })],
+			total_messages: 5,
+		} as unknown as ServerMessage);
+		await vi.advanceTimersByTimeAsync(0);
+
+		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
+		const message = call[0] as { details: { events: Array<{ sequence?: number }> } };
+		const sequences = message.details.events.map((e) => e.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
+		expect(sequences).toEqual([2, 3, 4, 5]);
+		expect(runtime.saveCursor).toHaveBeenCalledWith(5);
+
+		input.stop();
+	});
+
+	it("M7 A5: queues the increment while the agent run is active, flushes on settle", async () => {
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({
+			getGroupChatState: async () => ({}),
+		});
+		runtime.fetchMessagesSince = vi.fn(async () => ({
+			messages: [aPublicMessage("user_persona", { sequence: 7 })],
+			latestSequence: 7,
+			totalMessages: 7,
+		}));
+		runtime.loadCursor = vi.fn(() => 6);
+		runtime.saveCursor = vi.fn();
+		runtime.isAgentActive = true;
+
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+
+		handler({
+			type: "group_chat_update",
+			latest_sequence: 7,
+			preview_messages: [aPublicMessage("user_persona", { sequence: 7 })],
+			total_messages: 7,
+		} as unknown as ServerMessage);
+		await vi.advanceTimersByTimeAsync(0);
+
+		// Run active: nothing delivered yet, cursor not advanced until delivery.
+		expect(pi.sendMessage).not.toHaveBeenCalled();
+
+		// Settle → immediate flush (M7 A5: within 5s; here instantly).
+		runtime.isAgentActive = false;
+		runtime.onAgentSettled?.();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+
+		input.stop();
+	});
+
+	it("M7 A7: single-flight lock coalesces concurrent updates into one refetch", async () => {
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({
+			getGroupChatState: async () => ({}),
+		});
+		let resolveFirst: (() => void) | undefined;
+		let calls = 0;
+		runtime.fetchMessagesSince = vi.fn(async () => {
+			calls++;
+			await new Promise<void>((resolveWait) => {
+				resolveFirst = resolveWait;
+			});
+			return { messages: [], latestSequence: calls, totalMessages: calls };
+		});
+		runtime.loadCursor = vi.fn(() => 0);
+		runtime.saveCursor = vi.fn();
+		runtime.isAgentActive = false;
+
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+
+		// Two updates while the first fetch is in flight.
+		handler({
+			type: "group_chat_update",
+			latest_sequence: 1,
+			preview_messages: [],
+			total_messages: 1,
+		} as unknown as ServerMessage);
+		handler({
+			type: "group_chat_update",
+			latest_sequence: 2,
+			preview_messages: [],
+			total_messages: 2,
+		} as unknown as ServerMessage);
+		handler({
+			type: "group_chat_update",
+			latest_sequence: 3,
+			preview_messages: [],
+			total_messages: 3,
+		} as unknown as ServerMessage);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(calls).toBe(1); // single flight
+
+		resolveFirst?.();
+		await vi.advanceTimersByTimeAsync(0);
+		// One coalesced refetch after the first completes.
+		expect(calls).toBe(2);
 
 		input.stop();
 	});

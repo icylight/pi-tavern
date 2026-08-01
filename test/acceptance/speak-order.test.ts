@@ -86,14 +86,10 @@ describe("acceptance: concurrent speaks keep creator order and global quota", ()
 		).toBe(true);
 
 		// ── Concurrent speaks (interleaved senders) ────────────────────────
-		const collectA = memberA.collect(
-			(m) => m.type === "public_message" && (m.sender as Record<string, unknown> | undefined)?.type === "character",
-			3,
-		);
-		const collectB = memberB.collect(
-			(m) => m.type === "public_message" && (m.sender as Record<string, unknown> | undefined)?.type === "character",
-			3,
-		);
+		// M7 (ISSUE-012): speaks are announced via group_chat_update
+		// notifications (WeChat-style); content/sender is pulled on demand.
+		const collectA = memberA.collect((m) => m.type === "group_chat_update", 3);
+		const collectB = memberB.collect((m) => m.type === "group_chat_update", 3);
 		// Two from A, one from B — sent in a burst so arrival order is not
 		// guaranteed by the clients; the creator serializes them.
 		memberA.send({ id: "s1", type: "speak", content: "one" });
@@ -102,22 +98,43 @@ describe("acceptance: concurrent speaks keep creator order and global quota", ()
 
 		const [seenByA, seenByB] = await Promise.all([collectA, collectB]);
 
-		// Every receiver observes the same strictly increasing sequence set:
-		// creator order is authoritative and identical for all members.
-		const sequencesA = seenByA.map((m) => m.sequence as number);
-		const sequencesB = seenByB.map((m) => m.sequence as number);
+		// Every receiver observes the same strictly increasing notification
+		// sequence set: creator order is authoritative and identical for all
+		// members (the notification carries the latest published sequence).
+		const sequencesA = seenByA.map((m) => m.latest_sequence as number);
+		const sequencesB = seenByB.map((m) => m.latest_sequence as number);
 		expect(sequencesA).toEqual([2, 3, 4]);
 		expect(sequencesB).toEqual([2, 3, 4]);
 
-		// Cross identity check: each published message's sender name must be
-		// the persona its connection claimed (Architect x2, Reviewer x1). The
-		// sender-to-sequence mapping is nondeterministic (interleaved sends),
-		// so assert the multiset, not per-sequence names (ISSUE-003 point:
+		// The final notification's preview carries the 3 published messages
+		// (sequence 2..4, oldest-first); cross identity check: each preview
+		// message's sender name must be the persona its connection claimed.
+		// The sender-to-sequence mapping is nondeterministic (interleaved
+		// sends), so assert the multiset, not per-sequence names (ISSUE-003:
 		// protocol-level attribution follows the claimed character).
-		const senderNamesA = seenByA.map((m) => (m.sender as Record<string, unknown>).name).sort();
-		const senderNamesB = seenByB.map((m) => (m.sender as Record<string, unknown>).name).sort();
-		expect(senderNamesA).toEqual(["Architect", "Architect", "Reviewer"]);
-		expect(senderNamesB).toEqual(["Architect", "Architect", "Reviewer"]);
+		const lastNotification = seenByA[2];
+		expect(lastNotification).toBeDefined();
+		if (!lastNotification) {
+			throw new Error("expected 3 notifications");
+		}
+		const preview = lastNotification.preview_messages as Record<string, unknown>[];
+		expect(preview.map((m) => m.sequence)).toEqual([2, 3, 4]);
+		const senderNames = preview.map((m) => (m.sender as Record<string, unknown>).name).sort();
+		expect(senderNames).toEqual(["Architect", "Architect", "Reviewer"]);
+
+		// The pull path returns the same content, same order (same source).
+		memberA.send({ id: "f1", type: "fetch_messages_since", since_sequence: 1 });
+		const pulled = await memberA.waitFor(
+			(m) => m.type === "response" && m.command === "fetch_messages_since" && m.id === "f1",
+		);
+		const pulledMessages = (pulled.data as Record<string, unknown>).messages as Record<string, unknown>[];
+		expect(pulledMessages.map((m) => m.sequence)).toEqual([2, 3, 4]);
+		expect((pulled.data as Record<string, unknown>).latest_sequence).toBe(4);
+		expect(pulledMessages.map((m) => (m.sender as Record<string, unknown>).name).sort()).toEqual([
+			"Architect",
+			"Architect",
+			"Reviewer",
+		]);
 
 		// ── Quota: the round allows 3 speaks; the 4th is not published ─────
 		const baseline = memberA.allFrames().length;
@@ -135,25 +152,31 @@ describe("acceptance: concurrent speaks keep creator order and global quota", ()
 		expect((fourth.data as Record<string, unknown>).published).toBe(false);
 		expect((fourth.data as Record<string, unknown>).hand_raised).toBe(true);
 
-		// No 4th public_message is broadcast (give any wrong broadcast a chance).
+		// No 4th notification is broadcast (give any wrong broadcast a chance).
 		await new Promise((resolveSleep) => setTimeout(resolveSleep, 800));
 
 		// Negative assertions from the receivers' perspective: a buggy
 		// implementation that broadcast/persisted the 4th speak would still
 		// satisfy toContain('"sequence":4') (the 3rd published speak already
 		// holds sequence 4), so the absence must be asserted explicitly.
-		const characterMessagesA = memberA
+		const updatesA = memberA
 			.allFrames()
-			.filter(
-				(m) => m.type === "public_message" && (m.sender as Record<string, unknown> | undefined)?.type === "character",
-			);
-		const characterMessagesB = memberB
+			.filter((m) => m.type === "group_chat_update")
+			.map((m) => m.latest_sequence as number);
+		const updatesB = memberB
 			.allFrames()
-			.filter(
-				(m) => m.type === "public_message" && (m.sender as Record<string, unknown> | undefined)?.type === "character",
-			);
-		expect(characterMessagesA.some((m) => m.sequence === 5 || m.content === "four")).toBe(false);
-		expect(characterMessagesB.some((m) => m.sequence === 5 || m.content === "four")).toBe(false);
+			.filter((m) => m.type === "group_chat_update")
+			.map((m) => m.latest_sequence as number);
+		expect(updatesA).toEqual([2, 3, 4]);
+		expect(updatesB).toEqual([2, 3, 4]);
+		// And the pull path confirms only 3 published messages.
+		memberA.send({ id: "f2", type: "fetch_messages_since", since_sequence: 0 });
+		const pulledAfter = await memberA.waitFor(
+			(m) => m.type === "response" && m.command === "fetch_messages_since" && m.id === "f2",
+		);
+		const afterMessages = (pulledAfter.data as Record<string, unknown>).messages as Record<string, unknown>[];
+		expect(afterMessages.map((m) => m.sequence)).toEqual([1, 2, 3, 4]);
+		expect(afterMessages.some((m) => m.sequence === 5 || m.content === "four")).toBe(false);
 
 		const files = await readGroupChatFile(agentDir, projectDir);
 		expect(files).toContain('"sequence":4');

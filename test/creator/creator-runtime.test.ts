@@ -543,13 +543,16 @@ describe("CreatorRuntime", () => {
 			sender: { type: string };
 			round: { round_max_messages: number; used_messages: number; remaining_messages: number };
 			event_id: string;
+			preview_messages: PublicMessage[];
+			latest_sequence: number;
+			total_messages: number;
 			sequence: number;
 			timestamp: string;
 		}
 		const broadcastPromise = new Promise<PublicMessage>((resolve) => {
 			const onMessage = (data: WebSocket.RawData) => {
 				const message = JSON.parse(data.toString()) as PublicMessage;
-				if (message.type === "public_message") {
+				if (message.type === "group_chat_update") {
 					client.off("message", onMessage);
 					resolve(message);
 				}
@@ -561,13 +564,17 @@ describe("CreatorRuntime", () => {
 
 		const publicMessage = await broadcastPromise;
 
-		// Verify the client received the public_message broadcast
-		expect(publicMessage.content).toBe("Hello everyone");
-		expect(publicMessage.sender).toEqual({ type: "user_persona" });
-		expect(publicMessage.round).toEqual({ round_max_messages: 10, used_messages: 0, remaining_messages: 10 });
-		expect(typeof publicMessage.event_id).toBe("string");
-		expect(typeof publicMessage.sequence).toBe("number");
-		expect(typeof publicMessage.timestamp).toBe("string");
+		// M7 (ISSUE-012): broadcasts are group_chat_update notifications; the
+		// preview carries the message content.
+		const preview = publicMessage.preview_messages as PublicMessage[];
+		expect(preview.at(-1)?.content).toBe("Hello everyone");
+		expect(preview.at(-1)?.sender).toEqual({ type: "user_persona" });
+		expect(preview.at(-1)?.round).toEqual({ round_max_messages: 10, used_messages: 0, remaining_messages: 10 });
+		expect(typeof preview.at(-1)?.event_id).toBe("string");
+		expect(typeof preview.at(-1)?.sequence).toBe("number");
+		expect(typeof preview.at(-1)?.timestamp).toBe("string");
+		expect(publicMessage.latest_sequence).toBeGreaterThan(0);
+		expect(publicMessage.total_messages).toBeGreaterThan(0);
 
 		// BC-3: broadcast timestamp must exactly match the JSONL entry envelope timestamp
 		const [sessionFile] = await jsonlFilesUnder(join(root, "agent"));
@@ -580,8 +587,8 @@ describe("CreatorRuntime", () => {
 				.find((entry) => entry.type === "custom_message");
 			expect(publicEntry).toBeDefined();
 			if (publicEntry) {
-				expect(publicMessage.timestamp).toBe(publicEntry.timestamp);
-				expect(publicMessage.event_id).toBe(publicEntry.id);
+				expect(preview.at(-1)?.timestamp).toBe(publicEntry.timestamp);
+				expect(preview.at(-1)?.event_id).toBe(publicEntry.id);
 			}
 		}
 
@@ -617,7 +624,7 @@ describe("CreatorRuntime", () => {
 		const broadcastPromise = new Promise<boolean>((resolve) => {
 			const onMsg = (data: WebSocket.RawData) => {
 				const msg = JSON.parse(data.toString()) as { type: string };
-				if (msg.type === "public_message") {
+				if (msg.type === "group_chat_update") {
 					client.off("message", onMsg);
 					resolve(true);
 				}
@@ -773,8 +780,13 @@ describe("CreatorRuntime", () => {
 
 		const speakResponse = await waitForMessage(client, "response");
 
-		// Sender also receives the public_message broadcast (broadcast includes all online members)
-		const senderEcho = receivedMessages.find((m) => m.type === "public_message" && m.content === "My public reply");
+		// Sender also receives the group_chat_update notification (broadcast
+		// includes all online members; M7 preview carries the new message).
+		const senderEcho = receivedMessages.find(
+			(m) =>
+				m.type === "group_chat_update" &&
+				(m.preview_messages as Record<string, unknown>[]).some((p) => p.content === "My public reply"),
+		);
 		expect(senderEcho).toBeDefined();
 
 		expect(speakResponse.command).toBe("speak");
@@ -821,8 +833,10 @@ describe("CreatorRuntime", () => {
 			name: "Developer",
 		});
 
-		// Broadcast timestamp matches the persisted entry timestamp
-		expect((senderEcho as Record<string, unknown>).timestamp).toBe(publicEntry.timestamp);
+		// Broadcast timestamp matches the persisted entry timestamp (M7: the
+		// preview carries the persisted message fields).
+		const echoPreview = (senderEcho as Record<string, unknown>).preview_messages as Record<string, unknown>[];
+		expect(echoPreview.at(-1)?.timestamp).toBe(publicEntry.timestamp);
 		expect(publicEntry.details.round).toEqual({ round_max_messages: 10, used_messages: 1, remaining_messages: 9 });
 		expect(typeof publicEntry.details.sequence).toBe("number");
 		// details must NOT carry a second timestamp (BC-19)
@@ -1544,9 +1558,10 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 
 		// Register the round-start listener before submitting so the frame is
 		// consumed even if ws dispatches it a tick late.
-		const roundStartPromise = waitForMessage(memberB, "public_message");
+		const roundStartPromise = waitForMessage(memberB, "group_chat_update");
 		await runtime.submitUserPersonaMessage("Round start");
-		expect((await roundStartPromise).content).toBe("Round start");
+		const roundStartNotification = await roundStartPromise;
+		expect((roundStartNotification.preview_messages as Record<string, unknown>[]).at(-1)?.content).toBe("Round start");
 
 		// The failing member's socket can no longer deliver anything — including
 		// the speak response (stand-in for a response send timeout).
@@ -1557,13 +1572,14 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 			throw new Error("socket timeout");
 		});
 
-		const broadcastPromise = waitForMessage(memberB, "public_message");
+		const broadcastPromise = waitForMessage(memberB, "group_chat_update");
 		memberA.send(JSON.stringify({ id: "s1", type: "speak", content: "committed anyway" }));
 
 		// The committed message is broadcast to the healthy member…
 		const broadcast = await broadcastPromise;
-		expect(broadcast.content).toBe("committed anyway");
-		expect(broadcast.sequence).toBe(2);
+		const preview = broadcast.preview_messages as Record<string, unknown>[];
+		expect(preview.at(-1)?.content).toBe("committed anyway");
+		expect(preview.at(-1)?.sequence).toBe(2);
 		// …and the session file keeps the persisted message (no rollback).
 		const [sessionFile] = await jsonlFilesUnder(join(root, "agent"));
 		expect(sessionFile).toBeDefined();
@@ -1735,7 +1751,7 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 		const leftPromise = waitForMessage(memberB, "character_left");
 		await runtime.submitUserPersonaMessage("Hello");
 		// memberB still receives the broadcast…
-		expect(await waitForMessage(memberB, "public_message")).toBeDefined();
+		expect(await waitForMessage(memberB, "group_chat_update")).toBeDefined();
 		// …and then the failed member's departure.
 		const left = await leftPromise;
 		expect(left.reason).toBe("disconnected");
@@ -1790,16 +1806,17 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 		expect(taken.state.onlineCharacters.has("session-a")).toBe(true);
 		expect(taken.state.onlineCharacters.has("session-b")).toBe(true);
 
-		// The buffered speak was replayed: memberB sees the public message.
+		// The buffered speak was replayed: memberB sees the notification and
+		// its preview carries the message.
 		// (User Persona messages do not consume round quota, so the speak is usedMessages 1.)
-		const publicMessage = await waitForMessage(memberB, "public_message");
-		expect(publicMessage.content).toBe("During reload");
+		const publicMessage = await waitForMessage(memberB, "group_chat_update");
+		expect((publicMessage.preview_messages as Record<string, unknown>[]).at(-1)?.content).toBe("During reload");
 		expect(taken.state.round?.usedMessages).toBe(1);
 
 		// The taken runtime serves new frames and owns the descriptor.
 		memberB.send(JSON.stringify({ id: "r2", type: "speak", content: "After reload" }));
-		const afterReload = await waitForMessage(memberA, "public_message");
-		expect(afterReload.content).toBe("After reload");
+		const afterReload = await waitForMessage(memberA, "group_chat_update");
+		expect((afterReload.preview_messages as Record<string, unknown>[]).at(-1)?.content).toBe("After reload");
 
 		await taken.close();
 		expect(await readActiveDescriptor(taken.activeDescriptorPath)).toBeNull();

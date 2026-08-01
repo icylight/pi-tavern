@@ -184,7 +184,12 @@ export class PiProcess {
 		const descriptor = await waitForDescriptor(agentDir, cwd);
 		const firstSelect = await this.waitFor((e) => e.type === "extension_ui_request" && e.method === "select");
 		if (firstSelect.title === "Choose a group chat") {
-			this.respond(String(firstSelect.id), { value: descriptor.groupChatId });
+			// The select returns the option label, not the group chat id; when
+			// several group chats exist, match the label that contains the
+			// descriptor's id (label format: "<name> (<groupChatId>)").
+			const options = (firstSelect.options as unknown as string[]) ?? [];
+			const chosen = options.find((o) => o.includes(descriptor.groupChatId)) ?? options[0];
+			this.respond(String(firstSelect.id), { value: chosen });
 		}
 		const characterSelect = await this.waitFor(
 			(e) => e.type === "extension_ui_request" && e.method === "select" && e.title === "Choose a Character",

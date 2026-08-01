@@ -181,15 +181,23 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		expect(taken.character.characterId).toBe(character.characterId);
 
 		// The buffered broadcast was replayed into the new runtime.
-		expect(taken.receivedMessages.some((m) => m.type === "public_message" && m.content === "Hello during reload")).toBe(
-			true,
-		);
+		expect(
+			taken.receivedMessages.some(
+				(m) =>
+					m.type === "group_chat_update" &&
+					(m.preview_messages as Record<string, unknown>[]).some((p) => p.content === "Hello during reload"),
+			),
+		).toBe(true);
 
 		// The new runtime serves the same live connection: further broadcasts arrive.
 		await creator.submitUserPersonaMessage("Hello after reload");
 		await vi.waitFor(() =>
 			expect(
-				taken.receivedMessages.some((m) => m.type === "public_message" && m.content === "Hello after reload"),
+				taken.receivedMessages.some(
+					(m) =>
+						m.type === "group_chat_update" &&
+						(m.preview_messages as Record<string, unknown>[]).some((p) => p.content === "Hello after reload"),
+				),
 			).toBe(true),
 		);
 
