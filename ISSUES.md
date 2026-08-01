@@ -16,6 +16,7 @@
   3. 无活跃轮次时不显示该行。
 - **文档要求**：`docs/` 补充 TUI widget 行为说明（属主：Dev 的 extension-architecture.md TUI 章节，或共享 docs 声明后更新）。
 - **排期**：后置（User 2026-08-01：显示等后面做）；验收标准已在 docs/acceptance.md 就位，启动时无需再议。
+- **测试评估（QA 2026-08-01，已确认）**：可完全自动化覆盖，无需手动验收——单测层 `buildTavernViewModel` 四态矩阵（开轮显示 x/y·剩余 z / 递增 / 达上限举手 / 无轮次不显示）+ 验收层 speak-order 链路扩展（creator+character 两侧 widget 计数行、raw WS speak 后更新、超限举手）。Dev 实现后 QA 补双层测试。
 - **阻塞**：无，不影响现有契约。
 
 ## ISSUE-002: TUI「正在发言」状态不准确（User Persona 反馈）
