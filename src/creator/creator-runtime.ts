@@ -27,6 +27,7 @@ import type { ClientMessage } from "../protocol/messages.js";
 import {
 	HEARTBEAT_PING_INTERVAL_MS,
 	HEARTBEAT_TIMEOUT_MS,
+	JOIN_HISTORY_LIMIT,
 	SHORT_COORDINATION_TIMEOUT_MS,
 } from "../shared/constants.js";
 import type { RuntimeCloseReason, RuntimeCloseResult } from "../shared/runtime-close.js";
@@ -1108,7 +1109,8 @@ export class CreatorRuntime {
 
 		// Send history before join broadcast so hasPublicMessages is true
 		// when the new Character processes its own character_joined event.
-		const recentMessages = this.publicMessages.slice(-10);
+		// User 2026-08-01: join push window 10 → JOIN_HISTORY_LIMIT (100).
+		const recentMessages = this.publicMessages.slice(-JOIN_HISTORY_LIMIT);
 		const earliest = recentMessages[0];
 		const hasMore = earliest !== undefined && earliest.sequence > 1;
 		this.send(socket, {
@@ -1166,6 +1168,8 @@ export class CreatorRuntime {
 
 		// Cursor is an absolute sequence boundary: return the 10 most recent
 		// messages with sequence < cursorSeq. New messages never shift it.
+		// NOTE: page size stays 10 (incremental paging granularity); only the
+		// join push window uses JOIN_HISTORY_LIMIT (User 2026-08-01).
 		const cursorSeq = message.cursor === undefined || message.cursor === null ? null : decodeCursor(message.cursor);
 		const page =
 			cursorSeq === null
