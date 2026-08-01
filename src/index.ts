@@ -1,10 +1,10 @@
-import type { ExtensionAPI, InputEventResult } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
+import type { ExtensionAPI, InputEventResult } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { setTestNotify } from "./character/group-chat-input.js";
 import { registerCommands } from "./commands.js";
 import { TavernController } from "./controller/tavern-controller.js";
-import { autoJoinCharacter, type AutoJoinContext } from "./headless.js";
+import { type AutoJoinContext, autoJoinCharacter } from "./headless.js";
 import { registerRenderers } from "./ui/renderers.js";
 import { TavernUiPresenter } from "./ui/tavern-ui-presenter.js";
 
