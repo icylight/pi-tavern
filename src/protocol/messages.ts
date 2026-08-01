@@ -98,6 +98,10 @@ export const ClientMessageSchema = Type.Union([
 			id: RequestIdSchema,
 			type: Type.Literal("speak"),
 			content: Type.String(),
+			// ISSUE-013: optional — absent = legacy client, server skips staleness
+			// check (smooth protocol evolution). When present the server rejects
+			// stale speaks (reason: "stale") instead of publishing them.
+			based_on_sequence: Type.Optional(Type.Integer({ minimum: 0 })),
 		},
 		{ additionalProperties: false },
 	),
@@ -346,6 +350,10 @@ const SpeakResponseSchema = Type.Union([
 					event_id: Type.String(),
 					sequence: Type.Integer({ minimum: 1 }),
 					round: RoundSnapshotSchema,
+					// ISSUE-013 B6: lets the client advance its last-seen sequence
+					// past its own message (echo is filtered, so the cursor never
+					// advances on its own) without being falsely judged stale.
+					latest_sequence: Type.Integer({ minimum: 1 }),
 				},
 				{ additionalProperties: false },
 			),
@@ -363,6 +371,34 @@ const SpeakResponseSchema = Type.Union([
 					published: Type.Literal(false),
 					reason: Type.Literal("round_limit_reached"),
 					hand_raised: Type.Literal(true),
+					round: RoundSnapshotSchema,
+				},
+				{ additionalProperties: false },
+			),
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			id: RequestIdSchema,
+			type: Type.Literal("response"),
+			command: Type.Literal("speak"),
+			success: Type.Literal(true),
+			data: Type.Object(
+				{
+					// ISSUE-013 B2: stale rejection mirrors round_limit_reached — a
+					// business refusal, not a protocol error. Carries only the
+					// missing sequence range; the client pulls the increment via
+					// the existing fetch_messages_since (no second pull protocol).
+					published: Type.Literal(false),
+					reason: Type.Literal("stale"),
+					missing_sequences: Type.Object(
+						{
+							from: Type.Integer({ minimum: 0 }),
+							to: Type.Integer({ minimum: 1 }),
+						},
+						{ additionalProperties: false },
+					),
 					round: RoundSnapshotSchema,
 				},
 				{ additionalProperties: false },

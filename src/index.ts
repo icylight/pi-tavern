@@ -70,6 +70,61 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 						details: undefined,
 					};
 				}
+				if (result.reason === "stale") {
+					// ISSUE-013 B3/B5: auto-pull the increment in-tool and merge it
+					// into the return so the LLM can re-decide in this same run —
+					// no followUp injection, no run interruption. Budgeted per
+					// round; beyond the budget just report the refusal.
+					let extra = "";
+					if (result.autoRecover && result.missingTo !== undefined) {
+						try {
+							const page = await state.runtime.fetchMessagesSince((result.missingFrom ?? 1) - 1);
+							if (page && page.messages.length > 0) {
+								const lines: string[] = [];
+								let firstSeq: number | undefined;
+								for (const m of page.messages) {
+									if (m.type !== "public_message") {
+										continue;
+									}
+									if (firstSeq === undefined) {
+										firstSeq = m.sequence;
+									}
+									const sender = m.sender.type === "user_persona" ? "User Persona" : m.sender.name;
+									lines.push(`[seq ${m.sequence}] ${sender}: ${m.content}`);
+								}
+								// Cap the merged text (mirrors the speak 64 KiB frame
+								// discipline): floods only get a bounded window here;
+								// the full increment reaches the context via the normal
+								// group-chat-input pipeline.
+								const joined = lines.join("\n");
+								extra =
+									`\n\nNew messages you had not seen (seq ${firstSeq ?? "?"}..${page.latestSequence}):\n` +
+									joined.slice(0, 6000) +
+									(joined.length > 6000 ? "\n…(truncated — full history arrives via the group chat input)" : "");
+							}
+						} catch {
+							// Pull failure: report the refusal as-is; the normal
+							// group-chat-input pipeline will deliver the increment.
+						}
+					}
+					return {
+						content: [
+							{
+								type: "text",
+								text:
+									`Message NOT published: you are out of sync with the group chat ` +
+									`(you last saw seq ${result.missingFrom !== undefined ? result.missingFrom - 1 : "?"}; ` +
+									`messages ${result.missingFrom}..${result.missingTo} arrived before your speak). ` +
+									`Your message was not counted against the round quota and no hand was raised.` +
+									extra +
+									`\nRe-decide: revise your message based on the new messages, or drop it. ` +
+									`(Auto-recovery budget: ${result.autoRecover ? "used" : "exhausted"} this round — ` +
+									`${result.autoRecover ? "this was pulled automatically" : "no further automatic pulls; wait for the group chat input"}.)`,
+							},
+						],
+						details: undefined,
+					};
+				}
 				return {
 					content: [
 						{

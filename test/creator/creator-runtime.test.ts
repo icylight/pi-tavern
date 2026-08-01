@@ -795,6 +795,9 @@ describe("CreatorRuntime", () => {
 			published: true,
 			event_id: expect.any(String) as string,
 			sequence: expect.any(Number) as number,
+			// ISSUE-013 B6: success carries latest_sequence (== published seq
+			// on success) so the client advances past its own message.
+			latest_sequence: expect.any(Number) as number,
 			round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
 		});
 

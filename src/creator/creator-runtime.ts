@@ -1305,6 +1305,36 @@ export class CreatorRuntime {
 			return;
 		}
 
+		// ISSUE-013 B2: staleness check — only when the client sent
+		// based_on_sequence. Legacy clients omit the field and skip the check
+		// entirely (smooth protocol evolution). A stale speak is a business
+		// refusal (mirrors round_limit_reached): not published, no quota
+		// consumed, no hand raised.
+		const latestPublic = this.publicMessages[this.publicMessages.length - 1];
+		const latestSequence = latestPublic !== undefined ? latestPublic.sequence : 0;
+		if (message.based_on_sequence !== undefined && message.based_on_sequence < latestSequence) {
+			this.send(socket, {
+				...(message.id !== undefined ? { id: message.id } : {}),
+				type: "response",
+				command: "speak",
+				success: true,
+				data: {
+					published: false,
+					reason: "stale",
+					missing_sequences: {
+						from: message.based_on_sequence + 1,
+						to: latestSequence,
+					},
+					round: {
+						round_max_messages: round.roundMaxMessages,
+						used_messages: round.usedMessages,
+						remaining_messages: Math.max(0, round.roundMaxMessages - round.usedMessages),
+					},
+				},
+			});
+			return;
+		}
+
 		const canPublish = round.usedMessages < round.roundMaxMessages;
 
 		// If persistence is broken, reject even non-publishing speaks
@@ -1410,6 +1440,10 @@ export class CreatorRuntime {
 					published: true,
 					event_id: entryId,
 					sequence,
+					// ISSUE-013 B6: lets the client advance its last-seen sequence
+					// past its own published message (echo is filtered client-side
+					// so the pull cursor never advances on its own).
+					latest_sequence: sequence,
 					round: msg.round,
 				},
 			});

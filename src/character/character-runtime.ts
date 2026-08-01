@@ -51,6 +51,13 @@ interface PendingRequest {
 
 const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
 
+/**
+ * ISSUE-013 B5: maximum automatic stale-recovery pulls per round. Beyond
+ * this budget the speak tool reports the refusal without auto-pulling, so a
+ * message flood cannot loop the agent between reject and re-publish.
+ */
+const MAX_STALE_AUTO_RECOVERIES = 2;
+
 export class CharacterRuntime {
 	readonly groupChatId: string;
 	readonly sessionId: string;
@@ -313,37 +320,80 @@ export class CharacterRuntime {
 		}
 	}
 
+	/**
+	 * ISSUE-013 B5: per-round stale auto-recovery budget. Tracked against the
+	 * round snapshot returned with each speak response; the key changes when
+	 * the round does (new round or others publishing), which resets the
+	 * budget. Beyond the budget the client stops auto-pulling and reports
+	 * the refusal to the LLM for manual re-decision.
+	 */
+	private staleRecoveryKey: string | null = null;
+	private staleRecoveryCount = 0;
+
 	async speak(content: string): Promise<{
 		published: boolean;
 		eventId?: string;
 		sequence?: number;
 		reason?: string;
 		handRaised?: boolean;
+		missingFrom?: number;
+		missingTo?: number;
+		autoRecover?: boolean;
 		round?: { roundMaxMessages: number; usedMessages: number; remainingMessages: number };
 	}> {
-		const response = await this.request({ type: "speak", content });
+		// ISSUE-013 B1: the client always carries its last-seen sequence (the
+		// same concept as the delivery cursor — last successfully delivered
+		// sequence). Legacy servers ignore the field; our server checks it.
+		const basedOnSequence = this.loadCursor() ?? 0;
+		const response = await this.request({ type: "speak", content, based_on_sequence: basedOnSequence });
 		if (response.type !== "response" || response.command !== "speak") {
 			throw new Error("Unexpected PiTavern speak response");
 		}
 		if (!response.success) {
 			throw new Error(response.error);
 		}
+		const round = {
+			roundMaxMessages: response.data.round.round_max_messages,
+			usedMessages: response.data.round.used_messages,
+			remainingMessages: response.data.round.remaining_messages,
+		};
+		if (response.data.published) {
+			// ISSUE-013 B6: advance last-seen past our own message — the echo is
+			// filtered client-side so the pull cursor would never advance on its
+			// own, and the next speak would be judged stale against ourselves.
+			if (response.data.latest_sequence > basedOnSequence) {
+				this.saveCursor(response.data.latest_sequence);
+			}
+			this.staleRecoveryKey = null;
+			this.staleRecoveryCount = 0;
+			return {
+				published: true,
+				eventId: response.data.event_id,
+				sequence: response.data.sequence,
+				round,
+			};
+		}
+		if (response.data.reason === "stale") {
+			const key = `${round.roundMaxMessages}:${round.usedMessages}`;
+			if (this.staleRecoveryKey !== key) {
+				this.staleRecoveryKey = key;
+				this.staleRecoveryCount = 0;
+			}
+			this.staleRecoveryCount += 1;
+			return {
+				published: false,
+				reason: "stale",
+				missingFrom: response.data.missing_sequences.from,
+				missingTo: response.data.missing_sequences.to,
+				autoRecover: this.staleRecoveryCount <= MAX_STALE_AUTO_RECOVERIES,
+				round,
+			};
+		}
 		return {
-			published: response.data.published,
-			...(response.data.published
-				? {
-						eventId: response.data.event_id,
-						sequence: response.data.sequence,
-					}
-				: {
-						reason: response.data.reason,
-						handRaised: response.data.hand_raised,
-					}),
-			round: {
-				roundMaxMessages: response.data.round.round_max_messages,
-				usedMessages: response.data.round.used_messages,
-				remainingMessages: response.data.round.remaining_messages,
-			},
+			published: false,
+			reason: "round_limit_reached",
+			handRaised: response.data.hand_raised,
+			round,
 		};
 	}
 
