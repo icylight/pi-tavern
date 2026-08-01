@@ -363,7 +363,7 @@ describe("GroupChatInput", () => {
 		const runtime = createMockRuntime({
 			getGroupChatState: async () => ({}),
 		});
-		runtime.fetchMessageHistoryPage = vi.fn(async (cursor: string | null) => {
+		runtime.fetchMessageHistoryPage = vi.fn(async (_cursor: string | null) => {
 			// Server never advances the cursor: the client must not loop.
 			return { messages: page, cursor: "stuck-cursor", hasMore: true, totalMessages: 3 };
 		});
