@@ -162,6 +162,13 @@ export class GroupChatInput {
 	private buildContent(events: ServerMessage[], state: unknown): string {
 		const parts: string[] = ["PiTavern 群聊环境更新"];
 
+		// Identity anchor: always state which Character this session is, so the
+		// model never has to guess its role from context or available skills.
+		// ISSUE-003: speaker mix-ups happened when the persona injection was
+		// missing/overridden and the model self-identified from available skills.
+		const identity = `${this.runtime.character.name}（${this.runtime.character.characterId}）`;
+		parts.push(`\n你是：${identity}`);
+
 		// Group chat name
 		const stateObj = state as {
 			group_chat?: { name?: string | null };

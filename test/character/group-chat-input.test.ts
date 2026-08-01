@@ -162,6 +162,7 @@ describe("GroupChatInput", () => {
 		expect(message.details.events).toHaveLength(1);
 		expect(message.details.group_chat_state).toEqual(stateSnapshot);
 		expect(message.content).toContain("First message");
+		expect(message.content).toContain("你是：Developer（dev）");
 
 		expect(options.triggerTurn).toBe(true);
 		expect(options.deliverAs).toBe("followUp");
