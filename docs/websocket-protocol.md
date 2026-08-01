@@ -96,6 +96,7 @@ PiTavern 使用两层硬性大小限制：
 - User Persona 由群聊创建者本地表示，不是 Character WebSocket 接收者。
 - 向某个连接发送失败时，该 Character 转入断线处理流程；不能静默跳过并继续将其视为在线。
 - Character 手动重新加入后会重新收到最近消息；协议不提供自动重连或按序号补发。
+- 公开消息的广播以 `group_chat_update` 通知形式发出（M7/ISSUE-012）：广播只唤醒角色，完整增量由角色主动 `fetch_messages_since` 拉取（见「增量拉取」）。
 
 后文使用“广播”时均遵循此定义，不再逐项声明是否包含发送者或新加入的 Character。
 
@@ -734,9 +735,11 @@ Character 的 `tavern_speak` Agent tool 通过以下 WebSocket 请求原子尝�
 }
 ```
 
-### 公开消息广播
+### 公开消息广播与增量拉取（M7/ISSUE-012）
 
-User Persona 和 Character 的公开消息统一使用 `public_message`。
+#### `public_message`（历史/拉取消息形态）
+
+User Persona 和 Character 的公开消息统一使用 `public_message` 结构。`group_chat_update.preview_messages`、`message_history.messages` 与 `fetch_messages_since` 的响应均复用此结构。
 
 Character 消息：
 
@@ -790,10 +793,59 @@ User Persona 消息：
 - Character sender 携带 `character_id` 和当时的显示名称；User Persona 不携带 Character 字段。
 - Character 消息携带成功计数后的 Round 快照。
 - User Persona 消息携带新 Round 的初始快照，其中 `used_messages` 为 `0`。
-- `public_message` 遵循协议的统一广播语义。
+- `public_message` 遵循协议的统一消息结构；广播形态为 `group_chat_update` 通知（见「公开消息广播与增量拉取」）。
 - Character 发送方接收自己的广播作为正式发布确认，但该回传不进入自己的环境防抖批次。
 - `message_history.messages` 与群聊记录中的公开消息复用此结构。
 
-Character 发言成功时，群聊创建者原子分配 `sequence`、更新 Round 次数并通过 `SessionManager` 写入 `custom_message`，使用返回的 entry `id` 作为 `event_id`，然后先广播 `public_message`，再返回对应的 `speak` 成功响应。
+#### `group_chat_update`（广播通知形态）
+
+公开消息的广播以通知形式发出，不再逐条推送完整消息：
+
+```json
+{
+  "type": "group_chat_update",
+  "latest_sequence": 43,
+  "preview_messages": [ { "type": "public_message", ... 最近 3 条 ... } ],
+  "total_messages": 43
+}
+```
+
+- `latest_sequence`：当前最新公开消息序号；角色据此检测缺口（`latest_sequence ≠ 本地游标 + 1` 即应拉取补齐）。
+- `preview_messages`：最近 3 条公开消息（微信通知形态），与拉取路径同源（同一 `publicMessages` 数据）。
+- 角色收到通知后立即执行 `fetch_messages_since`（无防抖）拉取增量，投递仍走 followUp（不打断当前 run）。
+
+#### `fetch_messages_since`（增量拉取命令）
+
+请求：
+
+```json
+{
+  "id": "req-1",
+  "type": "fetch_messages_since",
+  "since_sequence": 40
+}
+```
+
+成功响应：
+
+```json
+{
+  "id": "req-1",
+  "type": "response",
+  "command": "fetch_messages_since",
+  "success": true,
+  "data": {
+    "messages": [ { "type": "public_message", "sequence": 41 }, ... ],
+    "latest_sequence": 43,
+    "total_messages": 43
+  }
+}
+```
+
+- `messages`：`sequence > since_sequence` 的全部公开消息（严格递增、无重复）；按序号过滤天然补齐缺口。
+- `latest_sequence`：服务端当前最新序号。
+- 与 `message_history`（join 全量/分页）并存：无游标时 join 走历史分页；有持久化游标时 join/重连走增量拉取（差分同步）。
+
+Character 发言成功时，群聊创建者原子分配 `sequence`、更新 Round 次数并通过 `SessionManager` 写入 `custom_message`，使用返回的 entry `id` 作为 `event_id`，然后先广播 `group_chat_update`，再返回对应的 `speak` 成功响应。
 
 session append 成功是公开消息成立的提交点。append 失败时，不递增 `sequence`、不消耗 Round 额度、不广播，并返回 `success: false`。append 成功后，即使某个 WebSocket 发送失败，公开消息也不回滚；对应连接进入断线处理。

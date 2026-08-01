@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -34,6 +35,12 @@ export interface PrepareCharacterRuntimeOptions {
 	heartbeatIntervalMs?: number;
 	/** Creator-ping timeout threshold (defaults to 120s); overdue → terminate. */
 	heartbeatTimeoutMs?: number;
+	/**
+	 * M7 (ISSUE-012/#24): absolute path of the per-group-chat cursor file
+	 * ("last successfully delivered message sequence"), persisted across
+	 * restarts. Omitted → incremental pulls are disabled (history-only mode).
+	 */
+	cursorStorePath?: string;
 }
 
 interface PendingRequest {
@@ -54,6 +61,15 @@ export class CharacterRuntime {
 	lastGroupChatState: GroupChatStateMessage | null = null;
 	/** Fired after a fresh state snapshot arrives (TUI refresh trigger). */
 	onStateSnapshot: ((snapshot: GroupChatStateMessage) => void) | undefined;
+	/**
+	 * M7 (ISSUE-012/#24): true while the pi Agent is mid-run (agent_start
+	 * fired, agent_settled not yet). GroupChatInput queues the increment
+	 * while active and flushes as soon as the run settles, so a pull never
+	 * interrupts the current run.
+	 */
+	isAgentActive = false;
+	/** Fired when the Agent run settles (agent_settled), so queued input can flush. */
+	onAgentSettled: (() => void) | undefined;
 	groupChatInput: GroupChatInput | undefined;
 
 	private socket: WebSocket | null = null;
@@ -62,6 +78,8 @@ export class CharacterRuntime {
 	private readonly onDisconnected: (() => void) | undefined;
 	private readonly heartbeatIntervalMs: number;
 	private readonly heartbeatTimeoutMs: number;
+	private readonly cursorStorePath: string | undefined;
+	private cursorSequence: number | null = null;
 	private closePromise: Promise<void> | null = null;
 	private disconnected = false;
 	private lastPingAt = 0;
@@ -106,6 +124,7 @@ export class CharacterRuntime {
 		this.onDisconnected = options.onDisconnected;
 		this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? HEARTBEAT_PING_INTERVAL_MS;
 		this.heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? HEARTBEAT_TIMEOUT_MS;
+		this.cursorStorePath = options.cursorStorePath;
 	}
 
 	static prepare(options: PrepareCharacterRuntimeOptions): CharacterRuntime {
@@ -196,11 +215,102 @@ export class CharacterRuntime {
 		};
 	}
 
+	/**
+	 * M7 (ISSUE-012/#24): pull every message with sequence > since from the
+	 * creator. The server filters by sequence, so a missed notification
+	 * (gap) is healed by the next pull. Returns null if the connection
+	 * dropped mid-request.
+	 */
+	async fetchMessagesSince(sinceSequence: number): Promise<{
+		messages: ServerMessage[];
+		latestSequence: number;
+		totalMessages: number;
+	} | null> {
+		let response: ServerMessage;
+		try {
+			response = await this.request({
+				type: "fetch_messages_since",
+				since_sequence: sinceSequence,
+			});
+		} catch (error) {
+			if (this.disconnected) {
+				return null;
+			}
+			throw error;
+		}
+		if (response.type !== "response" || response.command !== "fetch_messages_since") {
+			throw new Error("Unexpected PiTavern fetch_messages_since response");
+		}
+		if (!response.success) {
+			throw new Error(response.error);
+		}
+		const data = response.data as {
+			messages: ServerMessage[];
+			latest_sequence: number;
+			total_messages: number;
+		};
+		return {
+			messages: data.messages,
+			latestSequence: data.latest_sequence,
+			totalMessages: data.total_messages,
+		};
+	}
+
 	updateStreaming(isStreaming: boolean): void {
 		this.send({
 			type: "update_character_state",
 			is_streaming: isStreaming,
 		});
+	}
+
+	/**
+	 * M7: load the persisted cursor (last successfully delivered message
+	 * sequence) for this group chat. Returns null when no cursor exists yet
+	 * (first join) or the store is unavailable — the caller then falls back
+	 * to the full-history paging path.
+	 */
+	loadCursor(): number | null {
+		if (!this.cursorStorePath) {
+			return null;
+		}
+		if (this.cursorSequence !== null) {
+			return this.cursorSequence;
+		}
+		try {
+			const raw = readFileSync(this.cursorStorePath, "utf8");
+			const data = JSON.parse(raw) as { last_sequence?: number };
+			if (
+				typeof data.last_sequence === "number" &&
+				Number.isSafeInteger(data.last_sequence) &&
+				data.last_sequence >= 0
+			) {
+				this.cursorSequence = data.last_sequence;
+			}
+		} catch {
+			// Missing/corrupt cursor: treat as no cursor.
+		}
+		return this.cursorSequence;
+	}
+
+	/**
+	 * M7: persist the cursor after a successful delivery. Writing is atomic
+	 * (tmp file + rename) so a crash mid-write never corrupts the cursor;
+	 * delivery failures must NOT advance the cursor (retry semantics).
+	 */
+	saveCursor(sequence: number): void {
+		if (!this.cursorStorePath) {
+			return;
+		}
+		this.cursorSequence = sequence;
+		try {
+			mkdirSync(dirname(this.cursorStorePath), { recursive: true });
+			const tmpPath = `${this.cursorStorePath}.tmp`;
+			writeFileSync(tmpPath, JSON.stringify({ last_sequence: sequence, updated_at: new Date().toISOString() }), "utf8");
+			renameSync(tmpPath, this.cursorStorePath);
+		} catch {
+			// Persistence is best-effort: losing a cursor write only means the
+			// next join re-pulls from an older position (idempotent by sequence).
+		}
 	}
 
 	async speak(content: string): Promise<{
@@ -279,6 +389,7 @@ export class CharacterRuntime {
 			groupChatId: this.groupChatId,
 			socket,
 			character: this.character,
+			...(this.cursorStorePath !== undefined ? { cursorStorePath: this.cursorStorePath } : {}),
 			pendingEvents: snapshot.pendingEvents,
 			debounceDueAt: snapshot.debounceDueAt,
 			lastPingAt: this.lastPingAt,
@@ -339,6 +450,7 @@ export class CharacterRuntime {
 			groupChatId: handoff.groupChatId,
 			sessionId: handoff.piSessionId,
 			character,
+			...(handoff.cursorStorePath !== undefined ? { cursorStorePath: handoff.cursorStorePath } : {}),
 		});
 		runtime.activateFromHandoff(handoff, pi);
 		return runtime;
@@ -377,6 +489,9 @@ export class CharacterRuntime {
 		return this.receivedMessages.some((m) => {
 			if (m.type === "public_message") return true;
 			if (m.type === "message_history" && Array.isArray(m.messages) && m.messages.length > 0) {
+				return true;
+			}
+			if (m.type === "group_chat_update" && Array.isArray(m.preview_messages) && m.preview_messages.length > 0) {
 				return true;
 			}
 			return false;

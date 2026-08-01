@@ -7,18 +7,23 @@
 角色 pi 不创建第二个 Agent 或 session。PiTavern 的群聊输入模块是当前 pi Agent 的另一种输入来源：
 
 ```text
-WebSocket 环境消息
+group_chat_update 通知（广播唤醒）
         ↓
-固定 1 秒 trailing-edge debounce
+立即 fetch_messages_since(持久化游标)（无防抖）
         ↓
-请求最新群聊状态
+增量进批次（缺口由 sequence 过滤天然补齐）
         ↓
-生成一条 pi 原生 custom_message
+run 空闲 → 立即投递；run 活跃 → isAgentActive 排队，settled 后投递
+        ↓
+生成一条 pi 原生 custom_message（followUp，不打断）
         ↓
 当前 pi Agent / pi session
 ```
 
-一个防抖批次只生成一条输入。单个 WebSocket 消息不直接追加到 pi session。
+- 公开消息走「通知 + 增量拉取」（M7/ISSUE-012）：广播只携带最新序号与最近 3 条预览，完整增量由角色主动拉取，不再逐条推送。
+- join 批次（`message_history` + 成员事件）保留 1 秒合并防抖，避免一次 join 拆成多条输入；`group_chat_update` 无防抖。
+- 游标（上次成功投递的最后一条 message sequence）本地持久化（`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>.json`），投递成功后更新，重启不丢。
+- 一个防抖批次只生成一条输入。单个 WebSocket 消息不直接追加到 pi session。
 
 ## pi custom message
 
@@ -69,7 +74,7 @@ await pi.sendMessage(
 ```
 
 - `details` 是 PiTavern 自定义 JSON，字段使用 `snake_case`。
-- `events` 按 WebSocket 广播接收顺序保存当前防抖批次。
+- `events` 按 WebSocket 广播接收顺序保存当前防抖批次（增量拉取结果与通知预览同源）。
 - `group_chat_state` 是提交前通过 `get_group_chat_state` 取得的最新快照。
 - `details` 用于 TUI 渲染、检查和问题排查，不发送给 LLM。
 - `details` 不是群聊历史的事实来源。
@@ -113,7 +118,7 @@ Tester 加入了群聊。
 - 消息正文、成员变化、状态快照和 PiTavern 控制说明使用明确分段。
 - `content` 不直接 dump WebSocket JSON。
 - Character Markdown 不进入 `content`；它在领取时加载一次，并作为加入期间稳定的 system prompt 扩展。
-- Character 自己公开消息的广播回显不进入防抖批次。
+- Character 自己公开消息的广播回显不进入防抖批次（增量拉取结果同样过滤 `isOwnEcho`）。
 - 普通请求响应和手动状态请求不生成群聊输入。
 - `content` 只服务 Agent 上下文，不作为公共群聊历史或协议数据。
 

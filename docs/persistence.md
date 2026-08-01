@@ -302,3 +302,14 @@ groupMaxMessages
     ↓ 创建 Round 时继承
 roundMaxMessages
 ```
+
+## Character 侧游标（M7/ISSUE-012）
+
+角色侧本地持久化「上次成功投递的最后一条消息 sequence」，重启/重连不丢：
+
+- 路径：`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>.json`
+- 内容：`{ "last_sequence": 42, "updated_at": "..." }`（原子写：tmp 文件 + rename）
+- 更新时机：**每次成功投递后**更新（投递失败游标不动 → 下次重拉同一窗口，按 sequence 幂等）
+- join/重连差分同步：有游标 → `fetch_messages_since(游标)`；无游标 → 现有 `message_history` 全量分页
+- 随 reload handoff 传递（`cursorStorePath` 字段），reload 后继续
+- 不提供服务端 per-character 已读游标（游标在角色侧本地，单一 session 模型）

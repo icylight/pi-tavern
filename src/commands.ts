@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { CharacterRuntime } from "./character/character-runtime.js";
 import { loadTavernConfig, type TavernConfig } from "./config/load-config.js";
@@ -9,7 +11,7 @@ import {
 	type GroupChatSessionSummary,
 	listGroupChatSessions as listPersistedGroupChatSessions,
 } from "./creator/group-chat-sessions.js";
-import type { ActiveGroupChatDescriptor } from "./discovery/active-descriptor.js";
+import { type ActiveGroupChatDescriptor, getGroupChatCursorDirectory } from "./discovery/active-descriptor.js";
 import {
 	type DiscoverGroupChatsOptions,
 	discoverGroupChats as discoverActiveGroupChats,
@@ -122,7 +124,9 @@ export function registerCommands(
 				if (!descriptor) {
 					return;
 				}
-				const attempt = await controller.startJoining(descriptor, ctx.sessionManager.getSessionId());
+				const attempt = await controller.startJoining(descriptor, ctx.sessionManager.getSessionId(), {
+					cursorStorePath: join(getGroupChatCursorDirectory(agentDir, ctx.cwd), `${descriptor.groupChatId}.json`),
+				});
 
 				while (attempt.isActive) {
 					if (attempt.availableCharacters.length === 0) {

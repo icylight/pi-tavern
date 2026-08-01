@@ -74,6 +74,14 @@ export const ClientMessageSchema = Type.Union([
 	Type.Object(
 		{
 			id: RequestIdSchema,
+			type: Type.Literal("fetch_messages_since"),
+			since_sequence: Type.Integer({ minimum: 0 }),
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			id: RequestIdSchema,
 			type: Type.Literal("get_chat_history_file"),
 		},
 		{ additionalProperties: false },
@@ -152,6 +160,7 @@ const FailureResponseSchema = Type.Object(
 			Type.Literal("leave_group_chat"),
 			Type.Literal("get_group_chat_state"),
 			Type.Literal("get_message_history"),
+			Type.Literal("fetch_messages_since"),
 			Type.Literal("get_chat_history_file"),
 			Type.Literal("speak"),
 		]),
@@ -280,6 +289,34 @@ const GetMessageHistoryResponseSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+const FetchMessagesSinceResponseSchema = Type.Object(
+	{
+		id: RequestIdSchema,
+		type: Type.Literal("response"),
+		command: Type.Literal("fetch_messages_since"),
+		success: Type.Literal(true),
+		data: Type.Object(
+			{
+				messages: Type.Array(PublicMessageSchema),
+				latest_sequence: Type.Integer({ minimum: 0 }),
+				total_messages: Type.Integer({ minimum: 0 }),
+			},
+			{ additionalProperties: false },
+		),
+	},
+	{ additionalProperties: false },
+);
+
+const GroupChatUpdateSchema = Type.Object(
+	{
+		type: Type.Literal("group_chat_update"),
+		latest_sequence: Type.Integer({ minimum: 0 }),
+		preview_messages: Type.Array(PublicMessageSchema),
+		total_messages: Type.Integer({ minimum: 0 }),
+	},
+	{ additionalProperties: false },
+);
+
 const GetChatHistoryFileResponseSchema = Type.Object(
 	{
 		id: RequestIdSchema,
@@ -342,6 +379,7 @@ export const ServerMessageSchema = Type.Union([
 	FailureResponseSchema,
 	GroupChatStateResponseSchema,
 	GetMessageHistoryResponseSchema,
+	FetchMessagesSinceResponseSchema,
 	GetChatHistoryFileResponseSchema,
 	SpeakResponseSchema,
 	CharacterJoinedSchema,
@@ -349,6 +387,7 @@ export const ServerMessageSchema = Type.Union([
 	GroupChatClosedSchema,
 	MessageHistorySchema,
 	PublicMessageSchema,
+	GroupChatUpdateSchema,
 ]);
 
 export type ServerMessage = Static<typeof ServerMessageSchema>;
