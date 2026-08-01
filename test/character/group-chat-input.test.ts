@@ -512,9 +512,7 @@ describe("GroupChatInput", () => {
 			getGroupChatState: async () => ({}),
 		});
 		runtime.fetchMessagesSince = vi.fn(async (since: number) => ({
-			messages: [7, 8, 9]
-				.filter((seq) => seq > since)
-				.map((seq) => aPublicMessage("user_persona", { sequence: seq })),
+			messages: [7, 8, 9].filter((seq) => seq > since).map((seq) => aPublicMessage("user_persona", { sequence: seq })),
 			latestSequence: 9,
 			totalMessages: 9,
 		}));
@@ -571,9 +569,7 @@ describe("GroupChatInput", () => {
 			hasPublicMessages: true,
 		});
 		runtime.fetchMessagesSince = vi.fn(async (since: number) => ({
-			messages: [7]
-				.filter((seq) => seq > since)
-				.map((seq) => aPublicMessage("user_persona", { sequence: seq })),
+			messages: [7].filter((seq) => seq > since).map((seq) => aPublicMessage("user_persona", { sequence: seq })),
 			latestSequence: 7,
 			totalMessages: 7,
 		}));
@@ -611,6 +607,60 @@ describe("GroupChatInput", () => {
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
 		const message = call[0] as { details: { events: Array<{ type: string; sequence?: number }> } };
 		expect(message.details.events.map((e) => e.type)).toEqual(["character_joined", "public_message"]);
+
+		input.stop();
+	});
+
+	it("ISSUE-013 A2×B6: settle refetch starts from the delivery cursor (speak never advances it)", async () => {
+		// B6 final design: the client never advances the delivery cursor on
+		// speak — the server excludes the requester's own messages from the
+		// staleness check. So when 7..9 arrive during a run (marked, never
+		// injected), the settle refetch must start from the delivery cursor
+		// and cover them; nothing may be skipped.
+		vi.useFakeTimers();
+
+		let cursor = 6;
+		const runtime = createMockRuntime({
+			getGroupChatState: async () => ({}),
+		});
+		runtime.loadCursor = vi.fn(() => cursor);
+		runtime.saveCursor = vi.fn((value: number) => {
+			cursor = value;
+		});
+		runtime.fetchMessagesSince = vi.fn(async (since: number) => ({
+			messages: [7, 8, 9].filter((seq) => seq > since).map((seq) => aPublicMessage("user_persona", { sequence: seq })),
+			latestSequence: 9,
+			totalMessages: 9,
+		}));
+		runtime.isAgentActive = true;
+
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+
+		// Notification for 7..9 arrives during the run (marked only).
+		handler({
+			type: "group_chat_update",
+			latest_sequence: 9,
+			preview_messages: [],
+			total_messages: 9,
+		} as unknown as ServerMessage);
+		await vi.advanceTimersByTimeAsync(0);
+
+		// Mid-run the character speaks and publishes at seq 10; the delivery
+		// cursor stays at 6 (client-side zero advancement, per final spec).
+
+		// Settle → the refetch must still cover 7..9 (never injected before).
+		runtime.isAgentActive = false;
+		runtime.onAgentSettled?.();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
+		const message = call[0] as { details: { events: Array<{ sequence?: number }> } };
+		const sequences = message.details.events.map((e) => e.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
+		expect(sequences).toEqual([7, 8, 9]);
 
 		input.stop();
 	});

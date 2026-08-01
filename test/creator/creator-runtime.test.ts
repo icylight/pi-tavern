@@ -1909,14 +1909,21 @@ describe("ISSUE-013 B2: speak staleness check", () => {
 		const currentResponse = await waitForMessage(client, "response");
 		expect(currentResponse.data).toMatchObject({ published: true, sequence: 3 });
 
-		// Boundary: based_on_sequence one behind the latest is stale.
+		// A new user message arrives (seq 4) — now a behind speak is stale
+		// against another sender (the server excludes the requester's own
+		// messages, so only other senders count toward staleness). The new
+		// user message also opens a fresh round (used=0); the stale refusal
+		// consumes no quota of it (B4).
+		await runtime.submitUserPersonaMessage("two");
+
+		// Boundary: based_on_sequence behind another sender's latest is stale.
 		client.send(JSON.stringify({ id: "l3", type: "speak", content: "Behind reply", based_on_sequence: 2 }));
 		const behindResponse = await waitForMessage(client, "response");
 		expect(behindResponse.data).toEqual({
 			published: false,
 			reason: "stale",
-			missing_sequences: { from: 3, to: 3 },
-			round: { round_max_messages: 10, used_messages: 2, remaining_messages: 8 },
+			missing_sequences: { from: 3, to: 4 },
+			round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
 		});
 
 		client.close();
