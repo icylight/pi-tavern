@@ -52,6 +52,17 @@
 - **建议**：补端到端身份一致性断言（注入 persona 名 == creator 在线注册名）；speak-order 断言加「speaker 与内容作者一致性」检查。
 - **阻塞**：无（speak-order 的 sequence/轮次计数机制正常），但影响群聊可信度与验收裁决。
 
+## ISSUE-009: TUI 成员数显示「未知」（character 侧快照缺失，考虑定时更新）
+
+- **状态**：open（User 指示：仅登记，不开发；「考虑这个定时更新一下」）
+- **来源**：User 反馈（2026-08-01）：「tui 现在显示成员数未知，考虑这个定时更新一下」
+- **现象**：character 侧 TUI widget 显示「成员数未知」，而非「N 人在线」。
+- **根因（已定位）**：`src/ui/tavern-ui-presenter.ts:68`——`characterWidgetLines` 在 snapshot 为 null 时输出「成员数未知」；snapshot 来自 `lastGroupChatState`，仅在群聊新消息注入（`getGroupChatState` → `onStateSnapshot`，character-runtime.ts:145）时刷新——无消息即不更新，刚 join / reload 后 / 长时间无消息时快照缺失或过期。
+- **与 ISSUE-002 同源**：均为 character 侧状态无主动/定时推送（ISSUE-002「正在发言」不准确）。
+- **User 诉求**：定时更新（定期刷新成员数/状态，而非仅消息触发）。
+- **待确认**：「未知」出现时机（刚 join？reload 后？无消息多久后？）——User 补充。
+- **阻塞**：无；不派工不开发（User 指示，冻结期顺延）。
+
 ## ISSUE-008: 无法查询群聊历史（开过两个群聊，历史不可查）
 
 - **状态**：open（User 指示：仅登记，不开发）
