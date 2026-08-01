@@ -51,6 +51,16 @@
 - **建议**：补端到端身份一致性断言（注入 persona 名 == creator 在线注册名）；speak-order 断言加「speaker 与内容作者一致性」检查。
 - **阻塞**：无（speak-order 的 sequence/轮次计数机制正常），但影响群聊可信度与验收裁决。
 
+## ISSUE-005: reload 后角色卡更新不生效（提示词不刷新）
+
+- **状态**：open
+- **来源**：User 反馈（2026-08-01，reload 后询问提示词是否最新）
+- **现象**：character session 已 join 后修改角色卡文件（如三方合并 0.5 协作守则），对该 session 执行 reload，注入的 persona 提示词仍是旧卡内容。
+- **根因（已定位）**：`src/character/character-runtime.ts` 的 `detachForReload` 将 `this.character`（旧 `CharacterCard` 对象，含旧 prompt）写入 handoff（:231）；`takeHandoff` 直接用 `handoff.character` 重建 runtime（:264），**不重新读取角色卡文件**；`src/index.ts:107` 的 `before_agent_start` 每轮从 `runtime.character` 注入 systemPrompt——因此 reload 后提示词不刷新。
+- **建议方案**：`takeHandoff` 恢复后按 handoff 中卡的 path/configPath 重新 `loadCharacterCard`；重读失败时保留旧卡并 notify 告警；新 join 已走 `loadClaimedCharacter` 不受影响。
+- **验收建议**：修改角色卡 → reload → 新消息注入的 persona 包含新内容；重读失败时告警且不崩溃。
+- **阻塞**：无，不影响现有契约；与 ISSUE-003（身份行）文件域不同（reload-handoff vs group-chat-input），可独立排期。
+
 ## ISSUE-004: 三方角色频繁修改相同文件导致工作区冲突
 
 - **状态**：closed（2026-08-01 以角色卡协作守则解决）
