@@ -47,11 +47,16 @@ export class GroupChatInput {
 		private readonly runtime: CharacterRuntime,
 		private readonly pi: ExtensionAPI,
 	) {
-		// M7 A5: when the Agent run settles, flush any increment queued while
-		// it was active ("不打断": never interrupt a running turn).
+		// M7 A5: when the Agent run settles, flush an increment that was queued
+		// while the run was active ("不打断": never interrupt a running turn).
+		// The flag gates the flush: a settle without a queued increment (e.g.
+		// a settle triggered by an unrelated turn) does not push new input.
 		this.onSettled = () => {
+			if (!this.flushQueuedForSettle || this.stopped) {
+				return;
+			}
 			this.flushQueuedForSettle = false;
-			if (this.batch.length > 0 && !this.stopped) {
+			if (this.batch.length > 0) {
 				void this.flush();
 			}
 		};
