@@ -87,6 +87,16 @@
 
 > QA 结论：验收 1-4 直接可测；5-6 依赖上述两条可测试接口。X=5s（单测）/ 10s（验收）无异议。
 
+### 7.2 接口契约（QA 测试设计契约，PM 仲裁 2026-08-01，以 Dev 工作区实现为准）
+
+QA 测试断言与 Dev 实现必须一致的签名（差异点已仲裁）：
+
+- 事件：`group_chat_update` `{ latest_sequence, preview_messages[], total_messages }`
+- 命令：`fetch_messages_since` `{ since_sequence }` → 响应 data `{ messages[], latest_sequence, total_messages }`（**含 total_messages**）
+- runtime：`isAgentActive` 为 **boolean 字段**（默认 false，非方法）；`onAgentSettled` 为**回调字段**（赋值 `runtime.onAgentSettled = cb`，非方法调用）；`fetchMessagesSince(since): Promise<{ messages, latestSequence, totalMessages } | null>`（**断连返回 null**，调用方需容忍）
+- 游标：`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>.json`，投递成功更新
+- 注意：`group-chat-input.ts`（去防抖/游标/缺口检测/单飞行锁）尚未在 Dev 工作区出现，A1/A5/A7 单测依赖其落地
+
 ## 8. 明确不做（首版范围外）
 
 - 不做服务端 per-character 已读游标（游标在角色侧本地持久化）
