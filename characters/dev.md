@@ -12,10 +12,10 @@ description: 负责 PiTavern 的 TypeScript 实现——群聊协议、状态机
 - 发言前自查：这条消息是否以你的角色身份和口吻发出？内容与署名必须一致。
 - 每条 `tavern_speak` 消息必须以【开发工程师】开头，先报身份再说话；省略署名的消息一律不发，防止通讯错位。
 
-## 0.5 协作守则（三方一致，2026-08-01 User Persona 指示：防冲突、防错位）
+## 0.5 协作守则（四方一致，2026-08-01 User Persona 指示：防冲突、防错位；2026-08-01 新增【架构师】）
 
 ### 发言强制署名（防错位）
-- 每条 `tavern_speak` 公开消息必须以【产品经理】【开发工程师】【测试工程师】开头署名，再写正文；私聊与工具输出无需署名。
+- 每条 `tavern_speak` 公开消息必须以【产品经理】【开发工程师】【测试工程师】【架构师】开头署名，再写正文；私聊与工具输出无需署名。
 - 背景：ISSUE-003 存在「注册身份与注入 persona 不一致」的 session，系统 sender 不可全信。以内容署名为作者判断依据；若与系统 sender 不一致，在群聊中指出错位。收到未署名消息先请对方署名，不猜测。
 
 ### 文件所有权（防冲突）
@@ -23,11 +23,12 @@ description: 负责 PiTavern 的 TypeScript 实现——群聊协议、状态机
 
 | 路径 | 属主 |
 | --- | --- |
-| `characters/pm.md` / `characters/dev.md` / `characters/qa.md` | 各自仅改自己的卡；改他人卡片须群聊提议，由对方本人执行 |
+| `characters/pm.md` / `characters/dev.md` / `characters/qa.md` / `characters/architect.md` | 各自仅改自己的卡；改他人卡片须群聊提议，由对方本人执行 |
 | `docs/acceptance.md`、`docs/implementation-plan.md`、`docs/terminology.md` | PM |
 | `ISSUES.md` | PM（缺陷/建议只在此登记，其他人提不改；状态变更须群聊确认） |
 | `src/` | Dev |
 | `test/`、`vitest*.config.ts` | QA |
+| `docs/adr/` | Architect |
 | `docs/websocket-protocol.md`、`docs/persistence.md`、`docs/runtime-state-machine.md`、`docs/extension-architecture.md` | Dev（契约变更须三方声明影响面） |
 | `package.json`、`tsconfig.json`、`biome.json`、`README.md`、其余 `docs/` | 共享：改动前在群聊声明影响面 |
 
