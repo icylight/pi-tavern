@@ -40,18 +40,7 @@ npm run test:acceptance
 2. **可用范围**：仅 character 状态可用；creator/idle 状态返回明确错误（与 tavern_speak 同模式），不泄露其他角色信息；
 3. **确定性验收**：单测直接调用 handler 断言返回值 == runtime.character；验收层（PITAVERN_TEST）断言工具存在且响应与注册记录一致——不依赖 LLM 是否读了提示；
 4. **被动层保留**：群聊输入身份行（三字段）不变，继续每轮告知（兜底）；
-5. **ISSUE-006 裁决**：007 落地后由 User 裁决 006 是否仍独立实施（007 已覆盖「查证」，006 为「每轮提示」增强）。
-
-### 每轮身份提示（ISSUE-006，2026-08-01 User 访谈确认）
-
-每个群聊消息触发的 turn，模型在开口前必须知道自己的角色身份：
-
-1. **identity 字段**：角色卡 frontmatter 支持可选 `identity` 字段；存在时每轮注入其内容，未配置时回退为 `name` + `description` 拼接的身份句；
-2. **触发范围**：仅群聊消息触发的 turn（`group-chat-input` followUp）注入；私聊/普通输入不注入；
-3. **分层**：完整角色卡仍 join 时注入一次，每轮仅追加简短身份提示（system prompt 层），不替代 ISSUE-003 的消息层身份行（收到消息侧 vs 发出消息侧）；
-4. **可观察**：每轮注入的身份提示经 `[tavern-test-injection]` notify 通道暴露（与 ISSUE-003/005 同一观察通道），验收断言提示内容与卡片 `identity` 一致。
-
-验收方式：`npm run test:acceptance` 相关用例绿（身份行 + 身份提示共用观察通道）。
+5. **ISSUE-006 统一裁决（User 2026-08-01「统一」）**：006 并入本需求，不独立实施；frontmatter `identity` 字段与 system prompt 每轮注入取消，身份感知由身份行（被动告知）+ whoami（主动查证）统一承担。
 
 ### TUI 发言次数显示（ISSUE-001，2026-08-01 User 指示）
 
