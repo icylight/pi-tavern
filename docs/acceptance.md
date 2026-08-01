@@ -25,7 +25,7 @@ npm run test:acceptance
 ### 身份一致性（ISSUE-003 修复验收）
 通讯错位根因：群聊广播无收件人标记，session 会把发给别人的指令当成自己的；且存在注入 persona 与注册身份不一致的 session。修复后必须满足：
 
-1. **身份行注入**：`group-chat-input` 注入内容必须包含显式身份行（当前角色 persona 名 + `character_id` + creator 在线注册名），使 session 能区分「发给我的」与「广播」；
+1. **身份行注入**：`group-chat-input` 注入内容必须包含显式身份行（当前角色 persona 名 + `character_id`；注册名与 persona 名同源于注册对象单字段承载，2026-08-01 QA 审查确认无需第三字段；若未来出现注册名≠persona 名场景再升级断言），使 session 能区分「发给我的」与「广播」；
 2. **注册/注入一致**：端到端断言注入 persona 名 == creator 在线注册名；不一致时 join 流程必须失败或明确提示，不得静默错配；
 3. **speaker 一致**：speak-order 断言每条消息的 sender 与消息来源 session 的注入 persona 一致（内容作者一致性）；
 4. **并发不串**：两个 character 同时 join（现有 ecd7e6a 并发场景）时注册身份互不串扰，群聊中每个注册名只对应一个注入 persona。
