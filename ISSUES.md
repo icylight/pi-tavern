@@ -101,7 +101,7 @@
 
 ## ISSUE-007: 身份显式状态化（统一 ISSUE-006/007，根治「模型靠猜」）
 
-- **状态**：closed（2026-08-01 实现 + 验收完成：tavern_whoami + tavern-test-whoami，单测三态 + 跨进程一致性全绿，证据链 9c49c83 + d6adc51）
+- **状态**：closed（2026-08-01 实现 + 验收完成：tavern_whoami + tavern-test-whoami，单测三态 + 跨进程一致性全绿，证据链 9c49c83 + d6adc51；GitHub issue #16 已 closed，随 PR #18 合并）
 - **来源**：User Persona 质疑（2026-08-01）：「角色难道不是一个可以查看的状态，为什么要靠猜呢」；User 裁决「统一」（2026-08-01）
 - **背景**：Dev 根因证实身份（persona）仅存在于 `before_agent_start` 链注入的 systemPrompt 文本，多扩展时存在缺失/被覆盖窗口，模型无确定性查证通道只能从上下文推断。
 - **方向对比（QA 2026-08-01 确认）**：身份行方案 = 每轮「告诉」模型你是谁（缓解，仍是提示文本，可能被忽略/截断）；可查询状态 = 角色作为确定性运行时状态暴露，模型可随时「查证」（根治，不依赖注入链）。
@@ -135,7 +135,7 @@
 
 ## ISSUE-005: reload 后角色卡更新不生效（提示词不刷新）
 
-- **状态**：open
+- **状态**：closed（2026-08-01 实现 7af8270 + QA 落库 b01c298 + PM 验收；验收标准入 docs/acceptance.md；GitHub issue #17 已 closed，随 PR #18 合并）
 - **来源**：User 反馈（2026-08-01，reload 后询问提示词是否最新）
 - **现象**：character session 已 join 后修改角色卡文件（如三方合并 0.5 协作守则），对该 session 执行 reload，注入的 persona 提示词仍是旧卡内容。
 - **根因（已定位）**：`src/character/character-runtime.ts` 的 `detachForReload` 将 `this.character`（旧 `CharacterCard` 对象，含旧 prompt）写入 handoff（:231）；`takeHandoff` 直接用 `handoff.character` 重建 runtime（:264），**不重新读取角色卡文件**；`src/index.ts:107` 的 `before_agent_start` 每轮从 `runtime.character` 注入 systemPrompt——因此 reload 后提示词不刷新。
