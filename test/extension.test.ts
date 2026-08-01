@@ -186,12 +186,17 @@ function createMockCharacterRuntime(speakResult: object): CharacterRuntime {
 		character: { characterId: "dev", name: "Dev", description: "Dev" },
 		close: vi.fn(async () => undefined),
 		getGroupChatState: vi.fn(),
+		markIncrementPending: vi.fn(),
 		speak: vi.fn(async () => speakResult),
 	} as unknown as CharacterRuntime;
 }
 
 async function createCharacterController(speakResult: object): Promise<TavernController> {
 	const runtime = createMockCharacterRuntime(speakResult);
+	return createCharacterControllerWithRuntime(runtime);
+}
+
+async function createCharacterControllerWithRuntime(runtime: CharacterRuntime): Promise<TavernController> {
 	const attempt = {
 		availableCharacters: [{ character_id: "dev", name: "Dev", description: "Dev" }],
 		isActive: true,
@@ -340,6 +345,68 @@ describe("PiTavern extension", () => {
 		expect(tool).toBeDefined();
 		const result = await tool.execute("call-1", { content: "Too late" });
 		expect(result.content[0]?.text).toContain("round limit reached");
+	});
+
+	it("ISSUE-013 B3: stale speak flags the increment; notice only, no in-tool pull", async () => {
+		const runtime = createMockCharacterRuntime({
+			published: false,
+			reason: "stale",
+			missingFrom: 3,
+			missingTo: 5,
+			autoRecover: true,
+			round: { roundMaxMessages: 10, usedMessages: 0, remainingMessages: 10 },
+		});
+		runtime.fetchMessagesSince = vi.fn();
+		const controller = await createCharacterControllerWithRuntime(runtime);
+
+		const { tools, api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI, controller);
+
+		const tool = tools[0];
+		if (!tool) throw new Error("no tool");
+		const result = await tool.execute("call-1", { content: "Stale message" });
+
+		// The tool reports the refusal with the missing range, not a generic error.
+		expect(result.isError).not.toBe(true);
+		const text = result.content[0]?.text ?? "";
+		expect(text).toContain("out of sync");
+		expect(text).toContain("messages 3..5 arrived");
+		expect(text).toContain("not counted against the round quota");
+		expect(text).toContain("no hand was raised");
+		// Final design (User "怎么简单怎么来"): no in-tool pull, no message text —
+		// only the A2 increment mark, so the settle hook pulls once through the
+		// unified pipeline and the LLM re-decides with full context next turn.
+		expect(runtime.fetchMessagesSince).not.toHaveBeenCalled();
+		expect(text).not.toContain("[seq 3]");
+		expect(runtime.markIncrementPending).toHaveBeenCalledTimes(1);
+	});
+
+	it("ISSUE-013 B5: no auto-recovery flag when the budget is exhausted", async () => {
+		const runtime = createMockCharacterRuntime({
+			published: false,
+			reason: "stale",
+			missingFrom: 3,
+			missingTo: 5,
+			autoRecover: false,
+			round: { roundMaxMessages: 10, usedMessages: 0, remainingMessages: 10 },
+		});
+		runtime.fetchMessagesSince = vi.fn();
+		const controller = await createCharacterControllerWithRuntime(runtime);
+
+		const { tools, api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI, controller);
+
+		const tool = tools[0];
+		if (!tool) throw new Error("no tool");
+		const result = await tool.execute("call-1", { content: "Stale again" });
+
+		// Budget exhausted: the notice stays, but no A2 increment mark is set
+		// (no further automatic recovery this round) and no in-tool pull.
+		expect(runtime.markIncrementPending).not.toHaveBeenCalled();
+		expect(runtime.fetchMessagesSince).not.toHaveBeenCalled();
+		const text = result.content[0]?.text ?? "";
+		expect(text).toContain("out of sync");
+		expect(text).toContain("Auto-recovery budget exhausted this round");
 	});
 
 	it("enables tavern_speak when entering character state", () => {

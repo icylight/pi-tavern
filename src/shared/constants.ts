@@ -12,3 +12,9 @@ export const HEARTBEAT_PING_INTERVAL_MS = 30_000;
 
 /** 心跳失效阈值（毫秒）：超时后统一执行 disconnected 清理，不自动重连。 */
 export const HEARTBEAT_TIMEOUT_MS = 120_000;
+
+/**
+ * join/ready 时推送的最近公开消息条数（User 2026-08-01 指示：默认 10 → 100）。
+ * 仅限 join 推送窗口；增量分页粒度（get_message_history 每页）保持 10。
+ */
+export const JOIN_HISTORY_LIMIT = 100;

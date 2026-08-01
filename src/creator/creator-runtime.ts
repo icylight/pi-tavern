@@ -27,6 +27,7 @@ import type { ClientMessage } from "../protocol/messages.js";
 import {
 	HEARTBEAT_PING_INTERVAL_MS,
 	HEARTBEAT_TIMEOUT_MS,
+	JOIN_HISTORY_LIMIT,
 	SHORT_COORDINATION_TIMEOUT_MS,
 } from "../shared/constants.js";
 import type { RuntimeCloseReason, RuntimeCloseResult } from "../shared/runtime-close.js";
@@ -1108,7 +1109,8 @@ export class CreatorRuntime {
 
 		// Send history before join broadcast so hasPublicMessages is true
 		// when the new Character processes its own character_joined event.
-		const recentMessages = this.publicMessages.slice(-10);
+		// User 2026-08-01: join push window 10 → JOIN_HISTORY_LIMIT (100).
+		const recentMessages = this.publicMessages.slice(-JOIN_HISTORY_LIMIT);
 		const earliest = recentMessages[0];
 		const hasMore = earliest !== undefined && earliest.sequence > 1;
 		this.send(socket, {
@@ -1166,6 +1168,8 @@ export class CreatorRuntime {
 
 		// Cursor is an absolute sequence boundary: return the 10 most recent
 		// messages with sequence < cursorSeq. New messages never shift it.
+		// NOTE: page size stays 10 (incremental paging granularity); only the
+		// join push window uses JOIN_HISTORY_LIMIT (User 2026-08-01).
 		const cursorSeq = message.cursor === undefined || message.cursor === null ? null : decodeCursor(message.cursor);
 		const page =
 			cursorSeq === null
@@ -1305,6 +1309,62 @@ export class CreatorRuntime {
 			return;
 		}
 
+		// ISSUE-013 B2: staleness check — only when the client sent
+		// based_on_sequence. Legacy clients omit the field and skip the check
+		// entirely (smooth protocol evolution). A stale speak is a business
+		// refusal (mirrors round_limit_reached): not published, no quota
+		// consumed, no hand raised.
+		//
+		// B6: the check excludes the requester's own messages — the client's
+		// single cursor never advances past its own published message (the
+		// echo is filtered client-side), so a naive "latest sequence" compare
+		// would falsely reject the next speak against itself. Tail scan for
+		// the most recent message by anyone else: no extra state, and the
+		// requester's trailing run is usually 0-1 messages.
+		let latestOtherSequence = 0;
+		for (let i = this.publicMessages.length - 1; i >= 0; i--) {
+			const candidate = this.publicMessages[i];
+			if (candidate === undefined) {
+				continue;
+			}
+			if (
+				candidate.sender.type === "character" &&
+				candidate.sender.character_id === onlineCharacter.character.characterId
+			) {
+				continue;
+			}
+			latestOtherSequence = candidate.sequence;
+			break;
+		}
+		const latestPublic = this.publicMessages[this.publicMessages.length - 1];
+		const latestSequence = latestPublic !== undefined ? latestPublic.sequence : 0;
+		if (message.based_on_sequence !== undefined && message.based_on_sequence < latestOtherSequence) {
+			// missing_sequences is the plain contiguous range to the latest
+			// sequence (informational only): the client re-pulls from its
+			// cursor via fetch_messages_since and isOwnEcho filters its own
+			// messages — no need for a precise other-message range here.
+			this.send(socket, {
+				...(message.id !== undefined ? { id: message.id } : {}),
+				type: "response",
+				command: "speak",
+				success: true,
+				data: {
+					published: false,
+					reason: "stale",
+					missing_sequences: {
+						from: message.based_on_sequence + 1,
+						to: latestSequence,
+					},
+					round: {
+						round_max_messages: round.roundMaxMessages,
+						used_messages: round.usedMessages,
+						remaining_messages: Math.max(0, round.roundMaxMessages - round.usedMessages),
+					},
+				},
+			});
+			return;
+		}
+
 		const canPublish = round.usedMessages < round.roundMaxMessages;
 
 		// If persistence is broken, reject even non-publishing speaks
@@ -1410,6 +1470,10 @@ export class CreatorRuntime {
 					published: true,
 					event_id: entryId,
 					sequence,
+					// ISSUE-013 B6: lets the client advance its last-seen sequence
+					// past its own published message (echo is filtered client-side
+					// so the pull cursor never advances on its own).
+					latest_sequence: sequence,
 					round: msg.round,
 				},
 			});

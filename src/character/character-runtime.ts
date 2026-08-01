@@ -51,6 +51,13 @@ interface PendingRequest {
 
 const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
 
+/**
+ * ISSUE-013 B5: maximum automatic stale-recovery pulls per round. Beyond
+ * this budget the speak tool reports the refusal without auto-pulling, so a
+ * message flood cannot loop the agent between reject and re-publish.
+ */
+const MAX_STALE_AUTO_RECOVERIES = 2;
+
 export class CharacterRuntime {
 	readonly groupChatId: string;
 	readonly sessionId: string;
@@ -80,6 +87,16 @@ export class CharacterRuntime {
 	private readonly heartbeatTimeoutMs: number;
 	private readonly cursorStorePath: string | undefined;
 	private cursorSequence: number | null = null;
+
+	/**
+	 * ISSUE-013 B5: per-round stale auto-recovery budget. Tracked against the
+	 * round snapshot returned with each speak response; the key changes when
+	 * the round does (new round or others publishing), which resets the
+	 * budget. Beyond the budget the client stops flagging the A2 injection
+	 * and reports the refusal for manual re-decision.
+	 */
+	private staleRecoveryKey: string | null = null;
+	private staleRecoveryCount = 0;
 	private closePromise: Promise<void> | null = null;
 	private disconnected = false;
 	private lastPingAt = 0;
@@ -319,32 +336,73 @@ export class CharacterRuntime {
 		sequence?: number;
 		reason?: string;
 		handRaised?: boolean;
+		missingFrom?: number;
+		missingTo?: number;
+		autoRecover?: boolean;
 		round?: { roundMaxMessages: number; usedMessages: number; remainingMessages: number };
 	}> {
-		const response = await this.request({ type: "speak", content });
+		// ISSUE-013 B1: the client always carries its delivery cursor (the
+		// last successfully delivered sequence — A5: advanced only by the
+		// delivery path). The client never advances it on its own; the server
+		// excludes the requester's own messages from the staleness check (B6),
+		// so the cursor sitting before one's own published message never
+		// causes a false rejection. Legacy servers ignore the field.
+		const basedOnSequence = this.loadCursor() ?? 0;
+		const response = await this.request({ type: "speak", content, based_on_sequence: basedOnSequence });
 		if (response.type !== "response" || response.command !== "speak") {
 			throw new Error("Unexpected PiTavern speak response");
 		}
 		if (!response.success) {
 			throw new Error(response.error);
 		}
-		return {
-			published: response.data.published,
-			...(response.data.published
-				? {
-						eventId: response.data.event_id,
-						sequence: response.data.sequence,
-					}
-				: {
-						reason: response.data.reason,
-						handRaised: response.data.hand_raised,
-					}),
-			round: {
-				roundMaxMessages: response.data.round.round_max_messages,
-				usedMessages: response.data.round.used_messages,
-				remainingMessages: response.data.round.remaining_messages,
-			},
+		const round = {
+			roundMaxMessages: response.data.round.round_max_messages,
+			usedMessages: response.data.round.used_messages,
+			remainingMessages: response.data.round.remaining_messages,
 		};
+		if (response.data.published) {
+			this.staleRecoveryKey = null;
+			this.staleRecoveryCount = 0;
+			return {
+				published: true,
+				eventId: response.data.event_id,
+				sequence: response.data.sequence,
+				round,
+			};
+		}
+		if (response.data.reason === "stale") {
+			const key = `${round.roundMaxMessages}:${round.usedMessages}`;
+			if (this.staleRecoveryKey !== key) {
+				this.staleRecoveryKey = key;
+				this.staleRecoveryCount = 0;
+			}
+			this.staleRecoveryCount += 1;
+			return {
+				published: false,
+				reason: "stale",
+				missingFrom: response.data.missing_sequences.from,
+				missingTo: response.data.missing_sequences.to,
+				autoRecover: this.staleRecoveryCount <= MAX_STALE_AUTO_RECOVERIES,
+				round,
+			};
+		}
+		return {
+			published: false,
+			reason: "round_limit_reached",
+			handRaised: response.data.hand_raised,
+			round,
+		};
+	}
+
+	/**
+	 * ISSUE-013 B3: flag the A2 "increment pending" mark so the settle hook
+	 * pulls the missed increment through the unified delivery pipeline.
+	 * Called by the speak tool when a stale refusal needs auto-recovery; the
+	 * tool itself returns only a short notice (no message text — the full
+	 * increment arrives in the next turn via the normal group chat input).
+	 */
+	markIncrementPending(): void {
+		this.groupChatInput?.markIncrementPending();
 	}
 
 	/**

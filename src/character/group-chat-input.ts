@@ -33,30 +33,44 @@ const JOIN_BATCH_DEBOUNCE_MS = 1000;
 export class GroupChatInput {
 	private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 	private debounceDueAt: number | null = null;
-	private batch: ServerMessage[] = [];
+	/**
+	 * ISSUE-013 A1/A2: pending delivery window. Holds join/member events
+	 * (debounced so a join never splits) and any increment that had to wait
+	 * for a running Agent turn. Public-message increments are NOT accumulated
+	 * here while idle — they are fetched and delivered immediately (A1).
+	 */
+	private pendingEvents: ServerMessage[] = [];
 	private handler: ((message: ServerMessage) => void) | undefined;
 	private stopped = false;
 	/** Single-flight lock: at most one fetch_messages_since in flight. */
 	private fetchInFlight = false;
 	/** Set when an update arrives while a fetch is in flight → refetch after. */
 	private refetchRequested = false;
-	/** Set when the Agent is mid-run and the increment must wait for settle. */
+	/** Set when the Agent is mid-run and an increment must wait for settle. */
 	private flushQueuedForSettle = false;
+	/** Set when an update arrives while the Agent is mid-run (A2: no fetch). */
+	private incrementPending = false;
 
 	constructor(
 		private readonly runtime: CharacterRuntime,
 		private readonly pi: ExtensionAPI,
 	) {
-		// M7 A5: when the Agent run settles, flush an increment that was queued
-		// while the run was active ("不打断": never interrupt a running turn).
-		// The flag gates the flush: a settle without a queued increment (e.g.
-		// a settle triggered by an unrelated turn) does not push new input.
+		// M7 A5 / ISSUE-013 A2/A4: when the Agent run settles, deliver what was
+		// queued while the run was active ("不打断": never interrupt a running
+		// turn). The increment is pulled ONCE at settle time, covering
+		// everything after the cursor at that moment — no accumulated stale
+		// batch (A2: delivery == latest at settle, no intermediate state).
 		this.onSettled = () => {
-			if (!this.flushQueuedForSettle || this.stopped) {
+			if (this.stopped) {
 				return;
 			}
-			this.flushQueuedForSettle = false;
-			if (this.batch.length > 0) {
+			if (this.incrementPending) {
+				this.incrementPending = false;
+				void this.pullIncrement();
+				return;
+			}
+			if (this.flushQueuedForSettle) {
+				this.flushQueuedForSettle = false;
 				void this.flush();
 			}
 		};
@@ -72,15 +86,15 @@ export class GroupChatInput {
 				// the cursor so older messages are not lost. M7: the persisted
 				// cursor takes precedence — a returning character diff-syncs
 				// from its last delivered position instead of re-reading history.
-				const before = this.batch.length;
+				const before = this.pendingEvents.length;
 				for (const m of message.messages) {
 					if (m && typeof m === "object" && "type" in m && m.type === "public_message") {
 						if (!this.isEnvironmentEvent(m as ServerMessage)) continue;
-						this.batch.push(m as ServerMessage);
+						this.pendingEvents.push(m as ServerMessage);
 					}
 				}
 				// Only start debounce if messages were actually added
-				if (this.batch.length > before) {
+				if (this.pendingEvents.length > before) {
 					this.resetJoinDebounce();
 				}
 				// Paging is deliberately fire-and-forget: the flush already
@@ -93,13 +107,14 @@ export class GroupChatInput {
 			}
 			if (message.type === "group_chat_update") {
 				// M7: notification → immediate incremental pull (no debounce).
-				// The pull result is what reaches the context; the preview is
-				// only for the TUI (same source, so content never diverges).
+				// ISSUE-013 A1: the pull result is delivered straight away (no
+				// batch accumulation); the preview is only for the TUI (same
+				// source, so content never diverges).
 				void this.pullIncrement();
 				return;
 			}
 			if (!this.isEnvironmentEvent(message)) return;
-			this.batch.push(message);
+			this.pendingEvents.push(message);
 			this.resetJoinDebounce();
 		};
 		this.runtime.onEnvironmentMessage = this.handler;
@@ -108,14 +123,22 @@ export class GroupChatInput {
 	}
 
 	/**
-	 * M7: pull every message after the persisted cursor and append it to the
-	 * batch. Single-flight: a concurrent update only marks refetchRequested
-	 * and is coalesced into one follow-up pull. If the Agent is mid-run the
-	 * flush is deferred until it settles (A5); otherwise it flushes at once.
+	 * M7 + ISSUE-013 A1/A2: pull every message after the persisted cursor and
+	 * deliver it straight away — no batch accumulation in between.
+	 *
+	 * Single-flight: a concurrent update only marks refetchRequested and is
+	 * coalesced into one follow-up pull. While the Agent is mid-run the pull
+	 * is deferred entirely (A2: zero fetches during a run); the settle hook
+	 * pulls once, covering everything after the cursor at settle time — so
+	 * delivery is "latest at settle", never a stale accumulation.
 	 */
 	private async pullIncrement(): Promise<void> {
 		if (this.stopped || this.fetchInFlight) {
 			this.refetchRequested = true;
+			return;
+		}
+		if (this.runtime.isAgentActive) {
+			this.incrementPending = true;
 			return;
 		}
 		this.fetchInFlight = true;
@@ -127,18 +150,18 @@ export class GroupChatInput {
 				if (!page || this.stopped) {
 					return;
 				}
-				const before = this.batch.length;
+				const messages: ServerMessage[] = [];
 				for (const m of page.messages) {
 					if (m && typeof m === "object" && "type" in m && m.type === "public_message") {
 						if (!this.isEnvironmentEvent(m as ServerMessage)) continue;
-						this.batch.push(m as ServerMessage);
+						messages.push(m as ServerMessage);
 					}
 				}
-				if (this.batch.length > before) {
+				if (messages.length > 0) {
 					// Cursor advances only when the increment reaches the context
-					// (A2: delivery failure must not move the cursor).
+					// (A5: delivery failure must not move the cursor).
 					this.runtime.saveCursor(page.latestSequence);
-					this.submitBatch();
+					this.deliver(messages);
 				}
 			} while (this.refetchRequested && !this.stopped);
 		} catch {
@@ -150,23 +173,33 @@ export class GroupChatInput {
 	}
 
 	/**
-	 * Submit the pending batch: immediately when the Agent is idle, or queued
-	 * until agent_settled when a run is active (M7 A5 — never interrupt).
+	 * ISSUE-013 A1/A2: unified delivery window. Merges the increment with any
+	 * pending join/member events so ordering is preserved (events arrive
+	 * first, then newer messages). Never interrupts a running turn: while the
+	 * Agent is mid-run the events are kept and the settle hook flushes.
 	 */
-	private submitBatch(): void {
-		if (this.stopped || this.batch.length === 0) return;
+	private deliver(messages: ServerMessage[]): void {
+		if (this.stopped) {
+			return;
+		}
+		const events = [...this.pendingEvents, ...messages];
+		this.pendingEvents = [];
+		if (events.length === 0) {
+			return;
+		}
 		if (this.runtime.isAgentActive) {
+			this.pendingEvents = events;
 			this.flushQueuedForSettle = true;
 			return;
 		}
-		void this.flush();
+		void this.flush(events);
 	}
 
 	/**
 	 * Walk the remaining group chat history page by page (oldest pages are
-	 * last) and append every public message to the pending batch. Any failure
-	 * aborts the walk: the first page is already queued, and a reconnect will
-	 * resync history anyway. ISSUE-008.
+	 * last) and append every public message to the pending delivery window.
+	 * Any failure aborts the walk: the first page is already queued, and a
+	 * reconnect will resync history anyway. ISSUE-008.
 	 */
 	private async pageOlderHistory(cursor: string | null): Promise<void> {
 		try {
@@ -186,7 +219,7 @@ export class GroupChatInput {
 				for (const m of page.messages) {
 					if (m && typeof m === "object" && "type" in m && m.type === "public_message") {
 						if (!this.isEnvironmentEvent(m as ServerMessage)) continue;
-						this.batch.push(m as ServerMessage);
+						this.pendingEvents.push(m as ServerMessage);
 					}
 				}
 				this.resetJoinDebounce();
@@ -208,7 +241,7 @@ export class GroupChatInput {
 		}
 		this.handler = undefined;
 		this.clearDebounce();
-		this.batch = [];
+		this.pendingEvents = [];
 	}
 
 	/**
@@ -217,14 +250,14 @@ export class GroupChatInput {
 	 */
 	snapshotForReload(): GroupChatInputReloadSnapshot {
 		return {
-			pendingEvents: [...this.batch],
+			pendingEvents: [...this.pendingEvents],
 			debounceDueAt: this.debounceDueAt,
 		};
 	}
 
 	/** Restore a snapshot taken before reload; must be called after start(). */
 	restoreFromReload(snapshot: GroupChatInputReloadSnapshot): void {
-		this.batch = [...snapshot.pendingEvents];
+		this.pendingEvents = [...snapshot.pendingEvents];
 		if (snapshot.debounceDueAt !== null) {
 			const remaining = snapshot.debounceDueAt - Date.now();
 			if (remaining <= 0) {
@@ -283,11 +316,40 @@ export class GroupChatInput {
 		}
 	}
 
-	private async flush(): Promise<void> {
-		const events = [...this.batch];
-		this.batch = [];
+	/**
+	 * ISSUE-013 B3: flag the increment mark (A2) from outside — used when a
+	 * stale-rejected speak wants the missed increment delivered through the
+	 * unified pipeline after the current run settles. No new mechanism: the
+	 * settle hook pulls once and covers everything after the cursor.
+	 */
+	markIncrementPending(): void {
+		if (this.stopped) {
+			return;
+		}
+		this.incrementPending = true;
+	}
 
-		if (events.length === 0 || this.stopped) return;
+	/**
+	 * Deliver a batch of events to the agent context. When called with no
+	 * arguments the pending window is delivered. Never interrupts a running
+	 * turn: while the Agent is mid-run the events stay pending and the settle
+	 * hook flushes them.
+	 */
+	private async flush(events?: ServerMessage[]): Promise<void> {
+		const toDeliver = events ?? this.pendingEvents;
+		if (events === undefined) {
+			this.pendingEvents = [];
+		}
+
+		if (toDeliver.length === 0 || this.stopped) return;
+
+		if (this.runtime.isAgentActive) {
+			// M7 A5 / ISSUE-013 A4: never interrupt a running turn — the settle
+			// hook flushes once the run is done.
+			this.pendingEvents = [...this.pendingEvents, ...toDeliver];
+			this.flushQueuedForSettle = true;
+			return;
+		}
 
 		let groupChatState: unknown = null;
 		try {
@@ -298,13 +360,13 @@ export class GroupChatInput {
 
 		if (this.stopped) return;
 
-		const content = this.buildContent(events, groupChatState);
+		const content = this.buildContent(toDeliver, groupChatState);
 
 		if (process.env.PITAVERN_TEST === "1") {
 			// M7 A6 observation channel: re-emit the delivered increment via
 			// notify so the acceptance suite can assert that what reached the
 			// agent context equals the notification source (same data).
-			const sequences = events
+			const sequences = toDeliver
 				.filter((e) => e.type === "public_message")
 				.map((e) => e.sequence)
 				.sort((a, b) => a - b);
@@ -323,7 +385,7 @@ export class GroupChatInput {
 				details: {
 					group_chat_id: this.runtime.groupChatId,
 					character_id: this.runtime.character.characterId,
-					events,
+					events: toDeliver,
 					group_chat_state: groupChatState,
 				},
 			},

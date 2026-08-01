@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, InputEventResult } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { setTestNotify } from "./character/group-chat-input.js";
 import { registerCommands } from "./commands.js";
 import { TavernController } from "./controller/tavern-controller.js";
+import { type AutoJoinContext, autoJoinCharacter } from "./headless.js";
 import { registerRenderers } from "./ui/renderers.js";
 import { TavernUiPresenter } from "./ui/tavern-ui-presenter.js";
 
@@ -26,6 +28,38 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	const presenter = new TavernUiPresenter();
 	registerCommands(pi, ctrl);
 	registerRenderers(pi);
+
+	// ISSUE-014: headless RPC character mode — auto-join on startup.
+	// RPC mode fires no session_start/resources_discover events, so the join
+	// is scheduled from extension load (the session is already bound when the
+	// extension runs; the delay only lets the runner finish session bootstrap).
+	// Reloads are not part of headless operation (no TUI commands); identity
+	// and connection are held for the process lifetime instead.
+	if (process.env.PITAVERN_AUTO_JOIN === "1") {
+		const ctx: AutoJoinContext = {
+			cwd: process.cwd(),
+			sessionManager: { getSessionId: () => randomUUID() },
+			ui: {
+				notify: (message, type = "info") => {
+					// stderr keeps the RPC JSONL protocol stream clean.
+					process.stderr.write(`[pi-tavern:auto-join:${type}] ${message}\n`);
+				},
+			},
+		};
+		const run = () => {
+			void autoJoinCharacter(pi, ctrl, ctx, {
+				...(process.env.PITAVERN_CHARACTER !== undefined && process.env.PITAVERN_CHARACTER !== ""
+					? { character: process.env.PITAVERN_CHARACTER }
+					: {}),
+				...(process.env.PITAVERN_GROUP_CHAT !== undefined && process.env.PITAVERN_GROUP_CHAT !== ""
+					? { groupChat: process.env.PITAVERN_GROUP_CHAT }
+					: {}),
+			}).catch((error) => {
+				process.stderr.write(`[pi-tavern:auto-join:error] ${error instanceof Error ? error.message : String(error)}\n`);
+			});
+		};
+		setTimeout(run, 3_000);
+	}
 
 	// Keep tavern_speak active-tool state in sync with controller state
 	// Wire up creator-display entry appending when controller enters creator state
@@ -65,6 +99,34 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 								text:
 									`Message published (sequence ${result.sequence}). ` +
 									`Round: ${result.round?.usedMessages}/${result.round?.roundMaxMessages} messages used.`,
+							},
+						],
+						details: undefined,
+					};
+				}
+				if (result.reason === "stale") {
+					// ISSUE-013 B3 (final, per User "怎么简单怎么来"): no in-tool pull,
+					// no cache, no truncation — just flag the existing A2 increment
+					// mark and return a short notice. The settle hook pulls once
+					// through the unified pipeline (identity line, snapshot, echo
+					// filter) and the LLM re-decides in the next turn with the
+					// full context. B5: budgeted per round — beyond it, only the
+					// notice, no auto-recovery.
+					if (result.autoRecover) {
+						state.runtime.markIncrementPending();
+					}
+					return {
+						content: [
+							{
+								type: "text",
+								text:
+									`Message NOT published: you are out of sync with the group chat ` +
+									`(you last saw seq ${result.missingFrom !== undefined ? result.missingFrom - 1 : "?"}; ` +
+									`messages ${result.missingFrom}..${result.missingTo} arrived before your speak). ` +
+									`Your message was not counted against the round quota and no hand was raised.` +
+									(result.autoRecover
+										? `\nThe new messages will be delivered to you after this turn (auto-recovery ${result.autoRecover ? 1 : 0}/2 this round); re-decide then — revise or drop.`
+										: `\nAuto-recovery budget exhausted this round — wait for the group chat input before speaking again.`),
 							},
 						],
 						details: undefined,

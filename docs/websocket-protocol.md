@@ -656,17 +656,19 @@ Character 的 `tavern_speak` Agent tool 通过以下 WebSocket 请求原子尝�
 {
   "id": "req-8",
   "type": "speak",
-  "content": "我建议先实现持久化层。"
+  "content": "我建议先实现持久化层。",
+  "based_on_sequence": 41
 }
 ```
 
 - `id` 用于将 WebSocket 响应关联回本次 `tavern_speak` 调用。
 - `content` 是准备公开发布的完整内容。
+- `based_on_sequence`（可选，ISSUE-013 B1）：发送方最后已见的公开消息序号（与增量拉取游标同一概念——最后一次成功投递的 sequence）。带该字段时，服务端对滞后的发言执行落后校验（B2）；**缺省 = 不校验**——旧客户端/手动 WebSocket/既有测试不带该字段时行为与首版完全一致（平滑演进），但新客户端（`tavern_speak` 工具）总是携带。
 - 只有已经完成 `character_ready` 且当前 WebSocket 已连接时，角色 pi 才启用 `tavern_speak`。
 - WebSocket 断开后工具立即停用，Character 领取关系同时释放。
 - 断线后无法形成 WebSocket `speak` 请求，本地工具调用失败且不产生举手。用户手动重新加入并完成 `character_ready` 后才重新启用工具。
 - 请求不携带 `character_id`；群聊创建者根据对应的 WebSocket 连接确定 Character 身份。
-- 该请求不是提前询问发言许可。群聊创建者收到完整内容后，按照消息到达顺序原子检查当前 Round 的剩余发言次数。
+- 该请求不是提前询问发言许可。群聊创建者收到完整内容后，按照消息到达顺序原子检查（身份 → Round 存在 → **落后校验** → 剩余发言次数）后决定是否发布。
 - 发言请求本身不广播；只有成功进入群聊的公开消息才广播。
 
 ### 发言响应
@@ -688,6 +690,7 @@ Character 的 `tavern_speak` Agent tool 通过以下 WebSocket 请求原子尝�
     "published": true,
     "event_id": "a1b2c3d4",
     "sequence": 42,
+    "latest_sequence": 42,
     "round": {
       "round_max_messages": 10,
       "used_messages": 4,
@@ -696,6 +699,8 @@ Character 的 `tavern_speak` Agent tool 通过以下 WebSocket 请求原子尝�
   }
 }
 ```
+
+- `latest_sequence`（ISSUE-013）：发布后服务端最新序号（成功时等于本次 `sequence`）。**纯信息字段、非推进源**——客户端不据此推进游标或任何已见序号（B6 由服务端排除自身判定保证不误拒），客户端不得依赖该字段做状态推进。
 
 额度耗尽：
 
@@ -720,8 +725,34 @@ Character 的 `tavern_speak` Agent tool 通过以下 WebSocket 请求原子尝�
 
 - 额度耗尽时请求已经被正常处理并产生举手状态，因此 `success` 仍为 `true`。
 - 未公开的 `content` 不写入群聊记录，也不广播；完整内容只保留在发送方的私有 pi session。
-- `reason` 首版定义 `round_limit_reached`。
+- `reason` 首版定义 `round_limit_reached` 与 `stale`。
 - 响应中的 Round 快照是处理该请求后的最新值。
+
+落后拒绝（ISSUE-013 B2）：发送方携带的 `based_on_sequence` 小于服务端最新序号时，请求被正常处理（业务拒绝，非协议错误），`success` 仍为 `true`：
+
+```json
+{
+  "id": "req-8",
+  "type": "response",
+  "command": "speak",
+  "success": true,
+  "data": {
+    "published": false,
+    "reason": "stale",
+    "missing_sequences": { "from": 42, "to": 45 },
+    "round": {
+      "round_max_messages": 10,
+      "used_messages": 4,
+      "remaining_messages": 6
+    }
+  }
+}
+```
+
+- `missing_sequences`：发送方尚未看到的**连续区间** `from..to`（闭区间，`from = based_on_sequence + 1`，`to` = 当前最新总序号）。纯提示信息：补拉复用既有 `fetch_messages_since`，服务端不计算「他人精确区间」，speak 响应不承担第二套拉取协议。
+- **stale 语义**：不发布、不写入群聊记录、不广播、**不消耗 Round 额度、不设置举手**（区别于 `round_limit_reached` 的举手——额度耗尽 vs 消息过时是两种语义，后者不是「还有话说」）。
+- **落后判定排除自身（B6）**：服务端比较的是「最近一条**他人**消息的序号」（尾部向前扫描，跳过请求者自己的消息）——客户端的拉取游标永不越过自己的消息（回显被客户端过滤），若按最新总序号比较，自己的消息会令下一次发言被误拒。
+- **客户端行为（B3/B5，简化终版）**：`tavern_speak` 工具收到 stale 拒绝后**不做任何拉取**——只置 A2 既有「有更新」标记并返回一句提示（无消息全文）；当前 run 结束后由 A2 统一拉取覆盖（被拒时错过的消息与后续增量一并拉全），新 turn 里 LLM 看到完整上下文重新决策（放弃或修改重发）。同轮自动恢复上限 2 次（按响应 Round 快照变化重置），超限后只报告拒绝，不再触发自动注入。
 
 协议错误或连接身份错误使用 `success: false`：
 
