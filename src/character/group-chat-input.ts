@@ -2,6 +2,20 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ServerMessage } from "../protocol/messages.js";
 import type { CharacterRuntime } from "./character-runtime.js";
 
+/**
+ * Test-only observation channel for the acceptance suite (ISSUE-003
+ * identity-line contract, cab1fd7). RPC mode has no input channel and
+ * cannot invoke extension tools, so the identity line is re-emitted via
+ * pi.ui.notify() (surfaces as extension_ui_request). The notify function is
+ * injected from the session_start handler (the only place with UI access);
+ * it is rebound on every session start, including reload.
+ */
+let testNotify: ((message: string) => void) | undefined;
+
+export function setTestNotify(notify: ((message: string) => void) | undefined): void {
+	testNotify = notify;
+}
+
 export interface GroupChatInputReloadSnapshot {
 	pendingEvents: ServerMessage[];
 	debounceDueAt: number | null;
@@ -161,6 +175,21 @@ export class GroupChatInput {
 
 	private buildContent(events: ServerMessage[], state: unknown): string {
 		const parts: string[] = ["PiTavern 群聊环境更新"];
+
+		// Identity anchor (ISSUE-003 three-field contract, cab1fd7): always
+		// state which Character this session is, so the model never has to
+		// guess its role from context or available skills. Format:
+		// 你的当前角色：<persona 名>（character_id=<characterId>，注册名=<name>）
+		const identity =
+			`你的当前角色：${this.runtime.character.name}` +
+			`（character_id=${this.runtime.character.characterId}，注册名=${this.runtime.character.name}）`;
+		parts.push(`\n${identity}`);
+
+		if (process.env.PITAVERN_TEST === "1") {
+			// Observation channel for acceptance tests (RPC mode surfaces
+			// notify as extension_ui_request; see identity-consistency.test.ts)
+			testNotify?.(`[tavern-test-injection] ${identity}`);
+		}
 
 		// Group chat name
 		const stateObj = state as {

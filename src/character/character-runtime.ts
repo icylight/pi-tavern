@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { dirname, resolve } from "node:path";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import WebSocket from "ws";
 
-import type { CharacterCard } from "../config/character-card.js";
+import { type CharacterCard, loadCharacterCard } from "../config/character-card.js";
 import {
 	type BufferedFrame,
 	type CharacterReloadHandoff,
@@ -252,16 +253,43 @@ export class CharacterRuntime {
 	 * (with its pending events and debounce deadline), then replay buffered
 	 * frames in received order. A member that disconnected during the reload
 	 * window is routed into the normal disconnected cleanup instead.
+	 *
+	 * ISSUE-005: the character card is re-read from disk on reload so a card
+	 * edit while joined (e.g. the three-way 0.5 collaboration merge) is
+	 * reflected in the injected persona after reload. If re-reading fails the
+	 * previous card is kept and the warning is surfaced via the optional
+	 * notify callback — the reload proceeds, never crashing the session.
 	 */
-	static async takeHandoff(handoff: CharacterReloadHandoff, pi?: ExtensionAPI): Promise<CharacterRuntime> {
+	static async takeHandoff(
+		handoff: CharacterReloadHandoff,
+		pi?: ExtensionAPI,
+		notify?: (message: string) => void,
+	): Promise<CharacterRuntime> {
 		if (handoff.socketClosed) {
 			void handoff.cleanup();
 			throw new Error("Character connection closed during reload");
 		}
+		let character = handoff.character;
+		try {
+			character = await loadCharacterCard(
+				handoff.character.path,
+				resolve(dirname(handoff.character.path), "tavern.json"),
+			);
+			// Keep the registered identity anchor: the card may have been edited
+			// while joined, but the character_id is the join-time registration.
+			// (Same pattern as loadClaimedCharacter.)
+			character = { ...character, characterId: handoff.character.characterId };
+		} catch (error) {
+			// Keep the previous card; surface the failure so the user knows the
+			// persona may be stale. The connection stays up either way.
+			notify?.(
+				`reload: failed to re-read character card ${handoff.character.path}, keeping the previous one: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
 		const runtime = new CharacterRuntime({
 			groupChatId: handoff.groupChatId,
 			sessionId: handoff.piSessionId,
-			character: handoff.character,
+			character,
 		});
 		runtime.activateFromHandoff(handoff, pi);
 		return runtime;

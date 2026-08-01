@@ -22,6 +22,48 @@ npm run test:acceptance
 | 异常终止收敛 | `crash-convergence.test.ts` | kill -9 Character → creator 收敛成员；kill -9 Creator → character 回 idle；残留 descriptor 被后续发现流程清理 |
 | reload 保持连接 | `reload.test.ts` | 真实 `/reload`（经测试命令触发 `ctx.reload()`）：成员连接、身份、端口保持，reload 后消息仍可达 |
 
+### 身份一致性（ISSUE-003 修复验收）
+通讯错位根因：群聊广播无收件人标记，session 会把发给别人的指令当成自己的；且存在注入 persona 与注册身份不一致的 session。修复后必须满足：
+
+1. **身份行注入**：`group-chat-input` 注入内容必须包含显式身份行，**最终格式（2026-08-01 三方终裁）**：「你的当前角色：{persona 名}（character_id={characterId}，注册名={name}）」——persona 名与注册名当前同源（均取 `runtime.character.name`），但契约保留显式三字段，验收用例（edd30c3）按此格式解析；使 session 能区分「发给我的」与「广播」；
+2. **注册/注入一致**：端到端断言注入 persona 名 == creator 在线注册名；不一致时 join 流程必须失败或明确提示，不得静默错配；
+3. **speaker 一致**：speak-order 断言每条消息的 sender 与消息来源 session 的注入 persona 一致（内容作者一致性）；
+4. **并发不串**：两个 character 同时 join（现有 ecd7e6a 并发场景）时注册身份互不串扰，群聊中每个注册名只对应一个注入 persona。
+
+验收方式：`npm run test:acceptance` 全绿 + 上述断言存在且非空（不接受仅靠人工检查）。
+
+### 身份可查询状态（ISSUE-007，2026-08-01 PM 设计）
+
+模型对自身身份必须有确定性查证通道，不依赖提示文本是否被读到：
+
+1. **tavern_whoami 工具**：character 状态下可调用，返回 `{ 当前角色: name, character_id, 描述: description }`，数据源为 `runtime.character`（join 时注册的单一事实源），与 creator 在线成员表注册记录一致；
+2. **可用范围**：仅 character 状态可用；creator/idle 状态返回明确错误（与 tavern_speak 同模式），不泄露其他角色信息；
+3. **确定性验收**：单测直接调用 handler 断言返回值 == runtime.character（三态：character 正常返回 / creator、idle 明确错误 / 逐字段一致）；验收层经 PITAVERN_TEST 观察通道（同 ISSUE-003 模式：测试命令直接触发 handler 或 notify 工具清单，RPC 模式无 LLM 无法真实调工具）断言工具存在且响应与注册记录一致——不依赖 LLM 是否读了提示；返回字段命名与身份行契约共用（name / character_id），避免两套解析；
+4. **被动层保留**：群聊输入身份行（三字段）不变，继续每轮告知（兜底）；
+5. **ISSUE-006 统一裁决（User 2026-08-01「统一」）**：006 并入本需求，不独立实施；frontmatter `identity` 字段与 system prompt 每轮注入取消，身份感知由身份行（被动告知）+ whoami（主动查证）统一承担。
+
+### reload 角色卡刷新（ISSUE-005，2026-08-01 派工）
+
+character session 已 join 后修改角色卡文件，reload 后注入内容必须反映新卡：
+
+1. **重读卡**：`takeHandoff` 按 handoff 中卡的 path/configPath 重新 `loadCharacterCard`，reload 后的 turn 注入（身份行/完整 persona）为新卡内容；
+2. **失败兜底**：重读失败时保留旧卡继续运行，并经 notify 告警，不崩溃、不断连；
+3. **可观察**：改动后经现有观察通道验证（身份行注入 notify / tavern-whoami 返回新 description）；
+4. **回归**：现有 reload 行为不变——成员连接、身份、端口保持（reload.test.ts 不破坏）。
+
+验收方式：`npm run test:acceptance` 全绿 + 新增 reload 身份刷新用例。
+
+### TUI 发言次数显示（ISSUE-001，2026-08-01 User 指示）
+
+TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，必须显示当前角色的发言额度使用情况：
+
+1. **轮次开启时**：creator 与 character 视图均显示 `used / max` 与剩余次数（如「发言：2/10 · 剩余 8」），与群聊输入注入的 Round 计数一致；
+2. **发言后更新**：每次 `tavern_speak` 成功后计数递增，widget 刷新；达到上限时显示举手状态（不再显示剩余次数，或明确「已举手」）；
+3. **无活跃轮次**：不显示该行，widget 保持现有「N 人在线」「正在发言」内容；
+4. **不破坏现有内容**：在线人数与「正在发言」行保留，新增行为附加行。
+
+验收方式：`npm run check` 零告警 + 手动验收（真实群聊中开启轮次观察 widget 三态：轮次中/发言后递增/无轮次）。纯 UI 呈现层，不改协议/持久化/schema。
+
 ### 测试门控命令
 
 RPC 模式没有输入通道、也无法调用扩展工具，因此 `PITAVERN_TEST=1`（`npm run test:acceptance` 自动设置）时额外注册：

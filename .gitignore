@@ -3,3 +3,5 @@ dist/
 .dev/
 *.tsbuildinfo
 .DS_Store
+tmp/
+.pi/

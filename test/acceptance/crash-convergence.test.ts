@@ -71,6 +71,23 @@ describe("acceptance: abnormal termination converges without manual intervention
 		// The creator is still serving.
 		expect(creator.exited).toBe(false);
 
+		// The freed slot is reusable: a fresh character can join the same
+		// group chat without a restart.
+		const replacement = PiProcess.spawn({
+			label: "replacement",
+			agentDir,
+			sessionDir: join(agentDir, "sessions", "replacement"),
+			cwd: projectDir,
+		});
+		processes.push(replacement);
+		await replacement.joinGroupChat(projectDir, agentDir);
+		await creator.waitFor(
+			(e) =>
+				e.type === "extension_ui_request" &&
+				e.method === "setWidget" &&
+				(e.widgetLines as string[])?.[0] === "2 人在线",
+		);
+
 		await creator.runCommand("/tavern-leave");
 	}, 120_000);
 

@@ -1,6 +1,6 @@
 import type { ExtensionAPI, InputEventResult } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-
+import { setTestNotify } from "./character/group-chat-input.js";
 import { registerCommands } from "./commands.js";
 import { TavernController } from "./controller/tavern-controller.js";
 import { registerRenderers } from "./ui/renderers.js";
@@ -97,6 +97,39 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 		},
 	});
 
+	pi.registerTool({
+		name: "tavern_whoami",
+		label: "Tavern Whoami",
+		description:
+			"Report this session's registered Character identity in the PiTavern group chat. " +
+			"Only available when joined as a Character. " +
+			"Returns the same single source of truth (runtime.character) used for identity lines.",
+		parameters: Type.Object({}, { additionalProperties: false }),
+		execute: async () => {
+			const state = ctrl.getState();
+			if (state.type !== "character") {
+				return {
+					content: [{ type: "text", text: "Error: You are not currently joined to a group chat as a Character." }],
+					details: undefined,
+					isError: true,
+				};
+			}
+			const character = state.runtime.character;
+			return {
+				content: [
+					{
+						type: "text",
+						text:
+							`当前角色：${character.name}\n` +
+							`character_id：${character.characterId}\n` +
+							`描述：${character.description}`,
+					},
+				],
+				details: { name: character.name, character_id: character.characterId, description: character.description },
+			};
+		},
+	});
+
 	// Inject Character Markdown as system prompt extension when online
 	pi.on("before_agent_start", (event) => {
 		const state = ctrl.getState();
@@ -126,8 +159,11 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	// Enable tavern_speak only when in character state; disable otherwise
 	pi.on("session_start", (event, ctx) => {
 		presenter.bind(ctx.ui);
+		setTestNotify(ctx.ui.notify);
 		if (event.reason === "reload") {
-			void ctrl.takeReloadHandoff(ctx.sessionManager.getSessionId(), pi).then(() => presenter.refresh(ctrl));
+			void ctrl
+				.takeReloadHandoff(ctx.sessionManager.getSessionId(), pi, ctx.ui.notify)
+				.then(() => presenter.refresh(ctrl));
 		}
 		syncActiveTools(pi, ctrl);
 		presenter.refresh(ctrl);
