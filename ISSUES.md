@@ -52,6 +52,19 @@
 - **建议**：补端到端身份一致性断言（注入 persona 名 == creator 在线注册名）；speak-order 断言加「speaker 与内容作者一致性」检查。
 - **阻塞**：无（speak-order 的 sequence/轮次计数机制正常），但影响群聊可信度与验收裁决。
 
+## ISSUE-006: 每轮简短身份提示（system prompt 层）
+
+- **状态**：open（需求已访谈确认，2026-08-01 User 访谈）
+- **来源**：User 访谈需求（2026-08-01）
+- **需求**：每个**群聊消息触发**的 turn（`group-chat-input` followUp），在 `before_agent_start` 注入简短身份提示，让模型每次开口前明确自己是谁。
+- **内容来源**：角色卡 frontmatter 新增可选字段 `identity`（如 `identity: 你是产品经理（PM），负责需求范围与验收标准`）；未配置时回退用 `name` + `description` 拼接一句。配置在提示词中，不硬编码。
+- **范围**：仅群聊触发 turn；私聊/普通输入不注入。
+- **分层策略**：完整卡片仍 join 时注入一次（不变）；每轮仅追加简短身份提示。不包含 ISSUE-005 的 reload 重读（ISSUE-005 独立保留）。
+- **与 ISSUE-003 边界**：ISSUE-003 = 消息层身份行（收到消息侧：判断是否发给自己的）；ISSUE-006 = system prompt 层（发出消息侧：模型开口前知道自己是谁）。两者各司其职，都保留。
+- **依赖**：角色卡 schema 扩展（frontmatter 允许可选 `identity` 字段）→ 契约变更，须三方声明；加载逻辑在 `character-card.ts`（Dev 域）。
+- **验收（QA 2026-08-01 确认方式）**：复用 `[tavern-test-injection]` notify 观察通道，断言每个群聊触发的 turn 注入的身份提示存在且与卡片 `identity` 一致；未配置 `identity` 时回退提示存在。
+- **阻塞**：无。
+
 ## ISSUE-005: reload 后角色卡更新不生效（提示词不刷新）
 
 - **状态**：open

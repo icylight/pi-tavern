@@ -32,6 +32,17 @@ npm run test:acceptance
 
 验收方式：`npm run test:acceptance` 全绿 + 上述断言存在且非空（不接受仅靠人工检查）。
 
+### 每轮身份提示（ISSUE-006，2026-08-01 User 访谈确认）
+
+每个群聊消息触发的 turn，模型在开口前必须知道自己的角色身份：
+
+1. **identity 字段**：角色卡 frontmatter 支持可选 `identity` 字段；存在时每轮注入其内容，未配置时回退为 `name` + `description` 拼接的身份句；
+2. **触发范围**：仅群聊消息触发的 turn（`group-chat-input` followUp）注入；私聊/普通输入不注入；
+3. **分层**：完整角色卡仍 join 时注入一次，每轮仅追加简短身份提示（system prompt 层），不替代 ISSUE-003 的消息层身份行（收到消息侧 vs 发出消息侧）；
+4. **可观察**：每轮注入的身份提示经 `[tavern-test-injection]` notify 通道暴露（与 ISSUE-003/005 同一观察通道），验收断言提示内容与卡片 `identity` 一致。
+
+验收方式：`npm run test:acceptance` 相关用例绿（身份行 + 身份提示共用观察通道）。
+
 ### TUI 发言次数显示（ISSUE-001，2026-08-01 User 指示）
 
 TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，必须显示当前角色的发言额度使用情况：
