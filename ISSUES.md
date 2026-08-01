@@ -63,6 +63,7 @@
 - **与 ISSUE-003 边界**：ISSUE-003 = 消息层身份行（收到消息侧：判断是否发给自己的）；ISSUE-006 = system prompt 层（发出消息侧：模型开口前知道自己是谁）。两者各司其职，都保留。
 - **依赖**：角色卡 schema 扩展（frontmatter 允许可选 `identity` 字段）→ 契约变更，须三方声明；加载逻辑在 `character-card.ts`（Dev 域）。
 - **验收（QA 2026-08-01 确认方式）**：复用 `[tavern-test-injection]` notify 观察通道，断言每个群聊触发的 turn 注入的身份提示存在且与卡片 `identity` 一致；未配置 `identity` 时回退提示存在。
+- **测试计划（QA 2026-08-01）**：单测层——identity 字段解析、未配置回退 name+description（含空串/缺字段边界，现有 character-card 单测不受影响，只新增用例）；验收层——每轮注入含简短身份提示（复用观察通道）、私聊不注入。
 - **阻塞**：无。
 
 ## ISSUE-005: reload 后角色卡更新不生效（提示词不刷新）
