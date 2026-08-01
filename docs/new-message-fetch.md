@@ -131,4 +131,4 @@
 1. **run 状态信号**：复用 pi 扩展 API 的 agent_start/agent_settled 事件（src/index.ts 已监听，ISSUE-002 语境），桥接为 `CharacterRuntime.isAgentActive()` + `onAgentSettled` 回调；投递逻辑：拉取完成时若 isAgentActive → 排队；onAgentSettled → 立即 flush。顺带修复 ISSUE-002 的 streaming 语义错配（该事件目前被误用为"正在发言"）。
    - **RPC 降级口径（PM 裁定）**：RPC 测试模式无真实 LLM run → 验收层「≤X 间隔」降级为"投递发生 + 进程稳定"烟雾；时序断言（活跃时排队、settled 后 ≤5s 投递）由**单测层** fake timers + 注入 run 状态信号完整执行（单测层是 A5 主验证位）。
    - **isAgentActive 默认语义（必须明确）**：无 run 活跃时视为空闲（false）→ 收到通知立即投递；否则 RPC 验收模式将"永远排队"。请 Dev 在方案中明确该默认值。
-2. **观察通道**：沿用 `PITAVERN_TEST=1` testNotify 通道（ISSUE-007 先例）；**投递时注入 `latest_sequence` + 投递消息数**（QA 二评建议，PM 采纳），验收断言与 TUI 预览同源（同一消息数据）。
+2. **观察通道**：沿用 `PITAVERN_TEST=1` testNotify 通道（ISSUE-007 先例）；**投递时注入 `latest_sequence` + 投递消息数**（QA 二评建议，PM 采纳），验收断言与 TUI 预览同源（同一消息数据）。**注入格式（Dev 2026-08-01 提供）**：`[tavern-inject] group=<id> latest_seq=<n> count=<k>`；验收断言：通知 preview 的 latest_sequence == 注入 latest_seq，消息内容同源（TUI 投影数据源 = publicMessages = 拉取数据源）。
