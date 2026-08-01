@@ -23,7 +23,6 @@ npm run test:acceptance
 | reload 保持连接 | `reload.test.ts` | 真实 `/reload`（经测试命令触发 `ctx.reload()`）：成员连接、身份、端口保持，reload 后消息仍可达 |
 
 ### 身份一致性（ISSUE-003 修复验收）
-
 通讯错位根因：群聊广播无收件人标记，session 会把发给别人的指令当成自己的；且存在注入 persona 与注册身份不一致的 session。修复后必须满足：
 
 1. **身份行注入**：`group-chat-input` 注入内容必须包含显式身份行（当前角色 persona 名 + `character_id` + creator 在线注册名），使 session 能区分「发给我的」与「广播」；
@@ -32,6 +31,17 @@ npm run test:acceptance
 4. **并发不串**：两个 character 同时 join（现有 ecd7e6a 并发场景）时注册身份互不串扰，群聊中每个注册名只对应一个注入 persona。
 
 验收方式：`npm run test:acceptance` 全绿 + 上述断言存在且非空（不接受仅靠人工检查）。
+
+### TUI 发言次数显示（ISSUE-001，2026-08-01 User 指示）
+
+TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，必须显示当前角色的发言额度使用情况：
+
+1. **轮次开启时**：creator 与 character 视图均显示 `used / max` 与剩余次数（如「发言：2/10 · 剩余 8」），与群聊输入注入的 Round 计数一致；
+2. **发言后更新**：每次 `tavern_speak` 成功后计数递增，widget 刷新；达到上限时显示举手状态（不再显示剩余次数，或明确「已举手」）；
+3. **无活跃轮次**：不显示该行，widget 保持现有「N 人在线」「正在发言」内容；
+4. **不破坏现有内容**：在线人数与「正在发言」行保留，新增行为附加行。
+
+验收方式：`npm run check` 零告警 + 手动验收（真实群聊中开启轮次观察 widget 三态：轮次中/发言后递增/无轮次）。纯 UI 呈现层，不改协议/持久化/schema。
 
 ### 测试门控命令
 
