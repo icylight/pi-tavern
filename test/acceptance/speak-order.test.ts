@@ -122,7 +122,15 @@ describe("acceptance: concurrent speaks keep creator order and global quota", ()
 		// ── Quota: the round allows 3 speaks; the 4th is not published ─────
 		const baseline = memberA.allFrames().length;
 		memberA.send({ id: "s4", type: "speak", content: "four" });
-		const fourth = await memberA.waitFor((m) => m.type === "response" && m.command === "speak", 30_000, baseline);
+		// ISSUE-010: match the response by its request id — the creator replies
+		// after broadcasting, so under parallel load earlier speak responses may
+		// arrive after `baseline`; matching any speak response could pick s1's
+		// (published: true) and flake. The response echoes the request id.
+		const fourth = await memberA.waitFor(
+			(m) => m.type === "response" && m.command === "speak" && m.id === "s4",
+			30_000,
+			baseline,
+		);
 		expect(fourth.success).toBe(true);
 		expect((fourth.data as Record<string, unknown>).published).toBe(false);
 		expect((fourth.data as Record<string, unknown>).hand_raised).toBe(true);
