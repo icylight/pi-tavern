@@ -1263,7 +1263,7 @@ describe("CreatorRuntime", () => {
 		await runtime.close();
 	});
 
-	it("sends at most 10 recent messages in message_history on join", async () => {
+	it("sends at most 100 recent messages in message_history on join (User 2026-08-01: 10→100)", async () => {
 		const root = await createTemporaryDirectory();
 		const runtime = await CreatorRuntime.startNew({
 			cwd: join(root, "project"),
@@ -1279,17 +1279,53 @@ describe("CreatorRuntime", () => {
 			],
 		});
 
-		// Produce 15 public messages
+		// 15 messages fit inside the 100-message snapshot window: the join
+		// history carries them all, no paging advertised.
 		for (let i = 1; i <= 15; i++) {
 			await runtime.submitUserPersonaMessage(`Message ${i}`);
 		}
 
 		const { client, messageHistory } = await joinCharacter(runtime, "session-1", "dev");
 		const messages = messageHistory.messages as Array<{ sequence: number }>;
-		expect(messages).toHaveLength(10);
-		expect(messages[0]?.sequence).toBe(6);
-		expect(messages[9]?.sequence).toBe(15);
+		expect(messages).toHaveLength(15);
+		expect(messages[0]?.sequence).toBe(1);
+		expect(messages[14]?.sequence).toBe(15);
 		expect(messageHistory.total_messages).toBe(15);
+		expect(messageHistory.has_more).toBe(false);
+		expect(messageHistory.cursor).toBeNull();
+
+		client.close();
+		await runtime.close();
+	});
+
+	it("pages beyond the 100-message snapshot window on join", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			characters: [
+				{
+					characterId: "dev",
+					name: "Developer",
+					description: "Writes code",
+					path: "/chars/dev.md",
+					prompt: "You are a developer.",
+				},
+			],
+		});
+
+		// 105 messages exceed the 100-message window: the snapshot is the
+		// newest 100 (sequences 6..105), paging advertised for the rest.
+		for (let i = 1; i <= 105; i++) {
+			await runtime.submitUserPersonaMessage(`Message ${i}`);
+		}
+
+		const { client, messageHistory } = await joinCharacter(runtime, "session-2", "dev");
+		const messages = messageHistory.messages as Array<{ sequence: number }>;
+		expect(messages).toHaveLength(100);
+		expect(messages[0]?.sequence).toBe(6);
+		expect(messages[99]?.sequence).toBe(105);
+		expect(messageHistory.total_messages).toBe(105);
 		expect(messageHistory.has_more).toBe(true);
 		expect(typeof messageHistory.cursor).toBe("string");
 
@@ -1313,14 +1349,18 @@ describe("CreatorRuntime", () => {
 			],
 		});
 
-		for (let i = 1; i <= 15; i++) {
+		// 105 messages exceed the 100-message join window: paging is
+		// advertised and older history is reachable through the cursor.
+		for (let i = 1; i <= 105; i++) {
 			await runtime.submitUserPersonaMessage(`Message ${i}`);
 		}
 
 		const { client, messageHistory } = await joinCharacter(runtime, "session-1", "dev");
 		expect(typeof messageHistory.cursor).toBe("string");
 
-		// Request the page before the initial 10-message batch
+		// Request the page before the initial 100-message batch: sequences
+		// 1..5 are older than the join window (6..105) and reachable via the
+		// cursor, one 10-message page at a time.
 		client.send(JSON.stringify({ id: "4", type: "get_message_history", cursor: messageHistory.cursor }));
 		const firstPage = await waitForMessage(client, "response");
 		expect(firstPage.command).toBe("get_message_history");
@@ -1330,16 +1370,16 @@ describe("CreatorRuntime", () => {
 		expect(olderMessages.map((m) => m.sequence)).toEqual([1, 2, 3, 4, 5]);
 		expect(data.cursor).toBeNull();
 		expect(data.has_more).toBe(false);
-		expect(data.total_messages).toBe(15);
+		expect(data.total_messages).toBe(105);
 
 		// New messages after the cursor do not shift the page boundary
-		await runtime.submitUserPersonaMessage("Message 16");
+		await runtime.submitUserPersonaMessage("Message 106");
 		client.send(JSON.stringify({ id: "5", type: "get_message_history", cursor: messageHistory.cursor }));
 		const secondPage = await waitForMessage(client, "response");
 		const secondData = secondPage.data as Record<string, unknown>;
 		const secondMessages = (secondData.messages as Array<{ sequence: number }>) ?? [];
 		expect(secondMessages.map((m) => m.sequence)).toEqual([1, 2, 3, 4, 5]);
-		expect(secondData.total_messages).toBe(16);
+		expect(secondData.total_messages).toBe(106);
 
 		client.close();
 		await runtime.close();

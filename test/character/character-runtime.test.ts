@@ -120,3 +120,95 @@ describe("M7 message fetch (ISSUE-012)", () => {
 		expect(runtime2.loadCursor()).toBeNull();
 	});
 });
+
+describe("ISSUE-013 B: speak staleness client side", () => {
+	it("B1: a stale speak is rejected with the missing range; quota untouched", async () => {
+		const { creator, character } = await startCreator();
+		// Latest sequence is 2; the character has seen nothing yet.
+		await creator.submitUserPersonaMessage("one");
+		await creator.submitUserPersonaMessage("two");
+
+		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-b1", {});
+		const runtime = await attempt.claimCharacter(character.characterId);
+
+		const result = await runtime.speak("stale reply");
+		expect(result.published).toBe(false);
+		expect(result.reason).toBe("stale");
+		expect(result.missingFrom).toBe(1);
+		expect(result.missingTo).toBe(2);
+		expect(result.autoRecover).toBe(true);
+		// B4: the rejected speak consumed no quota and raised no hand.
+		expect(creator.state.round?.usedMessages).toBe(0);
+		expect(creator.state.onlineCharacters.get("session-b1")?.handRaised).toBe(false);
+	});
+
+	it("B6: consecutive speaks publish — own echo does not self-reject", async () => {
+		const root = await createTemporaryDirectory();
+		const cursorPath = join(root, "cursors", "group.json");
+		const { creator, character } = await startCreator();
+		await creator.submitUserPersonaMessage("one"); // seq 1, round created
+
+		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-b6", {
+			cursorStorePath: cursorPath,
+		});
+		const runtime = await attempt.claimCharacter(character.characterId);
+		// Simulate the delivery pipeline having delivered seq 1 (join history).
+		runtime.saveCursor(1);
+
+		const first = await runtime.speak("one");
+		expect(first.published).toBe(true);
+		expect(first.sequence).toBe(2);
+
+		// Without B6 the seen sequence would still be 1 and this second speak
+		// would be judged stale against the character's own message.
+		const second = await runtime.speak("two");
+		expect(second.published).toBe(true);
+		expect(second.sequence).toBe(3);
+	});
+
+	it("B5: auto-recovery budget exhausts after two stale speaks in the same round", async () => {
+		const { creator, character } = await startCreator();
+		await creator.submitUserPersonaMessage("one");
+		await creator.submitUserPersonaMessage("two");
+
+		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-b5", {});
+		const runtime = await attempt.claimCharacter(character.characterId);
+
+		const first = await runtime.speak("r1");
+		expect(first.autoRecover).toBe(true);
+		const second = await runtime.speak("r2");
+		expect(second.autoRecover).toBe(true);
+		// Budget exhausted: the third refusal must not auto-pull.
+		const third = await runtime.speak("r3");
+		expect(third.autoRecover).toBe(false);
+		expect(third.reason).toBe("stale");
+	});
+
+	it("B5: budget resets when the round snapshot changes", async () => {
+		const root = await createTemporaryDirectory();
+		const cursorPath = join(root, "cursors", "group.json");
+		const { creator, character } = await startCreator();
+		await creator.submitUserPersonaMessage("one"); // seq 1
+
+		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-b5r", {
+			cursorStorePath: cursorPath,
+		});
+		const runtime = await attempt.claimCharacter(character.characterId);
+		runtime.saveCursor(1);
+
+		// Two stale speaks in round state 10:0.
+		await creator.submitUserPersonaMessage("two"); // latest 2 > seen 1
+		expect((await runtime.speak("r1")).autoRecover).toBe(true);
+		expect((await runtime.speak("r2")).autoRecover).toBe(true);
+
+		// A published speak changes the round snapshot (10:0 → 10:1).
+		runtime.saveCursor(2);
+		const published = await runtime.speak("fresh");
+		expect(published.published).toBe(true);
+
+		// Stale again: the budget reset with the round snapshot.
+		await creator.submitUserPersonaMessage("three"); // latest 4 > seen 3
+		const afterReset = await runtime.speak("r3");
+		expect(afterReset.autoRecover).toBe(true);
+	});
+});
