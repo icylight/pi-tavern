@@ -160,26 +160,27 @@ describe("acceptance: identity consistency (ISSUE-003)", () => {
 	});
 
 	/**
-	 * CONTRACT (ISSUE-003 fix, owner: Dev, src/character/group-chat-input.ts):
+	 * CONTRACT (ISSUE-003 fix, owner: Dev, src/character/group-chat-input.ts;
+	 * acceptance per docs/acceptance.md 6831a5e):
 	 *
 	 * 1. buildContent() must append an identity line after the
 	 *    "PiTavern 群聊环境更新" header, exactly parseable as:
 	 *
-	 *        你的当前角色：<persona 名>（character_id=<characterId>，注册名=<注册名>）
+	 *        你是：<name>（<characterId>）
 	 *
-	 *    - persona 名：本 session 加载的角色卡 name（如 Architect）
-	 *    - character_id：相对 config 目录的卡片路径（如 characters/architect.md）
-	 *    - 注册名：creator 在线成员表中该 character_id 的显示名（正常等于 persona 名）
+	 *    - name：本 session 注册的角色卡 name（persona 名；注册名与 persona 名
+	 *      同源于 runtime.character 单字段，无需第三字段，见 6831a5e）
+	 *    - characterId：相对 config 目录的卡片路径（如 characters/architect.md）
 	 *
-	 * 2. When PITAVERTEST=1, expose the identity line for acceptance tests via
-	 *    pi.ui.notify() with prefix "[tavern-test-injection] " (RPC mode
+	 * 2. When PITAVERN_TEST=1, expose the identity line for acceptance tests
+	 *    via pi.ui.notify() with prefix "[tavern-test-injection] " (RPC mode
 	 *    surfaces notify as an extension_ui_request event).
 	 *
-	 * Skip rationale: the fix is not implemented yet; per the agreed
-	 * discipline (PM 2026-08-01) no red tests are introduced before the
-	 * implementation lands. Unskip when Dev ships the identity line.
+	 * Skip rationale: the notify observation channel is not implemented yet;
+	 * per the agreed discipline (PM 2026-08-01) no red tests are introduced
+	 * before the implementation lands. Unskip when Dev ships the channel.
 	 */
-	it.skip("injected group-chat input carries the identity line (persona, character_id, registered name)", async () => {
+	it.skip("injected group-chat input carries the identity line (persona, character_id)", async () => {
 		await creator.runCommand("/tavern-test-message Hello identity check");
 		const injection = await architect.waitFor(
 			(e) =>
@@ -189,10 +190,9 @@ describe("acceptance: identity consistency (ISSUE-003)", () => {
 				e.message.startsWith("[tavern-test-injection] "),
 		);
 		const line = String(injection.message).slice("[tavern-test-injection] ".length);
-		const match = /你的当前角色：(.+?)（character_id=(.+?)，注册名=(.+?)）/.exec(line);
+		const match = /^你是：(.+?)（(.+?)）$/.exec(line);
 		expect(match).not.toBeNull();
 		expect(match?.[1]).toBe("Architect");
 		expect(match?.[2]).toBe("characters/architect.md");
-		expect(match?.[3]).toBe("Architect");
 	});
 });
