@@ -75,7 +75,14 @@ export class GroupChatInput {
 	private async pageOlderHistory(cursor: string | null): Promise<void> {
 		try {
 			let nextCursor: string | null = cursor;
+			// A1 guard: never re-request the same cursor twice. A server that
+			// fails to advance (or echoes a stale cursor) must not loop forever.
+			const seenCursors = new Set<string>();
 			while (nextCursor !== null && !this.stopped) {
+				if (seenCursors.has(nextCursor)) {
+					break;
+				}
+				seenCursors.add(nextCursor);
 				const page = await this.runtime.fetchMessageHistoryPage(nextCursor);
 				if (!page) {
 					return;

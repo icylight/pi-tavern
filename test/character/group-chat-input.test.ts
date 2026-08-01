@@ -353,4 +353,70 @@ describe("GroupChatInput", () => {
 
 		input.stop();
 	});
+
+	it("does not page when has_more is false, and stops on a repeated cursor (ISSUE-008 A1/A5)", async () => {
+		vi.useFakeTimers();
+
+		const page = Array.from({ length: 3 }, (_, i) =>
+			aPublicMessage("user_persona", { event_id: `evt-${3 - i}`, sequence: 3 - i, content: `msg ${3 - i}` }),
+		);
+		const runtime = createMockRuntime({
+			getGroupChatState: async () => ({}),
+		});
+		runtime.fetchMessageHistoryPage = vi.fn(async (cursor: string | null) => {
+			// Server never advances the cursor: the client must not loop.
+			return { messages: page, cursor: "stuck-cursor", hasMore: true, totalMessages: 3 };
+		});
+
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+
+		handler({
+			type: "message_history",
+			messages: page,
+			cursor: "stuck-cursor",
+			has_more: true,
+			total_messages: 3,
+		} as unknown as ServerMessage);
+		await vi.advanceTimersByTimeAsync(0);
+
+		// Exactly one paging request: the repeated cursor terminates the loop.
+		expect(runtime.fetchMessageHistoryPage).toHaveBeenCalledTimes(1);
+
+		input.stop();
+	});
+
+	it("ignores has_more=false history without paging (ISSUE-008 A5)", async () => {
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({
+			getGroupChatState: async () => ({}),
+		});
+		runtime.fetchMessageHistoryPage = vi.fn(async () => ({
+			messages: [],
+			cursor: null,
+			hasMore: false,
+			totalMessages: 2,
+		}));
+
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+
+		handler({
+			type: "message_history",
+			messages: [aPublicMessage("user_persona", { sequence: 1 }), aPublicMessage("user_persona", { sequence: 2 })],
+			cursor: null,
+			has_more: false,
+			total_messages: 2,
+		} as unknown as ServerMessage);
+		await vi.advanceTimersByTimeAsync(2000);
+
+		expect(runtime.fetchMessageHistoryPage).not.toHaveBeenCalled();
+
+		input.stop();
+	});
 });
