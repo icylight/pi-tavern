@@ -196,6 +196,24 @@ M6 不用于补齐前面遗漏的单元或组件测试，而是验证只有真�
 
 实现和修正仍遵循 Red、Green、Refactor：每发现一个进程级缺陷，先让对应验收测试稳定失败，再修改实现。
 
+## M7：新消息获取推拉混合（ISSUE-012 / GitHub #24，2026-08-01 需求，方案已冻结）
+
+需求与冻结方案：`docs/new-message-fetch.md`。交互由「服务端推送 + 固定 1 秒防抖」改为**推送+拉取混合（微信模型）**：广播通知化（`group_chat_update`：latest_sequence + 最近 3 条预览 + total）、角色主动增量拉取（`fetch_messages_since`，sequence > since 全量）、游标本地持久化（`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>.json`，成功投递后更新）、缺口检测（sequence 过滤天然补齐）、不打断当前 run（followUp + isAgentActive/onAgentSettled）。
+
+先行验收测试（`docs/acceptance.md` M7 A1-A7，测试先行，不允许先实现后补测）：
+
+- A1 去防抖增量拉取：广播到达 → 立即 fetch（fake timers 断言无 1s 延迟）；
+- A2 游标持久化：收消息 → 游标落盘 → 重启 → 游标保留、增量从游标后开始；投递失败游标不动；
+- A3 不重不漏/顺序一致：拉取内容 = 游标后全部、无重复、严格递增；
+- A4 缺口检测：跳过序号/丢帧 → 补拉补齐；
+- A5 run 状态信号：isAgentActive 活跃时排队、settled 后立即投递（单测 ≤5s、验收 ≤10s）；
+- A6 统一逻辑：testNotify 观察通道断言「预览 = 注入内容同源」；
+- A7 边界：无游标全量分页、单飞行锁、echo 过滤、历史分页回归。
+
+涉及文件：协议层（websocket-protocol.md，Dev 属主）、creator-runtime（广播改通知 + 增量查询 + handle）、character-runtime（fetch 方法 + isAgentActive 桥接）、group-chat-input（去防抖/游标/缺口检测）、persistence.md（游标载体，Dev 属主）。顺带修复 ISSUE-002 streaming 语义错配（agent_start/agent_settled 事件复用）。
+
+实现和修正仍遵循 Red、Green、Refactor：每实现一个交互点，先让对应验收测试稳定失败，再修改实现。
+
 ## 里程碑完成条件
 
 任一里程碑只有同时满足以下条件才算完成：
