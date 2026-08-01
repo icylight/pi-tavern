@@ -1826,6 +1826,104 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 	});
 });
 
+describe("ISSUE-013 B2: speak staleness check", () => {
+	it("rejects a stale speak with missing_sequences and no quota/hand side effects", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			characters: [
+				{
+					characterId: "dev",
+					name: "Developer",
+					description: "Writes code",
+					path: "/chars/dev.md",
+					prompt: "You are a developer.",
+				},
+			],
+		});
+
+		const { client } = await joinCharacter(runtime, "session-stale", "dev");
+		// Two user persona messages: latest sequence is 2.
+		await runtime.submitUserPersonaMessage("one");
+		await runtime.submitUserPersonaMessage("two");
+
+		// Speak with a stale based_on_sequence (0 < latest 2).
+		client.send(JSON.stringify({ id: "s1", type: "speak", content: "Stale reply", based_on_sequence: 0 }));
+		const staleResponse = await waitForMessage(client, "response");
+
+		expect(staleResponse.command).toBe("speak");
+		expect(staleResponse.success).toBe(true);
+		expect(staleResponse.data).toEqual({
+			published: false,
+			reason: "stale",
+			missing_sequences: { from: 1, to: 2 },
+			round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
+		});
+		// B4: no quota consumed by the stale speak.
+		expect(runtime.state.round?.usedMessages).toBe(0);
+		// stale does not raise the hand (distinct from round_limit_reached).
+		expect(runtime.state.onlineCharacters.get("session-stale")?.handRaised).toBe(false);
+
+		// The stale message was not published: next sequence is still 3.
+		client.send(JSON.stringify({ id: "s2", type: "speak", content: "Fresh reply", based_on_sequence: 2 }));
+		const freshResponse = await waitForMessage(client, "response");
+		expect(freshResponse.data).toMatchObject({
+			published: true,
+			sequence: 3,
+			// B6: the success response carries the new latest for the client to sync.
+			latest_sequence: 3,
+		});
+		expect(runtime.state.round?.usedMessages).toBe(1);
+
+		client.close();
+		await runtime.close();
+	});
+
+	it("accepts speaks when based_on_sequence is current or omitted (legacy)", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+			characters: [
+				{
+					characterId: "dev",
+					name: "Developer",
+					description: "Writes code",
+					path: "/chars/dev.md",
+					prompt: "You are a developer.",
+				},
+			],
+		});
+
+		const { client } = await joinCharacter(runtime, "session-legacy", "dev");
+		await runtime.submitUserPersonaMessage("one"); // latest = 1
+
+		// Legacy client omits the field: staleness check skipped, published.
+		client.send(JSON.stringify({ id: "l1", type: "speak", content: "Legacy reply" }));
+		const legacyResponse = await waitForMessage(client, "response");
+		expect(legacyResponse.data).toMatchObject({ published: true, sequence: 2 });
+
+		// Current client sends based_on_sequence == latest: published.
+		client.send(JSON.stringify({ id: "l2", type: "speak", content: "Current reply", based_on_sequence: 2 }));
+		const currentResponse = await waitForMessage(client, "response");
+		expect(currentResponse.data).toMatchObject({ published: true, sequence: 3 });
+
+		// Boundary: based_on_sequence one behind the latest is stale.
+		client.send(JSON.stringify({ id: "l3", type: "speak", content: "Behind reply", based_on_sequence: 2 }));
+		const behindResponse = await waitForMessage(client, "response");
+		expect(behindResponse.data).toEqual({
+			published: false,
+			reason: "stale",
+			missing_sequences: { from: 3, to: 3 },
+			round: { round_max_messages: 10, used_messages: 2, remaining_messages: 8 },
+		});
+
+		client.close();
+		await runtime.close();
+	});
+});
+
 async function jsonlFilesUnder(root: string): Promise<string[]> {
 	try {
 		const entries = await readdir(root, { recursive: true });

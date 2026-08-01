@@ -502,14 +502,78 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("M7 A5: queues the increment while the agent run is active, flushes on settle", async () => {
+	it("ISSUE-013 A2: active run marks updates only; settle refetches latest in one shot", async () => {
+		// Supersedes M7 A5 (queue-then-flush): the run-active window must not
+		// fetch at all — only a mark is set. On settle a single refetch covers
+		// everything up to settle time (投递 = settle 时刻游标后全量).
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({
 			getGroupChatState: async () => ({}),
 		});
-		runtime.fetchMessagesSince = vi.fn(async () => ({
-			messages: [aPublicMessage("user_persona", { sequence: 7 })],
+		runtime.fetchMessagesSince = vi.fn(async (since: number) => ({
+			messages: [7, 8, 9]
+				.filter((seq) => seq > since)
+				.map((seq) => aPublicMessage("user_persona", { sequence: seq })),
+			latestSequence: 9,
+			totalMessages: 9,
+		}));
+		runtime.loadCursor = vi.fn(() => 6);
+		runtime.saveCursor = vi.fn();
+		runtime.isAgentActive = true;
+
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+
+		// Two notifications arrive during the run, with a gap (7, then 9).
+		handler({
+			type: "group_chat_update",
+			latest_sequence: 7,
+			preview_messages: [],
+			total_messages: 7,
+		} as unknown as ServerMessage);
+		handler({
+			type: "group_chat_update",
+			latest_sequence: 9,
+			preview_messages: [],
+			total_messages: 9,
+		} as unknown as ServerMessage);
+		await vi.advanceTimersByTimeAsync(0);
+
+		// A2: run active — only the mark is set; nothing fetched or delivered.
+		expect(runtime.fetchMessagesSince).not.toHaveBeenCalled();
+		expect(pi.sendMessage).not.toHaveBeenCalled();
+
+		// Settle → a single refetch from the pull cursor covers 7..9.
+		runtime.isAgentActive = false;
+		runtime.onAgentSettled?.();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(runtime.fetchMessagesSince).toHaveBeenCalledTimes(1);
+		expect(runtime.fetchMessagesSince).toHaveBeenCalledWith(6);
+
+		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
+		const message = call[0] as { details: { events: Array<{ sequence?: number }> } };
+		const sequences = message.details.events.map((e) => e.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
+		expect(sequences).toEqual([7, 8, 9]);
+		// A5: cursor advances only when the delivery succeeded.
+		expect(runtime.saveCursor).toHaveBeenCalledWith(9);
+
+		input.stop();
+	});
+
+	it("ISSUE-013 A2: member events merge into the settle delivery", async () => {
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({
+			getGroupChatState: async () => ({}),
+			hasPublicMessages: true,
+		});
+		runtime.fetchMessagesSince = vi.fn(async (since: number) => ({
+			messages: [7]
+				.filter((seq) => seq > since)
+				.map((seq) => aPublicMessage("user_persona", { sequence: seq })),
 			latestSequence: 7,
 			totalMessages: 7,
 		}));
@@ -522,22 +586,31 @@ describe("GroupChatInput", () => {
 		input.start();
 		const handler = runtime.onEnvironmentMessage ?? (() => {});
 
+		// A member joins during the run, then a message notification arrives.
+		handler(aCharacterJoined());
 		handler({
 			type: "group_chat_update",
 			latest_sequence: 7,
-			preview_messages: [aPublicMessage("user_persona", { sequence: 7 })],
+			preview_messages: [],
 			total_messages: 7,
 		} as unknown as ServerMessage);
 		await vi.advanceTimersByTimeAsync(0);
 
-		// Run active: nothing delivered yet, cursor not advanced until delivery.
+		// Nothing fetched or delivered while the run is active.
+		expect(runtime.fetchMessagesSince).not.toHaveBeenCalled();
 		expect(pi.sendMessage).not.toHaveBeenCalled();
 
-		// Settle → immediate flush (M7 A5: within 5s; here instantly).
+		// Settle → one delivery merging the member event and the message,
+		// in arrival order (joined first, then the pulled message).
 		runtime.isAgentActive = false;
 		runtime.onAgentSettled?.();
 		await vi.advanceTimersByTimeAsync(0);
+		expect(runtime.fetchMessagesSince).toHaveBeenCalledTimes(1);
 		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+
+		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
+		const message = call[0] as { details: { events: Array<{ type: string; sequence?: number }> } };
+		expect(message.details.events.map((e) => e.type)).toEqual(["character_joined", "public_message"]);
 
 		input.stop();
 	});
