@@ -126,7 +126,9 @@
 
 - 上下文以 fetch 结果为准；preview 仅供 TUI 显示，内容同源不重复（PM 口径裁定：同源一致，数量不强制相等）
 
-### 10.5 可测性契约（QA 缺口 5/6，Dev 已纳入）
+### 10.5 可测性契约（QA 缺口 5/6，Dev 已纳入；QA 二评 + PM 裁定补充 2026-08-01）
 
 1. **run 状态信号**：复用 pi 扩展 API 的 agent_start/agent_settled 事件（src/index.ts 已监听，ISSUE-002 语境），桥接为 `CharacterRuntime.isAgentActive()` + `onAgentSettled` 回调；投递逻辑：拉取完成时若 isAgentActive → 排队；onAgentSettled → 立即 flush。顺带修复 ISSUE-002 的 streaming 语义错配（该事件目前被误用为"正在发言"）。
-2. **观察通道**：沿用 `PITAVERN_TEST=1` testNotify 通道（ISSUE-007 先例）——投递内容经 notify 暴露，验收断言「通知预览 = 注入内容同源」。
+   - **RPC 降级口径（PM 裁定）**：RPC 测试模式无真实 LLM run → 验收层「≤X 间隔」降级为"投递发生 + 进程稳定"烟雾；时序断言（活跃时排队、settled 后 ≤5s 投递）由**单测层** fake timers + 注入 run 状态信号完整执行（单测层是 A5 主验证位）。
+   - **isAgentActive 默认语义（必须明确）**：无 run 活跃时视为空闲（false）→ 收到通知立即投递；否则 RPC 验收模式将"永远排队"。请 Dev 在方案中明确该默认值。
+2. **观察通道**：沿用 `PITAVERN_TEST=1` testNotify 通道（ISSUE-007 先例）；**投递时注入 `latest_sequence` + 投递消息数**（QA 二评建议，PM 采纳），验收断言与 TUI 预览同源（同一消息数据）。

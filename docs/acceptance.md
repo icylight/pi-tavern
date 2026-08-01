@@ -84,8 +84,8 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 2. **A2 游标持久化**：收消息 → 游标落盘 → 重启角色进程 → 游标保留、增量从游标后开始（reload.test.ts 先例复用）；投递失败游标不动；
 3. **A3 不重不漏/顺序一致**：固定序列场景断言拉取内容 = 游标后全部、无重复、严格递增；
 4. **A4 缺口检测**：控制广播（跳过序号/丢帧模拟）→ 断言补拉补齐，不永久丢失；
-5. **A5 run 状态信号（可测性契约）**：`isAgentActive` 活跃时拉取完成→排队；`onAgentSettled` → 立即投递。单测 ≤5s、验收 ≤10s 超时断言；run 全程不被中断；
-6. **A6 统一逻辑（可测性契约）**：`PITAVERN_TEST=1` testNotify 通道断言「通知预览 = 注入内容同源」（同一消息数据）；
+5. **A5 run 状态信号（可测性契约，QA 二评降级口径已裁定）**：**单测层（主验证）**：注入 run 状态信号，断言 `isAgentActive` 活跃时拉取完成→排队、`onAgentSettled` → 立即投递（≤5s）；**验收层**：RPC 无真实 run（已知边界）→ 降级为「收到通知后投递发生 + 进程稳定」烟雾；**isAgentActive 无 run 时视为空闲（false）→ 立即投递**（否则 RPC 模式永远排队，Dev 必须明确该语义）；
+6. **A6 统一逻辑（可测性契约，QA 二评补充已采纳）**：投递时经 `PITAVERN_TEST=1` testNotify 注入 `latest_sequence` + 投递消息数，验收断言与 TUI 预览同源（同一消息数据）；
 7. **A7 边界**：无游标 join 走现有全量分页；单飞行锁防并发竞态；自己的 echo 仍过滤；`message_history`/`get_message_history` 回归不破坏。
 
 验收方式：`npm run test:acceptance` 全绿 + 上述断言存在且非空 + 单测/check 全绿 + 协议与持久化文档无语义分歧。
