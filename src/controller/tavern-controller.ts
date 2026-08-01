@@ -177,6 +177,7 @@ export class TavernController {
 	async takeReloadHandoff(
 		piSessionId: string,
 		pi?: import("@earendil-works/pi-coding-agent").ExtensionAPI,
+		notify?: (message: string) => void,
 	): Promise<void> {
 		const handoff = getReloadHandoffRegistry().take(piSessionId);
 		if (!handoff) {
@@ -187,7 +188,7 @@ export class TavernController {
 				const runtime = await CreatorRuntime.takeHandoff(handoff);
 				this.setState({ type: "creator", runtime });
 			} else {
-				const runtime = await CharacterRuntime.takeHandoff(handoff, pi);
+				const runtime = await CharacterRuntime.takeHandoff(handoff, pi, notify);
 				this.setState({ type: "character", runtime });
 			}
 		});

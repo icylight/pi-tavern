@@ -161,7 +161,9 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 		presenter.bind(ctx.ui);
 		setTestNotify(ctx.ui.notify);
 		if (event.reason === "reload") {
-			void ctrl.takeReloadHandoff(ctx.sessionManager.getSessionId(), pi).then(() => presenter.refresh(ctrl));
+			void ctrl
+				.takeReloadHandoff(ctx.sessionManager.getSessionId(), pi, ctx.ui.notify)
+				.then(() => presenter.refresh(ctrl));
 		}
 		syncActiveTools(pi, ctrl);
 		presenter.refresh(ctrl);
