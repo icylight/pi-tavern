@@ -181,7 +181,7 @@ describe("acceptance: identity consistency (ISSUE-003)", () => {
 	 * per the agreed discipline (PM 2026-08-01) no red tests are introduced
 	 * before the implementation lands. Unskip when Dev ships the channel.
 	 */
-	it.skip("injected group-chat input carries the identity line (persona, character_id, registered name)", async () => {
+	it("injected group-chat input carries the identity line (persona, character_id, registered name)", async () => {
 		await creator.runCommand("/tavern-test-message Hello identity check");
 		const injection = await architect.waitFor(
 			(e) =>
@@ -196,5 +196,40 @@ describe("acceptance: identity consistency (ISSUE-003)", () => {
 		expect(match?.[1]).toBe("Architect");
 		expect(match?.[2]).toBe("characters/architect.md");
 		expect(match?.[3]).toBe("Architect");
+	});
+
+	/**
+	 * ISSUE-007 observation channel: in RPC mode the LLM cannot invoke
+	 * extension tools, so tavern-test-whoami re-emits runtime.character via
+	 * pi.ui.notify (surfaces as extension_ui_request). The reported identity
+	 * must match the creator-side registration exactly.
+	 */
+	it("tavern-test-whoami reports the registered character identity (ISSUE-007)", async () => {
+		await architect.runCommand("/tavern-test-whoami");
+		const whoami = await architect.waitFor(
+			(e) =>
+				e.type === "extension_ui_request" &&
+				e.method === "notify" &&
+				typeof e.message === "string" &&
+				e.message.startsWith("[tavern-test-whoami] "),
+		);
+		const report = String(whoami.message);
+		expect(report).toContain("name=Architect");
+		expect(report).toContain("character_id=characters/architect.md");
+		expect(report).toContain("description=Architecture");
+
+		// Same channel on the second session: identities never cross.
+		await reviewer.runCommand("/tavern-test-whoami");
+		const whoamiReviewer = await reviewer.waitFor(
+			(e) =>
+				e.type === "extension_ui_request" &&
+				e.method === "notify" &&
+				typeof e.message === "string" &&
+				e.message.startsWith("[tavern-test-whoami] "),
+		);
+		const reviewerReport = String(whoamiReviewer.message);
+		expect(reviewerReport).toContain("name=Reviewer");
+		expect(reviewerReport).toContain("character_id=characters/reviewer.md");
+		expect(reviewerReport).toContain("description=Reviews designs");
 	});
 });

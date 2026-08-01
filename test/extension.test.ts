@@ -44,8 +44,12 @@ type CapturedTool = {
 	name: string;
 	execute: (
 		id: string,
-		params: { content: string },
-	) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>;
+		params: { content?: string },
+	) => Promise<{
+		content: Array<{ type: string; text: string }>;
+		details?: Record<string, unknown>;
+		isError?: boolean;
+	}>;
 };
 
 interface MockExtensionAPI {
@@ -220,17 +224,52 @@ describe("PiTavern extension", () => {
 		}
 	});
 
-	it("registers the tavern_speak tool and reports error when not a character", async () => {
+	it("registers the tavern_speak and tavern_whoami tools and reports error when not a character", async () => {
 		const { tools, api } = captureTools();
 		piTavern(api as unknown as ExtensionAPI);
 
-		expect(tools).toHaveLength(1);
+		expect(tools).toHaveLength(2);
 		expect(tools[0]?.name).toBe("tavern_speak");
+		expect(tools[1]?.name).toBe("tavern_whoami");
 
 		const tool = tools[0];
 		if (!tool) throw new Error("no tool");
 		expect(tool).toBeDefined();
 		const result = await tool.execute("call-1", { content: "Hello" });
+		expect(result.isError).toBe(true);
+		expect(result.content[0]?.text).toContain("not currently joined");
+	});
+
+	it("tavern_whoami returns the registered character identity when in character state (ISSUE-007)", async () => {
+		const controller = await createCharacterController({});
+		const runtime = (controller.getState() as { type: "character"; runtime: CharacterRuntime }).runtime;
+
+		const { tools, api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI, controller);
+
+		const tool = tools[1];
+		if (!tool) throw new Error("no whoami tool");
+		expect(tool).toBeDefined();
+		const result = await tool.execute("call-1", {});
+		expect(result.isError).toBeUndefined();
+		// Field naming shared with the identity-line contract (cab1fd7):
+		// name / character_id / description, single source = runtime.character.
+		expect(result.details).toEqual({
+			name: runtime.character.name,
+			character_id: runtime.character.characterId,
+			description: runtime.character.description,
+		});
+		expect(result.content[0]?.text).toContain(runtime.character.name);
+		expect(result.content[0]?.text).toContain(runtime.character.characterId);
+	});
+
+	it("tavern_whoami reports a clear error when not in character state (creator/idle)", async () => {
+		const { tools, api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI);
+
+		const tool = tools[1];
+		if (!tool) throw new Error("no whoami tool");
+		const result = await tool.execute("call-1", {});
 		expect(result.isError).toBe(true);
 		expect(result.content[0]?.text).toContain("not currently joined");
 	});

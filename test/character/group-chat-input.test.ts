@@ -162,7 +162,8 @@ describe("GroupChatInput", () => {
 		expect(message.details.events).toHaveLength(1);
 		expect(message.details.group_chat_state).toEqual(stateSnapshot);
 		expect(message.content).toContain("First message");
-		expect(message.content).toContain("你是：Developer（dev）");
+		// ISSUE-003 three-field identity contract (cab1fd7)
+		expect(message.content).toContain("你的当前角色：Developer（character_id=dev，注册名=Developer）");
 
 		expect(options.triggerTurn).toBe(true);
 		expect(options.deliverAs).toBe("followUp");
