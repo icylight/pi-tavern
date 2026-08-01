@@ -88,7 +88,9 @@
 
 ## ISSUE-008: 无法查询群聊历史（开过两个群聊，历史不可查）
 
-- **状态**：open（User 指示：仅登记，不开发）
+- **状态**：closed（2026-08-01 修复 + 验收：客户端 cursor 翻页拉全量注入，a9a3d0f + 8988779 + QA c9f0e6d；验收标准 A1-A5 入 docs/acceptance.md；证据：验收套件 7 文件 12 用例全绿 + 单测 176/176 + check 零告警）
+- **根因（Dev 实证）**：服务端 join 仅推最近 10 条（`slice(-10)`）；协议已定义 cursor 分页（`message_history` 带 cursor/has_more，`get_message_history` 服务端已实现），但**客户端从未发送该命令** → `has_more=true` 的 cursor 被完全忽略，>10 条历史永远不可查。descriptor 残留假设已排除（active 过滤实证正常）。
+- **修复**：`CharacterRuntime.fetchMessageHistoryPage(cursor)` + `GroupChatInput` 在 `has_more=true` 时按 cursor 循环拉取并注入（fire-and-forget，首屏不阻塞）；重复 cursor 守卫防死循环。
 - **来源**：User 反馈（2026-08-01）：「我没办法查询到房间历史，我开过两个房间了」
 - **术语规范**：用户原话「房间」，规范术语为**群聊**（docs/terminology.md）。
 - **现象**：创建过两个群聊后，无法查询到群聊历史（查询不到/列表为空/只能看到其一，待 User 补充）。
