@@ -60,6 +60,7 @@
 - **根因（已定位）**：数据链路完整——协议 `hand_raised`（messages.ts:21/328）、character 侧 `handRaised`（character-runtime.ts:162/181）、creator 侧 `onlineCharacters.handRaised`（creator-runtime.ts:748/1103/1402/1511，广播携带）、group-chat-state.ts:19——**唯独呈现层未渲染**：`tavern-ui-presenter.ts` 的 `creatorWidgetLines`（:53）与 `characterWidgetLines`（:71）只渲染 `isStreaming`（正在发言），无 handRaised；status（:28/:37）亦无举手信息。
 - **与 ISSUE-001/002/009 同族**：TUI/status 呈现层遗漏系列（发言次数、正在发言、成员数、举手）。
 - **待确认**：期望显示形态（widget 行如「举手：xxx」？status 追加？）。
+- **临时手段（QA 2026-08-01）**：`/tavern-status` 命令输出含「Hand raised: true/false」（commands.ts:409），TUI 未显示期间可用此查询。
 - **阻塞**：无；不派工不开发（冻结期）。
 
 ## ISSUE-010: 验收套件 speak-order 全量并行时 hand_raised 断言间歇失败
