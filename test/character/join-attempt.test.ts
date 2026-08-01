@@ -8,6 +8,7 @@ import { WebSocketServer } from "ws";
 import { CharacterRuntime } from "../../src/character/character-runtime.js";
 import { JoinAttempt } from "../../src/character/join-attempt.js";
 import { type CharacterCard, loadCharacterCard } from "../../src/config/character-card.js";
+import { getReloadHandoffRegistry } from "../../src/controller/reload-handoff-registry.js";
 import { CreatorRuntime } from "../../src/creator/creator-runtime.js";
 import type { ActiveGroupChatDescriptor } from "../../src/discovery/active-descriptor.js";
 
@@ -193,6 +194,34 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		);
 
 		await taken.close();
+	});
+
+	it("reload reloads the character card from disk and falls back on failure (ISSUE-005)", async () => {
+		const { creator, character } = await startCreator({});
+		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-1");
+		const runtime = await attempt.claimCharacter(character.characterId);
+
+		// Edit the card file while joined: the persona must refresh on reload.
+		await writeFile(character.path, "---\nname: Architect\ndescription: Architecture v2\n---\nArchitect prompt v2");
+
+		const handoff = await runtime.detachForReload("session-1");
+		getReloadHandoffRegistry().take("session-1"); // controller clears the slot before takeHandoff
+		const taken = await CharacterRuntime.takeHandoff(handoff);
+		expect(taken.character.description).toBe("Architecture v2");
+		expect(taken.character.prompt).toBe("Architect prompt v2");
+
+		// Fallback: corrupt the card so reload fails — old card must be kept
+		// and a warning reported, without crashing.
+		await writeFile(character.path, "not: valid frontmatter?");
+		const notify = vi.fn();
+		const handoff2 = await taken.detachForReload("session-1");
+		getReloadHandoffRegistry().take("session-1");
+		const taken2 = await CharacterRuntime.takeHandoff(handoff2, undefined, notify);
+		expect(taken2.character.prompt).toBe("Architect prompt v2");
+		expect(taken2.character.description).toBe("Architecture v2");
+		expect(notify).toHaveBeenCalledWith(expect.stringContaining("reload"));
+
+		await taken2.close();
 	});
 });
 

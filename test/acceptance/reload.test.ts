@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { PiProcess } from "./pi-process.js";
+import { PiProcess, type RpcEvent } from "./pi-process.js";
 import { joinCharacterWs } from "./ws-helper.js";
 
 describe("acceptance: reload keeps confirmed connections and identity", () => {
@@ -118,6 +118,78 @@ describe("acceptance: reload keeps confirmed connections and identity", () => {
 				(e.widgetLines as string[])?.[0] === "1 人在线",
 			60_000,
 		);
+		await creator.runCommand("/tavern-leave");
+	}, 180_000);
+
+	it("character reload re-reads an edited card (ISSUE-005)", async () => {
+		const creator = PiProcess.spawn({
+			label: "creator-issue5",
+			agentDir,
+			sessionDir: join(agentDir, "sessions", "creator-issue5"),
+			cwd: projectDir,
+		});
+		processes.push(creator);
+		await creator.startGroupChat(projectDir, agentDir);
+
+		const character = PiProcess.spawn({
+			label: "character-issue5",
+			agentDir,
+			sessionDir: join(agentDir, "sessions", "character-issue5"),
+			cwd: projectDir,
+		});
+		processes.push(character);
+		await character.joinGroupChat(projectDir, agentDir);
+		await creator.waitFor(
+			(e) =>
+				e.type === "extension_ui_request" &&
+				e.method === "setWidget" &&
+				(e.widgetLines as string[])?.[0] === "2 人在线",
+		);
+
+		// Baseline identity from the original card.
+		await character.runCommand("/tavern-test-whoami");
+		const before = await character.waitFor(
+			(e) =>
+				e.type === "extension_ui_request" &&
+				e.method === "notify" &&
+				typeof e.message === "string" &&
+				e.message.startsWith("[tavern-test-whoami] "),
+		);
+		expect(String(before.message)).toContain("description=Architecture");
+
+		// Edit the card while the character is joined, then reload the
+		// character process: the persona must refresh from disk.
+		await writeFile(
+			join(agentDir, "characters", "architect.md"),
+			"---\nname: Architect\ndescription: Architecture v2\n---\nArchitect prompt v2",
+		);
+		await character.runCommand("/tavern-test-reload");
+
+		// The reload is async and waitFor replays past events, so poll the
+		// observation channel until the post-reload identity (v2) shows up.
+		const deadline = Date.now() + 60_000;
+		let after: RpcEvent | null = null;
+		while (Date.now() < deadline) {
+			await character.runCommand("/tavern-test-whoami");
+			try {
+				after = await character.waitFor(
+					(e) =>
+						e.type === "extension_ui_request" &&
+						e.method === "notify" &&
+						typeof e.message === "string" &&
+						e.message.startsWith("[tavern-test-whoami] ") &&
+						e.message.includes("Architecture v2"),
+					2_000,
+				);
+				break;
+			} catch {
+				// reload not finished yet; try again
+			}
+		}
+		expect(after).not.toBeNull();
+		expect(String(after?.message)).toContain("description=Architecture v2");
+
+		await character.runCommand("/tavern-leave");
 		await creator.runCommand("/tavern-leave");
 	}, 180_000);
 });
