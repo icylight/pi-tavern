@@ -66,6 +66,7 @@
 - **与 ISSUE-006 关系**：已统一（User 裁决 2026-08-01）——006 不再独立实施；006 的 frontmatter `identity` 字段与 system prompt 每轮注入取消，由身份行（被动告知）+ whoami（主动查证）承担全部身份感知。
 - **与 ISSUE-003 边界**：ISSUE-003 为缓解层（身份行每轮告知，堵住猜的窗口），按现有契约闭环；ISSUE-007 为根治层，独立立项，不并入 ISSUE-003 验收（范围稳定）。
 - **验收方向（QA 2026-08-01）**：whoami 类接口返回 == 注册记录，确定性断言不依赖 LLM 是否读了提示；身份行降级为兜底。
+- **验收细化（QA 2026-08-01 审阅补充，PM 采纳）**：① 单测覆盖三态——character 正常返回（字段命名与身份行契约共用，避免两套解析）、creator/idle 明确错误、与 runtime.character 逐字段一致；② 验收层前提——RPC 模式无 LLM 无法真实发起工具调用，Dev 须按 ISSUE-003 同模式提供 PITAVERN_TEST 观察通道（如测试命令直接触发 handler 或注册后 notify 工具清单），否则验收层无法落地；③ 跨进程一致性断言（可选）：whoami 返回与 creator 在线成员表一致。
 - **测试可行性（QA 2026-08-01 补充）**：a) persistent message 方案——验收测试直接读 character 的 session JSONL 断言每轮必含身份（比 notify 通道更底层更真实）；b) 工具/命令方案——单测工具注册与 handler 返回值 == runtime.character，验收层断言工具存在且响应一致。两种形态都不依赖 LLM 行为。
 - **依赖**：User 形态确认（a/b/c）→ Dev 技术评估 → 契约声明。
 - **阻塞**：无。

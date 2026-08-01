@@ -38,7 +38,7 @@ npm run test:acceptance
 
 1. **tavern_whoami 工具**：character 状态下可调用，返回 `{ 当前角色: name, character_id, 描述: description }`，数据源为 `runtime.character`（join 时注册的单一事实源），与 creator 在线成员表注册记录一致；
 2. **可用范围**：仅 character 状态可用；creator/idle 状态返回明确错误（与 tavern_speak 同模式），不泄露其他角色信息；
-3. **确定性验收**：单测直接调用 handler 断言返回值 == runtime.character；验收层（PITAVERN_TEST）断言工具存在且响应与注册记录一致——不依赖 LLM 是否读了提示；
+3. **确定性验收**：单测直接调用 handler 断言返回值 == runtime.character（三态：character 正常返回 / creator、idle 明确错误 / 逐字段一致）；验收层经 PITAVERN_TEST 观察通道（同 ISSUE-003 模式：测试命令直接触发 handler 或 notify 工具清单，RPC 模式无 LLM 无法真实调工具）断言工具存在且响应与注册记录一致——不依赖 LLM 是否读了提示；返回字段命名与身份行契约共用（name / character_id），避免两套解析；
 4. **被动层保留**：群聊输入身份行（三字段）不变，继续每轮告知（兜底）；
 5. **ISSUE-006 统一裁决（User 2026-08-01「统一」）**：006 并入本需求，不独立实施；frontmatter `identity` 字段与 system prompt 每轮注入取消，身份感知由身份行（被动告知）+ whoami（主动查证）统一承担。
 
