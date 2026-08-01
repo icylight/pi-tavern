@@ -32,6 +32,16 @@ npm run test:acceptance
 
 验收方式：`npm run test:acceptance` 全绿 + 上述断言存在且非空（不接受仅靠人工检查）。
 
+### 身份可查询状态（ISSUE-007，2026-08-01 PM 设计）
+
+模型对自身身份必须有确定性查证通道，不依赖提示文本是否被读到：
+
+1. **tavern_whoami 工具**：character 状态下可调用，返回 `{ 当前角色: name, character_id, 描述: description }`，数据源为 `runtime.character`（join 时注册的单一事实源），与 creator 在线成员表注册记录一致；
+2. **可用范围**：仅 character 状态可用；creator/idle 状态返回明确错误（与 tavern_speak 同模式），不泄露其他角色信息；
+3. **确定性验收**：单测直接调用 handler 断言返回值 == runtime.character；验收层（PITAVERN_TEST）断言工具存在且响应与注册记录一致——不依赖 LLM 是否读了提示；
+4. **被动层保留**：群聊输入身份行（三字段）不变，继续每轮告知（兜底）；
+5. **ISSUE-006 裁决**：007 落地后由 User 裁决 006 是否仍独立实施（007 已覆盖「查证」，006 为「每轮提示」增强）。
+
 ### 每轮身份提示（ISSUE-006，2026-08-01 User 访谈确认）
 
 每个群聊消息触发的 turn，模型在开口前必须知道自己的角色身份：
