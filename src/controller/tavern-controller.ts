@@ -63,7 +63,11 @@ export class TavernController {
 		});
 	}
 
-	startJoining(descriptor: ActiveGroupChatDescriptor, sessionId: string): Promise<JoinAttempt> {
+	startJoining(
+		descriptor: ActiveGroupChatDescriptor,
+		sessionId: string,
+		options: JoinAttemptOptions = {},
+	): Promise<JoinAttempt> {
 		return this.runTransition(async () => {
 			if (this.state.type !== "idle") {
 				throw new Error("This pi session is already bound to a group chat; leave it first");
@@ -71,6 +75,7 @@ export class TavernController {
 
 			const token = {};
 			const attempt = await this.startJoin(descriptor, sessionId, {
+				...(options.cursorStorePath !== undefined ? { cursorStorePath: options.cursorStorePath } : {}),
 				onDisconnected: () => {
 					void this.handleConnectionClosed(token);
 				},

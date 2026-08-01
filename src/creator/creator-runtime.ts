@@ -760,15 +760,7 @@ export class CreatorRuntime {
 
 			// Broadcast and TUI projection are independent — neither blocks the other
 			try {
-				this.broadcast({
-					type: "public_message",
-					event_id: entryId,
-					sequence,
-					timestamp: entryTimestamp,
-					sender: { type: "user_persona" },
-					content,
-					round: message.round,
-				});
+				this.broadcastGroupChatUpdate();
 			} catch {
 				// Broadcast failure silently swallowed — no impact on state or TUI
 			}
@@ -994,6 +986,9 @@ export class CreatorRuntime {
 			case "get_message_history":
 				this.handleGetMessageHistory(socket, connection, message);
 				return;
+			case "fetch_messages_since":
+				this.handleFetchMessagesSince(socket, connection, message);
+				return;
 			case "get_chat_history_file":
 				this.handleGetChatHistoryFile(socket, connection, message);
 				return;
@@ -1201,6 +1196,44 @@ export class CreatorRuntime {
 		});
 	}
 
+	private handleFetchMessagesSince(
+		socket: WebSocket,
+		connection: ConnectionContext,
+		message: Extract<ClientMessage, { type: "fetch_messages_since" }>,
+	): void {
+		if (!connection.online || connection.sessionId === null) {
+			this.sendFailure(socket, message.id, "fetch_messages_since", "Character is not in the group chat");
+			return;
+		}
+
+		// Incremental pull (M7/ISSUE-012): return every message after the
+		// client's cursor. Sequence filtering naturally fills gaps — a missed
+		// notification is healed by the next pull.
+		const since = message.since_sequence;
+		const increment = this.publicMessages.filter((m) => m.sequence > since);
+		const latest = this.publicMessages[this.publicMessages.length - 1];
+
+		this.send(socket, {
+			...(message.id !== undefined ? { id: message.id } : {}),
+			type: "response",
+			command: "fetch_messages_since",
+			success: true,
+			data: {
+				messages: increment.map((m) => ({
+					type: "public_message" as const,
+					event_id: m.event_id,
+					sequence: m.sequence,
+					timestamp: m.timestamp,
+					sender: m.sender,
+					content: m.content,
+					round: m.round,
+				})),
+				latest_sequence: latest?.sequence ?? since,
+				total_messages: this.publicMessages.length,
+			},
+		});
+	}
+
 	private handleGetChatHistoryFile(
 		socket: WebSocket,
 		connection: ConnectionContext,
@@ -1353,15 +1386,7 @@ export class CreatorRuntime {
 
 			// Broadcast and TUI projection are independent — neither blocks the other
 			try {
-				this.broadcast({
-					type: "public_message",
-					event_id: entryId,
-					sequence,
-					timestamp: entryTimestamp,
-					sender: msg.sender,
-					content: message.content,
-					round: msg.round,
-				});
+				this.broadcastGroupChatUpdate();
 			} catch {
 				// Broadcast failure silently swallowed
 			}
@@ -1523,6 +1548,7 @@ export class CreatorRuntime {
 			| "leave_group_chat"
 			| "get_group_chat_state"
 			| "get_message_history"
+			| "fetch_messages_since"
 			| "get_chat_history_file"
 			| "speak",
 		error: string,
@@ -1573,6 +1599,35 @@ export class CreatorRuntime {
 		for (const socket of this.connections.values()) {
 			this.send(socket, message);
 		}
+	}
+
+	/**
+	 * M7 (ISSUE-012/#24): broadcast a group_chat_update notification instead
+	 * of the full public_message event. Characters wake on the notification
+	 * and pull the actual increment via fetch_messages_since. The preview
+	 * carries the most recent messages (WeChat-style); content is the same
+	 * source (publicMessages) as the pull path, so UI and agent context
+	 * never diverge.
+	 */
+	private broadcastGroupChatUpdate(): void {
+		const latest = this.publicMessages[this.publicMessages.length - 1];
+		if (!latest) {
+			return;
+		}
+		this.broadcast({
+			type: "group_chat_update",
+			latest_sequence: latest.sequence,
+			preview_messages: this.publicMessages.slice(-3).map((m) => ({
+				type: "public_message" as const,
+				event_id: m.event_id,
+				sequence: m.sequence,
+				timestamp: m.timestamp,
+				sender: m.sender,
+				content: m.content,
+				round: m.round,
+			})),
+			total_messages: this.publicMessages.length,
+		});
 	}
 
 	/**

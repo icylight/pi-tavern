@@ -58,6 +58,8 @@ export interface CharacterReloadHandoff {
 	groupChatId: string;
 	socket: WebSocket;
 	character: CharacterCard;
+	/** M7 (ISSUE-012/#24): cursor file path, carried across reloads. */
+	cursorStorePath?: string;
 	pendingEvents: ServerMessage[];
 	debounceDueAt: number | null;
 	lastPingAt: number;

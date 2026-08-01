@@ -50,6 +50,16 @@ export function getGroupChatSessionDirectory(agentDir: string, cwd: string): str
 	return join(getGroupChatProjectDirectory(agentDir, cwd), "chats");
 }
 
+/**
+ * M7 (ISSUE-012/#24): per-group-chat cursor store directory on the
+ * character side ("last successfully delivered message sequence").
+ * Persisted across restarts; scoped by project so distinct group chats
+ * in different projects never collide.
+ */
+export function getGroupChatCursorDirectory(agentDir: string, cwd: string): string {
+	return join(getGroupChatProjectDirectory(agentDir, cwd), "cursors");
+}
+
 export async function publishActiveDescriptor(
 	agentDir: string,
 	descriptor: ActiveGroupChatDescriptor,
@@ -123,7 +133,7 @@ export async function removeOwnedActiveDescriptor(path: string, instanceId: stri
 	}
 }
 
-function getProjectKey(cwd: string): string {
+export function getProjectKey(cwd: string): string {
 	const normalizedCwd = resolve(cwd);
 	return `--${normalizedCwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
 }

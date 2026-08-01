@@ -21,25 +21,57 @@ export interface GroupChatInputReloadSnapshot {
 	debounceDueAt: number | null;
 }
 
+/**
+ * M7 (ISSUE-012/#24): how long to wait before submitting the environment
+ * batch after a non-update event (join history, member changes). The old
+ * 1s trailing-edge debounce is gone for group_chat_update — updates pull
+ * immediately — but member/history batches still batch briefly so a join
+ * never splits into multiple inputs.
+ */
+const JOIN_BATCH_DEBOUNCE_MS = 1000;
+
 export class GroupChatInput {
 	private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 	private debounceDueAt: number | null = null;
 	private batch: ServerMessage[] = [];
 	private handler: ((message: ServerMessage) => void) | undefined;
 	private stopped = false;
+	/** Single-flight lock: at most one fetch_messages_since in flight. */
+	private fetchInFlight = false;
+	/** Set when an update arrives while a fetch is in flight → refetch after. */
+	private refetchRequested = false;
+	/** Set when the Agent is mid-run and the increment must wait for settle. */
+	private flushQueuedForSettle = false;
 
 	constructor(
 		private readonly runtime: CharacterRuntime,
 		private readonly pi: ExtensionAPI,
-	) {}
+	) {
+		// M7 A5: when the Agent run settles, flush an increment that was queued
+		// while the run was active ("不打断": never interrupt a running turn).
+		// The flag gates the flush: a settle without a queued increment (e.g.
+		// a settle triggered by an unrelated turn) does not push new input.
+		this.onSettled = () => {
+			if (!this.flushQueuedForSettle || this.stopped) {
+				return;
+			}
+			this.flushQueuedForSettle = false;
+			if (this.batch.length > 0) {
+				void this.flush();
+			}
+		};
+	}
+
+	private readonly onSettled: () => void;
 
 	start(): void {
 		this.handler = (message: ServerMessage) => {
 			if (message.type === "message_history" && Array.isArray(message.messages)) {
-				// Expand message_history into individual public_message events.
-				// ISSUE-008: the join-time snapshot only carries the 10 most
-				// recent messages; when has_more is set, walk the remaining
-				// history via the cursor so older messages are not lost.
+				// Join-time snapshot: expand into individual public_message events.
+				// ISSUE-008: when has_more is set, page the remaining history via
+				// the cursor so older messages are not lost. M7: the persisted
+				// cursor takes precedence — a returning character diff-syncs
+				// from its last delivered position instead of re-reading history.
 				const before = this.batch.length;
 				for (const m of message.messages) {
 					if (m && typeof m === "object" && "type" in m && m.type === "public_message") {
@@ -49,7 +81,7 @@ export class GroupChatInput {
 				}
 				// Only start debounce if messages were actually added
 				if (this.batch.length > before) {
-					this.resetDebounce();
+					this.resetJoinDebounce();
 				}
 				// Paging is deliberately fire-and-forget: the flush already
 				// scheduled below carries the first page; the older pages are
@@ -59,11 +91,75 @@ export class GroupChatInput {
 				}
 				return;
 			}
+			if (message.type === "group_chat_update") {
+				// M7: notification → immediate incremental pull (no debounce).
+				// The pull result is what reaches the context; the preview is
+				// only for the TUI (same source, so content never diverges).
+				void this.pullIncrement();
+				return;
+			}
 			if (!this.isEnvironmentEvent(message)) return;
 			this.batch.push(message);
-			this.resetDebounce();
+			this.resetJoinDebounce();
 		};
 		this.runtime.onEnvironmentMessage = this.handler;
+		// Re-arm the settle hook on (re)start.
+		this.runtime.onAgentSettled = this.onSettled;
+	}
+
+	/**
+	 * M7: pull every message after the persisted cursor and append it to the
+	 * batch. Single-flight: a concurrent update only marks refetchRequested
+	 * and is coalesced into one follow-up pull. If the Agent is mid-run the
+	 * flush is deferred until it settles (A5); otherwise it flushes at once.
+	 */
+	private async pullIncrement(): Promise<void> {
+		if (this.stopped || this.fetchInFlight) {
+			this.refetchRequested = true;
+			return;
+		}
+		this.fetchInFlight = true;
+		try {
+			do {
+				this.refetchRequested = false;
+				const since = this.runtime.loadCursor() ?? 0;
+				const page = await this.runtime.fetchMessagesSince(since);
+				if (!page || this.stopped) {
+					return;
+				}
+				const before = this.batch.length;
+				for (const m of page.messages) {
+					if (m && typeof m === "object" && "type" in m && m.type === "public_message") {
+						if (!this.isEnvironmentEvent(m as ServerMessage)) continue;
+						this.batch.push(m as ServerMessage);
+					}
+				}
+				if (this.batch.length > before) {
+					// Cursor advances only when the increment reaches the context
+					// (A2: delivery failure must not move the cursor).
+					this.runtime.saveCursor(page.latestSequence);
+					this.submitBatch();
+				}
+			} while (this.refetchRequested && !this.stopped);
+		} catch {
+			// Pull failure: keep the cursor; the next update or join re-pulls
+			// the same window (idempotent by sequence).
+		} finally {
+			this.fetchInFlight = false;
+		}
+	}
+
+	/**
+	 * Submit the pending batch: immediately when the Agent is idle, or queued
+	 * until agent_settled when a run is active (M7 A5 — never interrupt).
+	 */
+	private submitBatch(): void {
+		if (this.stopped || this.batch.length === 0) return;
+		if (this.runtime.isAgentActive) {
+			this.flushQueuedForSettle = true;
+			return;
+		}
+		void this.flush();
 	}
 
 	/**
@@ -93,7 +189,7 @@ export class GroupChatInput {
 						this.batch.push(m as ServerMessage);
 					}
 				}
-				this.resetDebounce();
+				this.resetJoinDebounce();
 				nextCursor = page.cursor;
 				if (!page.hasMore) {
 					break;
@@ -107,6 +203,9 @@ export class GroupChatInput {
 	stop(): void {
 		this.stopped = true;
 		this.runtime.onEnvironmentMessage = undefined;
+		if (this.runtime.onAgentSettled === this.onSettled) {
+			this.runtime.onAgentSettled = undefined;
+		}
 		this.handler = undefined;
 		this.clearDebounce();
 		this.batch = [];
@@ -164,16 +263,16 @@ export class GroupChatInput {
 		return message.sender.type === "character" && message.sender.character_id === this.runtime.character.characterId;
 	}
 
-	private resetDebounce(): void {
+	private resetJoinDebounce(): void {
 		if (this.debounceTimer) {
 			clearTimeout(this.debounceTimer);
 		}
-		this.debounceDueAt = Date.now() + 1000;
+		this.debounceDueAt = Date.now() + JOIN_BATCH_DEBOUNCE_MS;
 		this.debounceTimer = setTimeout(() => {
 			this.debounceTimer = null;
 			this.debounceDueAt = null;
 			void this.flush();
-		}, 1000);
+		}, JOIN_BATCH_DEBOUNCE_MS);
 	}
 
 	private clearDebounce(): void {
@@ -200,6 +299,21 @@ export class GroupChatInput {
 		if (this.stopped) return;
 
 		const content = this.buildContent(events, groupChatState);
+
+		if (process.env.PITAVERN_TEST === "1") {
+			// M7 A6 observation channel: re-emit the delivered increment via
+			// notify so the acceptance suite can assert that what reached the
+			// agent context equals the notification source (same data).
+			const sequences = events
+				.filter((e) => e.type === "public_message")
+				.map((e) => e.sequence)
+				.sort((a, b) => a - b);
+			if (sequences.length > 0) {
+				testNotify?.(
+					`[tavern-inject] group=${this.runtime.groupChatId} latest_seq=${sequences[sequences.length - 1]} count=${sequences.length}`,
+				);
+			}
+		}
 
 		this.pi.sendMessage(
 			{

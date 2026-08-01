@@ -145,6 +145,11 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	pi.on("agent_start", () => {
 		const state = ctrl.getState();
 		if (state.type === "character") {
+			// M7 (ISSUE-012/#24): mark the run active so a group_chat_update
+			// pull queues instead of interrupting the current turn.
+			state.runtime.isAgentActive = true;
+			// Keep the legacy streaming signal; its semantic correction (only
+			// group-chat-triggered turns) is tracked separately (ISSUE-002/#14).
 			state.runtime.updateStreaming(true);
 		}
 	});
@@ -152,7 +157,10 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	pi.on("agent_settled", () => {
 		const state = ctrl.getState();
 		if (state.type === "character") {
+			state.runtime.isAgentActive = false;
 			state.runtime.updateStreaming(false);
+			// Flush any increment queued while the run was active.
+			state.runtime.onAgentSettled?.();
 		}
 	});
 

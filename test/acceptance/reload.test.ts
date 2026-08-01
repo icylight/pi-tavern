@@ -101,12 +101,13 @@ describe("acceptance: reload keeps confirmed connections and identity", () => {
 				e.type === "extension_ui_request" && e.method === "notify" && e.message === "User Persona message published",
 		);
 		// The raw member received the post-reload broadcast on its original
-		// connection: the reloaded creator serves the same sockets.
-		const delivered = await member.waitFor(
-			(m) => m.type === "public_message" && m.content === "Hello after reload",
-			30_000,
-		);
-		expect((delivered.sequence as number) ?? 0).toBeGreaterThan(0);
+		// connection: the reloaded creator serves the same sockets. M7
+		// (ISSUE-012): broadcasts are group_chat_update notifications; the
+		// preview carries the new message.
+		const delivered = await member.waitFor((m) => m.type === "group_chat_update", 30_000);
+		expect((delivered.latest_sequence as number) ?? 0).toBeGreaterThan(0);
+		const preview = delivered.preview_messages as Record<string, unknown>[];
+		expect(preview.some((m) => m.content === "Hello after reload")).toBe(true);
 		expect(member.allFrames().some((m) => m.type === "character_left" || m.type === "group_chat_closed")).toBe(false);
 
 		await character.runCommand("/tavern-leave");

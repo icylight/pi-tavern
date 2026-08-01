@@ -17,6 +17,12 @@ export interface JoinAttemptOptions {
 	heartbeatIntervalMs?: number;
 	/** Creator-ping timeout threshold on the transferred Character connection. */
 	heartbeatTimeoutMs?: number;
+	/**
+	 * M7 (ISSUE-012/#24): absolute path of the per-group-chat cursor file,
+	 * forwarded to the CharacterRuntime so incremental pulls resume across
+	 * restarts and reloads.
+	 */
+	cursorStorePath?: string;
 }
 
 interface PendingRequest {
@@ -37,6 +43,7 @@ export class JoinAttempt {
 	private readonly onDisconnected: (() => void) | undefined;
 	private readonly heartbeatIntervalMs: number | undefined;
 	private readonly heartbeatTimeoutMs: number | undefined;
+	private readonly cursorStorePath: string | undefined;
 	private transferred = false;
 	private closed = false;
 
@@ -87,6 +94,7 @@ export class JoinAttempt {
 		this.onDisconnected = options.onDisconnected;
 		this.heartbeatIntervalMs = options.heartbeatIntervalMs;
 		this.heartbeatTimeoutMs = options.heartbeatTimeoutMs;
+		this.cursorStorePath = options.cursorStorePath;
 		this.socket.on("message", this.onMessage);
 		this.socket.on("close", this.onClose);
 		this.socket.on("error", this.onError);
@@ -149,6 +157,7 @@ export class JoinAttempt {
 				...(this.onDisconnected ? { onDisconnected: this.onDisconnected } : {}),
 				...(this.heartbeatIntervalMs !== undefined ? { heartbeatIntervalMs: this.heartbeatIntervalMs } : {}),
 				...(this.heartbeatTimeoutMs !== undefined ? { heartbeatTimeoutMs: this.heartbeatTimeoutMs } : {}),
+				...(this.cursorStorePath !== undefined ? { cursorStorePath: this.cursorStorePath } : {}),
 			});
 			const readyResponse = await this.request({ type: "character_ready" });
 			if (readyResponse.type !== "response" || readyResponse.command !== "character_ready") {

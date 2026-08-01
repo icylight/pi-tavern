@@ -76,6 +76,20 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 
 实现：`CharacterRuntime.fetchMessageHistoryPage(cursor)` + `GroupChatInput` has_more 循环（fire-and-forget，首屏不阻塞）。验收证据：验收套件 7 文件 12 用例全绿（含 history-paging）、单测 176/176、check 零告警。已知边界：RPC 模式输入不可直接观察，全量注入断言由单测 A3 + 恢复场景兜底。
 
+### 新消息获取推拉混合（ISSUE-012 / GitHub #24，2026-08-01 需求，方案已冻结，分支 feat/new-message-fetch）
+
+需求与冻结方案见 `docs/new-message-fetch.md`。交互由「服务端推送 + 固定 1 秒防抖」改为推送+拉取混合（微信模型）：广播通知化 + 角色主动增量拉取 + 游标本地持久化 + 缺口检测，不打断当前 run。
+
+1. **A1 去防抖增量拉取**：收到 `group_chat_update` → 立即发起 `fetch_messages_since(游标)`，无 1s 防抖（单测 fake timers 精确控时断言）；
+2. **A2 游标持久化**：收消息 → 游标落盘 → 重启角色进程 → 游标保留、增量从游标后开始（reload.test.ts 先例复用）；投递失败游标不动；
+3. **A3 不重不漏/顺序一致**：固定序列场景断言拉取内容 = 游标后全部、无重复、严格递增；
+4. **A4 缺口检测**：控制广播（跳过序号/丢帧模拟）→ 断言补拉补齐，不永久丢失；
+5. **A5 run 状态信号（可测性契约，QA 二评降级口径已裁定）**：**单测层（主验证）**：注入 run 状态信号，断言 `isAgentActive` 活跃时拉取完成→排队、`onAgentSettled` → 立即投递（≤5s）；**验收层**：RPC 无真实 run（已知边界）→ 降级为「收到通知后投递发生 + 进程稳定」烟雾；**isAgentActive 无 run 时视为空闲（false）→ 立即投递**（否则 RPC 模式永远排队，Dev 必须明确该语义）；
+6. **A6 统一逻辑（可测性契约，QA 二评补充已采纳）**：投递时经 `PITAVERN_TEST=1` testNotify 注入 `latest_sequence` + 投递消息数，验收断言与 TUI 预览同源（同一消息数据）；
+7. **A7 边界**：无游标 join 走现有全量分页；单飞行锁防并发竞态；自己的 echo 仍过滤；`message_history`/`get_message_history` 回归不破坏。
+
+验收方式：`npm run test:acceptance` 全绿 + 上述断言存在且非空 + 单测/check 全绿 + 协议与持久化文档无语义分歧。
+
 ### 测试门控命令
 
 RPC 模式没有输入通道、也无法调用扩展工具，因此 `PITAVERN_TEST=1`（`npm run test:acceptance` 自动设置）时额外注册：
