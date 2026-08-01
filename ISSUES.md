@@ -52,6 +52,16 @@
 - **建议**：补端到端身份一致性断言（注入 persona 名 == creator 在线注册名）；speak-order 断言加「speaker 与内容作者一致性」检查。
 - **阻塞**：无（speak-order 的 sequence/轮次计数机制正常），但影响群聊可信度与验收裁决。
 
+## ISSUE-011: 举手状态无显示（widget 与 status 均未渲染）
+
+- **状态**：open（User 反馈；冻结期仅登记不开发）
+- **来源**：User 反馈（2026-08-01）：「又发现一个 bug，举手状态无显示，status 中也无」
+- **现象**：角色达到发言上限（举手）后，TUI widget 不显示举手状态，footer status 中也不显示。
+- **根因（已定位）**：数据链路完整——协议 `hand_raised`（messages.ts:21/328）、character 侧 `handRaised`（character-runtime.ts:162/181）、creator 侧 `onlineCharacters.handRaised`（creator-runtime.ts:748/1103/1402/1511，广播携带）、group-chat-state.ts:19——**唯独呈现层未渲染**：`tavern-ui-presenter.ts` 的 `creatorWidgetLines`（:53）与 `characterWidgetLines`（:71）只渲染 `isStreaming`（正在发言），无 handRaised；status（:28/:37）亦无举手信息。
+- **与 ISSUE-001/002/009 同族**：TUI/status 呈现层遗漏系列（发言次数、正在发言、成员数、举手）。
+- **待确认**：期望显示形态（widget 行如「举手：xxx」？status 追加？）。
+- **阻塞**：无；不派工不开发（冻结期）。
+
 ## ISSUE-010: 验收套件 speak-order 全量并行时 hand_raised 断言间歇失败
 
 - **状态**：open（仅登记；User 冻结期不开发）
