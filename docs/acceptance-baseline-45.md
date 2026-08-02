@@ -47,3 +47,23 @@ top4 合计 ≈ 串行 75%；spawn 占比 ≈ 13×4.6s/350s ≈ **17%**（15-25%
    - 方案 A（零代码）：maxWorkers=6，实测 80-101s + CPU 未破 2 核预算 → 90s 目标边缘可达
    - 方案 B（根治）：等待收紧（live-delivery/streaming-truth 优先）+ W4 → 稳定 <90s
 4. 归一化分桶：重流程（进程级多阶段）与轻流程分桶后基线待等待收紧后重测
+
+## 补记（2026-08-02 晚，B 实现阶段）
+
+### 假 key 注入（B 实现，QA 属主测试基建）
+
+- 变更：`test/acceptance/pi-process.ts` spawn env 注入 ANTHROPIC/OPENAI/GEMINI 假 key（显式 env 优先覆盖）
+- 证据：A/B 对照——无 key streaming→settled >150s 超时未到 vs 假 key 12.4s；T4 定向 2 文件/4 用例 73s 绿（原 124-219s）；全链 21/21 绿（W2 144s / W4 137s / W6 125s，均含负载方差）；断言语义不变（widget 正在发言 + agent_settled 正常触发，T4 注入节奏在 12.4s 窗口内满足）
+- **环境依赖（Arch 记入要求）**：假 key 模式前提 = API 端点可达（401 需成功 HTTP 往返）。离线/不可达 → 连接错误落入 RETRYABLE → 静默退回 130s 级。兜底：V0 门禁留痕注明「假 key 模式需外网可达」+ 每 5 PR 全量校准发现时长漂移。B-2（本地 401 stub 经 base URL env）**不可行**：pi 子模块 5bc1c2c0 无 BASE_URL env 支持（静态核查）
+- 影响面：acceptance 全链（注入影响所有跑法）；定向回归 live-delivery/streaming-truth 已过 + 全链已过
+
+### src → acceptance 受影响文件映射（QA 定向判定工具，随影响面声明更新）
+
+| src 模块 | 受影响 acceptance 文件 |
+| --- | --- |
+| creator/（群聊创建/恢复/命名/配额） | resume-history, history-paging, isolation, multi-process |
+| character/（run/steer/光标/流式） | live-delivery, streaming-truth, speak-order, message-sync, message-fetch, headless |
+| discovery/（descriptor/光标目录） | live-delivery, resume-history, isolation |
+| protocol/（WS/事件契约） | streaming-truth, message-sync, headless |
+| config/（tavern.json/配额） | resume-history, identity-consistency |
+| 测试基建（pi-process.ts/configs） | 全链（按 v0.6 触发条件③ QA 判定） |
