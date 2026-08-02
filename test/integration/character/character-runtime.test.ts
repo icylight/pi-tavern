@@ -1,9 +1,10 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 import { JoinAttempt } from "../../../src/character/join-attempt.js";
+import { CharacterRuntime } from "../../../src/character/character-runtime.js";
 import { type CharacterCard, loadCharacterCard } from "../../../src/config/character-card.js";
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 
@@ -156,6 +157,109 @@ describe("M7 message fetch (ISSUE-012)", () => {
 		const runtime = await attempt.claimCharacter(character.characterId);
 
 		expect(runtime.loadCursor()).toBeNull();
+	});
+
+	it("isolates cursors per session: two sessions never advance each other's cursor (P0)", async () => {
+		const { creator, character } = await startCreator();
+		await creator.submitUserPersonaMessage("one"); // seq 1
+		await creator.submitUserPersonaMessage("two"); // seq 2
+		await creator.submitUserPersonaMessage("three"); // seq 3
+
+		const root = await createTemporaryDirectory();
+		const cursorDir = join(root, "cursors", "group-iso");
+		const attemptA = await JoinAttempt.connect(creator.activeDescriptor, "session-iso-a", {
+			cursorStorePath: join(cursorDir, "session-iso-a.json"),
+		});
+		const runtimeA = await attemptA.claimCharacter(character.characterId);
+		const attemptB = await JoinAttempt.connect(creator.activeDescriptor, "session-iso-b", {
+			cursorStorePath: join(cursorDir, "session-iso-b.json"),
+		});
+		const runtimeB = await attemptB.claimCharacter(character.characterId);
+
+		// A delivered up to 3; B has delivered only seq 1.
+		runtimeA.saveCursor(3);
+		runtimeB.saveCursor(1);
+
+		// Distinct files, no cross-advance, no shared tmp clash.
+		expect(JSON.parse(await readFile(join(cursorDir, "session-iso-a.json"), "utf8")).last_sequence).toBe(3);
+		expect(JSON.parse(await readFile(join(cursorDir, "session-iso-b.json"), "utf8")).last_sequence).toBe(1);
+		expect(runtimeA.loadCursor()).toBe(3);
+		expect(runtimeB.loadCursor()).toBe(1);
+
+		// B pulls from its own cursor: nothing skipped, nothing re-delivered.
+		const pulled = await runtimeB.fetchMessagesSince(1);
+		expect(pulled?.messages.map((m) => (m as { sequence?: number }).sequence)).toEqual([2, 3]);
+	});
+
+	it("falls back to the v1 group-chat cursor file as a conservative start (P0)", async () => {
+		const { creator, character } = await startCreator();
+		const root = await createTemporaryDirectory();
+		const groupId = "group-legacy";
+		const legacyPath = join(root, "cursors", `${groupId}.json`);
+		await mkdir(join(root, "cursors"), { recursive: true });
+		await writeFile(legacyPath, JSON.stringify({ last_sequence: 3, updated_at: "2026-01-01T00:00:00.000Z" }));
+
+		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-legacy", {
+			cursorStorePath: join(root, "cursors", groupId, "session-legacy.json"),
+		});
+		const runtime = await attempt.claimCharacter(character.characterId);
+
+		// Conservative start: re-pull from the legacy value, never skip.
+		expect(runtime.loadCursor()).toBe(3);
+
+		// Saves go to the session file only; the legacy file is untouched (read-only compat).
+		runtime.saveCursor(4);
+		const sessionFile = join(root, "cursors", groupId, "session-legacy.json");
+		expect(JSON.parse(await readFile(sessionFile, "utf8")).last_sequence).toBe(4);
+		expect(JSON.parse(await readFile(legacyPath, "utf8")).last_sequence).toBe(3);
+	});
+
+	it("writes concurrent session cursors atomically without clobbering (P0)", async () => {
+		const { creator, character } = await startCreator();
+		const root = await createTemporaryDirectory();
+		const cursorDir = join(root, "cursors", "group-conc");
+		const attemptA = await JoinAttempt.connect(creator.activeDescriptor, "session-conc-a", {
+			cursorStorePath: join(cursorDir, "session-conc-a.json"),
+		});
+		const runtimeA = await attemptA.claimCharacter(character.characterId);
+		const attemptB = await JoinAttempt.connect(creator.activeDescriptor, "session-conc-b", {
+			cursorStorePath: join(cursorDir, "session-conc-b.json"),
+		});
+		const runtimeB = await attemptB.claimCharacter(character.characterId);
+
+		// Interleaved saves across sessions: per-session files mean no shared
+		// tmp name and no last-write-wins clash between sessions.
+		runtimeA.saveCursor(5);
+		runtimeB.saveCursor(9);
+		runtimeA.saveCursor(6);
+
+		expect(JSON.parse(await readFile(join(cursorDir, "session-conc-a.json"), "utf8")).last_sequence).toBe(6);
+		expect(JSON.parse(await readFile(join(cursorDir, "session-conc-b.json"), "utf8")).last_sequence).toBe(9);
+		// No leftover tmp files in the shared directory.
+		const leftovers = (await readdir(cursorDir)).filter((name) => name.endsWith(".tmp"));
+		expect(leftovers).toEqual([]);
+	});
+
+	it("resumes the same session cursor across a reload handoff (P0)", async () => {
+		const { creator, character } = await startCreator();
+		const root = await createTemporaryDirectory();
+		const cursorPath = join(root, "cursors", "group-reload", "session-reload.json");
+
+		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-reload", {
+			cursorStorePath: cursorPath,
+		});
+		const runtime = await attempt.claimCharacter(character.characterId);
+		runtime.saveCursor(7);
+
+		// Reload handoff carries cursorStorePath; the fresh runtime resumes
+		// from the same session cursor without re-delivery.
+		const handoff = await runtime.detachForReload("session-reload");
+		const resumed = await CharacterRuntime.takeHandoff(handoff);
+		expect(resumed.loadCursor()).toBe(7);
+		const pulled = await resumed.fetchMessagesSince(7);
+		expect(pulled?.messages).toEqual([]);
+
+		await resumed.close();
 	});
 });
 
