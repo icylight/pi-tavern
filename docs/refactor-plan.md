@@ -28,7 +28,7 @@
 - 试点顺序（QA 定序）：resume-projection（先例+纯计算）→ active-descriptor（覆盖最厚）→ session/cursor；discover-group-chats 先补钉测再迁
 - PR 切分：按 skills 模块拆 2-3 个 PR，各带定向验证（防单 PR 过大）
 - 验证:unit 全量 + 定向(message-sync / persistence / discovery)
-- 出口:data/ 全部无 pi 依赖、可单测;runtime 不再直接写文件
+- 出口：data/ 全部无 pi 依赖、可单测；**全仓文件 IO 调用点 grep 审计 = 非 skills 层 0 调用点**（adapter/shared 直读直写清零；契约面 messages/codec 只编解码，实测触盘则一并收敛）；runtime 不再直接写文件
 
 ### Phase 2:application 提取(管线化)
 
@@ -58,7 +58,8 @@
 
 | 风险 | 对策 |
 | --- | --- |
-| 迁移期 import/测试路径 churn | 五阶段切分消化;每阶段独立 commit、独立验证 |
+| 迁移期 import/测试路径 churn | 五阶段切分消化；每阶段独立 commit、独立验证 |
+| **IO 收敛面超出预期（Dev 实测：16/22 文件直触 IO，含 adapter 侧 commands/tavern-ui-presenter/headless 与 shared 侧 messages/config）** | Phase 1 以「读写点唯一化」为原则覆盖全仓：runtime 内 IO + adapter 直读点 + shared 侧 IO 全部收进 skills；协议侧 IO 若属契约无关工具则一并迁出；按 1.5× 规模预留 Phase 1 |
 | 管线化初期样板感 | 评审约束阶段粒度;仅「有独立步骤/状态/复用边界」的流程建管线 |
 | 试点模块回退 | 先迁移覆盖最厚模块(QA 覆盖现状表);回退 = 单文件 revert + 定向回归 |
 | 门禁波动(环境) | 白名单零 LLM 环境已确定性化(#52);配对 A/B 铁律(§7)适用一切对照 |
