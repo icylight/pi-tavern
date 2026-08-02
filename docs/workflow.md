@@ -24,7 +24,7 @@ User 自然表达指示 → **PM 负责转译成 Task Brief 并回读确认**（
 - 所有改动落工作分支（`feat/*`、`fix/*`）；角色卡、docs、scripts 等一切文件改动同样遵守——**无例外**
 - 分支从 main 切出（`git checkout -b feat/xxx main`），逻辑独立、一个任务一条分支（或按 User 指示并入既有分支）
 - 分支合入 main 由 **User 亲自执行**（2026-08-01 指示），角色侧止于评审通过 + 证据齐备 + 宣布就绪
-- **开发完成开 PR**（Dev 负责 PR 创建与更新）：PR 标题/描述引用 issue 编号，附 Task Brief 五要素 + 验收证据（命令 + 结果）；评审（Arch）与验收（QA）在 PR 上留痕；角色侧一律不执行 merge，PR 就绪后宣布，由 User 合并
+- **开发完成开 PR（PM 负责推送与 PR 创建/更新，2026-08-02 User 指示）**：PR 标题/描述引用 issue 编号，附 Task Brief 五要素 + 验收证据（命令 + 结果）；评审（Arch）与验收（QA）在 PR 上留痕；角色侧一律不执行 merge，PR 就绪后宣布，由 User 合并
 - 动手前先 `git status` + `git branch --show-current`：确认所在分支正确、工作区无他人未提交改动
 
 ## 3. 沟通与确认闭环
