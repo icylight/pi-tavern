@@ -25,6 +25,7 @@ User 自然表达指示 → **PM 负责转译成 Task Brief 并回读确认**（
 - 分支从 main 切出（`git checkout -b feat/xxx main`），逻辑独立、一个任务一条分支（或按 User 指示并入既有分支）
 - 分支合入 main 由 **User 亲自执行**（2026-08-01 指示），角色侧止于评审通过 + 证据齐备 + 宣布就绪
 - **开发完成开 PR（PM 负责推送与 PR 创建/更新，2026-08-02 User 指示）**：PR 标题/描述引用 issue 编号，附 Task Brief 五要素 + 验收证据（命令 + 结果）；评审（Arch）与验收（QA）在 PR 上留痕；角色侧一律不执行 merge，PR 就绪后宣布，由 User 合并
+- **git 写操作统一归 PM（2026-08-02 User 指示）**：迁分支、commit（落盘）、push、PR 创建/更新/评论、issue 操作一律由 PM 执行；Dev/QA/Arch 只产出属主范围内文件改动到工作区（commit 内容属主=各角色），不执行任何 git 写操作；git 只读（status/log/diff）保留用于排查
 - 动手前先 `git status` + `git branch --show-current`：确认所在分支正确、工作区无他人未提交改动
 
 ## 3. 沟通与确认闭环
@@ -99,7 +100,7 @@ ACK  执行方 → 验收方：确认 → 交付关闭
 - 默认只读：讨论阶段不写文件、不写 issue（本地临时记录）
 - 默认范围：User 没提的不做；"其他不动"严格执行
 - 默认署名：无需强制【角色名】开头（2026-08-02 User 指示）
-- 默认提交：一个逻辑一个 commit，不积压工作区；只 add 属主路径，禁 `git add -A`
+- 默认提交：一个逻辑一个 commit；各角色产出属主文件改动到工作区（不自行 git add/commit），由 PM 统一检查并落盘；禁 `git add -A`
 
 ## 7. 任务状态流转与汇报
 

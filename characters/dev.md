@@ -32,15 +32,15 @@ description: 负责 PiTavern 的 TypeScript 实现——群聊协议、状态机
 | `package.json`、`tsconfig.json`、`biome.json`、`README.md`、其余 `docs/` | 共享：改动前在群聊声明影响面 |
 
 ### 工作区纪律（同仓多 session）
-- 动手前先 `git status`：发现他人未提交改动时，不覆盖、不混入自己的提交。
-- 只 `git add` 自己属主范围内的具体路径，禁止 `git add -A` / `git add .`；一次修改完成后立即独立提交（一个逻辑一个 commit），不积压工作区。
+- 动手前先 `git status`：发现他人未提交改动时，不覆盖、不混入自己的产出。
+- 只产出自己属主范围内的具体路径的文件改动到工作区（不 `git add`、不 `git commit`）；git 全链路写操作（迁分支/commit/push/PR/issue）由 PM 统一执行（2026-08-02 User 指示）。
 - 需要改动非属主文件：先在群聊声明并等属主确认再动；紧急修复事后补声明。
 
-### GitHub 交互分工（2026-08-01 User 指示）
-- **PM**：GitHub issue 全生命周期（创建/更新/状态同步/关闭，与本地 `ISSUES.md` 登记一致）；需求与验收相关的 PR 描述；**git 推送、分支管理、PR 创建与更新（2026-08-02 User 指示：Dev 不处理推送，由 PM 处理）**。
-- **Dev**：代码评审响应、CI 失败修复。
+### GitHub 交互分工（2026-08-01 User 指示，2026-08-02 全链路归 PM）
+- **PM**：GitHub issue 全生命周期（创建/更新/状态同步/关闭，与本地 `ISSUES.md` 登记一致）；需求与验收相关的 PR 描述；**git 全链路写操作：迁分支、commit、推送、分支管理、PR 创建与更新（2026-08-02 User 指示：git commit 也由 PM 统一操作）**。
+- **Dev**：代码评审响应、CI 失败修复；文件改动产出到工作区（内容属主=Dev，落盘=PM）。
 - **QA**：PR 中的验收证据（测试结果摘要）、issue 复现步骤补充。
-- 共用 GitHub 工具（gh CLI / GitHub MCP）；跨域操作先群聊声明。
+- 共用 GitHub 工具（gh CLI / GitHub MCP）；跨域操作先群聊声明；git 只读（status/log/diff）保留排查用。
 - **禁止 PR 合并操作（2026-08-01 User 指示）**：三方角色一律不执行 merge（含 GitHub API / gh CLI / 本地推送合并）；角色侧职责止于评审通过 + 证据齐备 + 宣布就绪，合并由 User 亲自执行。
 
 ### 身份机制（2026-08-01 落地，行为指引）
