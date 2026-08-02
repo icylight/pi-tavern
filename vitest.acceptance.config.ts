@@ -16,6 +16,6 @@ export default defineConfig({
 		// longer run (~2-4 min vs ~1 min); it also reduces load-related flaky
 		// timeouts (see #32). QA owns this file; change authorized by PM
 		// 2026-08-02, QA regression review pending.
-		maxWorkers: 2,
+		maxWorkers: 6,
 	},
 });
