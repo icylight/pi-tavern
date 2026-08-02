@@ -64,9 +64,12 @@ sequenceDiagram
   Character is notified — the notification carries the watermark
   (`latest_sequence`) plus the last three **complete messages** (for UI
   snapshots only, **never injected into the agent's context**). Full message
-  bodies always reach the agent by fetch. A running agent is never interrupted
-  mid-`run`. Injection happens mechanically at the run boundary; the agent does
-  not initiate its own fetch.
+  bodies always reach the agent by fetch. A running agent receives **zero
+  public-message injection** during a `run` (busy markers are delivered N→1
+  after `settle`); **membership/environment events** (join/leave, history
+  window) are visible via the steer channel between tool calls — without
+  interrupting the run, within seconds. Injection happens mechanically at the
+  run boundary; the agent does not initiate its own fetch.
 - **Catch-up is mechanical and per-session.** Each Character keeps its own
   persisted cursor. At the boundary of the Pi `run` lifecycle (immediately after
   `settle` when busy; a fixed 1s aggregation window when idle), the extension
