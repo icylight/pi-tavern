@@ -141,30 +141,29 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    SA["Security Architect"] -->|"threat modeling"| RT["Risk triage"]
-    SE["Security Engineer"] -->|"code audit"| RT
-    RT -->|"triage result"| DE["Developer"]
-    DE -->|"fix submitted"| SE
-    SE -->|"re-check verdict"| RT
+    SA["Security Architect"] -->|"threat modeling + triage"| DV["Developer"]
+    SE["Security Engineer"] -->|"code audit + findings"| DV
+    DV -->|"independent fix"| SE
+    SE -->|"re-check"| ST["Security Test Engineer"]
+    ST -->|"regression verify"| SA
 ```
 
 ```mermaid
 flowchart LR
-    TRI["Issue Triage"] -->|"route"| MT["Maintainer"]
+    TR["Issue Triage"] -->|"route"| MT["Maintainer"]
     MT -->|"accept/assign"| CT["Contributor"]
-    CT -->|"PR submitted"| RV["Reviewer"]
-    RV -->|"approved"| RM["Release Manager"]
-    RM -->|"release prep"| REL["Release"]
+    CT -->|"PR submitted"| RW["Reviewer"]
+    RW -->|"approved"| RL["Release Manager"]
+    RL -->|"release prep"| TR
 ```
 
 ```mermaid
 flowchart LR
-    R1["Researcher A"] --> AN["Technical Analyst"]
-    R2["Researcher B"] --> AN
-    R3["Researcher C"] --> AN
-    AN -->|"candidates"| EXP["Review Expert"]
-    EXP -->|"challenge/reply"| LEAD["Research Lead"]
-    LEAD -->|"conclusion"| DOC["Documentation Lead"]
+    OL["Research Lead"] -->|"kick-off"| R1["Researcher"] & R2["Researcher"]
+    R1 & R2 -->|"findings"| TA["Technical Analyst"]
+    TA -->|"candidates"| RE["Review Expert"]
+    RE -->|"challenge/reply"| OL
+    OL -->|"conclusion"| DW["Documentation Lead"]
 ```
 
 > **These are user-configurable examples only** — not built-in PiTavern roles,
