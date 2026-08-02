@@ -307,7 +307,7 @@ roundMaxMessages
 
 角色侧本地持久化「上次成功投递的最后一条消息 sequence」，重启/重连不丢：
 
-- 路径：**游标跟随 Session**——`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>/<session_id>.json`（同群聊多角色各持独立游标文件，互不推进）；旧版群聊级单文件（`cursors/<group_chat_id>.json`）由 loadCursor 兼容回退作保守起点（最多重复拉取、绝不跳过），save 只写新路径、旧文件不删不写（防多进程迁移竞态）
+- 路径：**游标跟随 Session**——`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>/<session_id>.json`（同群聊多角色各持独立游标文件，互不推进）；**旧版群聊级单文件（`cursors/<group_chat_id>.json`）废弃不读**——其值无 Session 身份、可能由其他角色推进，回退采用会跳过本 Session 从未看过的消息（User 2026-08-02 裁定）；新 Session 无独立游标时从完整历史分页重新拉取（最多重复、绝不跳过），旧文件物理遗留不写不删
 - 内容：`{ "last_sequence": 42, "updated_at": "..." }`（原子写：tmp 文件 + rename，同步原语）
 - 更新时机：**每次成功投递后**更新（投递失败游标不动 → 下次重拉同一窗口，按 sequence 幂等）
 - join/重连差分同步：有游标 → `fetch_messages_since(游标)`；无游标 → 现有 `message_history` 全量分页

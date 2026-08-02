@@ -10,7 +10,7 @@ import {
 	type CharacterReloadHandoff,
 	getReloadHandoffRegistry,
 } from "../controller/reload-handoff-registry.js";
-import { legacyCursorPathFor, readCursorFile, writeCursorFile } from "../data/cursor-store.js";
+import { readCursorFile, writeCursorFile } from "../data/cursor-store.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { GroupChatStateMessage, ServerMessage } from "../protocol/messages.js";
 import {
@@ -355,22 +355,15 @@ export class CharacterRuntime {
 		if (this.cursorSequence !== null) {
 			return this.cursorSequence;
 		}
-		// 游标跟随 Session：优先读本 Session 文件；v1 群聊级单文件作兼容回退
-		// （保守起点：最多重复拉取、绝不跳过消息；只读旧文件不迁移，防多进程竞态）。
-		// 本文件损坏（null 非抛）同样落旧文件回退——旧文件冻结于修复前且 ≤ 本文件
-		// 创建时位置，采纳旧值仍保守。
+		// 游标跟随 Session：只读本 Session 文件。v1 群聊级共享游标无 Session 身份，
+		// 可能由其他角色推进——若回退采用其值会跳过本 Session 从未看过的消息，故
+		// 不采用（User 2026-08-02：新 Session 无独立游标 = 从完整历史重新拉取，
+		// 最多重复、绝不跳过）。旧共享文件物理遗留但不读不写。
 		let sequence: number | null = null;
 		try {
 			sequence = readCursorFile(this.cursorStorePath);
 		} catch {
-			// 本 Session 文件不存在（ENOENT/EISDIR 等）——尝试旧格式
-		}
-		if (sequence === null) {
-			try {
-				sequence = readCursorFile(legacyCursorPathFor(this.cursorStorePath));
-			} catch {
-				// 旧格式也不存在——无游标
-			}
+			// 本 Session 文件不存在（ENOENT/EISDIR 等）——无游标，走完整历史分页
 		}
 		if (sequence !== null) {
 			this.cursorSequence = sequence;

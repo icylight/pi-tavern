@@ -150,7 +150,7 @@ QA 测试断言与 Dev 实现必须一致的签名（差异点已仲裁）：
 | 2.3 触发（无防抖）：收到广播 → 立即增量拉取 | 闲态固定 1s 聚合窗口（N→1 并入一次消费）；忙态 settle 后立即（run 边界批量，非逐条实时） |
 | 2.5 兜底：缺口检测（最新序号 ≠ 游标+1 → 立即补拉） | sequence 过滤天然补齐——`fetch_messages_since` 返回游标后全部消息，无需缺口检测 |
 | 2.7 / 7 验收：消息**不重不漏** | 尽力保序、**幂等可重拉**（重复投递可容忍；游标只在成功投递后推进） |
-| 7.2 / 9 / 10.2 游标文件：`cursors/<group_chat_id>.json` | **游标跟随 Session**：`cursors/<group_chat_id>/<session_id>.json`；旧单文件由 loadCursor 兼容回退作保守起点（最多多拉、绝不跳过），save 只写新路径、旧文件不删不写 |
+| 7.2 / 9 / 10.2 游标文件：`cursors/<group_chat_id>.json` | **游标跟随 Session**：`cursors/<group_chat_id>/<session_id>.json`；**旧单文件废弃不读**（值无 Session 身份，回退采用会跳过本 Session 未看过的消息）；新 Session 无独立游标 = 从完整历史分页重新拉取（最多重复、绝不跳过） |
 | 10.2 游标内容 `{ character_id, last_sequence, updated_at }` | 实现为 `{ last_sequence, updated_at }`（无 character_id；归属由文件路径的 session 维度表达） |
 | 10.3 去 1s 防抖、立即 fetch | 保留 1s 聚合窗口（闲态）；忙态标记 + settle 触发 |
 | 10.3 缺口检测、单飞行锁 | sequence 过滤补洞；增量窗口内多次变化单次投递 |

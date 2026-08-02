@@ -22,7 +22,7 @@ fetch_messages_since(本 Session 持久化游标)（扩展机械拉取，sequenc
 
 - 公开消息走「通知 + 增量拉取」（M7/ISSUE-012）：广播只携带最新序号与最近 3 条预览，完整增量由角色主动拉取，不再逐条推送；正文在 run 期间零中间注入（#64 pull 模型），成员/环境事件经 steer 通道间隙可见（#38，不打断 run、秒级延迟）。
 - join 批次（`message_history` + 成员事件）保留 1 秒合并防抖；闲态 `group_chat_update` 固定 1s 聚合窗口（多次变化并入单次消费，N→1），忙态 settle 后立即触发（#60/#62）。
-- 游标（上次成功投递的最后一条 message sequence）本地持久化（`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>/<session_id>.json`，**游标跟随 Session**），投递成功后更新，重启不丢；同群聊多角色互不共用游标文件。旧版群聊级单文件（`cursors/<group_chat_id>.json`）由 loadCursor 兼容回退作保守起点（最多重复拉取、绝不跳过消息）。
+- 游标（上次成功投递的最后一条 message sequence）本地持久化（`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>/<session_id>.json`，**游标跟随 Session**），投递成功后更新，重启不丢；同群聊多角色互不共用游标文件。**旧版群聊级单文件（`cursors/<group_chat_id>.json`）废弃不读**（值无 Session 身份，回退采用会跳过消息）；新 Session 无独立游标时从完整历史分页重新拉取。
 - 一个防抖批次只生成一条输入。单个 WebSocket 消息不直接追加到 pi session。
 
 ## pi custom message

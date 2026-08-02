@@ -8,7 +8,6 @@ import {
 	countPersistedEntries,
 	decodeCursor,
 	encodeCursor,
-	legacyCursorPathFor,
 	readCursorFile,
 	writeCursorFile,
 } from "../../../src/data/cursor-store.js";
@@ -154,10 +153,4 @@ describe("cursor-store", () => {
 		});
 	});
 
-	describe("legacyCursorPathFor（v1 群聊级单文件兼容推导）", () => {
-		it("derives cursors/<groupId>.json from the session-scoped path", () => {
-			expect(legacyCursorPathFor("/agent/cursors/group-1/session-7.json")).toBe("/agent/cursors/group-1.json");
-			expect(legacyCursorPathFor(join("cursors", "g2", "s1.json"))).toBe(join("cursors", "g2.json"));
-		});
-	});
 });
