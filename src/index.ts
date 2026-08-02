@@ -1,19 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
-import { type ExtensionAPI, getAgentDir, type InputEventResult } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, type InputEventResult } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { setTestNotify } from "./character/group-chat-input.js";
 import { registerCommands } from "./commands.js";
 import { TavernController } from "./controller/tavern-controller.js";
 import type { CreatorRuntime, PublicMessageState } from "./creator/creator-runtime.js";
-import { getGroupChatSessionDirectory } from "./discovery/active-descriptor.js";
 import { type AutoJoinContext, autoJoinCharacter } from "./headless.js";
 import { JOIN_HISTORY_LIMIT } from "./shared/constants.js";
 import { registerRenderers } from "./ui/renderers.js";
 import {
 	computeResumeProjection,
-	readResumeProjectionAnchor,
-	writeResumeProjectionAnchor,
+	computeSessionProjectionAnchor,
+	type ProjectionEntryReader,
 } from "./ui/resume-projection.js";
 import { TavernUiPresenter } from "./ui/tavern-ui-presenter.js";
 
@@ -31,6 +29,9 @@ interface CreatorDisplayEntryData {
 	group_chat_id: string;
 	event: CreatorDisplayEvent;
 }
+
+/** #42：当前 pi 会话的只读引用（session_start 捕获，用于投影锚定扫描）。 */
+let sessionManagerRef: ProjectionEntryReader | null = null;
 
 export default function piTavern(pi: ExtensionAPI, controller?: TavernController): void {
 	const ctrl = controller ?? new TavernController();
@@ -251,6 +252,8 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 
 	// Enable tavern_speak only when in character state; disable otherwise
 	pi.on("session_start", (event, ctx) => {
+		// #42：捕获会话引用供 resume 投影锚定扫描（会话复用场景跳过已显示段）。
+		sessionManagerRef = ctx.sessionManager;
 		presenter.bind(ctx.ui);
 		setTestNotify(ctx.ui.notify);
 		if (event.reason === "reload") {
@@ -394,28 +397,18 @@ function appendCreatorDisplayEntry(pi: ExtensionAPI, runtime: CreatorRuntime, ms
 }
 
 /**
- * #42：resume 历史投影。锚定 = 上次成功投影的最大 sequence（持久化在群聊
- * 会话目录的 <groupId>.projection.json），只补锚后缺失段；窗口 = JOIN_HISTORY_LIMIT
- * 对称（与 join 拉取视图一致）。投影完成后同步回写锚点——重复 resume /
- * 中断重入均按 sequence 补段（A3-1/A3-2），新消息增量路径不受影响（A4）。
+ * #42：resume 历史投影（PM 裁决方案 B：纯扫描锚定，无标记文件）。锚定 =
+ * 当前 pi 会话内本群聊 creator-display 条目最大 sequence——fresh 会话
+ * （无条目）→ 全窗口投影（每次 fresh resume 都有历史）；continued 会话
+ * → 跳过已显示段防重复；同会话重复 resume → 幂等空。窗口 =
+ * JOIN_HISTORY_LIMIT 对称（与 join 拉取视图一致）。中断重入按已投影
+ * 最大 sequence 补尾段。新消息增量路径不受影响（A4）。
  */
 function projectResumeHistory(pi: ExtensionAPI, runtime: CreatorRuntime): void {
-	const groupChatId = runtime.state.groupChat.groupChatId;
-	const anchorPath = join(
-		getGroupChatSessionDirectory(getAgentDir(), runtime.activeDescriptor.cwd),
-		`${groupChatId}.projection.json`,
-	);
-	const anchor = readResumeProjectionAnchor(anchorPath);
+	const anchor = computeSessionProjectionAnchor(sessionManagerRef, runtime.state.groupChat.groupChatId);
 	const messages = computeResumeProjection(runtime.publicMessageList, anchor, JOIN_HISTORY_LIMIT);
-	if (messages.length === 0) {
-		return;
-	}
 	for (const message of messages) {
 		appendCreatorDisplayEntry(pi, runtime, message);
-	}
-	const last = messages[messages.length - 1];
-	if (last !== undefined) {
-		writeResumeProjectionAnchor(anchorPath, last.sequence);
 	}
 }
 

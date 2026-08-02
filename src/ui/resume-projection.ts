@@ -1,6 +1,3 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
-
 import type { PublicMessageState } from "../creator/creator-runtime.js";
 
 /**
@@ -30,32 +27,46 @@ export function computeResumeProjection(
 		.sort((a, b) => a.sequence - b.sequence);
 }
 
-/** #42：投影锚点文件结构（记录最后成功投影的最大 sequence）。 */
-interface ResumeProjectionAnchorFile {
-	last_projected_sequence: number;
+/**
+ * #42：会话内投影条目扫描所需的最小接口（兼容 ReadonlySessionManager）。
+ * 结构化而非直接依赖 pi SDK 类型，保持纯逻辑模块可独立测试。
+ */
+export interface ProjectionEntryReader {
+	getEntries(): Array<{
+		type?: string;
+		customType?: string;
+		data?: unknown;
+	}>;
 }
 
 /**
- * #42：读取持久化投影锚点。文件缺失或损坏时返回 0（从头投影——首启
- * resume 的预期行为，acceptance A1 阶段即此路径）。
+ * #42：扫描当前 pi 会话内本群聊的 creator-display 条目，返回最大 sequence。
+ *
+ * resume 投影锚定的唯一来源（PM 裁决方案 B，无标记文件）：fresh 会话
+ * （无条目）→ 锚定 0 → 全窗口投影（每次 fresh resume 都有历史）；continued
+ * 会话（interactive --continue / pi /resume 进旧会话）→ 跳过已显示段防重复；
+ * 同会话重复 resume → 扫描幂等空。中断重入按已投影最大 sequence 补尾段。
  */
-export function readResumeProjectionAnchor(path: string): number {
-	try {
-		const raw = readFileSync(path, "utf8");
-		const parsed = JSON.parse(raw) as Partial<ResumeProjectionAnchorFile> | null;
-		const sequence = parsed?.last_projected_sequence;
-		return typeof sequence === "number" && Number.isSafeInteger(sequence) && sequence >= 0 ? sequence : 0;
-	} catch {
+export function computeSessionProjectionAnchor(
+	reader: ProjectionEntryReader | null | undefined,
+	groupChatId: string,
+): number {
+	if (!reader) {
 		return 0;
 	}
-}
-
-/**
- * #42：持久化投影锚点。仅在投影非空时调用——空投影回写 0 会清掉既有
- * 锚点，导致下次 resume 重复投影（A3-1/A3-2 幂等破坏）。
- */
-export function writeResumeProjectionAnchor(path: string, sequence: number): void {
-	mkdirSync(dirname(path), { recursive: true });
-	const data: ResumeProjectionAnchorFile = { last_projected_sequence: sequence };
-	writeFileSync(path, JSON.stringify(data));
+	let maxSequence = 0;
+	for (const entry of reader.getEntries()) {
+		if (entry.customType !== "pi-tavern.creator-display") {
+			continue;
+		}
+		const data = entry.data as { group_chat_id?: unknown; event?: { sequence?: unknown } } | undefined;
+		if (data?.group_chat_id !== groupChatId) {
+			continue;
+		}
+		const sequence = data.event?.sequence;
+		if (typeof sequence === "number" && Number.isSafeInteger(sequence) && sequence > maxSequence) {
+			maxSequence = sequence;
+		}
+	}
+	return maxSequence;
 }

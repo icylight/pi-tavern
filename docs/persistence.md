@@ -314,18 +314,17 @@ roundMaxMessages
 - 随 reload handoff 传递（`cursorStorePath` 字段），reload 后继续
 - 不提供服务端 per-character 已读游标（游标在角色侧本地，单一 session 模型）
 
-## Creator 侧 resume 投影锚点（#42/ISSUE-042）
+## Creator 侧 resume 投影锚定（#42/ISSUE-042，方案 B：纯扫描语义）
 
-Creator 侧本地持久化「resume 历史投影最后写入的最大消息 sequence」，
-重启/重入不重复投影（TUI 历史可见性）：
+Creator 侧 resume 历史投影的锚定来源 = **当前 pi 会话内本群聊的
+creator-display 条目最大 sequence**（sessionManager.getEntries() 扫描），
+无持久化标记文件：
 
-- 路径：`<agent-dir>/tavern/<project-key>/chats/<group_chat_id>.projection.json`
-- 内容：`{ "last_projected_sequence": 42 }`（同步写，仅投影非空时写入）
-- 更新时机：resume 进 creator 态后，历史窗口投影（尾 JOIN_HISTORY_LIMIT 条，
-  与 join 拉取视图对称）完成后回写
-- 锚定语义：只补 sequence > 锚定的缺失段；锚定 < 窗口起点 → 补整窗口；
-  锚定 ≥ 最大 sequence → 空投影（重复 resume 幂等）
-- 与 Character 侧游标同目录族（tavern/<project-key>/），互不冲突；
-  不参与协议、配额、成员决策（纯呈现层投影）
-- 已知残余：投影追加与锚点回写之间的亚秒级崩溃窗口可能造成少量重复，
-  接受（下次 resume 按锚定补段自愈）
+- fresh 会话（无条目）→ 锚定 0 → 全窗口投影（尾 JOIN_HISTORY_LIMIT 条，
+  与 join 拉取视图对称）——**任何 fresh resume 都有历史**（#42 主场景）
+- continued 会话（interactive --continue / pi /resume 进旧会话）→ 跳过
+  已显示段防重复（防御性设计：unit 钉死扫描逻辑，RPC 测试环境无会话
+  文件落盘、无法进程级复现）
+- 同会话重复 resume → 扫描幂等空；中断重入 → 按已投影最大 sequence 补尾段
+- 不参与协议、配额、成员决策（纯呈现层投影）；与 Character 侧游标
+  （cursors/）互不冲突
