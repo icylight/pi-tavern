@@ -24,6 +24,10 @@
 - resume 历史投影（#42）：崩溃/重启后按游标扫描锚定恢复对话历史，不重不漏。
 - TUI 增强组：渲染精度、终端尺寸自适应等（#12/#14/#20/#21，#40）。
 - ADR 决策记录体系：ADR-0001/0002 契约与 CPU 结论固化（#36）。
+- 游标按 Session 隔离：同群聊多角色各持独立游标文件（`cursors/<groupId>/<sessionId>.json`），互不踩踏（#71）。
+- run wedged watchdog（#66）：角色 run 卡死超时（默认 180s，可注入）自动强制收敛——排队消息不再无限滞留，迟到真实 settle 不会双重冲刷。
+- 五层架构重构（ADR-0005）Phase 2+3 完成：application 层六管线门面化 + runtime 瘦身（creator-runtime 1881→429 行骨架，拆出十模块）+ index.ts 唯一装配点（#58/#69/#72）。
+- AGENTS.md：面向 AI agent 的项目指令（核心原则 + 必须加载的上下文索引）。
 
 ### 变更
 
@@ -32,8 +36,12 @@
 - 活跃期增量聚合窗口（#60）：多次打断 N 条消息 → 单次投递（N→1），固定 400ms 窗口 + settle 尾部兜底（#62）。
 - 群聊消息数量上限 10 → 100（#30）。
 - 五层架构重构（ADR-0005）Phase 1：resume-projection / discovery / session·cursor store 归位 `src/data/`（skills 层），行为零变化、契约零 diff（#55/#59/#61/#63）。
-- 测试门禁分层压缩 v0.6：默认定向测试 + 全量按需触发（#48/#51）。
-- 测试耗时 152s → 87s：假 key 注入 + tsx 预热 + worker 定档（#45/#51）。
+- 旧共享游标废弃（#71）：新 Session 无独立游标时从完整历史拉取（重复可接受、跳过不可接受），不再采用无 Session 身份的旧群聊级游标（修复升级后可能跳消息的窗口）。
+- README 全面重写：定位「面向独立 Agent Session 的生命周期感知异步群聊」；团队组合示例六案例（三软件 + 三非软件、职位化、双层免责）；安装（开发版）+ 快速开始；中文主版 + 英文对等版。
+- 测试机制：默认不跑用例——验证必须显式指定目标（`npm run test:unit -- <pattern>` / `-- --all` 层内全量 / `test:full` 三层串行收口），无参调用拒绝（exit 1）并打印指引。
+- 验收套件提速：四场景 family 化聚合（13→10 文件）+ streaming-truth 并发化（100.9s→26.9s）+ 孤儿 pi 进程自动清理；全量 83.6s。
+- 协作流程：并发协作（前置产物先行/红钉先行/阶段重叠/预跑窗口）、Arch 承担 code review（评审从严、代码洁癖）、落盘文件清单核对（workflow v1.0–v1.3）。
+- 测试耗时 152s → 87s → 83.6s：假 key 注入 + tsx 预热 + worker 定档 + acceptance family 重构/并发化/孤儿清理（#45/#51）。
 
 ### 修复
 
@@ -41,6 +49,9 @@
 - 群聊历史分页拉取修复（ISSUE-008）：join 后历史全量可查（#19）。
 - 消息同步修复（ISSUE-013）+ headless 模式 CPU 占用根治（ISSUE-014）（#30）。
 - 验收套件 CPU 峰值 8 核 → 1.5 核（限 2 worker，#34）；负载敏感超时用例定档（#35）。
+- 重构值拷贝注入陷阱修复：deps 中可重赋值字段/回调改 getter 闭包活引用（onPublicMessage/runtimeTail/lifecycle 族），消除 close/drain 竞态（Phase 3 PR-B）。
+- 验收游标断言修复：headless/live-delivery 改读 Session 隔离路径（共享 cursor-helper，断耦实现路径）。
+- 验收卡死修复：孤儿 pi 进程自动清理（10 个孤儿曾致全量 >600s 未完成）。
 
 ### 安全
 
