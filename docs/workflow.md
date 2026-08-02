@@ -2,7 +2,7 @@
 
 > 目的：减少任务布置分歧、杜绝 main 直接改动，统一四方（PM/Dev/QA/Arch）协作节奏。
 > 属主：PM。变更须群聊声明影响面。
-> 版本：v0.6（2026-08-02，User 定标 #45 方案一 A+B + 指示「不默认全量跑门禁，QA 只跑改动的」→ §7 V0/V1 门禁改分层压缩默认、全量按需触发；v0.5 内容不变）
+> 版本：v0.7（2026-08-02，User 指示：CHANGELOG.md 生成与维护归口 PM → §2 加变更记录规则；v0.6 内容不变）
 
 ## 1. 任务布置：Task Brief 五要素
 
@@ -26,6 +26,7 @@ User 自然表达指示 → **PM 负责转译成 Task Brief 并回读确认**（
 - 分支合入 main 由 **User 亲自执行**（2026-08-01 指示），角色侧止于评审通过 + 证据齐备 + 宣布就绪
 - **worktree 纪律（v0.5 补充，2026-08-02 User 指示）**：默认单 worktree——评审/开发一律在主仓库分支内做，不建额外 worktree；worktree 仅例外使用（并发任务需隔离运行时），创建前须 PM 同意 + 群聊声明（属主/任务/目录）+ 记入 issue，未声明的 worktree 一律视为违规（#49 后清理时逐层确认的根因即两个 worktree 从未声明）；生命周期：任务收口随分支清理一并移除，不留未声明旁支
 - **开发完成开 PR（PM 负责推送与 PR 创建/更新，2026-08-02 User 指示）**：PR 标题/描述引用 issue 编号，附 Task Brief 五要素 + 验收证据（命令 + 结果）；评审（Arch）与验收（QA）在 PR 上留痕；角色侧一律不执行 merge，PR 就绪后宣布，由 User 合并
+- **变更记录（CHANGELOG，2026-08-02 User 指示）**：`CHANGELOG.md` 由 PM 归口维护（生成 + 更新，其他角色不提改）。每里程碑 / 显著 PR 合入后，PM 随合入批次同步更新（Keep a Changelog 格式 + 语义化版本；条目面向用户影响，不倾倒 git log）；PR 描述如需 changelog 条目，由 PM 在 Task Brief 中说明
 - **git 写操作统一归 PM（2026-08-02 User 指示）**：git add/commit、迁分支、分支创建/切换/删除、stash/apply、merge/rebase、push、PR 创建/更新/评论、issue 操作一律由 PM 统一执行，**不得委托**。任何角色不得以「拆分自己的工作区改动」「恢复现场」等理由自行执行 git 写操作——需要拆分支/暂存时，先声明工作区内容归属（「工作区 = X 改动集」），由 PM 执行拆分；commit 内容属主=各角色；git 只读（status/log/diff/fetch）保留用于排查
 - 动手前先 `git status` + `git branch --show-current`：确认所在分支正确、工作区无他人未提交改动
 
