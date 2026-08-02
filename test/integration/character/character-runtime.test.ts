@@ -141,6 +141,22 @@ describe("M7 message fetch (ISSUE-012)", () => {
 		// ...and nothing was written to disk.
 		await expect(readFile(cursorPath, "utf8")).rejects.toThrow();
 	});
+
+	it("treats an EISDIR cursor path as no cursor (runtime swallows the primitive's throw)", async () => {
+		const { creator, character } = await startCreator();
+		const root = await createTemporaryDirectory();
+		// The primitive throws on EISDIR (IO failure); the runtime's best-effort
+		// orchestration swallows it and reports no cursor, per decision 7.
+		const eisdirPath = join(root, "cursors", "group-1.json");
+		await mkdir(eisdirPath, { recursive: true });
+
+		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-m7-eisdir", {
+			cursorStorePath: eisdirPath,
+		});
+		const runtime = await attempt.claimCharacter(character.characterId);
+
+		expect(runtime.loadCursor()).toBeNull();
+	});
 });
 
 describe("ISSUE-013 B: speak staleness client side", () => {
