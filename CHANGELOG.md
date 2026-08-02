@@ -42,6 +42,9 @@
 - 验收套件提速：四场景 family 化聚合（13→10 文件）+ streaming-truth 并发化（100.9s→26.9s）+ 孤儿 pi 进程自动清理；全量 83.6s。
 - 协作流程：并发协作（前置产物先行/红钉先行/阶段重叠/预跑窗口）、Arch 承担 code review（评审从严、代码洁癖）、落盘文件清单核对（workflow v1.0–v1.3）。
 - 测试耗时 152s → 87s → 83.6s：假 key 注入 + tsx 预热 + worker 定档 + acceptance family 重构/并发化/孤儿清理（#45/#51）。
+- 忙态消息投递恢复工具间隙可见（#68，User 拍板）：run 活跃期间新消息经 steer 通道在工具调用间隙到达（秒级可见），不再等 run 结束才批量进入；绝不打断进行中的 run；游标在投递入队成功时推进，失败由 settle 兜底重投（不丢不重）。
+- 闲态触发窗口可注入：`PITAVERN_TRIGGER_DEBOUNCE_MS`（默认 1000ms 行为不变），需要更快感知的环境可设短值（idle 感知延迟降 ~750ms）。
+- 依赖方向由 lint 强制：`npm run lint:layers`（adapter 禁 skills 行为面 / application 与 runtime 禁直连 node:fs，组合根与工厂豁免），与 biome 同入 CI 门禁。
 
 ### 修复
 
@@ -52,6 +55,7 @@
 - 重构值拷贝注入陷阱修复：deps 中可重赋值字段/回调改 getter 闭包活引用（onPublicMessage/runtimeTail/lifecycle 族），消除 close/drain 竞态（Phase 3 PR-B）。
 - 验收游标断言修复：headless/live-delivery 改读 Session 隔离路径（共享 cursor-helper，断耦实现路径）。
 - 验收卡死修复：孤儿 pi 进程自动清理（10 个孤儿曾致全量 >600s 未完成）。
+- 忙态游标推进竞态修复（#68 T2）：投递确认短承诺化（入队接受即推进游标），消除并发拉取下同一窗口重复投递。
 
 ### 安全
 
