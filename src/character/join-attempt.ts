@@ -4,7 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import WebSocket from "ws";
 
 import { type ClaimedCharacter, loadClaimedCharacter } from "../config/character-card.js";
-import type { ActiveGroupChatDescriptor } from "../discovery/active-descriptor.js";
+import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { CharacterSummaryWire, ServerMessage } from "../protocol/messages.js";
 import { SHORT_COORDINATION_TIMEOUT_MS } from "../shared/constants.js";

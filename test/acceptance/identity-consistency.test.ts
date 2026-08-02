@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 
-import type { ActiveGroupChatDescriptor } from "../../src/discovery/active-descriptor.js";
+import type { ActiveGroupChatDescriptor } from "../../src/data/discovery/active-descriptor.js";
 import { PiProcess } from "./pi-process.js";
 import { BufferedWsClient } from "./ws-helper.js";
 

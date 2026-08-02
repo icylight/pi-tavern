@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { getGroupChatProjectDirectory, getGroupChatSessionDirectory } from "../../src/discovery/active-descriptor.js";
+import { getGroupChatProjectDirectory, getGroupChatSessionDirectory } from "../../src/data/discovery/active-descriptor.js";
 import { PiProcess } from "./pi-process.js";
 
 describe("acceptance: multiple real pi processes discover and join the same group chat", () => {

@@ -16,8 +16,8 @@ import { join } from "node:path";
 
 import { type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { TavernController } from "./controller/tavern-controller.js";
-import { type ActiveGroupChatDescriptor, getGroupChatCursorDirectory } from "./discovery/active-descriptor.js";
-import { discoverGroupChats } from "./discovery/discover-group-chats.js";
+import { type ActiveGroupChatDescriptor, getGroupChatCursorDirectory } from "./data/discovery/active-descriptor.js";
+import { discoverGroupChats } from "./data/discovery/discover-group-chats.js";
 
 export interface AutoJoinOptions {
 	agentDir?: string;

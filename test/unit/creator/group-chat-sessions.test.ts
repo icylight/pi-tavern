@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { deleteGroupChatSession, listGroupChatSessions } from "../../../src/creator/group-chat-sessions.js";
-import { getActiveDescriptorPath, getGroupChatSessionDirectory } from "../../../src/discovery/active-descriptor.js";
+import { getActiveDescriptorPath, getGroupChatSessionDirectory } from "../../../src/data/discovery/active-descriptor.js";
 
 const temporaryDirectories: string[] = [];
 

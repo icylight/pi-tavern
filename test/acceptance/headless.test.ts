@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { getGroupChatCursorDirectory } from "../../src/discovery/active-descriptor.js";
+import { getGroupChatCursorDirectory } from "../../src/data/discovery/active-descriptor.js";
 import { PiProcess } from "./pi-process.js";
 
 /**
