@@ -93,7 +93,10 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 				process.stderr.write(`[pi-tavern:auto-join:error] ${error instanceof Error ? error.message : String(error)}\n`);
 			});
 		};
-		setTimeout(run, 3_000);
+		// 延迟注入化（Phase 4 提速 ①）：默认 3s 等 boot 完成后再 join；测试可设
+		// PITAVERN_AUTO_JOIN_DELAY_MS 缩短（行为零变化——默认路径不变）。
+		const autoJoinDelayMs = Number(process.env.PITAVERN_AUTO_JOIN_DELAY_MS ?? "3000");
+		setTimeout(run, Number.isFinite(autoJoinDelayMs) && autoJoinDelayMs >= 0 ? autoJoinDelayMs : 3_000);
 	}
 
 	// 保持 tavern_speak 工具可用状态与 controller 状态同步

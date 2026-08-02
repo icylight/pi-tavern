@@ -9,11 +9,11 @@
     "node": ">=22.19.0"
   },
   "scripts": {
-    "test": "vitest --run",
-    "test:unit": "vitest --run",
-    "test:integration": "vitest --run --config vitest.integration.config.ts",
-    "test:qa": "npm run test:unit && npm run test:integration && npm run test:acceptance",
-    "test:acceptance": "PITAVERN_TEST=1 vitest --run --config vitest.acceptance.config.ts",
+    "test": "node scripts/run-tests.mjs unit",
+    "test:unit": "node scripts/run-tests.mjs unit",
+    "test:integration": "node scripts/run-tests.mjs integration",
+    "test:acceptance": "node scripts/run-tests.mjs acceptance",
+    "test:full": "npm run test:unit -- --all && npm run test:integration -- --all && npm run test:acceptance -- --all",
     "check": "biome check . && tsc --noEmit",
     "format": "biome check --write .",
     "lint:layers": "node scripts/lint-layers.mjs"
