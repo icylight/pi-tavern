@@ -48,13 +48,22 @@ export class PiProcess {
 		this.child = child;
 	}
 
-	/** Spawn a real pi (via references/pi/pi-test.sh, no API keys) loading the workspace extension. */
+	/**
+	 * Spawn a real pi (via references/pi/pi-test.sh) loading the workspace extension.
+	 *
+	 * #52（QA，2026-08-02）：白名单 env 替代 {...process.env, ...} 展开 + 去 --no-env——
+	 * ① 堵开发机真 key/模型配置泄漏进测试进程（Dev 归因：PI_PROVIDER/PI_MODEL/
+	 * DEEPSEEK_API_KEY 曾泄漏 → 每次 run 真实调用 LLM；白名单确定性零 LLM）；
+	 * ② 白名单不含任何 key 变量（缺席形态，PM 定案；配对实测 ms 级）；
+	 * ③ options.env 闸门（PM 安全审查补强）：仅允许 PITAVERN_*、HOME 与基础名，
+	 * 其余一律丢弃——堵死未来测试传真实 key 的通道（现有测试仅用 PITAVERN_*、HOME）。
+	 */
 	static spawn(options: SpawnPiOptions): PiProcess {
+		const gatedEnv = gateTestEnv(options.env);
 		const child = spawn(
 			"bash",
 			[
 				PI_TEST_SH,
-				"--no-env",
 				"--mode",
 				"rpc",
 				"-e",
@@ -65,13 +74,14 @@ export class PiProcess {
 			],
 			{
 				env: {
-					...process.env,
-					...(options.env ?? {}),
-					// #45 (b) 类实验注入：假 key → 401 快速失败，run 从 50-130s（连接重试退避）
-					// 降到 ~12s。QA 实证（2026-08-02）。仅用于 T4 语义验证，定案后移入正式实现。
-					ANTHROPIC_API_KEY: options.env?.ANTHROPIC_API_KEY ?? "sk-ant-fake-acceptance",
-					OPENAI_API_KEY: options.env?.OPENAI_API_KEY ?? "sk-fake-acceptance",
-					GEMINI_API_KEY: options.env?.GEMINI_API_KEY ?? "fake-acceptance",
+					// 白名单：仅透传基础环境 + 闸门过滤后的测试显式 env。
+					PATH: process.env.PATH,
+					HOME: process.env.HOME,
+					LANG: process.env.LANG,
+					LC_ALL: process.env.LC_ALL,
+					TMPDIR: process.env.TMPDIR,
+					PITAVERN_TEST: process.env.PITAVERN_TEST, // 测试命令注册开关（tavern-test-* 仅在 PITAVERN_TEST=1 时注册）
+					...(gatedEnv ?? {}),
 					PI_CODING_AGENT_DIR: options.agentDir,
 					TERM: "dumb",
 				},
@@ -298,6 +308,26 @@ export class PiProcess {
 		// Keep stderr available for diagnostics; acceptance failures print it.
 		process.stderr.write(`[${this.label}] ${chunk.toString()}`);
 	}
+}
+
+/**
+ * options.env 闸门（PM 安全审查补强，2026-08-02）：仅放行 PITAVERN_*、
+ * HOME 与基础环境名，其余键一律丢弃——堵死测试显式传真实凭据的通道。
+ */
+function gateTestEnv(env: Record<string, string> | undefined): Record<string, string> | undefined {
+	if (env === undefined) {
+		return undefined;
+	}
+	const allowed = (key: string): boolean =>
+		key.startsWith("PITAVERN_") ||
+		key === "HOME" ||
+		key === "PATH" ||
+		key === "TERM" ||
+		key === "LANG" ||
+		key === "LC_ALL" ||
+		key === "TMPDIR";
+	const gated = Object.fromEntries(Object.entries(env).filter(([key]) => allowed(key)));
+	return Object.keys(gated).length > 0 ? gated : undefined;
 }
 
 /** Poll until the active descriptor for a project appears on disk. */

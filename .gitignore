@@ -5,3 +5,11 @@ dist/
 .DS_Store
 tmp/
 .pi/
+
+# 凭据与密钥文件（安全审查 2026-08-02：防误提交）
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx

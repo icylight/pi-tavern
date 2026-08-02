@@ -134,6 +134,17 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 
 	it("A2: user-direct turn does NOT light is_streaming (semantic convergence)", async () => {
 		const { creator, headless } = await startPair();
+
+		// #52（白名单毫秒级 run 暴露的时序缺陷修复）：先确认 join 完成
+		// （2 人在线广播）再取 baseline——原实现依赖窗口内出现 2 人在线事件，
+		// 而 join 广播时刻与 baseline 的相对顺序不确定（旧模式被慢 run 掩盖）。
+		await creator.waitFor(
+			(e) =>
+				e.type === "extension_ui_request" &&
+				e.method === "setWidget" &&
+				(e.widgetLines as string[])?.[0]?.startsWith("2 人在线") === true,
+			60_000,
+		);
 		const baseline = creator.countEvents();
 
 		// Direct RPC prompt = a user-direct turn, NOT group-chat input.
@@ -147,14 +158,16 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 		const streamingWidgets = windowEvents.filter(widgetHasStreaming);
 		expect(streamingWidgets).toEqual([]);
 
-		// The character stays online with 2 members throughout.
-		const memberWidget = windowEvents.find(
+		// The character stays online with 2 members throughout: no
+		// member-count drop (1/0 人在线) event may appear in the window.
+		const memberDrop = windowEvents.filter(
 			(e) =>
 				e.type === "extension_ui_request" &&
 				e.method === "setWidget" &&
-				(e.widgetLines as string[])?.[0]?.startsWith("2 人在线") === true,
+				((e.widgetLines as string[])?.[0]?.startsWith("1 人在线") === true ||
+					(e.widgetLines as string[])?.[0]?.startsWith("0 人在线") === true),
 		);
-		expect(memberWidget).toBeDefined();
+		expect(memberDrop).toEqual([]);
 	});
 
 	it("A4: all observers converge on the same streaming truth (multi-connection consistency)", async () => {

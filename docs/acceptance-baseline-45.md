@@ -67,3 +67,34 @@ top4 合计 ≈ 串行 75%；spawn 占比 ≈ 13×4.6s/350s ≈ **17%**（15-25%
 | protocol/（WS/事件契约） | streaming-truth, message-sync, headless |
 | config/（tavern.json/配额） | resume-history, identity-consistency |
 | 测试基建（pi-process.ts/configs） | 全链（按 v0.6 触发条件③ QA 判定） |
+
+## 补记二（2026-08-02，#52 收口：归因纠错 + 零 LLM 定案）
+
+### DeepSeek 泄漏归因（Dev 破案，QA 实证）
+
+- **根因**：开发机 `PI_PROVIDER=deepseek` + `PI_MODEL=deepseek-v4-flash` + `DEEPSEEK_API_KEY` 经旧 spawn `{...process.env}` 全量透传进入测试 pi 进程；pi-test.sh --no-env 的 unset 名单（35 条）**不含**这三者 → 每次 run 都是**真实 DeepSeek API 调用**（User 的 key，计费）
+- 23-26s 常态 = DeepSeek API 真实延迟；>150s 异常 = DeepSeek 慢/限流；早期 A/B「12.4s vs >150s」= API 方差（非 key 效应，QA 异时对照伪差——配对铁律 f9cd5b9 教训）
+- **归因连带修正**：#32/#43「负载敏感型 flaky」主源实为外部 API 方差（白名单落地后消失）；#50 A2 语义 2（测试零 LLM）达成
+
+### 白名单零 LLM 定案（#52，PM 裁决 + QA 实证）
+
+- spawn 改白名单 env：PATH/HOME/TERM/LANG/LC_ALL/TMPDIR + PI_CODING_AGENT_DIR + PITAVERN_TEST + 闸门过滤后的测试显式 env（仅 PITAVERN_*、HOME 与基础名）
+- 去 --no-env（白名单语义比 unset 严格：未列名一律不进，含未来新增 key 变量）
+- **缺席形态**：不含任何 key 变量（PM 定案；配对实测空串/缺席均 ms 级无差异）
+- options.env 闸门（PM 安全审查补强）：堵死测试显式传真实凭据通道
+
+### 配对 A/B 结论（同时刻交替 3 轮，f9cd5b9 铁律）
+
+| 形态 | settle（streaming→settled） |
+| --- | --- |
+| 白名单 + 缺席 key 变量 | 11-37ms（毫秒级） |
+| 白名单 + 空串 key | 7-37ms（与缺席等价） |
+| 白名单 + 假 key | ~700ms（一次真实 401 往返，无意义） |
+| 旧模式（--no-env + 泄漏） | 23-26s（真实 DeepSeek 调用） |
+
+### T4 重基线记录（User 批准）
+
+- `run 活跃期 steer` 在 no-key 自动化下不可演练（run 毫秒级结束）→ 退出自动化覆盖，归真实环境验证 + #50 受控窗口补测（A5 范畴）
+- T4 断言改为可观测语义：消息有界送达（光标 30s 内达 2）+ widget 状态机一致（streaming 点亮→熄灭，不悬挂）+ settle 幂等（光标稳定）
+- streaming-truth A2 时序缺陷修复：join 完成（2 人在线广播）确认前移 baseline（原实现依赖慢 run 掩盖时序，白名单暴露；非产品回归）
+- 扩展代码零改动，#38 产品语义不变（真实环境 run 秒级-分钟级）
