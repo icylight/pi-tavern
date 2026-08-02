@@ -313,3 +313,19 @@ roundMaxMessages
 - join/重连差分同步：有游标 → `fetch_messages_since(游标)`；无游标 → 现有 `message_history` 全量分页
 - 随 reload handoff 传递（`cursorStorePath` 字段），reload 后继续
 - 不提供服务端 per-character 已读游标（游标在角色侧本地，单一 session 模型）
+
+## Creator 侧 resume 投影锚点（#42/ISSUE-042）
+
+Creator 侧本地持久化「resume 历史投影最后写入的最大消息 sequence」，
+重启/重入不重复投影（TUI 历史可见性）：
+
+- 路径：`<agent-dir>/tavern/<project-key>/chats/<group_chat_id>.projection.json`
+- 内容：`{ "last_projected_sequence": 42 }`（同步写，仅投影非空时写入）
+- 更新时机：resume 进 creator 态后，历史窗口投影（尾 JOIN_HISTORY_LIMIT 条，
+  与 join 拉取视图对称）完成后回写
+- 锚定语义：只补 sequence > 锚定的缺失段；锚定 < 窗口起点 → 补整窗口；
+  锚定 ≥ 最大 sequence → 空投影（重复 resume 幂等）
+- 与 Character 侧游标同目录族（tavern/<project-key>/），互不冲突；
+  不参与协议、配额、成员决策（纯呈现层投影）
+- 已知残余：投影追加与锚点回写之间的亚秒级崩溃窗口可能造成少量重复，
+  接受（下次 resume 按锚定补段自愈）
