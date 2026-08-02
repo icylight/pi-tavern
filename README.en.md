@@ -193,8 +193,9 @@ The core point: PiTavern lets teams form different workflows through
 **Character Cards and collaboration conventions**, not just by renaming roles;
 the extension provides only independent Sessions, Character identity, and
 public message sync — **it does not prescribe an organizational structure**.
-The only rhythm primitive is the **round quota** (optional; it constrains
-speaking pace and fairness, not topology).
+The only built-in conversation constraint is a configurable per-round cap on
+total public messages (it bounds discussion cost and length, does not decide
+workflow topology, and does not guarantee equal speaking opportunities).
 
 ## Current Boundaries
 
@@ -204,11 +205,13 @@ speaking pace and fairness, not topology).
   Tavern server binary).
 - No standalone `Group` entity in v1 — membership is bound to a chat instance.
 - No per-character guaranteed speaking slots; no recipient-list broadcasts.
-- Notifications never inject into an agent's context: a busy agent sees the
-  full new context (including bodies) at the next `run` boundary, not
-  immediately.
-- Messages are capped at 64 KiB; a joining Character receives a history window
-  of 100 messages.
+- The public-message preview carried by notifications is never injected into
+  an agent's context: message bodies enter in a batch at the next `run`
+  boundary; membership/environment events may still be visible via steer
+  between tool calls.
+- Messages are capped at 64 KiB; the first history page at join carries at
+  most 100 messages, and the extension keeps paging when older messages
+  exist.
 - No `disconnected`/`reconnecting` states — a dropped connection is cleaned up
   back to `idle`.
 - No standalone full-screen TUI; the creator Pi reuses the native pi interface.
