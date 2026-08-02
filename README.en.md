@@ -112,59 +112,59 @@ show how the same mechanisms (independent Sessions, Character identity, public
 message sync) form different workflows through **Character Cards and
 collaboration conventions**:
 
-| Team | Trigger | Information flow | Topology | Key convention |
+| Team | Trigger | Roles (who participates) | Collaboration flow (who does what) | Topology |
 | --- | --- | --- | --- | --- |
-| Software development | Requirement/task | PM fan-out → Dev converge → Arch/QA review backflow | Star fan-out + converge | Role cards + review/acceptance evidence gates |
-| Incident response | Event | Owner keeps unified state, investigators in parallel | Hub-and-spoke | Unified status reporting (each investigator own card) |
-| Security review | Review task | Modeling/audit parallel → triage → independent fix → original auditor re-check | Adversarial loop | Audit/fix separation + original role re-check |
-| Open-source maintenance | Issue/PR | Triage → accept → implement → review → release | Async pipeline | State transition conventions (triage/accept/merge) |
-| Technology research | Research topic | Parallel exploration → option analysis → challenge → converge | Parallel + converge | Devil's advocate role convention |
+| Software development | Requirement/task | Product Manager, Software Architect, Test Engineer, Developer | PM fans out requirements → Architect provides design/constraints, Test Engineer provides acceptance basis → Developer implements and submits evidence → Architect reviews, Test Engineer accepts → conclusions flow back to PM | Star fan-out + converge |
+| Incident response | Event | Incident Commander, SRE, Backend Engineer, Database Engineer, Test Engineer | Commander keeps unified state and dispatches → SRE/Backend/Database investigate in parallel → Commander consolidates → Backend Engineer fixes → Test Engineer verifies recovery → back to Commander | Hub-and-spoke |
+| Security review | Review task | Security Architect, Security Engineer, Developer, Security Test Engineer | Architect threat-models and Engineer code-audits in parallel → risk triage → Developer fixes → Engineer re-checks | Adversarial loop |
+| Open-source maintenance | Issue/PR | Issue Triage, Maintainer, Contributor, Reviewer, Release Manager | Triage routes → Maintainer accepts/assigns → Contributor implements the PR → Reviewer reviews → Release Manager prepares release | Async pipeline |
+| Technology research | Research topic | Research Lead, Researchers, Technical Analyst, Review Expert, Documentation Lead | Researchers explore in parallel → Analyst evaluates options → Expert challenges → Lead converges the conclusion → Documentation Lead writes it up | Parallel + converge |
 
 ```mermaid
 flowchart LR
-    PM["PM"] -->|"requirements/tasks"| AR["Arch"] & QA["QA"]
-    AR -->|"design/constraints"| DV["Dev"]
-    QA -->|"acceptance basis"| DV
-    DV -->|"impl + evidence"| AR & QA
+    PM["Product Manager"] -->|"fan-out requirements"| AR["Software Architect"] & TE["Test Engineer"]
+    AR -->|"design/constraints"| DV["Developer"]
+    TE -->|"acceptance basis"| DV
+    DV -->|"impl + evidence"| AR & TE
     AR -->|"review verdict"| PM
-    QA -->|"acceptance verdict"| PM
+    TE -->|"acceptance verdict"| PM
 ```
 
 ```mermaid
 flowchart LR
-    IC["Incident owner"] -->|"shared state"| I1["Investigator A"] & I2["Investigator B"] & I3["Investigator C"]
-    I1 & I2 & I3 -->|"findings"| IC
-    IC -->|"root cause + plan"| FX["Fix"]
-    FX -->|"fix done"| VR["Recovery verify"]
-    VR -->|"verified"| IC
+    IC["Incident Commander"] -->|"shared state/dispatch"| SRE["SRE"] & BE["Backend Engineer"] & DBE["Database Engineer"]
+    SRE & BE & DBE -->|"findings"| IC
+    IC -->|"root cause + plan"| BE
+    BE -->|"fix done"| TE["Test Engineer"]
+    TE -->|"recovery verified"| IC
 ```
 
 ```mermaid
 flowchart LR
-    TM["Threat modeling"] -->|"risk list"| LG["Risk triage"]
-    CA["Code audit"] -->|"findings"| LG
-    LG -->|"triage result"| FX["Independent fix"]
-    FX -->|"fix submitted"| RV["Original auditor re-check"]
-    RV -->|"re-check verdict"| LG
+    SA["Security Architect"] -->|"threat modeling"| RT["Risk triage"]
+    SE["Security Engineer"] -->|"code audit"| RT
+    RT -->|"triage result"| DE["Developer"]
+    DE -->|"fix submitted"| SE
+    SE -->|"re-check verdict"| RT
 ```
 
 ```mermaid
 flowchart LR
-    IS["Issue/PR"] --> TR["Triaging"]
-    TR -->|"accepted"| MT["Maintainer"]
-    MT -->|"assign"| IM["Implement"]
-    IM -->|"PR submitted"| RW["Review"]
-    RW -->|"approved"| RL["Release"]
+    TRI["Issue Triage"] -->|"route"| MT["Maintainer"]
+    MT -->|"accept/assign"| CT["Contributor"]
+    CT -->|"PR submitted"| RV["Reviewer"]
+    RV -->|"approved"| RM["Release Manager"]
+    RM -->|"release prep"| REL["Release"]
 ```
 
 ```mermaid
 flowchart LR
-    R1["Research A"] --> SA["Option analysis"]
-    R2["Research B"] --> SA
-    R3["Research C"] --> SA
-    SA -->|"candidates"| AD["Challenge"]
-    AD -->|"challenge/reply"| CC["Conclusion"]
-```
+    R1["Researcher A"] --> AN["Technical Analyst"]
+    R2["Researcher B"] --> AN
+    R3["Researcher C"] --> AN
+    AN -->|"candidates"| EXP["Review Expert"]
+    EXP -->|"challenge/reply"| LEAD["Research Lead"]
+    LEAD -->|"conclusion"| DOC["Documentation Lead"]
 ```
 
 > **These are user-configurable examples only** — not built-in PiTavern roles,
