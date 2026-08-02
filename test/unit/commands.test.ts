@@ -93,17 +93,26 @@ function createContext(): {
 
 describe("PiTavern commands", () => {
 	it("registers the M2 command set", () => {
-		const commands = register(new TavernController());
+		// Isolate from PITAVERN_TEST env leakage — test-only commands
+		// (tavern-test-*) are conditionally registered and should not
+		// appear in the base command set assertion.
+		const saved = process.env.PITAVERN_TEST;
+		delete process.env.PITAVERN_TEST;
+		try {
+			const commands = register(new TavernController());
 
-		expect([...commands.keys()]).toEqual([
-			"tavern-new",
-			"tavern-resume",
-			"tavern-join",
-			"tavern-status",
-			"tavern-name",
-			"tavern-set-max",
-			"tavern-leave",
-		]);
+			expect([...commands.keys()]).toEqual([
+				"tavern-new",
+				"tavern-resume",
+				"tavern-join",
+				"tavern-status",
+				"tavern-name",
+				"tavern-set-max",
+				"tavern-leave",
+			]);
+		} finally {
+			if (saved !== undefined) process.env.PITAVERN_TEST = saved;
+		}
 	});
 
 	it("creates a group chat using the command cwd and isolated agent directory", async () => {
