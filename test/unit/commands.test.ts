@@ -1,13 +1,13 @@
 import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import type { CharacterRuntime } from "../src/character/character-runtime.js";
-import type { JoinAttempt } from "../src/character/join-attempt.js";
-import { registerCommands } from "../src/commands.js";
-import type { CharacterCard } from "../src/config/character-card.js";
-import { TavernController } from "../src/controller/tavern-controller.js";
-import type { CreatorRuntime } from "../src/creator/creator-runtime.js";
-import { createGroupChatState } from "../src/creator/group-chat-state.js";
-import type { ActiveGroupChatDescriptor } from "../src/discovery/active-descriptor.js";
+import type { CharacterRuntime } from "../../src/character/character-runtime.js";
+import type { JoinAttempt } from "../../src/character/join-attempt.js";
+import { registerCommands } from "../../src/commands.js";
+import type { CharacterCard } from "../../src/config/character-card.js";
+import { TavernController } from "../../src/controller/tavern-controller.js";
+import type { CreatorRuntime } from "../../src/creator/creator-runtime.js";
+import { createGroupChatState } from "../../src/creator/group-chat-state.js";
+import type { ActiveGroupChatDescriptor } from "../../src/discovery/active-descriptor.js";
 
 const descriptor: ActiveGroupChatDescriptor = {
 	instanceId: "instance-1",
@@ -118,7 +118,7 @@ describe("PiTavern commands", () => {
 		expect(starter).toHaveBeenCalledWith({
 			cwd: "/project",
 			agentDir: "/isolated-agent",
-			configMaxMessages: 10,
+			configMaxMessages: 20,
 			characters: [],
 		});
 		expect(controller.getState()).toEqual({ type: "creator", runtime });
@@ -302,7 +302,7 @@ describe("PiTavern commands", () => {
 			cwd: "/project",
 			agentDir: "/isolated-agent",
 			sessionPath: "/isolated-agent/chats/old.jsonl",
-			configMaxMessages: 10,
+			configMaxMessages: 20,
 			characters: [],
 		});
 		expect(controller.getState()).toEqual({ type: "creator", runtime });

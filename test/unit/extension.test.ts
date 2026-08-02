@@ -13,14 +13,14 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
-import type { CharacterRuntime } from "../src/character/character-runtime.js";
-import type { JoinAttempt } from "../src/character/join-attempt.js";
-import type { CreatorReloadHandoff } from "../src/controller/reload-handoff-registry.js";
-import { TavernController } from "../src/controller/tavern-controller.js";
-import type { CreatorRuntime } from "../src/creator/creator-runtime.js";
-import { createGroupChatState } from "../src/creator/group-chat-state.js";
-import type { ActiveGroupChatDescriptor } from "../src/discovery/active-descriptor.js";
-import piTavern from "../src/index.js";
+import type { CharacterRuntime } from "../../src/character/character-runtime.js";
+import type { JoinAttempt } from "../../src/character/join-attempt.js";
+import type { CreatorReloadHandoff } from "../../src/controller/reload-handoff-registry.js";
+import { TavernController } from "../../src/controller/tavern-controller.js";
+import type { CreatorRuntime } from "../../src/creator/creator-runtime.js";
+import { createGroupChatState } from "../../src/creator/group-chat-state.js";
+import type { ActiveGroupChatDescriptor } from "../../src/discovery/active-descriptor.js";
+import piTavern from "../../src/index.js";
 
 const descriptor: ActiveGroupChatDescriptor = {
 	instanceId: "instance-1",

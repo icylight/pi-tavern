@@ -2,7 +2,7 @@ import { join } from "node:path";
 
 import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { CharacterRuntime } from "./character/character-runtime.js";
-import { loadTavernConfig, type TavernConfig } from "./config/load-config.js";
+import { DEFAULT_CONFIG_MAX_MESSAGES, loadTavernConfig, type TavernConfig } from "./config/load-config.js";
 import type { TavernController } from "./controller/tavern-controller.js";
 import type { CreatorRuntime } from "./creator/creator-runtime.js";
 import {
@@ -25,8 +25,6 @@ export interface RegisterCommandsOptions {
 	listGroupChatSessions?: (agentDir: string, cwd: string) => Promise<GroupChatSessionSummary[]>;
 	deleteGroupChatSession?: (path: string) => Promise<DeleteGroupChatSessionResult>;
 }
-
-const DEFAULT_CONFIG_MAX_MESSAGES = 10;
 
 export function registerCommands(
 	pi: ExtensionAPI,

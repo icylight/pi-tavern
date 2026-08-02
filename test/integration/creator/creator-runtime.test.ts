@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 
-import { CreatorRuntime } from "../../src/creator/creator-runtime.js";
-import { readActiveDescriptor } from "../../src/discovery/active-descriptor.js";
+import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
+import { readActiveDescriptor } from "../../../src/discovery/active-descriptor.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -33,7 +33,7 @@ describe("CreatorRuntime", () => {
 		expect(runtime.activeDescriptor.host).toBe("127.0.0.1");
 		expect(runtime.activeDescriptor.port).toBeGreaterThan(0);
 		expect(runtime.activeDescriptor.cwd).toBe(canonicalCwd);
-		expect(runtime.state.groupChat.groupMaxMessages).toBe(10);
+		expect(runtime.state.groupChat.groupMaxMessages).toBe(20);
 		expect(runtime.state.round).toBeNull();
 		expect(await readActiveDescriptor(runtime.activeDescriptorPath)).toEqual(runtime.activeDescriptor);
 		expect(runtime.state.groupChat.groupChatId).toBeTruthy();
@@ -116,7 +116,7 @@ describe("CreatorRuntime", () => {
 
 		// Round created, inheriting groupMaxMessages
 		expect(runtime.state.round).toEqual({
-			roundMaxMessages: 10,
+			roundMaxMessages: 20,
 			usedMessages: 0,
 		});
 
@@ -156,7 +156,7 @@ describe("CreatorRuntime", () => {
 		expect(settingsEntry.customType).toBe("pi-tavern.group-settings");
 		expect(typeof settingsEntry.id).toBe("string");
 		expect(typeof settingsEntry.timestamp).toBe("string");
-		expect(settingsEntry.data).toEqual({ group_max_messages: 10 });
+		expect(settingsEntry.data).toEqual({ group_max_messages: 20 });
 
 		// Verify the public message entry
 		const publicEntry = allEntries.find((e) => e.type === "custom_message");
@@ -179,9 +179,9 @@ describe("CreatorRuntime", () => {
 		expect(details.timestamp).toBeUndefined();
 		expect(typeof publicEntry.timestamp).toBe("string");
 		expect(details.round).toEqual({
-			round_max_messages: 10,
+			round_max_messages: 20,
 			used_messages: 0,
-			remaining_messages: 10,
+			remaining_messages: 20,
 		});
 
 		await runtime.close();
@@ -304,7 +304,7 @@ describe("CreatorRuntime", () => {
 
 		// First message creates the initial round
 		await runtime.submitUserPersonaMessage("First");
-		expect(runtime.state.round?.roundMaxMessages).toBe(10);
+		expect(runtime.state.round?.roundMaxMessages).toBe(20);
 		expect(runtime.state.round?.usedMessages).toBe(0);
 
 		// Join a character and set handRaised
@@ -328,7 +328,7 @@ describe("CreatorRuntime", () => {
 
 		// Second message creates a fresh round, resetting usedMessages AND clearing handRaised
 		await runtime.submitUserPersonaMessage("Second");
-		expect(runtime.state.round?.roundMaxMessages).toBe(10);
+		expect(runtime.state.round?.roundMaxMessages).toBe(20);
 		expect(runtime.state.round?.usedMessages).toBe(0);
 		for (const c of runtime.state.onlineCharacters.values()) {
 			expect(c.handRaised).toBe(false);
@@ -347,12 +347,12 @@ describe("CreatorRuntime", () => {
 
 		// Create first round with default groupMaxMessages=10
 		await runtime.submitUserPersonaMessage("First");
-		expect(runtime.state.round?.roundMaxMessages).toBe(10);
+		expect(runtime.state.round?.roundMaxMessages).toBe(20);
 
 		// Change the limit and create a new round
 		await runtime.setMaxMessages(5);
 		// Current round is unaffected by setMaxMessages
-		expect(runtime.state.round?.roundMaxMessages).toBe(10);
+		expect(runtime.state.round?.roundMaxMessages).toBe(20);
 
 		await runtime.submitUserPersonaMessage("Second");
 		expect(runtime.state.round?.roundMaxMessages).toBe(5);
@@ -370,7 +370,7 @@ describe("CreatorRuntime", () => {
 
 		// First message establishes the file and a round
 		await runtime.submitUserPersonaMessage("First");
-		expect(runtime.state.round?.roundMaxMessages).toBe(10);
+		expect(runtime.state.round?.roundMaxMessages).toBe(20);
 		const [sessionFile] = await jsonlFilesUnder(join(root, "agent"));
 		expect(sessionFile).toBeDefined();
 		if (!sessionFile) return;
@@ -387,7 +387,7 @@ describe("CreatorRuntime", () => {
 		const linesAfter = (await readFile(sessionPath, "utf8")).trim().split("\n");
 		expect(linesAfter).toEqual(linesBefore);
 		expect((runtime as unknown as { persistedCount: number }).persistedCount).toBe(persistedCountBefore);
-		expect(runtime.state.groupChat.groupMaxMessages).toBe(10);
+		expect(runtime.state.groupChat.groupMaxMessages).toBe(20);
 
 		// A subsequent legal operation still succeeds
 		await runtime.setMaxMessages(5);
@@ -445,7 +445,7 @@ describe("CreatorRuntime", () => {
 		await runtime.submitUserPersonaMessage("First");
 
 		// Second attempt succeeds
-		expect(runtime.state.round).toEqual({ roundMaxMessages: 10, usedMessages: 0 });
+		expect(runtime.state.round).toEqual({ roundMaxMessages: 20, usedMessages: 0 });
 		expect(await jsonlFilesUnder(join(root, "agent"))).toHaveLength(1);
 
 		await runtime.close();
@@ -569,7 +569,7 @@ describe("CreatorRuntime", () => {
 		const preview = publicMessage.preview_messages as PublicMessage[];
 		expect(preview.at(-1)?.content).toBe("Hello everyone");
 		expect(preview.at(-1)?.sender).toEqual({ type: "user_persona" });
-		expect(preview.at(-1)?.round).toEqual({ round_max_messages: 10, used_messages: 0, remaining_messages: 10 });
+		expect(preview.at(-1)?.round).toEqual({ round_max_messages: 20, used_messages: 0, remaining_messages: 20 });
 		expect(typeof preview.at(-1)?.event_id).toBe("string");
 		expect(typeof preview.at(-1)?.sequence).toBe("number");
 		expect(typeof preview.at(-1)?.timestamp).toBe("string");
@@ -798,7 +798,7 @@ describe("CreatorRuntime", () => {
 			// ISSUE-013 B6: success carries latest_sequence (== published seq
 			// on success) so the client advances past its own message.
 			latest_sequence: expect.any(Number) as number,
-			round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
+			round: { round_max_messages: 20, used_messages: 1, remaining_messages: 19 },
 		});
 
 		// Round usage incremented
@@ -840,7 +840,7 @@ describe("CreatorRuntime", () => {
 		// preview carries the persisted message fields).
 		const echoPreview = (senderEcho as Record<string, unknown>).preview_messages as Record<string, unknown>[];
 		expect(echoPreview.at(-1)?.timestamp).toBe(publicEntry.timestamp);
-		expect(publicEntry.details.round).toEqual({ round_max_messages: 10, used_messages: 1, remaining_messages: 9 });
+		expect(publicEntry.details.round).toEqual({ round_max_messages: 20, used_messages: 1, remaining_messages: 19 });
 		expect(typeof publicEntry.details.sequence).toBe("number");
 		// details must NOT carry a second timestamp (BC-19)
 		expect(publicEntry.details.timestamp).toBeUndefined();
@@ -1898,7 +1898,7 @@ describe("ISSUE-013 B2: speak staleness check", () => {
 			published: false,
 			reason: "stale",
 			missing_sequences: { from: 1, to: 2 },
-			round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
+			round: { round_max_messages: 20, used_messages: 0, remaining_messages: 20 },
 		});
 		// B4: no quota consumed by the stale speak.
 		expect(runtime.state.round?.usedMessages).toBe(0);
@@ -1963,7 +1963,7 @@ describe("ISSUE-013 B2: speak staleness check", () => {
 			published: false,
 			reason: "stale",
 			missing_sequences: { from: 3, to: 4 },
-			round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
+			round: { round_max_messages: 20, used_messages: 0, remaining_messages: 20 },
 		});
 
 		client.close();

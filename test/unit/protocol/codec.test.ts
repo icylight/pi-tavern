@@ -6,7 +6,7 @@ import {
 	encodeMessage,
 	MAX_WEBSOCKET_FRAME_BYTES,
 	ProtocolError,
-} from "../../src/protocol/codec.js";
+} from "../../../src/protocol/codec.js";
 
 describe("PiTavern protocol codec", () => {
 	it("decodes a strict snake_case client request", () => {

@@ -74,6 +74,9 @@ describe("acceptance: push+pull hybrid message fetch (M7 / ISSUE-012)", () => {
 		// A member joins before the 6th message so it observes the broadcast.
 		const member = await joinCharacterWs(descriptor, "ws-session-fetch", "characters/architect.md");
 		await member.waitFor((m) => m.type === "message_history");
+		// ISSUE-014/#14 (方案 A): the join itself broadcasts a
+		// group_chat_update (latest_sequence 5) — the predicate below skips
+		// it by requiring latest_sequence >= 6.
 
 		// 6th message → the broadcast must now be a notification, not a raw
 		// public_message stream (A1).
@@ -82,7 +85,10 @@ describe("acceptance: push+pull hybrid message fetch (M7 / ISSUE-012)", () => {
 			(e) =>
 				e.type === "extension_ui_request" && e.method === "notify" && e.message === "User Persona message published",
 		);
-		const update = await member.waitFor((m) => m.type === "group_chat_update");
+		const update = await member.waitFor(
+			(m) => m.type === "group_chat_update" && (m.latest_sequence as number) >= 6,
+			30_000,
+		);
 		expect(update.latest_sequence).toBe(6);
 		expect(Array.isArray(update.preview_messages)).toBe(true);
 		expect((update.preview_messages as Record<string, unknown>[]).length).toBeGreaterThan(0);

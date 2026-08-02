@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { loadCharacterCard, loadCharacterCards, loadClaimedCharacter } from "../../src/config/character-card.js";
+import { loadCharacterCard, loadCharacterCards, loadClaimedCharacter } from "../../../src/config/character-card.js";
 
 const temporaryDirectories: string[] = [];
 

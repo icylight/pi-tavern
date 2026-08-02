@@ -66,6 +66,20 @@ export class CharacterRuntime {
 	onEnvironmentMessage: ((message: ServerMessage) => void) | undefined;
 	/** Latest group chat state snapshot (cached for read-only TUI projection). */
 	lastGroupChatState: GroupChatStateMessage | null = null;
+	/**
+	 * ISSUE-014/#14: true when the most recent delivery into the pi Agent was
+	 * group-chat triggered (GroupChatInput.flush). agent_start consumes this
+	 * to decide whether to light up is_streaming — user-direct turns must
+	 * NOT light it (semantic convergence, #14-A1/A2).
+	 */
+	groupChatTurnTriggered = false;
+	/**
+	 * ISSUE-014/#14: agent_end watchdog — resets is_streaming if
+	 * agent_settled never arrives (aborted/errored runs must not hang the
+	 * "正在发言" display). Cleared by agent_settled; reload re-arms via
+	 * activateFromHandoff's explicit false re-send.
+	 */
+	private streamingResetWatchdog: NodeJS.Timeout | null = null;
 	/** Fired after a fresh state snapshot arrives (TUI refresh trigger). */
 	onStateSnapshot: ((snapshot: GroupChatStateMessage) => void) | undefined;
 	/**
@@ -167,6 +181,54 @@ export class CharacterRuntime {
 
 		for (const message of transfer.bufferedMessages) {
 			this.handleServerMessage(message);
+		}
+	}
+
+	/**
+	 * Mark that the next agent run is group-chat triggered (called right
+	 * before GroupChatInput flushes a delivery into the pi Agent).
+	 */
+	markGroupChatTurnTriggered(): void {
+		this.groupChatTurnTriggered = true;
+	}
+
+	/** Read and clear the group-chat-triggered flag (called on agent_start). */
+	consumeGroupChatTurnTriggered(): boolean {
+		const triggered = this.groupChatTurnTriggered;
+		this.groupChatTurnTriggered = false;
+		return triggered;
+	}
+
+	/**
+	 * ISSUE-014/#14 watchdog: after agent_end, force is_streaming back to
+	 * false if agent_settled does not arrive within the window. Node timers
+	 * do not depend on agent state, so a wedged run still resets.
+	 */
+	armStreamingResetWatchdog(delayMs = 5_000): void {
+		this.clearStreamingResetWatchdog();
+		this.streamingResetWatchdog = setTimeout(() => {
+			this.streamingResetWatchdog = null;
+			this.updateStreaming(false);
+		}, delayMs);
+	}
+
+	clearStreamingResetWatchdog(): void {
+		if (this.streamingResetWatchdog !== null) {
+			clearTimeout(this.streamingResetWatchdog);
+			this.streamingResetWatchdog = null;
+		}
+	}
+
+	/**
+	 * ISSUE-014/#14 / #21: refresh the cached group chat state snapshot.
+	 * Keeps the TUI widget current even when no new messages arrive (member
+	 * changes, streaming flips, hand-raises). Failures are display-only.
+	 */
+	async refreshGroupChatState(): Promise<void> {
+		try {
+			await this.getGroupChatState();
+		} catch {
+			// Display-only refresh; never affects protocol or membership.
 		}
 	}
 
@@ -541,6 +603,13 @@ export class CharacterRuntime {
 		for (const frame of [...handoff.bufferedFrames].sort((a, b) => a.receivedAt - b.receivedAt)) {
 			this.handleIncomingData(frame.data, false);
 		}
+
+		// ISSUE-014/#14 reload corner: the old runtime's streaming watchdog
+		// timer dies with the old Extension Runtime. If the previous agent
+		// run was interrupted mid-flight (streaming stuck true), explicitly
+		// reset — the run is dead, the display must not stay hung. This is
+		// the only deterministic coverage of the reload path (M5 handoff).
+		this.updateStreaming(false);
 	}
 
 	get hasPublicMessages(): boolean {
@@ -567,6 +636,7 @@ export class CharacterRuntime {
 			throw new Error("CharacterRuntime has been detached for reload and cannot be closed");
 		}
 		this.lifecycle = "disposed";
+		this.clearStreamingResetWatchdog();
 		if (!this.socket || this.disconnected) {
 			this.finishDisconnected();
 			return;

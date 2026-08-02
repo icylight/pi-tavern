@@ -23,8 +23,8 @@ scripts/pi-char-dev.sh [--character <name|character_id>] [--group <id|name>] [--
 示例：
 
 ```bash
-# 以「开发工程师」角色自动加入唯一活动群聊
-scripts/pi-char-dev.sh --character 开发工程师
+# 以「Dev」角色自动加入唯一活动群聊
+scripts/pi-char-dev.sh --character Dev
 
 # 指定群聊
 PITAVERN_GROUP_CHAT=xxx scripts/pi-char-dev.sh --character qa

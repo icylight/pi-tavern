@@ -88,8 +88,26 @@ describe("acceptance: concurrent speaks keep creator order and global quota", ()
 		// ── Concurrent speaks (interleaved senders) ────────────────────────
 		// M7 (ISSUE-012): speaks are announced via group_chat_update
 		// notifications (WeChat-style); content/sender is pulled on demand.
-		const collectA = memberA.collect((m) => m.type === "group_chat_update", 3);
-		const collectB = memberB.collect((m) => m.type === "group_chat_update", 3);
+		// ISSUE-014/#14 (方案 A): membership changes also broadcast
+		// group_chat_update — collect only notifications after this baseline
+		// so join-time broadcasts do not pollute the sequence set.
+		const speakBaselineA = memberA.allFrames().length;
+		const speakBaselineB = memberB.allFrames().length;
+		// ISSUE-014/#14 (方案 A): membership changes also broadcast
+		// group_chat_update — join-time broadcasts carry latest_sequence 1
+		// (the User Persona message), speak notifications are >= 2.
+		const collectA = memberA.collect(
+			(m) => m.type === "group_chat_update" && (m.latest_sequence as number) >= 2,
+			3,
+			30_000,
+			speakBaselineA,
+		);
+		const collectB = memberB.collect(
+			(m) => m.type === "group_chat_update" && (m.latest_sequence as number) >= 2,
+			3,
+			30_000,
+			speakBaselineB,
+		);
 		// Two from A, one from B — sent in a burst so arrival order is not
 		// guaranteed by the clients; the creator serializes them.
 		memberA.send({ id: "s1", type: "speak", content: "one" });
@@ -161,11 +179,11 @@ describe("acceptance: concurrent speaks keep creator order and global quota", ()
 		// holds sequence 4), so the absence must be asserted explicitly.
 		const updatesA = memberA
 			.allFrames()
-			.filter((m) => m.type === "group_chat_update")
+			.filter((m) => m.type === "group_chat_update" && (m.latest_sequence as number) >= 2)
 			.map((m) => m.latest_sequence as number);
 		const updatesB = memberB
 			.allFrames()
-			.filter((m) => m.type === "group_chat_update")
+			.filter((m) => m.type === "group_chat_update" && (m.latest_sequence as number) >= 2)
 			.map((m) => m.latest_sequence as number);
 		expect(updatesA).toEqual([2, 3, 4]);
 		expect(updatesB).toEqual([2, 3, 4]);

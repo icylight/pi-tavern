@@ -70,6 +70,9 @@ describe("acceptance: reload keeps confirmed connections and identity", () => {
 		// A raw WebSocket member holds a confirmed connection across the
 		// reload: its socket stays open and keeps receiving broadcasts.
 		const member = await joinCharacterWs(descriptor, "ws-session-reload", "characters/reviewer.md");
+		// ISSUE-014/#14 (方案 A): the join itself broadcasts a
+		// group_chat_update — the predicate below matches the post-reload
+		// notification by content, not the join-time one.
 		await creator.waitFor(
 			(e) =>
 				e.type === "extension_ui_request" &&
@@ -104,7 +107,14 @@ describe("acceptance: reload keeps confirmed connections and identity", () => {
 		// connection: the reloaded creator serves the same sockets. M7
 		// (ISSUE-012): broadcasts are group_chat_update notifications; the
 		// preview carries the new message.
-		const delivered = await member.waitFor((m) => m.type === "group_chat_update", 30_000);
+		const delivered = await member.waitFor(
+			(m) =>
+				m.type === "group_chat_update" &&
+				((m.preview_messages as Record<string, unknown>[] | undefined) ?? []).some(
+					(p) => p.content === "Hello after reload",
+				),
+			30_000,
+		);
 		expect((delivered.latest_sequence as number) ?? 0).toBeGreaterThan(0);
 		const preview = delivered.preview_messages as Record<string, unknown>[];
 		expect(preview.some((m) => m.content === "Hello after reload")).toBe(true);

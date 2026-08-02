@@ -52,11 +52,12 @@ export class BufferedWsClient {
 		predicate: (message: Record<string, unknown>) => boolean,
 		count: number,
 		timeoutMs = 30_000,
+		fromIndex = 0,
 	): Promise<Record<string, unknown>[]> {
 		const collected: Record<string, unknown>[] = [];
 		const deadline = Date.now() + timeoutMs;
 		for (;;) {
-			const matched = this.frames.filter((m) => !collected.includes(m) && predicate(m));
+			const matched = this.frames.slice(fromIndex).filter((m) => !collected.includes(m) && predicate(m));
 			collected.push(...matched);
 			if (collected.length >= count) {
 				return collected.slice(0, count);

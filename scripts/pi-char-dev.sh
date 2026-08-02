@@ -17,7 +17,7 @@
 #                        (default: the only active group chat, else first)
 #
 # Example:
-#   scripts/pi-char-dev.sh --character 开发工程师
+#   scripts/pi-char-dev.sh --character Dev
 #   PITAVERN_CHARACTER=qa scripts/pi-char-dev.sh
 set -euo pipefail
 

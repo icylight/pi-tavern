@@ -10,6 +10,9 @@
 	},
 	"scripts": {
 		"test": "vitest --run",
+		"test:unit": "vitest --run",
+		"test:integration": "vitest --run --config vitest.integration.config.ts",
+		"test:qa": "npm run test:integration && npm run test:acceptance",
 		"test:acceptance": "PITAVERN_TEST=1 vitest --run --config vitest.acceptance.config.ts",
 		"check": "biome check . && tsc --noEmit",
 		"format": "biome check --write ."

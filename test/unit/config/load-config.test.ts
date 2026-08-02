@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { loadTavernConfig } from "../../src/config/load-config.js";
+import { loadTavernConfig } from "../../../src/config/load-config.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -28,7 +28,7 @@ describe("loadTavernConfig", () => {
 				cwd: join(root, "project"),
 			}),
 		).resolves.toEqual({
-			configMaxMessages: 10,
+			configMaxMessages: 20,
 			characters: [],
 		});
 	});

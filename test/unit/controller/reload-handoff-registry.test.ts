@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { CharacterCard } from "../../src/config/character-card.js";
+import type { CharacterCard } from "../../../src/config/character-card.js";
 import {
 	type CharacterReloadHandoff,
 	type CreatorReloadHandoff,
 	getReloadHandoffRegistry,
-} from "../../src/controller/reload-handoff-registry.js";
-import { createGroupChatState } from "../../src/creator/group-chat-state.js";
-import type { ActiveGroupChatDescriptor } from "../../src/discovery/active-descriptor.js";
+} from "../../../src/controller/reload-handoff-registry.js";
+import { createGroupChatState } from "../../../src/creator/group-chat-state.js";
+import type { ActiveGroupChatDescriptor } from "../../../src/discovery/active-descriptor.js";
 
 const descriptor: ActiveGroupChatDescriptor = {
 	instanceId: "instance-1",

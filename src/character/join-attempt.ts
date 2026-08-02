@@ -167,6 +167,10 @@ export class JoinAttempt {
 				throw new Error(readyResponse.error);
 			}
 			runtime.activate(this.takeConnection(), pi);
+			// ISSUE-014/#21: pull the group chat state snapshot right after
+			// joining so the widget shows the real member count immediately —
+			// before the first public message arrives (no "成员数未知" window).
+			void runtime.refreshGroupChatState();
 			return runtime;
 		} catch (error) {
 			await this.close();

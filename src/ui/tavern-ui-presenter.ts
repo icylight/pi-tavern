@@ -1,6 +1,7 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 
 import type { TavernController } from "../controller/tavern-controller.js";
+import type { RoundState } from "../creator/group-chat-state.js";
 
 /** Fixed key used for both the footer status and the bottom widget. */
 export const TAVERN_UI_KEY = "pi-tavern";
@@ -46,22 +47,40 @@ export function buildTavernViewModel(controller: TavernController): TavernViewMo
 }
 
 function creatorWidgetLines(state: {
-	onlineCharacters: Map<string, { character: { name: string }; isStreaming: boolean }>;
+	onlineCharacters: Map<string, { character: { name: string }; isStreaming: boolean; handRaised: boolean }>;
+	round: RoundState | null;
 }): string[] | null {
 	const onlineCount = state.onlineCharacters.size + 1; // + User Persona
 	const streaming = [...state.onlineCharacters.values()]
 		.filter((online) => online.isStreaming)
 		.map((online) => online.character.name);
+	const raised = [...state.onlineCharacters.values()]
+		.filter((online) => online.handRaised)
+		.map((online) => online.character.name);
 	const lines = [`${onlineCount} 人在线`];
 	if (streaming.length > 0) {
 		lines.push(`正在发言：${streaming.join("、")}`);
+	}
+	const round = state.round;
+	if (round) {
+		lines.push(
+			`发言 ${round.usedMessages}/${round.roundMaxMessages} · 剩余 ${round.roundMaxMessages - round.usedMessages}`,
+		);
+	}
+	if (raised.length > 0) {
+		lines.push(`举手：${raised.join("、")}`);
 	}
 	return lines;
 }
 
 function characterWidgetLines(
 	snapshot: {
-		online_characters: Array<{ name: string; is_streaming: boolean }>;
+		round: {
+			round_max_messages: number;
+			used_messages: number;
+			remaining_messages: number;
+		} | null;
+		online_characters: Array<{ name: string; is_streaming: boolean; hand_raised: boolean }>;
 	} | null,
 ): string[] | null {
 	if (!snapshot) {
@@ -71,6 +90,14 @@ function characterWidgetLines(
 	const streaming = snapshot.online_characters.filter((c) => c.is_streaming).map((c) => c.name);
 	if (streaming.length > 0) {
 		lines.push(`正在发言：${streaming.join("、")}`);
+	}
+	const round = snapshot.round;
+	if (round) {
+		lines.push(`发言 ${round.used_messages}/${round.round_max_messages} · 剩余 ${round.remaining_messages}`);
+	}
+	const raised = snapshot.online_characters.filter((c) => c.hand_raised).map((c) => c.name);
+	if (raised.length > 0) {
+		lines.push(`举手：${raised.join("、")}`);
 	}
 	return lines;
 }
