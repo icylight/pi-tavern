@@ -1,13 +1,11 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getGroupChatCursorDirectory } from "../../src/data/discovery/active-descriptor.js";
-import { PiProcess } from "./pi-process.js";
 import { pollSessionCursor } from "./cursor-helper.js";
-
-
+import { PiProcess } from "./pi-process.js";
 
 /**
  * ISSUE-014 acceptance: headless RPC character mode (CPU 根治).
