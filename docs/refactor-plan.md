@@ -11,6 +11,7 @@
 3. **阶段门禁**：每阶段末 unit 全量 + 定向 acceptance；Phase 3/5 全链门禁
 4. **粒度约束（Arch 判据 + QA 细化）**：管线 iff ≥3 顺序阶段 + 共享中间状态 +（≥2 入口复用 或 需要显式安排读写顺序）；短流程留用例门面；Phase 1 按 skills 模块拆 2-3 个 PR，各带定向验证
 5. **契约不动**：protocol/messages.ts 的消息格式定义（wire schema）零改动；每阶段 git diff 核对 messages/codec 零 diff；「拆 schema 与行为」挂 Phase 4 可选
+6. **新增原语同 PR 必带钉（2026-08-02 Arch 建议 + PM 定夺）**：新增/扩展 skills 原语（如文件层 read/write/原子写）必须与实现同 PR 带直接钉测（unit 层断言原语语义：抛错/原子性/mkdir/损坏容错；编排层语义如吞错归 integration/runtime 层）——不允许仅依赖间接覆盖；先钉后迁纪律的补全（PR-B 缺口教训：行为全绿但钉测层缺失，QA 把关拦截）；QA 验收按此清单复核，豁免须 PM 明示留痕
 
 ## 模块覆盖现状（QA 实测 v2，2026-08-02）
 
