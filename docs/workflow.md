@@ -134,14 +134,29 @@ ACK  执行方 → 验收方：确认 → 交付关闭
 - **V4 红/绿状态区分**：QA 证红与 Dev 证绿是不同状态，各跑一次不算重复；重复指同状态同层同套件多次运行。
 - **V5 与 #45 分工**：本规则消「重复跑」（次数维度）；#45 优化单次成本（耗时/CPU），排期不受本规则影响。
 
-**工作示例（V0/V2 实战，QA 2026-08-02 证据链）**：
+**工作示例（V0/V2 实战，QA 2026-08-02 config 改动证据链，三段式）**：
 
 ```
-命令：env -u PITAVERN_TEST npx vitest run --config vitest.acceptance.config.ts test/acceptance/resume-history.test.ts → 1/1 绿
-hash@层：含未提交改动，基线 HEAD=eab1f98 | acceptance-定向
-影响面：acceptance 全链（config 级改动覆盖所有跑法）；npm 路径零行为变化
-判定：实现者声明与 diff 一致 → 全链验证随 PR 门禁一次覆盖，不单独重复跑
+【证据行 V0】（跑完即贴，一行留痕）
+命令: env -u PITAVERN_TEST npx vitest run --config vitest.acceptance.config.ts test/acceptance/resume-history.test.ts
+结果: 1/1 绿（17.2s）
+锚@层: eab1f98+工作区diff@acceptance（参考级：未提交树，仅过程反馈）
+环境: references/pi@5bc1c2c0（子模块，验收运行时）+ node v26.4.0
 ```
+
+```
+【影响面 V2】（实现者随证据自带）
+声明: acceptance 全链——config 级改动覆盖所有跑法；npm 入口路径零行为变化
+判定（QA）: 与 diff 相符（仅 env 内联+注释）；全链最终验证随门禁一次覆盖，不单独重跑
+```
+
+```
+【升级为权威锚】（PM 落盘后 QA 更新，无需重跑）
+锚@层: <分支头hash>@acceptance+integration+unit（门禁绿跑，唯一可引用锚）
+环境: 同上传引用；跨类（真实环境=全局 pi 0.83.0）即触发漂移判定
+```
+
+三段各司其职：参考级证明「改对了」、影响面声明防「漏跑了」、权威锚供「引用了」。
 
 ## 8. 生效与修订
 
