@@ -227,7 +227,7 @@ describe("PiTavern extension", () => {
 		} finally {
 			await rm(agentDir, { recursive: true, force: true });
 		}
-	});
+	}, 30_000); // Loader does real discovery work twice; under concurrent load (acceptance suite) it can exceed vitest's 5s default timeout (#32). Per-test extension: load-sensitive, not a functional failure; #34 (maxWorkers: 2) reduces contention, keep this margin.
 
 	it("registers the tavern_speak and tavern_whoami tools and reports error when not a character", async () => {
 		const { tools, api } = captureTools();
