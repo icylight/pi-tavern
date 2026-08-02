@@ -93,7 +93,7 @@ describe("acceptance: #38 live steer delivery during a run (T4)", () => {
 		);
 	}
 
-	it("T4: a message published mid-run is visible before the run settles (steer, no interrupt, no duplicate)", async () => {
+	it("T4: 消息有界送达 + widget 状态机一致 + settle 幂等（#52 重基线语义）", async () => {
 		const { creator, headless, cursorPath } = await startPair();
 
 		async function readCursor(): Promise<number> {
@@ -118,7 +118,7 @@ describe("acceptance: #38 live steer delivery during a run (T4)", () => {
 		);
 		expect(await readCursor()).toBe(1);
 
-		// 在 run 仍活跃时发布第二条消息。
+		// 在 run 流程期间发布第二条消息（#52：run 毫秒级，仅验证有界送达）。
 		await creator.runCommand("/tavern-test-message T4 mid");
 		await creator.waitFor(
 			(e) =>
