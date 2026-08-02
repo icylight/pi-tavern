@@ -23,6 +23,8 @@ import {
 	removeOwnedActiveDescriptor,
 	updateActiveDescriptorName,
 } from "../data/discovery/active-descriptor.js";
+import { countPersistedEntries, decodeCursor, encodeCursor } from "../data/cursor-store.js";
+import { formatEntryContent, SessionStore, type SessionHeaderLike } from "../data/session-store.js";
 import { decodeClientMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { ClientMessage } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
@@ -63,26 +65,6 @@ interface PersistedRuntimeState {
 	persistedCount: number;
 }
 
-/**
- * 不透明历史游标。编码 sequence 边界：携带此游标的请求返回 sequence < seq
- * 的消息。绝对 sequence 保证新消息到达时游标位置稳定。
- */
-function encodeCursor(sequence: number): string {
-	return Buffer.from(JSON.stringify({ v: 1, seq: sequence })).toString("base64url");
-}
-
-function decodeCursor(cursor: string): number | null {
-	try {
-		const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as { v?: number; seq?: number };
-		if (parsed.v !== 1 || typeof parsed.seq !== "number" || !Number.isSafeInteger(parsed.seq)) {
-			return null;
-		}
-		return parsed.seq;
-	} catch {
-		return null;
-	}
-}
-
 export interface CreatorRuntimeDependencies {
 	createId: () => string;
 	now: () => Date;
@@ -99,13 +81,6 @@ export interface CreatorRuntimeDependencies {
 	drainTimeoutMs: number;
 }
 
-/** 首次持久化里程碑位标记，用于失败时的精细回滚。 */
-const FIRST_PERSIST_HEADER_WRITTEN = 1 << 0;
-const FIRST_PERSIST_SESSION_OPENED = 1 << 1;
-const FIRST_PERSIST_NAME_APPENDED = 1 << 2;
-const FIRST_PERSIST_SETTINGS_APPENDED = 1 << 3;
-const FIRST_PERSIST_MESSAGE_APPENDED = 1 << 4;
-
 export class CreatorRuntime {
 	readonly connections = new Map<string, WebSocket>();
 	readonly characters: Map<string, CharacterCard>;
@@ -119,17 +94,16 @@ export class CreatorRuntime {
 	private readonly deps: CreatorRuntimeDependencies;
 	private persistedCount = 0;
 	private heartbeatTimer: NodeJS.Timeout | null = null;
+
+	/** 当前 SessionManager 实例（由 session-store 持有；回滚重建后返回新实例）。 */
+	private get groupSessionManager(): SessionManager {
+		return this.sessionStore.getSessionManager() as SessionManager;
+	}
 	private serverConnectionHandler: ((socket: WebSocket) => void) | null = null;
 	private rejectConnectionsHandler: ((socket: WebSocket) => void) | null = null;
 
 	/** 把每个存活 socket 映射回其连接上下文，用于失败清理。 */
 	private readonly connectionBySocket = new WeakMap<WebSocket, ConnectionContext>();
-
-	/** 会话文件无法写入或恢复时置位。此后所有变更操作一律拒绝。 */
-	private persistenceFatal = false;
-
-	/** 记录首次持久化已完成的步骤，用于失败回滚。 */
-	private firstPersistFlags = 0;
 
 	onPublicMessage:
 		| ((msg: {
@@ -159,7 +133,7 @@ export class CreatorRuntime {
 
 	private constructor(
 		readonly webSocketServer: WebSocketServer,
-		private groupSessionManager: SessionManager,
+		private readonly sessionStore: SessionStore,
 		readonly state: GroupChatState,
 		readonly activeDescriptor: ActiveGroupChatDescriptor,
 		readonly activeDescriptorPath: string,
@@ -205,9 +179,13 @@ export class CreatorRuntime {
 			createdAt,
 			groupMaxMessages: configMaxMessages,
 		});
-		const groupSessionManager = SessionManager.create(cwd, getGroupChatSessionDirectory(options.agentDir, cwd), {
-			id: groupChatId,
-		});
+		const sessionStore = SessionStore.create(
+			SessionManager,
+			cwd,
+			getGroupChatSessionDirectory(options.agentDir, cwd),
+			{ id: groupChatId },
+			{ writeFile: dependencies.writeFile, rm: dependencies.rm },
+		);
 		const webSocketServer = await listenOnLocalhost(`/${groupChatId}/${instanceId}`);
 		const address = webSocketServer.address() as AddressInfo;
 		const activeDescriptor: ActiveGroupChatDescriptor = {
@@ -223,7 +201,7 @@ export class CreatorRuntime {
 		const activeDescriptorPath = getActiveDescriptorPath(options.agentDir, cwd, groupChatId);
 		const runtime = new CreatorRuntime(
 			webSocketServer,
-			groupSessionManager,
+			sessionStore,
 			state,
 			activeDescriptor,
 			activeDescriptorPath,
@@ -275,12 +253,14 @@ export class CreatorRuntime {
 		if (!sessionStat?.isFile() || sessionStat.size === 0) {
 			throw new Error(`Group chat session file does not exist or is empty: ${options.sessionPath}`);
 		}
-		const groupSessionManager = SessionManager.open(
+		const sessionStore = SessionStore.open(
+			SessionManager,
 			options.sessionPath,
 			getGroupChatSessionDirectory(options.agentDir, cwd),
 			cwd,
+			{ writeFile: dependencies.writeFile, rm: dependencies.rm },
 		);
-		const header = groupSessionManager.getHeader();
+		const header = sessionStore.getHeader();
 		if (!header?.id) {
 			throw new Error("Group chat session file has no id header");
 		}
@@ -293,25 +273,22 @@ export class CreatorRuntime {
 		}
 
 		// 按文件顺序扫描会话条目重建 PiTavern 扩展状态。
-		const entries = groupSessionManager.getEntries();
+		const entries = sessionStore.getEntries();
 		const publicMessages: PublicMessageState[] = [];
 		let name: string | null = null;
 		let groupMaxMessages = configMaxMessages;
 		let round: GroupChatState["round"] = null;
 		let nextSequence = 0;
-		let persistedCount = 0;
+		const persistedCount = countPersistedEntries(entries);
 		for (const entry of entries) {
 			if (entry.type === "session_info") {
-				persistedCount++;
 				name = entry.name?.trim() || null;
 			} else if (entry.type === "custom" && entry.customType === "pi-tavern.group-settings") {
-				persistedCount++;
 				const max = (entry.data as { group_max_messages?: number } | undefined)?.group_max_messages;
 				if (typeof max === "number" && Number.isSafeInteger(max) && max >= 0) {
 					groupMaxMessages = max;
 				}
 			} else if (entry.type === "custom_message" && entry.customType === "pi-tavern.public-message") {
-				persistedCount++;
 				const details = entry.details as
 					| {
 							sender: { type: "user_persona" } | { type: "character"; character_id: string; name: string };
@@ -370,7 +347,7 @@ export class CreatorRuntime {
 		};
 		const runtime = new CreatorRuntime(
 			webSocketServer,
-			groupSessionManager,
+			sessionStore,
 			state,
 			activeDescriptor,
 			activeDescriptorPath,
@@ -498,9 +475,14 @@ export class CreatorRuntime {
 			drainTimeoutMs: SHORT_COORDINATION_TIMEOUT_MS,
 			...dependencyOverrides,
 		};
+		const sessionStore = new SessionStore(
+			handoff.groupSessionManager,
+			SessionManager,
+			{ writeFile: dependencies.writeFile, rm: dependencies.rm },
+		);
 		const runtime = new CreatorRuntime(
 			handoff.webSocketServer,
-			handoff.groupSessionManager,
+			sessionStore,
 			handoff.groupChatState,
 			handoff.activeDescriptor,
 			handoff.activeDescriptorPath,
@@ -574,13 +556,13 @@ export class CreatorRuntime {
 				return normalizedName;
 			}
 
-			this.assertWritable();
+			this.sessionStore.assertWritable();
 
-			// 活跃群聊：经 SessionManager 持久化条目
+			// 活跃群聊：经 session-store 持久化条目
 			try {
-				this.groupSessionManager.appendSessionInfo(normalizedName ?? "");
+				this.sessionStore.appendSessionInfo(normalizedName ?? "");
 			} catch (error) {
-				this.recoverSessionManagerFromFailedAppend(error);
+				this.sessionStore.recoverFromFailedAppend(error);
 			}
 			this.persistedCount++;
 
@@ -611,15 +593,15 @@ export class CreatorRuntime {
 				return;
 			}
 
-			this.assertWritable();
+			this.sessionStore.assertWritable();
 
-			// 活跃群聊：经 SessionManager 持久化条目
+			// 活跃群聊：经 session-store 持久化条目
 			try {
-				this.groupSessionManager.appendCustomEntry("pi-tavern.group-settings", {
+				this.sessionStore.appendCustomEntry("pi-tavern.group-settings", {
 					group_max_messages: maxMessages,
 				});
 			} catch (error) {
-				this.recoverSessionManagerFromFailedAppend(error);
+				this.sessionStore.recoverFromFailedAppend(error);
 			}
 			this.persistedCount++;
 
@@ -629,7 +611,7 @@ export class CreatorRuntime {
 
 	submitUserPersonaMessage(content: string): Promise<string> {
 		return this.enqueue(async () => {
-			this.assertWritable();
+			this.sessionStore.assertWritable();
 
 			const contentBytes = Buffer.byteLength(content, "utf8");
 			if (contentBytes > 64 * 1024) {
@@ -642,92 +624,57 @@ export class CreatorRuntime {
 			const timestamp = new Date().toISOString();
 			let entryId: string;
 
-			// 首次持久化：先用 SessionManager 的 header 种子文件，之后全部走它的
-			// append API，使 ID、parentId 链与信封都由 SessionManager 管理
-			// （persistence.md L6-8）。位标记跟踪每步，便于部分失败时精细回滚。
+			// 首次持久化：先用 header 种子文件，之后全部走 append API，使 ID、
+			// parentId 链与信封都由 SessionManager 管理（persistence.md L6-8）。
+			// 位标记状态机 + 部分失败精细回滚收在 session-store 内。
 			if (this.persistedCount === 0) {
-				const sessionPath = this.getSessionFilePath();
+				const sessionPath = this.sessionStore.getSessionFilePath();
 				// 用规范 createdAt，使 header 时间戳与状态、descriptor 一致
-				const header = { ...this.groupSessionManager.getHeader(), timestamp: this.state.groupChat.createdAt };
+				// （运行时仍展开完整 header：type/version/cwd 等由真实实例供给）。
+				const header = {
+					...this.sessionStore.getHeader(),
+					timestamp: this.state.groupChat.createdAt,
+				} as SessionHeaderLike;
 
-				this.firstPersistFlags = 0;
-				try {
-					// 操作前先置位，回滚才能知道该步已尝试
-					// （writeFile 可能先建/部分写入文件再抛错）。
-					this.firstPersistFlags |= FIRST_PERSIST_HEADER_WRITTEN;
-					await this.deps.writeFile(sessionPath, `${JSON.stringify(header)}\n`);
-
-					this.firstPersistFlags |= FIRST_PERSIST_SESSION_OPENED;
-					this.groupSessionManager.setSessionFile(sessionPath);
-
-					if (this.state.groupChat.name) {
-						this.groupSessionManager.appendSessionInfo(this.state.groupChat.name);
-						this.firstPersistFlags |= FIRST_PERSIST_NAME_APPENDED;
-						this.persistedCount++;
-					}
-
-					this.groupSessionManager.appendCustomEntry("pi-tavern.group-settings", {
-						group_max_messages: roundMaxMessages,
-					});
-					this.firstPersistFlags |= FIRST_PERSIST_SETTINGS_APPENDED;
-					this.persistedCount++;
-
-					entryId = this.groupSessionManager.appendCustomMessageEntry(
-						"pi-tavern.public-message",
-						formatEntryContent("User Persona", content),
-						true,
-						{
-							sender: { type: "user_persona" as const },
-							content,
-							sequence,
-							round: {
-								round_max_messages: roundMaxMessages,
-								used_messages: 0,
-								remaining_messages: roundMaxMessages,
-							},
-						},
-					);
-					this.firstPersistFlags |= FIRST_PERSIST_MESSAGE_APPENDED;
-					this.persistedCount++;
-				} catch (error) {
-					try {
-						await this.rollbackFirstPersist(sessionPath);
-					} catch (rollbackError) {
-						throw new Error(
-							`Rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
-							{ cause: error },
-						);
-					}
-					throw error;
-				}
+				const result = await this.sessionStore.persistFirstMessage({
+					sessionPath,
+					header,
+					groupChatId: this.state.groupChat.groupChatId,
+					name: this.state.groupChat.name,
+					groupMaxMessages: roundMaxMessages,
+					sequence,
+					content,
+				});
+				entryId = result.entryId;
+				this.persistedCount += result.entriesPersisted;
 			} else {
 				try {
-					entryId = this.groupSessionManager.appendCustomMessageEntry(
+					entryId = this.sessionStore.appendCustomMessageEntry(
 						"pi-tavern.public-message",
 						formatEntryContent("User Persona", content),
 						true,
-						{
-							sender: { type: "user_persona" as const },
-							content,
-							sequence,
-							round: {
-								round_max_messages: roundMaxMessages,
-								used_messages: 0,
-								remaining_messages: roundMaxMessages,
-							},
+					{
+						sender: { type: "user_persona" as const },
+						content,
+						sequence,
+						round: {
+							round_max_messages: roundMaxMessages,
+							used_messages: 0,
+							remaining_messages: roundMaxMessages,
 						},
-					);
-					this.persistedCount++;
-				} catch (error) {
-					// SessionManager._appendEntry 在磁盘写入前先改内存。
-					// 失败时把未持久化的条目从内存清除。
-					this.recoverSessionManagerFromFailedAppend(error);
-				}
+					},
+				);
+				this.persistedCount++;
+			} catch (error) {
+				// SessionManager._appendEntry 在磁盘写入前先改内存。
+				// 失败时把未持久化的条目从内存清除（恢复编排在 store 内）。
+				this.sessionStore.recoverFromFailedAppend(error);
 			}
+		}
 
 			// 从 SessionManager 读真实条目时间戳，保证磁盘信封与广播/显示时间戳
 			// 一致（finding 3）。
-			const persisted = this.groupSessionManager.getEntry(entryId);
+			const persisted = this.sessionStore.getEntry(entryId);
 			const entryTimestamp = persisted?.timestamp ?? timestamp;
 
 			// 仅在持久化成功后提交状态
@@ -1240,7 +1187,7 @@ export class CreatorRuntime {
 
 		let path: string;
 		try {
-			path = this.getSessionFilePath();
+			path = this.sessionStore.getSessionFilePath();
 		} catch {
 			this.sendFailure(socket, message.id, "get_chat_history_file", "Group chat has no chat history file yet");
 			return;
@@ -1357,7 +1304,7 @@ export class CreatorRuntime {
 
 		// 持久化损坏时连非发布型 speak 也拒绝（状态无法安全变更）。
 		try {
-			this.assertWritable();
+			this.sessionStore.assertWritable();
 		} catch (error) {
 			this.sendFailure(socket, message.id, "speak", error instanceof Error ? error.message : String(error));
 			return;
@@ -1388,7 +1335,7 @@ export class CreatorRuntime {
 			let entryId: string;
 			try {
 				// 初始化后的写入走 SessionManager 的 append API
-				entryId = this.groupSessionManager.appendCustomMessageEntry(
+				entryId = this.sessionStore.appendCustomMessageEntry(
 					"pi-tavern.public-message",
 					formatEntryContent(senderName, message.content),
 					true,
@@ -1396,8 +1343,8 @@ export class CreatorRuntime {
 				);
 			} catch (error) {
 				// SessionManager._appendEntry 在磁盘写入前先改内存。
-				// 把未持久化的条目从 byId/leafId 清除。
-				const reportError = this.recoverSessionManagerAndCatch(error);
+				// 把未持久化的条目从 byId/leafId 清除（恢复编排在 store 内）。
+				const reportError = this.sessionStore.recoverFromFailedAppendAndCatch(error);
 				this.sendFailure(socket, message.id, "speak", `Failed to persist message: ${reportError.message}`);
 				return;
 			}
@@ -1405,7 +1352,7 @@ export class CreatorRuntime {
 			this.persistedCount++;
 
 			// 从 SessionManager 读真实条目时间戳，保证一致性
-			const persisted = this.groupSessionManager.getEntry(entryId);
+			const persisted = this.sessionStore.getEntry(entryId);
 			const entryTimestamp = persisted?.timestamp ?? timestamp;
 
 			// 仅在持久化成功后提交状态
@@ -1686,93 +1633,6 @@ export class CreatorRuntime {
 		});
 	}
 
-	/**
-	 * 追加失败后恢复 SessionManager 内存态。SessionManager._appendEntry 在
-	 * 磁盘写入前先改 byId/leafId；失败时磁盘文件仍有效（写入从未发生），
-	 * 因此 setSessionFile 可重载干净状态。若连这也失败，Runtime 被标记为
-	 * 持久化致命——此后所有变更操作一律拒绝，而不是带着损坏/空内存态继续。
-	 */
-	private recoverSessionManagerFromFailedAppend(originalError: unknown): never {
-		try {
-			this.groupSessionManager.setSessionFile(this.getSessionFilePath());
-			// 恢复成功——重抛原始错误供调用方上报；SessionManager 已为下一次
-			// 操作保持干净。
-			throw originalError;
-		} catch (recoveryError) {
-			if (recoveryError === originalError) throw originalError;
-			// setSessionFile 自身失败——不可恢复。
-			this.persistenceFatal = true;
-			throw new Error(
-				`Persistence recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}. ` +
-					`Original error: ${originalError instanceof Error ? originalError.message : String(originalError)}`,
-				{ cause: originalError },
-			);
-		}
-	}
-
-	/**
-	 * 恢复并返回要上报的错误。供恢复后仍需继续的调用方使用（如 handleSpeak
-	 * 需要发送响应）。
-	 */
-	private recoverSessionManagerAndCatch(originalError: unknown): Error {
-		try {
-			this.groupSessionManager.setSessionFile(this.getSessionFilePath());
-		} catch (recoveryError) {
-			this.persistenceFatal = true;
-			return new Error(
-				`Persistence recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}. ` +
-					`Original error: ${originalError instanceof Error ? originalError.message : String(originalError)}`,
-				{ cause: originalError },
-			);
-		}
-		return originalError instanceof Error ? originalError : new Error(String(originalError));
-	}
-
-	private assertWritable(): void {
-		if (this.persistenceFatal) {
-			throw new Error("Group chat persistence is broken — further writes are blocked");
-		}
-	}
-
-	/**
-	 * 用位标记决定首次持久化部分完成时的回滚清理。每一位代表一个已完成步骤。
-	 */
-	private async rollbackFirstPersist(sessionPath: string): Promise<void> {
-		const flags = this.firstPersistFlags;
-		this.firstPersistFlags = 0;
-		this.persistedCount = 0;
-
-		if (flags & FIRST_PERSIST_HEADER_WRITTEN) {
-			// 删除半初始化的文件。若删除失败，Runtime 无法安全继续——会在磁盘
-			// 残留损坏文件的同时启动新会话。
-			try {
-				await this.deps.rm(sessionPath);
-			} catch {
-				this.persistenceFatal = true;
-				throw new Error(
-					"Failed to delete half-initialized session file during rollback. " +
-						"Persistence is now blocked to prevent duplicate sessions.",
-				);
-			}
-		}
-
-		if (flags & FIRST_PERSIST_SESSION_OPENED) {
-			// SessionManager 内存态已被失败的追加改动。重建全新实例——文件
-			// 已在上方删除。下一次首次持久化将以规范 createdAt 写 header。
-			this.groupSessionManager = SessionManager.create(
-				this.groupSessionManager.getCwd(),
-				this.groupSessionManager.getSessionDir(),
-				{ id: this.state.groupChat.groupChatId },
-			);
-		}
-	}
-
-	private getSessionFilePath(): string {
-		const path = this.groupSessionManager.getSessionFile();
-		if (!path) throw new Error("Session file not set");
-		return path;
-	}
-
 	private enqueue<T>(operation: () => T | Promise<T>): Promise<T> {
 		const task = this.runtimeTail.then(operation);
 		this.runtimeTail = task.then(
@@ -1865,9 +1725,4 @@ async function closeWebSocketServer(server: WebSocketServer): Promise<void> {
 			}
 		});
 	});
-}
-
-function formatEntryContent(senderLabel: string, body: string): string {
-	const trimmed = body.replace(/\n+$/, "");
-	return `${senderLabel}:\n${trimmed}\n`;
 }
