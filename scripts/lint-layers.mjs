@@ -42,7 +42,9 @@ const LAYER_RULES = [
 		name: "application 不得直接碰文件 IO（node:fs）",
 		sources: ["controller/", "creator/creator-pipelines/"],
 		forbid: [/node:fs/],
-		allowFiles: [],
+		// dispatch.ts = runtime 域桥接文件（creator-pipelines/ 目录内、runtime 域管辖，
+		// Arch 已知项：目录归属与域不一致，现行为无害，迁移挂起——桥接地位声明于此）。
+		allowFiles: ["creator/creator-pipelines/dispatch.ts"],
 	},
 	{
 		// Phase 3 拆出的 10 模块全集（文件集已稳定，枚举补全防漂移——Arch 加固 ②）
