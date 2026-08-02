@@ -25,6 +25,7 @@ import {
 } from "../discovery/active-descriptor.js";
 import { decodeClientMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { ClientMessage } from "../protocol/messages.js";
+import type { PublicMessageState } from "../protocol/public-message-state.js";
 import {
 	HEARTBEAT_PING_INTERVAL_MS,
 	HEARTBEAT_TIMEOUT_MS,
@@ -55,15 +56,6 @@ export interface ResumeCreatorRuntimeOptions {
 	sessionPath: string;
 	configMaxMessages?: number;
 	characters?: CharacterCard[];
-}
-
-export interface PublicMessageState {
-	sender: { type: "user_persona" } | { type: "character"; character_id: string; name: string };
-	content: string;
-	event_id: string;
-	sequence: number;
-	timestamp: string;
-	round: { round_max_messages: number; used_messages: number; remaining_messages: number };
 }
 
 interface PersistedRuntimeState {
