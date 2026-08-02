@@ -41,7 +41,9 @@ describe("#42 resume projection: window-anchor pure logic (A1/A3)", () => {
 	it("A1: 长度 ≤ 窗口时全量投影（30 条 < 100）", () => {
 		const messages = aSequenceRange(1, 30);
 		const projected = computeResumeProjection(messages, 0, 100);
-		expect(projected.map((m: PublicMessageState) => m.sequence)).toEqual(aSequenceRange(1, 30).map((m: PublicMessageState) => m.sequence));
+		expect(projected.map((m: PublicMessageState) => m.sequence)).toEqual(
+			aSequenceRange(1, 30).map((m: PublicMessageState) => m.sequence),
+		);
 	});
 
 	it("A1: 长度 > 窗口时仅投影尾部窗口（120 条 → 尾部 100 条）", () => {
@@ -55,7 +57,9 @@ describe("#42 resume projection: window-anchor pure logic (A1/A3)", () => {
 	it("A1: 锚定 ≥ 窗口起点时只补锚后缺失段（anchor=100 → 101..120）", () => {
 		const messages = aSequenceRange(1, 120);
 		const projected = computeResumeProjection(messages, 100, 100);
-		expect(projected.map((m: PublicMessageState) => m.sequence)).toEqual(aSequenceRange(101, 120).map((m: PublicMessageState) => m.sequence));
+		expect(projected.map((m: PublicMessageState) => m.sequence)).toEqual(
+			aSequenceRange(101, 120).map((m: PublicMessageState) => m.sequence),
+		);
 	});
 
 	it("A1: 锚定 ≥ 窗口内最大 sequence 时为空（无新投影）", () => {
@@ -83,7 +87,9 @@ describe("#42 resume projection: window-anchor pure logic (A1/A3)", () => {
 		const messages = aSequenceRange(1, 120);
 		// 模拟投影中断：已投影 21..110（锚定 110），重入补 111..120
 		const projected = computeResumeProjection(messages, 110, 100);
-		expect(projected.map((m: PublicMessageState) => m.sequence)).toEqual(aSequenceRange(111, 120).map((m: PublicMessageState) => m.sequence));
+		expect(projected.map((m: PublicMessageState) => m.sequence)).toEqual(
+			aSequenceRange(111, 120).map((m: PublicMessageState) => m.sequence),
+		);
 	});
 
 	it("A2: 投影条目按 sequence 升序、字段逐条透传（内容/发送者/round 一致）", () => {

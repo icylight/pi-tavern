@@ -158,6 +158,14 @@ export class CreatorRuntime {
 
 	private publicMessages: PublicMessageState[] = [];
 
+	/**
+	 * #42：消息列表只读访问（返回拷贝，防外部变异）。resume 历史投影使用；
+	 * 增量路径仍走内部引用，语义零变化。
+	 */
+	get publicMessageList(): PublicMessageState[] {
+		return [...this.publicMessages];
+	}
+
 	private constructor(
 		readonly webSocketServer: WebSocketServer,
 		private groupSessionManager: SessionManager,

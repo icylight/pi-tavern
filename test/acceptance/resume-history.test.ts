@@ -48,9 +48,7 @@ describe("acceptance: #42 resume history projection (A1/A2/A3-1/A4)", () => {
 		await creator.runCommand(`/tavern-test-message ${label}`);
 		await creator.waitFor(
 			(e) =>
-				e.type === "extension_ui_request" &&
-				e.method === "notify" &&
-				e.message === "User Persona message published",
+				e.type === "extension_ui_request" && e.method === "notify" && e.message === "User Persona message published",
 		);
 	}
 
@@ -88,7 +86,8 @@ describe("acceptance: #42 resume history projection (A1/A2/A3-1/A4)", () => {
 				return entry?.customType === "pi-tavern.creator-display";
 			})
 			.map((e) => {
-				const entry = (e as { entry?: { data?: { event?: { sequence: number; content: string; event_id: string } } } }).entry;
+				const entry = (e as { entry?: { data?: { event?: { sequence: number; content: string; event_id: string } } } })
+					.entry;
 				const data = entry?.data ?? {};
 				return {
 					sequence: data.event?.sequence ?? 0,

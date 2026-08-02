@@ -131,6 +131,7 @@ function createMockCreatorRuntime(): CreatorRuntime {
 		setMaxMessages: vi.fn(() => Promise.resolve()),
 		close: vi.fn(async () => undefined),
 		submitUserPersonaMessage: vi.fn(() => Promise.resolve("evt-1")),
+		publicMessageList: [],
 	} as unknown as CreatorRuntime;
 }
 

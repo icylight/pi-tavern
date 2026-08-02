@@ -1,11 +1,20 @@
 import { randomUUID } from "node:crypto";
-import type { ExtensionAPI, InputEventResult } from "@earendil-works/pi-coding-agent";
+import { join } from "node:path";
+import { type ExtensionAPI, getAgentDir, type InputEventResult } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { setTestNotify } from "./character/group-chat-input.js";
 import { registerCommands } from "./commands.js";
 import { TavernController } from "./controller/tavern-controller.js";
+import type { CreatorRuntime, PublicMessageState } from "./creator/creator-runtime.js";
+import { getGroupChatSessionDirectory } from "./discovery/active-descriptor.js";
 import { type AutoJoinContext, autoJoinCharacter } from "./headless.js";
+import { JOIN_HISTORY_LIMIT } from "./shared/constants.js";
 import { registerRenderers } from "./ui/renderers.js";
+import {
+	computeResumeProjection,
+	readResumeProjectionAnchor,
+	writeResumeProjectionAnchor,
+} from "./ui/resume-projection.js";
 import { TavernUiPresenter } from "./ui/tavern-ui-presenter.js";
 
 interface CreatorDisplayEvent {
@@ -316,39 +325,7 @@ function wireCreatorDisplay(pi: ExtensionAPI, ctrl: TavernController): void {
 	if (state.type !== "creator") return;
 
 	state.runtime.onPublicMessage = (msg) => {
-		const data: CreatorDisplayEntryData = {
-			kind: "public_message",
-			group_chat_id: state.runtime.state.groupChat.groupChatId,
-			event: {
-				event_id: msg.event_id,
-				sequence: msg.sequence,
-				timestamp: msg.timestamp,
-				sender: msg.sender,
-				content: msg.content,
-				round: msg.round,
-			},
-		};
-		try {
-			pi.appendEntry("pi-tavern.creator-display", data);
-		} catch (error) {
-			// Best-effort error notification so creator sees projection failure
-			try {
-				pi.appendEntry("pi-tavern.creator-display", {
-					kind: "public_message" as const,
-					group_chat_id: data.group_chat_id,
-					event: {
-						event_id: msg.event_id,
-						sequence: msg.sequence,
-						timestamp: msg.timestamp,
-						sender: msg.sender,
-						content: `TUI projection failed: ${error instanceof Error ? error.message : "Unknown error"}`,
-						round: msg.round,
-					},
-				});
-			} catch {
-				// Even error notification failed — nothing more we can do
-			}
-		}
+		appendCreatorDisplayEntry(pi, state.runtime, msg);
 	};
 
 	// Wire fallback error path: when onPublicMessage itself crashes (e.g., pi unavailable)
@@ -370,6 +347,76 @@ function wireCreatorDisplay(pi: ExtensionAPI, ctrl: TavernController): void {
 			// Nothing more we can do
 		}
 	};
+
+	// #42（ISSUE-042）：resume 后把持久化历史窗口投影到当前会话。幂等
+	// （锚定文件防重复），creator-runtime 零改动、零协议变更。
+	projectResumeHistory(pi, state.runtime);
+}
+
+/**
+ * #42：增量/回放共用的 creator-display 条目落盘（格式唯一来源，保证
+ * 回放与增量投影逐字一致——A2）。失败时降级为错误通知条目（与旧行为一致）。
+ */
+function appendCreatorDisplayEntry(pi: ExtensionAPI, runtime: CreatorRuntime, msg: PublicMessageState): void {
+	const data: CreatorDisplayEntryData = {
+		kind: "public_message",
+		group_chat_id: runtime.state.groupChat.groupChatId,
+		event: {
+			event_id: msg.event_id,
+			sequence: msg.sequence,
+			timestamp: msg.timestamp,
+			sender: msg.sender,
+			content: msg.content,
+			round: msg.round,
+		},
+	};
+	try {
+		pi.appendEntry("pi-tavern.creator-display", data);
+	} catch (error) {
+		// Best-effort error notification so creator sees projection failure
+		try {
+			pi.appendEntry("pi-tavern.creator-display", {
+				kind: "public_message" as const,
+				group_chat_id: data.group_chat_id,
+				event: {
+					event_id: msg.event_id,
+					sequence: msg.sequence,
+					timestamp: msg.timestamp,
+					sender: msg.sender,
+					content: `TUI projection failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+					round: msg.round,
+				},
+			});
+		} catch {
+			// Even error notification failed — nothing more we can do
+		}
+	}
+}
+
+/**
+ * #42：resume 历史投影。锚定 = 上次成功投影的最大 sequence（持久化在群聊
+ * 会话目录的 <groupId>.projection.json），只补锚后缺失段；窗口 = JOIN_HISTORY_LIMIT
+ * 对称（与 join 拉取视图一致）。投影完成后同步回写锚点——重复 resume /
+ * 中断重入均按 sequence 补段（A3-1/A3-2），新消息增量路径不受影响（A4）。
+ */
+function projectResumeHistory(pi: ExtensionAPI, runtime: CreatorRuntime): void {
+	const groupChatId = runtime.state.groupChat.groupChatId;
+	const anchorPath = join(
+		getGroupChatSessionDirectory(getAgentDir(), runtime.activeDescriptor.cwd),
+		`${groupChatId}.projection.json`,
+	);
+	const anchor = readResumeProjectionAnchor(anchorPath);
+	const messages = computeResumeProjection(runtime.publicMessageList, anchor, JOIN_HISTORY_LIMIT);
+	if (messages.length === 0) {
+		return;
+	}
+	for (const message of messages) {
+		appendCreatorDisplayEntry(pi, runtime, message);
+	}
+	const last = messages[messages.length - 1];
+	if (last !== undefined) {
+		writeResumeProjectionAnchor(anchorPath, last.sequence);
+	}
 }
 
 function wirePresenter(ctrl: TavernController, presenter: TavernUiPresenter): void {
