@@ -17,23 +17,27 @@ async function createTemporaryDirectory(): Promise<string> {
 	return directory;
 }
 
-async function startCreator(): Promise<{ creator: CreatorRuntime; character: CharacterCard }> {
+async function startCreator(
+	characterCount = 1,
+): Promise<{ creator: CreatorRuntime; character: CharacterCard; characters: CharacterCard[] }> {
 	const root = await createTemporaryDirectory();
-	const characterPath = join(root, "characters", "architect.md");
 	const configPath = join(root, "tavern.json");
 	await mkdir(join(root, "characters"), { recursive: true });
-	await writeFile(characterPath, "---\nname: Architect\ndescription: Architecture\n---\nArchitect prompt");
-	const character = await loadCharacterCard(characterPath, configPath);
+	const cards = ["Architect", "Developer", "QA", "PM"].slice(0, characterCount).map((name) => ({ name, description: name }));
+	for (const card of cards) {
+		await writeFile(join(root, "characters", `${card.name.toLowerCase()}.md`), `---\nname: ${card.name}\ndescription: ${card.description}\n---\n${card.name} prompt`);
+	}
+	const characters = await Promise.all(cards.map((card) => loadCharacterCard(join(root, "characters", `${card.name.toLowerCase()}.md`), configPath)));
 	const creator = await CreatorRuntime.startNew(
 		{
 			cwd: join(root, "project"),
 			agentDir: join(root, "agent"),
-			characters: [character],
+			characters,
 		},
 		{},
 	);
 	creatorRuntimes.push(creator);
-	return { creator, character };
+	return { creator, character: characters[0], characters };
 }
 
 afterEach(async () => {
@@ -160,7 +164,7 @@ describe("M7 message fetch (ISSUE-012)", () => {
 	});
 
 	it("isolates cursors per session: two sessions never advance each other's cursor (P0)", async () => {
-		const { creator, character } = await startCreator();
+		const { creator, characters } = await startCreator(2);
 		await creator.submitUserPersonaMessage("one"); // seq 1
 		await creator.submitUserPersonaMessage("two"); // seq 2
 		await creator.submitUserPersonaMessage("three"); // seq 3
@@ -170,11 +174,11 @@ describe("M7 message fetch (ISSUE-012)", () => {
 		const attemptA = await JoinAttempt.connect(creator.activeDescriptor, "session-iso-a", {
 			cursorStorePath: join(cursorDir, "session-iso-a.json"),
 		});
-		const runtimeA = await attemptA.claimCharacter(character.characterId);
+		const runtimeA = await attemptA.claimCharacter(characters[0].characterId);
 		const attemptB = await JoinAttempt.connect(creator.activeDescriptor, "session-iso-b", {
 			cursorStorePath: join(cursorDir, "session-iso-b.json"),
 		});
-		const runtimeB = await attemptB.claimCharacter(character.characterId);
+		const runtimeB = await attemptB.claimCharacter(characters[1].characterId);
 
 		// A delivered up to 3; B has delivered only seq 1.
 		runtimeA.saveCursor(3);
@@ -215,17 +219,17 @@ describe("M7 message fetch (ISSUE-012)", () => {
 	});
 
 	it("writes concurrent session cursors atomically without clobbering (P0)", async () => {
-		const { creator, character } = await startCreator();
+		const { creator, characters } = await startCreator(2);
 		const root = await createTemporaryDirectory();
 		const cursorDir = join(root, "cursors", "group-conc");
 		const attemptA = await JoinAttempt.connect(creator.activeDescriptor, "session-conc-a", {
 			cursorStorePath: join(cursorDir, "session-conc-a.json"),
 		});
-		const runtimeA = await attemptA.claimCharacter(character.characterId);
+		const runtimeA = await attemptA.claimCharacter(characters[0].characterId);
 		const attemptB = await JoinAttempt.connect(creator.activeDescriptor, "session-conc-b", {
 			cursorStorePath: join(cursorDir, "session-conc-b.json"),
 		});
-		const runtimeB = await attemptB.claimCharacter(character.characterId);
+		const runtimeB = await attemptB.claimCharacter(characters[1].characterId);
 
 		// Interleaved saves across sessions: per-session files mean no shared
 		// tmp name and no last-write-wins clash between sessions.
