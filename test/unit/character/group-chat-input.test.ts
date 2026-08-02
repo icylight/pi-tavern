@@ -37,11 +37,9 @@ function createMockRuntime(
 
 function createMockPi(): ExtensionAPI {
 	return {
-		// 双通道契约（User 拍板 2026-08-02）：入队成功 = 投递成功 → 推进游标。
-		// mock 默认 preflight 成功，投递路径据此 saveCursor。
-		sendMessage: vi.fn((_message: unknown, options?: { preflightResult?: (success: boolean) => void }) => {
-			options?.preflightResult?.(true);
-		}),
+		// 与 pi SDK 真实 API 面一致（QA 实证）：sendMessage options 无 preflightResult，
+		// resolve = 入队成功/run 正常结束（游标推进依据，A5 双通道判定）。
+		sendMessage: vi.fn(async () => undefined),
 	} as unknown as ExtensionAPI;
 }
 
