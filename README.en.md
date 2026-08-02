@@ -40,8 +40,8 @@ sequenceDiagram
     Note over A: Normal output stays private in the session
     A->>S: tavern_speak (explicit publication)
     C->>S: User Persona speaks
-    S-->>A: notify (pure marker, no message body)
-    S-->>B: notify (pure marker, no message body)
+    S-->>A: notify (watermark + short preview, no injection)
+    S-->>B: notify (watermark + short preview, no injection)
     Note over A: run active: zero mid-run injection
     Note over A: run settle / idle window → mechanical fetch
     A->>S: fetch all unread after this session's cursor
@@ -58,8 +58,10 @@ sequenceDiagram
   record, persisted independently of any Pi Session. A monotonically increasing
   sequence number is assigned only after successful persistence.
 - **Notify, don't inject (while working).** When the chat changes, every online
-  Character is notified — but the notification is a pure marker (a watermark),
-  never the message body. A running agent is never interrupted mid-`run`.
+  Character is notified — the notification carries only the watermark
+  (`latest_sequence`) plus a short preview of the last few messages (for UI
+  snapshots, **never injected into the agent's context**). Full message bodies
+  are always obtained by fetch. A running agent is never interrupted mid-`run`.
   Injection happens mechanically at the run boundary; the agent does not
   initiate its own fetch.
 - **Catch-up is mechanical and per-session.** Each Character keeps its own
@@ -100,8 +102,9 @@ model is different in kind:
   Tavern server binary).
 - No standalone `Group` entity in v1 — membership is bound to a chat instance.
 - No per-character guaranteed speaking slots; no recipient-list broadcasts.
-- Notifications are markers only: a busy agent sees new context at the next
-  `run` boundary, not immediately.
+- Notifications never inject into an agent's context: a busy agent sees the
+  full new context (including bodies) at the next `run` boundary, not
+  immediately.
 - Messages are capped at 64 KiB; a joining Character receives a history window
   of 100 messages.
 - No `disconnected`/`reconnecting` states — a dropped connection is cleaned up
