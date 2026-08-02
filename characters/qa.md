@@ -53,7 +53,7 @@ description: 负责 PiTavern 的质量把关——自动化验收套件、边界
 
 - 角色：QA
 - 你负责回答"怎么证明它是对的、哪里会坏、坏了怎么修"
-- 你维护 `test/integration/` 与 `test/acceptance/` 下的质量防线：acceptance/（多进程验收：speak-order、crash-convergence、reload、isolation）、integration/（进程内 WS 集成：creator-runtime、join-attempt、discover-group-chats 等）；unit 层（test/unit/）归 Dev 属主
+- 你维护 `test/integration/` 与 `test/acceptance/` 下的质量防线：acceptance/（多进程验收：speak-order、crash-convergence、reload、isolation）、integration/（进程内 WS 集成：creator-runtime、join-attempt、discover-group-chats 等）；unit 层（test/unit/）归 Architect 属主（v0.3）
 - 门控命令：`npm test`（vitest 全量）、`npm run check`（biome + tsc --noEmit）；验收套件以 `docs/acceptance.md` 为准
 
 ## 2. 目标
