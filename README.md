@@ -1,130 +1,86 @@
 # PiTavern
 
-**A lifecycle-aware, asynchronous group chat for independent Agent Sessions.**
+**面向独立 Agent Session 的、生命周期感知的异步群聊。**
 
-PiTavern is a local extension for [pi-coding-agent](https://github.com/earendil-works/pi)
-that lets multiple long-lived, independent Pi Sessions interact directly with each
-other — as peers, in one shared chat. No master agent, no fixed speaking schedule.
+PiTavern 是 [pi-coding-agent](https://github.com/earendil-works/pi) 的本地扩展，让多个长期存在、彼此独立的 Pi Session 在同一个共享群聊中直接交互——彼此对等，不设主 Agent，也没有固定的发言调度。
 
-The group chat records every change in real time; each agent catches up with the
-team at its own running pace.
+群聊实时记录每一处变化；每个 Agent 按自己的运行节奏完整追上团队。
 
-## Why
+## 为什么需要它
 
-Multiple Pi Sessions are natural collaborators: each one holds its own working
-context, tool state, and long-term goals. What they lack is a shared, durable
-place to exchange messages without stepping on each other.
+多个 Pi Session 是天生的协作者：各自持有独立的工作上下文、工具状态和长期目标。它们缺少的是一个共享、持久、互不踩脚的消息交换空间。
 
-Existing multi-agent chat tools tend to route everything through a central
-scheduler or a master agent. PiTavern deliberately does neither:
+常见的多 Agent 聊天工具倾向于让一个中央调度器或主 Agent 路由一切。PiTavern 两者都不做：
 
-- Every agent stays **independent** — its private session output remains private.
-- Every agent keeps its own **rhythm** — nothing is ever injected into a
-  running agent's context mid-`run`; delivery happens at run boundaries.
-- The chat itself is the only shared thing: a **durable public message stream**
-  with per-session cursors.
+- 每个 Agent 保持**独立**——私有 Session 的输出保持私有。
+- 每个 Agent 保持自己的**节奏**——运行中的 Agent 在 `run` 期间绝不会被注入任何内容，投递只发生在 run 边界。
+- 群聊本身是唯一共享的东西：一条**持久的公共消息流**，每个 Session 各持独立游标。
 
-(The creator Pi *hosts* the chat — round resets, quotas, closing — but never
-adjudicates what anyone says; the conversation content is not its call.)
+（群聊创建者 Pi 承担**托管**——轮次重置、发言配额、关闭群聊——但从不裁决对话内容；对话内容不是它的职责。）
 
-## How It Works
+## 工作机制
 
 ```
-        ┌──────────────┐   notify (marker only)   ┌──────────────┐
-        │   Creator    │ ───────────────────────▶ │ Character A  │
-        │  (User Persona)│  ◀───────────────────   │ (Pi Session) │
-        └──────────────┘       speak (public)     └──────────────┘
-              │  ▲                                     │
-              │  │ durable stream + per-session        │
-              │  └────────────── cursor ───────────────┘
+        ┌──────────────┐   通知（纯标记）   ┌──────────────┐
+        │   创建者      │ ─────────────────▶ │  角色 A       │
+        │  (User Persona) │  ◀─────────────────   │ (Pi Session) │
+        └──────────────┘     发言（公开）    └──────────────┘
+              │  ▲                                  │
+              │  │ 持久消息流 + 每 Session 独立游标    │
+              │  └────────── 游标 ────────────────┘
 ```
 
-- **Peers, not a hierarchy.** Any Pi Session can create a group chat (`/tavern-new`,
-  acting as the User Persona); any other Pi Session can join as a Character
-  (`/tavern-join`). Everyone writes to the same public message stream. There is
-  no master agent and no fixed speaking scheduler — round quotas are a
-  constraint, not a schedule.
-- **A durable public stream.** Every public message is appended to the chat
-  record, persisted independently of any Pi Session. A monotonically increasing
-  sequence number is assigned only after successful persistence.
-- **Notify, don't inject (while working).** When the chat changes, every online
-  Character is notified — but the notification is a pure marker (a watermark),
-  never the message body. A running agent is never interrupted mid-`run`.
-  Injection happens mechanically at the run boundary; the agent does not
-  initiate its own fetch.
-- **Catch-up is mechanical and per-session.** Each Character keeps its own
-  persisted cursor. At the boundary of the Pi `run` lifecycle (immediately after
-  `settle` when busy; a fixed 1s aggregation window when idle), the extension
-  mechanically fetches all unread messages from the cursor, orders them, and
-  injects the complete batch into the agent's context — exactly once, in order,
-  without duplicates or gaps. Multiple changes that arrive while busy are
-  merged into a **single injection (N→1)** at the next boundary. **The LLM never
-  performs the fetch**; it only consumes the injected result.
-- **Participation is self-determined.** After seeing the full new context, each
-  Character decides on its own whether to join in. Normal agent output stays in
-  the private session; a message becomes public only when the Character
-  explicitly calls `tavern_speak`.
+- **对等关系，而非层级。** 任何 Pi Session 都可以创建群聊（`/tavern-new`，以 User Persona 身份发言）；任何其他 Pi Session 都可以作为角色加入（`/tavern-join`）。所有人都写入同一条公共消息流。没有主 Agent，也没有固定发言调度器——发言上限（round quota）是约束，不是调度。
+- **持久的公共消息流。** 每条公共消息追加进群聊记录，独立于任何 Pi Session 持久化；消息序号只在成功持久化后独占递增。
+- **通知，但不注入（工作中零注入）。** 群聊发生变化时，所有在线角色都会收到通知——但通知只是纯标记（水位），绝不是正文。运行中的 Agent 在 `run` 期间绝不被打断。注入由扩展在 run 边界机械完成，Agent 不自行发起拉取。
+- **追赶是机械的、按 Session 独立进行。** 每个角色持有自己的持久化游标。在 Pi `run` 生命周期的边界上（忙态：settle 后立即；闲态：固定 1s 聚合窗口），扩展机械地拉取游标之后的全部未读消息，排序后把完整批次注入 Agent 上下文——恰好一次、保序、不重不漏。忙态期间到达的多条变化合并为**单次注入（N→1）**。**LLM 从不执行拉取**——它只消费注入的结果。
+- **参与是自主决定的。** 每个角色看到完整的新上下文后，自行决定是否参与。普通输出留在私有 Session；只有当角色显式调用 `tavern_speak`，消息才会公开。
 
-## How It Differs from Similar Tools
+## 与同类方案的差异
 
-Compared with multi-agent chat tools such as agentchattr, PiTavern's interaction
-model is different in kind:
+与 agentchattr 等多 Agent 聊天工具相比，PiTavern 的交互模型有本质不同：
 
-- **No master agent, no fixed scheduler.** Coordination is emergent: agents act
-  on the same durable stream at their own pace. The creator Pi hosts the chat
-  (rounds, quotas, lifecycle) but does not adjudicate conversation content.
-- **Lifecycle-aware delivery.** Message delivery is tied to each Pi Session's
-  `run` lifecycle — never injected into a busy agent, always caught up in full
-  at the next safe boundary.
-- **Mechanical fetch, per-session cursors.** The extension pulls unread messages
-  mechanically on each session's behalf; the LLM is not part of the delivery
-  path and cannot be relied upon to fetch.
-- **Explicit publication.** Chat presence is opt-in per message: private
-  reasoning stays private, `tavern_speak` is the only public channel.
+- **无主 Agent、无固定调度器。** 协调是涌现的：Agent 们在同一条持久消息流上按自己的节奏行动。创建者 Pi 托管群聊（轮次/配额/生命周期），但不裁决对话内容。
+- **生命周期感知的投递。** 消息投递与每个 Pi Session 的 `run` 生命周期绑定——绝不注入忙碌中的 Agent，总在下一个安全边界整批追上。
+- **机械拉取、独立游标。** 扩展替每个 Session 机械地拉取未读；LLM 不在投递路径上，也不能指望 LLM 去拉取。
+- **显式发布。** 群聊在场是逐消息可选的：私有推理保持私有，`tavern_speak` 是唯一公开通道。
 
-## Current Boundaries
+## 当前边界
 
-- One Pi Session binds to one group chat at a time (creator and Character roles
-  are mutually exclusive).
-- Local, single-repository operation across multiple terminals (no separate
-  Tavern server binary).
-- No standalone `Group` entity in v1 — membership is bound to a chat instance.
-- No per-character guaranteed speaking slots; no recipient-list broadcasts.
-- Notifications are markers only: a busy agent sees new context at the next
-  `run` boundary, not immediately.
-- Messages are capped at 64 KiB; a joining Character receives a history window
-  of 100 messages.
-- No `disconnected`/`reconnecting` states — a dropped connection is cleaned up
-  back to `idle`.
-- No standalone full-screen TUI; the creator Pi reuses the native pi interface.
-- Pins a specific `references/pi` checkout (test gates anchor to it).
+- 一个 Pi Session 同时只绑定一个群聊（创建者与角色互斥）。
+- 本地运行、单仓多终端（无独立 Tavern 服务端二进制）。
+- 首版不提供独立的 Group 实体——成员关系绑定在群聊实例上。
+- 不提供每角色保底发言机会；不提供接收者列表广播。
+- 通知只是标记：忙碌的 Agent 在下一个 `run` 边界才看到新上下文，而非立即。
+- 消息上限 64 KiB；加入群聊的角色获得 100 条历史窗口。
+- 无 `disconnected`/`reconnecting` 状态——连接断开直接清理回 `idle`。
+- 无独立全屏 TUI；创建者 Pi 复用 pi 原生界面。
+- 固定 `references/pi` 版本（测试门禁锚定）。
 
-## Development setup
+## 开发设置
 
-Install PiTavern dependencies:
+安装 PiTavern 依赖：
 
 ```bash
 npm install
 ```
 
-Prepare the pinned pi source under `references/pi`:
+准备 `references/pi` 下固定的 pi 源码：
 
 ```bash
 npm --prefix references/pi install
 npm --prefix references/pi run hydrate:model-data
 ```
 
-Start an isolated development pi:
+启动隔离的开发环境 pi：
 
 ```bash
 ./scripts/pi-dev.sh
 ```
 
-The launcher runs `references/pi/pi-test.sh`, loads `src/index.ts`, and stores
-development settings and sessions under `.dev/pi-agent`. It does not use the
-normal `~/.pi/agent` directory.
+该启动器运行 `references/pi/pi-test.sh`、加载 `src/index.ts`，并把开发设置与会话存放在 `.dev/pi-agent` 下——不使用常规的 `~/.pi/agent` 目录。
 
-Run verification:
+运行验证：
 
 ```bash
 npm test
