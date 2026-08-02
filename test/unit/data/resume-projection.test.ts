@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
-
-import type { PublicMessageState } from "../../../src/creator/creator-runtime.js";
 import {
 	computeResumeProjection,
 	computeSessionProjectionAnchor,
 	type ProjectionEntryReader,
-} from "../../../src/ui/resume-projection.js";
+} from "../../../src/data/resume-projection.js";
+import type { PublicMessageState } from "../../../src/protocol/public-message-state.js";
 
 /**
  * #42 红测（unit 层）：resume 历史投影的窗口-锚定纯逻辑。

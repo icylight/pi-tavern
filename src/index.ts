@@ -4,15 +4,16 @@ import { Type } from "typebox";
 import { setTestNotify } from "./character/group-chat-input.js";
 import { registerCommands } from "./commands.js";
 import { TavernController } from "./controller/tavern-controller.js";
-import type { CreatorRuntime, PublicMessageState } from "./creator/creator-runtime.js";
-import { type AutoJoinContext, autoJoinCharacter } from "./headless.js";
-import { JOIN_HISTORY_LIMIT } from "./shared/constants.js";
-import { registerRenderers } from "./ui/renderers.js";
+import type { CreatorRuntime } from "./creator/creator-runtime.js";
 import {
 	computeResumeProjection,
 	computeSessionProjectionAnchor,
 	type ProjectionEntryReader,
-} from "./ui/resume-projection.js";
+} from "./data/resume-projection.js";
+import { type AutoJoinContext, autoJoinCharacter } from "./headless.js";
+import type { PublicMessageState } from "./protocol/public-message-state.js";
+import { JOIN_HISTORY_LIMIT } from "./shared/constants.js";
+import { registerRenderers } from "./ui/renderers.js";
 import { TavernUiPresenter } from "./ui/tavern-ui-presenter.js";
 
 interface CreatorDisplayEvent {

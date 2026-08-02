@@ -1,4 +1,4 @@
-import type { PublicMessageState } from "../creator/creator-runtime.js";
+import type { PublicMessageState } from "../protocol/public-message-state.js";
 
 /**
  * #42（ISSUE-042）：resume 历史投影的窗口-锚定纯逻辑。

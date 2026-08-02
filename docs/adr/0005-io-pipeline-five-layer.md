@@ -16,7 +16,7 @@
 
 | 层 | 定义 | PiTavern 落点 |
 | --- | --- | --- |
-| **adapter** | 薄入口：显式展开管线顺序与分支；处理结果 → 协议响应 / notify / steer | commands / tools / headless / ui（presenter·renderers·resume-projection）/ WS handler 壳 |
+| **adapter** | 薄入口：显式展开管线顺序与分支；处理结果 → 协议响应 / notify / steer | commands / tools / headless / ui（presenter·renderers）/ WS handler 壳 |
 | **application** | **请求级 IO 管线**：一次协议消息 / 内部事件 = 一个管线实例；输入与中间 IO 收于实例字段；阶段 = 私有处理函数（Method）；读写顺序与落盘时机由主管线安排；子管线只给有独立步骤/状态/复用边界的流程 | SubmitMessage / Join / Claim / Ready / Leave / 查询 管线；`tavern-controller.ts` 的 transitionTail 一次只处理一个轮次（排队执行），已是管线雏形 |
 | **skills** | 能力单元（原 data）：单一用途、一次明确读写；按业务能力组织；不把多步串在一起、不自行决定读写时机；显式接收管线传入的输入；纯计算不隐藏 IO；出错时返回明确原因，由入口层决定如何回应 | session-store / cursor-store / descriptor-store / resume-projection / discovery 原语 |
 | **runtime** | 进程单例（**MCP 同构**）：WS server + 连接表 + 心跳 + 能力实例装配；不保存单次任务中间状态 | 瘦身后的 CreatorRuntime / CharacterRuntime；join-attempt（WS 客户端传输）；reload-handoff（进程级交接） |
@@ -67,9 +67,9 @@
 ## 目标结构（22 文件映射）
 
 ```
-adapter:      index.ts(组合根) / commands.ts / headless.ts / ui/(tavern-ui-presenter·renderers·resume-projection)
+adapter:      index.ts(组合根) / commands.ts / headless.ts / ui/(tavern-ui-presenter·renderers)
 application:  controller/tavern-controller.ts(管线雏形) / 新拆:creator-pipelines/(submit-message·join·claim·ready·leave·query) / character-pipelines/(发言策略·steer 策略,自 character/group-chat-input.ts 拆出,#38 契约面)
-skills:       新拆:data/(session-store·cursor-store·descriptor-store) + discovery/(active-descriptor·discover-group-chats) + creator/group-chat-sessions.ts + creator/group-chat-state.ts
+skills:       新拆:data/(session-store·cursor-store·descriptor-store·resume-projection[裁决:skills]) + discovery/(active-descriptor·discover-group-chats) + creator/group-chat-sessions.ts + creator/group-chat-state.ts
 runtime:      creator-runtime.ts(瘦身:WS+心跳+装配) / character-runtime.ts(瘦身) / character/join-attempt.ts / controller/reload-handoff-registry.ts
 shared:       protocol/(messages·codec) / config/(character-card·load-config) / shared/(constants·runtime-close)
 ```

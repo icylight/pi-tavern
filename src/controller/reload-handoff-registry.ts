@@ -3,10 +3,10 @@ import type WebSocket from "ws";
 import type { WebSocketServer } from "ws";
 
 import type { CharacterCard } from "../config/character-card.js";
-import type { PublicMessageState } from "../creator/creator-runtime.js";
 import type { GroupChatState } from "../creator/group-chat-state.js";
 import type { ActiveGroupChatDescriptor } from "../discovery/active-descriptor.js";
 import type { ServerMessage } from "../protocol/messages.js";
+import type { PublicMessageState } from "../protocol/public-message-state.js";
 
 /** Private globalThis key so reloaded extension code can find the slot. */
 export const RELOAD_HANDOFF_SYMBOL: unique symbol = Symbol.for("pi-tavern.reload-handoff");
