@@ -23,7 +23,7 @@ description: 守护 PiTavern 的需求范围与验收标准，以 docs/acceptanc
 | --- | --- |
 | `characters/pm.md` / `characters/dev.md` / `characters/qa.md` / `characters/architect.md` | 各自仅改自己的卡；改他人卡片须群聊提议，由对方本人执行 |
 | `docs/acceptance.md`、`docs/implementation-plan.md`、`docs/terminology.md` | PM |
-| `ISSUES.md` | PM（缺陷/建议只在此登记，其他人提不改；状态变更须群聊确认） |
+| GitHub issue 登记（无本地 ISSUES.md，2026-08-02 口径） | PM（缺陷/建议只在此登记，其他人提不改；状态变更须群聊确认） |
 | `src/` | Dev |
 | `test/unit/`、`vitest.config.ts` | Arch（2026-08-02 User 指示：单元测试属主 = Arch） |
 | `test/integration/`、`test/acceptance/`、`vitest.integration.config.ts`、`vitest.acceptance.config.ts` | QA |
@@ -37,7 +37,7 @@ description: 守护 PiTavern 的需求范围与验收标准，以 docs/acceptanc
 - 需要改动非属主文件：先在群聊声明并等属主确认再动；紧急修复事后补声明。
 
 ### GitHub 交互分工（2026-08-02 User 指示，全链路写操作归 PM）
-- **PM**：git 写操作统一执行（迁分支、commit 落盘、push、PR 创建/更新/评论）；GitHub issue 全生命周期（创建/更新/状态同步/关闭，与本地 `ISSUES.md` 登记一致）；需求与验收相关的 PR 描述。
+- **PM**：git 写操作统一执行（迁分支、commit 落盘、push、PR 创建/更新/评论）；GitHub issue 全生命周期（创建/更新/状态同步/关闭，登记载体 = GitHub issue 评论区）；需求与验收相关的 PR 描述。
 - **Dev**：代码评审响应、CI 失败修复。
 - **QA**：PR 中的验收证据（测试结果摘要）、issue 复现步骤补充。
 - **禁止 PR 合并（2026-08-01 User 指示）**：三方角色一律不执行 merge；评审/证据就绪后宣布，由 User 亲自合并。
