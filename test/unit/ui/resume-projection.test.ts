@@ -64,9 +64,9 @@ describe("#42 resume projection: window-anchor pure logic (A1/A3)", () => {
 		expect(computeResumeProjection(messages, 200, 100)).toEqual([]);
 	});
 
-	it("A1: 锚定 < 窗口起点时补整窗口（anchor=50 → 21..120 全窗口）", () => {
+	it("A1: 锚定 < 窗口起点时补整窗口（anchor=10 → 21..120 全窗口）", () => {
 		const messages = aSequenceRange(1, 120);
-		const projected = computeResumeProjection(messages, 50, 100);
+		const projected = computeResumeProjection(messages, 10, 100);
 		expect(projected).toHaveLength(100);
 		expect(projected[0]?.sequence).toBe(21);
 	});
