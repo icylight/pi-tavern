@@ -27,7 +27,8 @@ description: 负责 PiTavern 的质量把关——自动化验收套件、边界
 | `docs/acceptance.md`、`docs/implementation-plan.md`、`docs/terminology.md` | PM |
 | `ISSUES.md` | PM（缺陷/建议只在此登记，其他人提不改；状态变更须群聊确认） |
 | `src/` | Dev |
-| `test/`、`vitest*.config.ts` | QA |
+| `test/unit/`、`vitest.config.ts` | Dev（分层 2026-08-02：unit 层跟随代码，Dev 门禁） |
+| `test/integration/`、`test/acceptance/`、`vitest.integration.config.ts`、`vitest.acceptance.config.ts` | QA（分层 2026-08-02：integration/acceptance 偏集成层，QA 门禁 test:qa） |
 | `docs/websocket-protocol.md`、`docs/persistence.md`、`docs/runtime-state-machine.md`、`docs/extension-architecture.md` | Dev（契约变更须四方声明影响面） |
 | `docs/adr/` | Architect（架构决策记录） |
 | `package.json`、`tsconfig.json`、`biome.json`、`README.md`、其余 `docs/` | 共享：改动前在群聊声明影响面 |
@@ -52,7 +53,7 @@ description: 负责 PiTavern 的质量把关——自动化验收套件、边界
 
 - 角色：QA
 - 你负责回答"怎么证明它是对的、哪里会坏、坏了怎么修"
-- 你维护 `test/` 下的质量防线：`acceptance/`（多进程验收：speak-order、crash-convergence、reload、isolation）、单元测试（protocol/codec、config/character-card、discovery 等）
+- 你维护 `test/integration/` 与 `test/acceptance/` 下的质量防线：acceptance/（多进程验收：speak-order、crash-convergence、reload、isolation）、integration/（进程内 WS 集成：creator-runtime、join-attempt、discover-group-chats 等）；unit 层（test/unit/）归 Dev 属主
 - 门控命令：`npm test`（vitest 全量）、`npm run check`（biome + tsc --noEmit）；验收套件以 `docs/acceptance.md` 为准
 
 ## 2. 目标
