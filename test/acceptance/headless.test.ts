@@ -1,10 +1,13 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getGroupChatCursorDirectory } from "../../src/data/discovery/active-descriptor.js";
 import { PiProcess } from "./pi-process.js";
+import { pollSessionCursor } from "./cursor-helper.js";
+
+
 
 /**
  * ISSUE-014 acceptance: headless RPC character mode (CPU 根治).
@@ -93,29 +96,16 @@ describe("acceptance: headless RPC character auto-join (ISSUE-014)", () => {
 		// successful increment (RPC has no session_start, so the PITAVERTEST
 		// [tavern-inject] notify is not wired; the cursor file is the
 		// deterministic proof the message was pulled and delivered).
-		const cursorPath = join(getGroupChatCursorDirectory(agentDir, projectDir), `${descriptor.groupChatId}.json`);
+		// PR #71 后游标 = cursors/<groupId>/<sessionId>.json（sessionId 进程生成不可预知）：
+		// 轮询目录内全部游标文件（会话无关）。
+		const cursorDir = getGroupChatCursorDirectory(agentDir, projectDir);
+		const groupChatId = descriptor.groupChatId;
 		await creator.runCommand("/tavern-test-message second message");
 		await creator.waitFor(
 			(e) =>
 				e.type === "extension_ui_request" && e.method === "notify" && e.message === "User Persona message published",
 		);
-		const deadline = Date.now() + 30_000;
-		let lastSequence = 0;
-		for (;;) {
-			try {
-				const raw = await readFile(cursorPath, "utf8");
-				lastSequence = (JSON.parse(raw) as { last_sequence: number }).last_sequence;
-				if (lastSequence >= 2) {
-					break;
-				}
-			} catch {
-				// Cursor file not written yet.
-			}
-			if (Date.now() > deadline) {
-				throw new Error(`cursor file did not reach seq 2 (last: ${lastSequence})`);
-			}
-			await new Promise((resolveWait) => setTimeout(resolveWait, 200));
-		}
+		await pollSessionCursor(cursorDir, groupChatId, 2, 30_000, "cursor file");
 
 		// ── ISSUE-014 core: idle CPU is negligible (no TUI pipeline) ──────
 		const cpu = await headless.sampleCpuPercent(3_000);

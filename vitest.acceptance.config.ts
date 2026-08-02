@@ -11,12 +11,12 @@ export default defineConfig({
 		testTimeout: 180_000,
 		hookTimeout: 120_000,
 		// Acceptance tests spawn real pi processes per worker (process-level
-		// assertions). Default parallelism = CPU core count (8 workers × ~100%
-		// each on this machine) makes the suite hog the box during dev/group
-		// chat usage. Capping to 2 workers cuts peak CPU ~4x at the cost of a
-		// longer run (~2-4 min vs ~1 min); it also reduces load-related flaky
-		// timeouts (see #32). QA owns this file; change authorized by PM
-		// 2026-08-02, QA regression review pending.
-		maxWorkers: 4,
+		// assertions), isolated per file (own agentDir/port/processes) — file-level
+		// parallelism is safe (Arch 2026-08-02). 13 files / 8 workers = 2 batches
+		// (~50-60s on idle 8-core); the #43 90s/120s margins stay as flake-proof
+		// upper bounds, speed comes from parallelism + 25ms dense polling, not
+		// from cutting margins. Load-related flake watch: if #32-era timeouts
+		// reappear, step down to 4. QA owns this file.
+		maxWorkers: 8,
 	},
 });
