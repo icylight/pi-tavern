@@ -7,25 +7,28 @@
 ## 总则
 
 1. **行为等价基准（QA 承诺 + characterize-first）**：迁移 PR 内先写行为钉测（旧代码上绿）→ 迁移 → 断言零改动仍绿 = 行为零变化成立；每拆一层补一层钉测（裸奔文件随迁移逐个补钉）
-2. **试点排序（QA 覆盖现状表定序）**：resume-projection（小+纯计算）→ active-descriptor（acceptance 覆盖最厚，兜底最强）→ session/cursor；discover-group-chats 裸奔，**先补钉测再迁**
+2. **试点排序（QA 覆盖现状表 v2 定序）**：resume-projection（12 钉测，先例）→ active-descriptor（覆盖最厚，兜底最强）→ session/cursor；discover-group-chats 有 integration 专测，**无需先补钉再迁**（v1 判断作废）
 3. **阶段门禁**：每阶段末 unit 全量 + 定向 acceptance；Phase 3/5 全链门禁
 4. **粒度约束（Arch 判据 + QA 细化）**：管线 iff ≥3 顺序阶段 + 共享中间状态 +（≥2 入口复用 或 需要显式安排读写顺序）；短流程留用例门面；Phase 1 按 skills 模块拆 2-3 个 PR，各带定向验证
 5. **契约不动**：protocol/messages.ts 的消息格式定义（wire schema）零改动；每阶段 git diff 核对 messages/codec 零 diff；「拆 schema 与行为」挂 Phase 4 可选
 
-## 模块覆盖现状（QA 实测，2026-08-02）
+## 模块覆盖现状（QA 实测 v2，2026-08-02）
 
-- unit 钉住（9）：creator-runtime / character-runtime / commands / index / join-attempt / tavern-controller / character-card / reload-handoff / group-chat-state
-- acceptance 钉住（1）：active-descriptor（8 测试文件引用，全仓最厚）
-- 裸奔（12）：group-chat-input / messages / tavern-ui-presenter / discover-group-chats / group-chat-sessions / headless / load-config / resume-projection / codec / renderers / constants / runtime-close
+- **裸奔仅 4 薄壳**：headless / renderers / runtime-close / constants（无大文件裸奔）
+- group-chat-input：19 用例专测（非裸奔；三重风险降级为「大文件 + 迁移面广」）
+- discover-group-chats：integration 专测（迁移无需先补钉）
+- **codec：9 用例钉测已存在**（验收口径「可先行」项已完成）
+- resume-projection：12 用例钉测（#42 契约固化，characterize-first 模板现成）
+- active-descriptor：13 引用（5 acceptance），仍最厚
 
-→ 试点优先级 = 覆盖厚 + 依赖面小（resume-projection → active-descriptor → session/cursor）；裸奔模块迁前必补钉
+→ 试点优先级 = 覆盖厚 + 依赖面小（resume-projection → active-descriptor → session/cursor）
 
 ## 阶段明细
 
 ### Phase 1:skills 提取(先试点)
 
-- 内容：data/(session-store·cursor-store·descriptor-store) 从 creator-runtime 抽出；discovery/ 迁入（归属已定案：整体 skills）；group-chat-sessions/group-chat-state 归位；resume-projection 确认归属（先例）
-- 试点顺序（QA 定序）：resume-projection（先例+纯计算）→ active-descriptor（覆盖最厚）→ session/cursor；discover-group-chats 先补钉测再迁
+- 内容：data/(session-store·cursor-store·descriptor-store) 从 creator-runtime 抽出；discovery/ 迁入（归属已定案：整体 skills）；group-chat-sessions/group-chat-state 归位；resume-projection 归位（裁决定案：skills）
+- 试点顺序（QA v2 定序）：resume-projection（12 钉测先例）→ active-descriptor（覆盖最厚）→ session/cursor；discover-group-chats 有 integration 专测，无需先补钉
 - PR 切分：按 skills 模块拆 2-3 个 PR，各带定向验证（防单 PR 过大）
 - 验证:unit 全量 + 定向(message-sync / persistence / discovery)
 - 出口：data/ 全部无 pi 依赖、可单测；**全仓文件 IO 调用点 grep 审计 = 非 skills 层 0 调用点**（adapter/shared 直读直写清零；契约面 messages/codec 只编解码，实测触盘则一并收敛）；runtime 不再直接写文件
@@ -72,7 +75,7 @@
 ## 待四方确认项（评审收敛进度）
 
 1. ~~22 文件映射归属~~ 已收敛：discovery 整体 skills（QA 无编排判断）；余映射无争议
-2. ~~试点顺序~~ 已收敛：QA 覆盖现状表定序（resume-projection → active-descriptor → session/cursor；裸奔先补钉）
+2. ~~试点顺序~~ 已收敛：QA 覆盖表 v2 定序（resume-projection → active-descriptor → session/cursor；discover 有 integration 专测无需先补钉）
 3. Phase 4「拆 schema 与行为」是否纳入本期（默认挂起）——待 User/PM 拍板
 4. 每阶段 PR 粒度：已定每阶段一 PR，Phase 1 内按模块拆 2-3 个 PR
 5. characterize-first 方法纳入行为等价基准——已写入总则 1
