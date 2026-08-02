@@ -11,17 +11,16 @@ import { PiProcess } from "./pi-process.js";
  * #38 口径 A（T4，进程级佐证）：run 进行中消息经 steer 通道有界可见——
  * 光标在 run 结束前推进（run 内投递），且 run 不被打断、无重复投递。
  *
+ * #52 重基线（User 批准，2026-08-02）：no-key 自动化下 run 毫秒级结束
+ * （白名单模式确定性零 LLM），「光标推进时 run 仍活跃」不可演练——断言改为
+ * 可观测语义：消息有界送达（光标 30s 内达 2）+ widget 状态机一致（streaming
+ * 点亮→熄灭，不悬挂）+ settle 幂等（光标稳定）。run 活跃期 steer 归真实环境
+ * 验证 + #50 受控窗口补测（A5 范畴）。扩展代码零改动，#38 产品语义不变。
+ *
  * 判别信号：character 侧投递成功即推进持久化光标文件（A5: saveCursor on
- * delivery）。旧行为（A2 defer）在 agent_settled 之后才推进光标；新行为
- * （steer）在 run 活跃期即推进——断言「光标达到 seq2 的时刻，creator
- * widget 仍显示「正在发言」」即证明消息在 run 内已进入上下文。
- *
- * 配套断言：run 正常结束（agent_settled + widget 熄灭）→ M7 A5「不打断
- * run」保持；settle 后光标稳定（无重复投递）。
- *
- * #43（2026-08）：等待窗口加裕量（60s→90s / 90s→120s）——acceptance
- * 进程级用例在串行全量时本机负载高，LLM run 启动/结束事件变慢，属负载
- * 敏感型波动（#32/#35 同类）；仅加裕量，断言条件与语义零变化。
+ * delivery）。#43（2026-08）：等待窗口加裕量（60s→90s / 90s→120s）——
+ * 属负载敏感型波动（#32/#35 同类；#52 归因修正：主源为 DeepSeek key 泄漏
+ * 的真实 API 调用方差，白名单落地后消失）；仅加裕量，断言条件与语义零变化。
  */
 
 describe("acceptance: #38 live steer delivery during a run (T4)", () => {
@@ -126,8 +125,10 @@ describe("acceptance: #38 live steer delivery during a run (T4)", () => {
 				e.type === "extension_ui_request" && e.method === "notify" && e.message === "User Persona message published",
 		);
 
-		// 轮询光标：steer 投递下，run 中消息在 run 仍 streaming 时即达上下文
-		// （cursor → 2，run 仍处于 streaming 状态）…
+		// 轮询光标：消息有界送达——mid 消息在 30s 内到达上下文（光标 → 2）。
+		// #52 重基线（User 批准，2026-08-02）：不再断言「光标 2 时 run 仍活跃」
+		// （no-key 自动化下 run 毫秒级结束，该属性不可演练——Arch 评审确认漂移）；
+		// run 活跃期 steer 归真实环境验证 + #50 受控窗口补测（A5 范畴）。
 		const deadline = Date.now() + 30_000;
 		let cursor = await readCursor();
 		for (;;) {
@@ -141,17 +142,8 @@ describe("acceptance: #38 live steer delivery during a run (T4)", () => {
 			await new Promise((resolveWait) => setTimeout(resolveWait, 25));
 		}
 
-		// …此时 run 仍活跃：投递不可能被推迟到 settle 钩子（旧 A2 行为只在
-		// settle flush 之后推进光标，而 settle flush 晚于 streaming-off 广播）。
-		const widgetEvents = creator
-			.dumpEvents()
-			.filter((e) => e.type === "extension_ui_request" && e.method === "setWidget");
-		const lastWidget = widgetEvents[widgetEvents.length - 1];
-		expect(lastWidget).toBeDefined();
-		const lines = (lastWidget as { widgetLines?: string[] }).widgetLines ?? [];
-		expect(lines.some((line) => line.startsWith("正在发言："))).toBe(true);
-
-		// run 不被中断：agent_settled 正常触发、widget 正常熄灭（M7 A5 保持）。
+		// run 不被中断（M7 A5 保持，可观测语义）：agent_settled 正常触发、
+		// widget 状态机一致（streaming 曾点亮 → 最终熄灭，不悬挂）。
 		await headless.waitFor((e) => e.type === "agent_settled", 120_000); // #43 裕量：90s→120s
 		await creator.waitFor(
 			(e) => e.type === "extension_ui_request" && e.method === "setWidget" && !widgetHasStreaming(e),
