@@ -505,22 +505,30 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("ISSUE-013 A2: active run marks updates only; settle refetches latest in one shot", async () => {
-		// Supersedes M7 A5 (queue-then-flush): the run-active window must not
-		// fetch at all — only a mark is set. On settle a single refetch covers
-		// everything up to settle time (投递 = settle 时刻游标后全量).
+	it("#38: active run pulls and steer-delivers immediately; settle finds nothing new", async () => {
+		// #38 口径 A: the run-active window no longer defers — the pull runs
+		// immediately and the delivery switches to the steer channel (delivered
+		// after the current tool call, before the next LLM call). The settle
+		// hook stays as a safety net: with the cursor already advanced by the
+		// run-time delivery, it has nothing left to pull or deliver (no
+		// duplicates).
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({
 			getGroupChatState: async () => ({}),
 		});
-		runtime.fetchMessagesSince = vi.fn(async (since: number) => ({
+		const fetchMock = vi.fn(async (since: number) => ({
 			messages: [7, 8, 9].filter((seq) => seq > since).map((seq) => aPublicMessage("user_persona", { sequence: seq })),
 			latestSequence: 9,
 			totalMessages: 9,
 		}));
-		runtime.loadCursor = vi.fn(() => 6);
-		runtime.saveCursor = vi.fn();
+		runtime.fetchMessagesSince = fetchMock;
+		let cursor = 6;
+		runtime.loadCursor = vi.fn(() => cursor);
+		runtime.saveCursor = vi.fn((value: number) => {
+			cursor = value;
+		});
+		runtime.markGroupChatTurnTriggered = vi.fn();
 		runtime.isAgentActive = true;
 
 		const pi = createMockPi();
@@ -528,7 +536,7 @@ describe("GroupChatInput", () => {
 		input.start();
 		const handler = runtime.onEnvironmentMessage ?? (() => {});
 
-		// Two notifications arrive during the run, with a gap (7, then 9).
+		// Two notifications arrive during the run (7, then 9).
 		handler({
 			type: "group_chat_update",
 			latest_sequence: 7,
@@ -543,28 +551,42 @@ describe("GroupChatInput", () => {
 		} as unknown as ServerMessage);
 		await vi.advanceTimersByTimeAsync(0);
 
-		// A2: run active — only the mark is set; nothing fetched or delivered.
-		expect(runtime.fetchMessagesSince).not.toHaveBeenCalled();
-		expect(pi.sendMessage).not.toHaveBeenCalled();
+		// #38: the run no longer defers — the first update pulled immediately,
+		// the second coalesced into a single-flight refetch (cursor 6 → 9).
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(fetchMock.mock.calls[0]?.[0]).toBe(6);
+		expect(fetchMock.mock.calls[1]?.[0]).toBe(9);
+		// Cursor advanced during the run (single-point advancement, A5).
+		expect(runtime.saveCursor).toHaveBeenCalledWith(9);
 
-		// Settle → a single refetch from the pull cursor covers 7..9.
-		runtime.isAgentActive = false;
-		runtime.onAgentSettled?.();
-		await vi.advanceTimersByTimeAsync(0);
-		expect(runtime.fetchMessagesSince).toHaveBeenCalledTimes(1);
-		expect(runtime.fetchMessagesSince).toHaveBeenCalledWith(6);
-
+		// Delivered via the steer channel while the run is active — no new
+		// turn is triggered (the #14 group-chat-trigger mark stays untouched).
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
+		const options = call[1] as { deliverAs: string };
+		expect(options.deliverAs).toBe("steer");
+		expect(runtime.markGroupChatTurnTriggered).not.toHaveBeenCalled();
 		const message = call[0] as { details: { events: Array<{ sequence?: number }> } };
 		const sequences = message.details.events.map((e) => e.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
 		expect(sequences).toEqual([7, 8, 9]);
-		// A5: cursor advances only when the delivery succeeded.
-		expect(runtime.saveCursor).toHaveBeenCalledWith(9);
+
+		// Settle → the tail-window pull starts past the delivered cursor (9):
+		// nothing new, so no extra delivery.
+		runtime.isAgentActive = false;
+		runtime.onAgentSettled?.();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(fetchMock).toHaveBeenCalledTimes(3);
+		expect(fetchMock.mock.calls[2]?.[0]).toBe(9);
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
 
 		input.stop();
 	});
 
-	it("ISSUE-013 A2: member events merge into the settle delivery", async () => {
+	it("#38: member events during a run are steer-delivered, not merged at settle", async () => {
+		// #38 口径 A: member events are no longer queued for the settle flush —
+		// while the run is active they ride the steer channel together with the
+		// pulled increment (arrival order preserved), and nothing is left for
+		// the settle hook to deliver.
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({
@@ -576,8 +598,12 @@ describe("GroupChatInput", () => {
 			latestSequence: 7,
 			totalMessages: 7,
 		}));
-		runtime.loadCursor = vi.fn(() => 6);
-		runtime.saveCursor = vi.fn();
+		let cursor = 6;
+		runtime.loadCursor = vi.fn(() => cursor);
+		runtime.saveCursor = vi.fn((value: number) => {
+			cursor = value;
+		});
+		runtime.markGroupChatTurnTriggered = vi.fn();
 		runtime.isAgentActive = true;
 
 		const pi = createMockPi();
@@ -595,31 +621,36 @@ describe("GroupChatInput", () => {
 		} as unknown as ServerMessage);
 		await vi.advanceTimersByTimeAsync(0);
 
-		// Nothing fetched or delivered while the run is active.
-		expect(runtime.fetchMessagesSince).not.toHaveBeenCalled();
-		expect(pi.sendMessage).not.toHaveBeenCalled();
-
-		// Settle → one delivery merging the member event and the message,
-		// in arrival order (joined first, then the pulled message).
-		runtime.isAgentActive = false;
-		runtime.onAgentSettled?.();
-		await vi.advanceTimersByTimeAsync(0);
-		expect(runtime.fetchMessagesSince).toHaveBeenCalledTimes(1);
+		// #38: the update pulled immediately and merged with the pending join
+		// event into one steer delivery (arrival order preserved).
+		expect(runtime.fetchMessagesSince).toHaveBeenCalledWith(6);
 		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
-
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
 		const message = call[0] as { details: { events: Array<{ type: string; sequence?: number }> } };
 		expect(message.details.events.map((e) => e.type)).toEqual(["character_joined", "public_message"]);
+		const options = call[1] as { deliverAs: string };
+		expect(options.deliverAs).toBe("steer");
+		expect(runtime.markGroupChatTurnTriggered).not.toHaveBeenCalled();
+
+		// The join debounce fires later with nothing left to deliver.
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+
+		// Settle → nothing queued, nothing extra delivered.
+		runtime.isAgentActive = false;
+		runtime.onAgentSettled?.();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
 
 		input.stop();
 	});
 
-	it("ISSUE-013 A2×B6: settle refetch starts from the delivery cursor (speak never advances it)", async () => {
-		// B6 final design: the client never advances the delivery cursor on
-		// speak — the server excludes the requester's own messages from the
-		// staleness check. So when 7..9 arrive during a run (marked, never
-		// injected), the settle refetch must start from the delivery cursor
-		// and cover them; nothing may be skipped.
+	it("#38: run-time steer delivery advances the cursor; settle has nothing left (B6 invariant)", async () => {
+		// B6 invariant preserved: the client still never advances the cursor
+		// on speak. The difference is that the run-time pull now advances it
+		// (single-point advancement), so 7..9 are delivered mid-run via steer
+		// and the settle refetch has nothing left — nothing is skipped and
+		// nothing is delivered twice.
 		vi.useFakeTimers();
 
 		let cursor = 6;
@@ -642,7 +673,7 @@ describe("GroupChatInput", () => {
 		input.start();
 		const handler = runtime.onEnvironmentMessage ?? (() => {});
 
-		// Notification for 7..9 arrives during the run (marked only).
+		// Notification for 7..9 arrives during the run.
 		handler({
 			type: "group_chat_update",
 			latest_sequence: 9,
@@ -651,20 +682,176 @@ describe("GroupChatInput", () => {
 		} as unknown as ServerMessage);
 		await vi.advanceTimersByTimeAsync(0);
 
-		// Mid-run the character speaks and publishes at seq 10; the delivery
-		// cursor stays at 6 (client-side zero advancement, per final spec).
-
-		// Settle → the refetch must still cover 7..9 (never injected before).
-		runtime.isAgentActive = false;
-		runtime.onAgentSettled?.();
-		await vi.advanceTimersByTimeAsync(0);
-
+		// #38: delivered mid-run via steer; the cursor advanced to 9 during
+		// the run (not deferred to settle).
 		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
 		const message = call[0] as { details: { events: Array<{ sequence?: number }> } };
 		const sequences = message.details.events.map((e) => e.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
 		expect(sequences).toEqual([7, 8, 9]);
+		expect(cursor).toBe(9);
 
+		// Mid-run the character speaks and publishes at seq 10; the delivery
+		// cursor stays at 9 (client-side zero advancement on speak, B6 — the
+		// speak publisher never touches the delivery cursor).
+
+		// Settle → the tail-window pull starts at 9 (already delivered): the
+		// mock returns nothing new, so no re-delivery and the cursor stays.
+		runtime.isAgentActive = false;
+		runtime.onAgentSettled?.();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(runtime.fetchMessagesSince).toHaveBeenCalledTimes(2);
+		expect(runtime.fetchMessagesSince).toHaveBeenLastCalledWith(9);
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+		expect(cursor).toBe(9);
+
+		input.stop();
+	});
+
+	it("#38 T2: cursor advances monotonically during a run; steer batches never overlap or duplicate", async () => {
+		// The agreed single-point advancement: the run-time pull saves the
+		// cursor on every successful delivery, so two notifications during a
+		// run (7, then 9) produce two strictly-increasing, non-overlapping
+		// steer batches and the settle hook has nothing left — no duplicate,
+		// no gap, no re-pull of the delivered window.
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({
+			getGroupChatState: async () => ({}),
+		});
+		const fetchSinceCalls: number[] = [];
+		runtime.fetchMessagesSince = vi.fn(async (since: number) => {
+			fetchSinceCalls.push(since);
+			if (since === 6) {
+				// First notification: only seq 7 exists at this point.
+				return { messages: [aPublicMessage("user_persona", { sequence: 7 })], latestSequence: 7, totalMessages: 7 };
+			}
+			if (since === 7) {
+				// Second notification: 8 and 9 have arrived since.
+				return {
+					messages: [8, 9].map((seq) => aPublicMessage("user_persona", { sequence: seq })),
+					latestSequence: 9,
+					totalMessages: 9,
+				};
+			}
+			return { messages: [], latestSequence: since, totalMessages: since };
+		});
+		let cursor = 6;
+		runtime.loadCursor = vi.fn(() => cursor);
+		runtime.saveCursor = vi.fn((value: number) => {
+			cursor = value;
+		});
+		runtime.isAgentActive = true;
+
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+
+		// Two notifications during the run with a gap (7, then 9).
+		handler({
+			type: "group_chat_update",
+			latest_sequence: 7,
+			preview_messages: [],
+			total_messages: 7,
+		} as unknown as ServerMessage);
+		handler({
+			type: "group_chat_update",
+			latest_sequence: 9,
+			preview_messages: [],
+			total_messages: 9,
+		} as unknown as ServerMessage);
+		await vi.advanceTimersByTimeAsync(0);
+
+		// Cursor advanced monotonically during the run: 6 → 7 → 9. The second
+		// update coalesced into the single-flight refetch loop, never re-pulling
+		// the already-delivered window.
+		expect(fetchSinceCalls).toEqual([6, 7]);
+		expect(runtime.saveCursor).toHaveBeenCalledTimes(2);
+		expect(runtime.saveCursor).toHaveBeenNthCalledWith(1, 7);
+		expect(runtime.saveCursor).toHaveBeenNthCalledWith(2, 9);
+
+		// Two steer deliveries: [7] then [8, 9] — strictly increasing,
+		// non-overlapping, no gaps, no duplicates.
+		expect(pi.sendMessage).toHaveBeenCalledTimes(2);
+		const calls = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls as [unknown, unknown][];
+		const deliveries = calls.map(([payload, options]) => {
+			const message = payload as { details: { events: Array<{ sequence?: number }> } };
+			const sequences = message.details.events.map((e) => e.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
+			return { sequences, deliverAs: (options as { deliverAs: string }).deliverAs };
+		});
+		expect(deliveries[0]?.sequences).toEqual([7]);
+		expect(deliveries[1]?.sequences).toEqual([8, 9]);
+		expect(deliveries[0]?.deliverAs).toBe("steer");
+		expect(deliveries[1]?.deliverAs).toBe("steer");
+
+		// Settle → the tail-window pull starts at 9 (already delivered): the
+		// mock returns nothing new, so no extra fetch target, no delivery.
+		runtime.isAgentActive = false;
+		runtime.onAgentSettled?.();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(fetchSinceCalls).toEqual([6, 7, 9]);
+		expect(pi.sendMessage).toHaveBeenCalledTimes(2);
+
+		input.stop();
+	});
+
+	it("#38 T3: steer delivery never marks a group-chat-triggered turn (#14 boundary)", async () => {
+		// #14 boundary: only an idle flush that actually starts a new turn may
+		// mark the group-chat trigger (agent_start consumes it to light up
+		// is_streaming). A steer delivery during a run must leave the mark
+		// untouched — the running turn stays the only streaming source.
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({
+			getGroupChatState: async () => ({}),
+		});
+		runtime.markGroupChatTurnTriggered = vi.fn();
+		const pi = createMockPi();
+
+		// Idle delivery keeps the #14 semantic: flush marks the next turn as
+		// group-chat triggered and uses the followUp channel.
+		const idleInput = new GroupChatInput(runtime, pi);
+		idleInput.start();
+		const idleHandler = runtime.onEnvironmentMessage ?? (() => {});
+		idleHandler(aPublicMessage("user_persona"));
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(runtime.markGroupChatTurnTriggered).toHaveBeenCalledTimes(1);
+		const idleOptions = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as {
+			deliverAs: string;
+			triggerTurn: boolean;
+		};
+		expect(idleOptions.deliverAs).toBe("followUp");
+		expect(idleOptions.triggerTurn).toBe(true);
+		idleInput.stop();
+		(pi.sendMessage as ReturnType<typeof vi.fn>).mockClear();
+		(runtime.markGroupChatTurnTriggered as ReturnType<typeof vi.fn>).mockClear();
+
+		// Active run: steer delivery must NOT mark — no agent_start will be
+		// consumed, so is_streaming stays lit by the running turn only.
+		runtime.fetchMessagesSince = vi.fn(async (since: number) => ({
+			messages: [aPublicMessage("user_persona", { sequence: since + 1 })],
+			latestSequence: since + 1,
+			totalMessages: since + 1,
+		}));
+		runtime.isAgentActive = true;
+		const input = new GroupChatInput(runtime, pi);
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+		handler({
+			type: "group_chat_update",
+			latest_sequence: 1,
+			preview_messages: [],
+			total_messages: 1,
+		} as unknown as ServerMessage);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(runtime.markGroupChatTurnTriggered).not.toHaveBeenCalled();
+		// 滞留救援语义钉死：steer 分支 triggerTurn=true（streaming 时 pi 忽略照常
+		// 入队；非 streaming 时触发唤醒，堵 agent_settled 缺失的 wedged 场景）。
+		expect((pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({
+			deliverAs: "steer",
+			triggerTurn: true,
+		});
 		input.stop();
 	});
 
