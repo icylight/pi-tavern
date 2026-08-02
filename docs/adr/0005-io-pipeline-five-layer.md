@@ -24,18 +24,18 @@
 
 ### 2. 依赖规则（硬约束）
 
-- 只许向下（**DAG 语义，非严格链**）：各层可依赖任意下层——adapter 可直查 skills（纯读）、application 经 skills 编排持久化、runtime 装配注入；shared 为叶子
-- 双向禁止：依赖不得上行；application 不直接读写文件（**文件 IO 只允许落在 skills**）；skills 不编排流程
+- **依赖单向**：adapter → application → runtime → skills → shared；允许跨层依赖任意下层，禁止上行
+- **文件 IO 仅限 skills**：application 不直接读写文件；adapter 可直查 skills（纯读）；skills 不编排流程
 - runtime 是唯一单例持有者（连接 + 能力实例装配点），application 经注入取接口
 - skills 无 pi 依赖、可单测（resume-projection 先例推广）
 - 纯计算 skill 不隐藏 IO：计算上下文由管线显式组装后传入
 
-### 3. 一致性边界（无 DB 的事务对应物）
+### 3. 一致性（文件原子写 + 游标单调推进）
 
-- PiTavern 无数据库：一致性单元 = 会话文件原子 append + 游标单调推进 + 失败恢复（FIRST_PERSIST_*/recoverSessionManagerFromFailedAppend）
-- 边界归管线 Method 持有；skills 只接收显式传入的上下文，不自开自合
-- 不引入事务/Outbox 抽象（PiTavern 无 DB，无对应物）
-- **跨消息异步状态一律归 runtime 会话状态**（预演裁决，2026-08-02）：run 生命周期状态机（active/streaming/settled + watchdog）留在 runtime（单例持有，非原子能力）；steer 决策策略 = application/character-pipelines（纯策略无状态）；投递通道 = transport。「状态归单例、决策归策略、动作归通道」——请求级管线只显式读写 runtime 持有的状态，不自行缓存，不背跨消息状态
+- PiTavern 无数据库：写入保证 = 会话文件原子 append + 游标单调推进 + 失败恢复（FIRST_PERSIST_*/recoverSessionManagerFromFailedAppend）——以代码事实为准，不借用事务概念
+- 持久化边界归管线 Method 持有；skills 只接收显式传入的上下文，不自开自合
+- 不引入事务/Outbox 抽象（无 DB，无对应物）
+- 跨消息异步状态的归属见决策 7
 
 ### 4. 双进程
 
