@@ -132,3 +132,131 @@ describe("A3: streaming reset watchdog (#14 悬挂兜底)", () => {
 		expect(runtime.consumeGroupChatTurnTriggered()).toBe(false);
 	});
 });
+
+describe("A4: run wedged watchdog (#66 兑底)", () => {
+	// 契约（Phase 3 定稿）：agent_start 布防 run watchdog（W = agentWedgedTimeoutMs，构造
+	// 可注入）；W 内未收到 agent_settled = wedged → 强制 settle（等价 agent_settled 路径：
+	// isAgentActive=false + 清 watchdog + updateStreaming(false) + onAgentSettled 冲刷）。
+	// 双窗口：① agent_start 后无 agent_end（完全卡死）② agent_end 已到但 agent_settled 永不
+	// 到（#14 只复位 is_streaming 不碰 isAgentActive，② 为真洞）——v2 为 #14 超集。
+	// API 面（QA 契约建议）：armRunWedgedWatchdog(timeoutMs)/clearRunWedgedWatchdog()，
+	// 与 #14 armStreamingResetWatchdog 同风格；Dev 落 API 骨架后本组钉即红。
+
+	it("window ①: agent_start without agent_end forces settle past W", () => {
+		vi.useFakeTimers();
+		try {
+			const { runtime } = createRuntime();
+			const onSettled = vi.fn();
+			runtime.onAgentSettled = onSettled;
+			const updateStreaming = vi.spyOn(runtime, "updateStreaming");
+
+			// agent_start 布防（W 注入短值 50ms）。
+			runtime.armRunWedgedWatchdog(50);
+			runtime.isAgentActive = true;
+
+			vi.advanceTimersByTime(49);
+			expect(runtime.isAgentActive).toBe(true);
+			expect(onSettled).not.toHaveBeenCalled();
+
+			vi.advanceTimersByTime(1);
+			expect(runtime.isAgentActive).toBe(false);
+			expect(onSettled).toHaveBeenCalledTimes(1);
+			expect(updateStreaming).toHaveBeenCalledWith(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("window ②: agent_end arrived but agent_settled never does — forced settle", () => {
+		vi.useFakeTimers();
+		try {
+			const { runtime } = createRuntime();
+			const onSettled = vi.fn();
+			runtime.onAgentSettled = onSettled;
+
+			runtime.armRunWedgedWatchdog(50);
+			runtime.isAgentActive = true;
+			// agent_end：#14 只复位显示层（is_streaming），isAgentActive 保持 true（窗口②真洞）。
+			runtime.armStreamingResetWatchdog(5);
+
+			vi.advanceTimersByTime(5);
+			expect(runtime.isAgentActive).toBe(true);
+			expect(onSettled).not.toHaveBeenCalled();
+
+			vi.advanceTimersByTime(45);
+			expect(runtime.isAgentActive).toBe(false);
+			expect(onSettled).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("happy path: agent_settled before W clears the watchdog — zero forced settle", () => {
+		vi.useFakeTimers();
+		try {
+			const { runtime } = createRuntime();
+			const onSettled = vi.fn();
+			runtime.onAgentSettled = onSettled;
+
+			runtime.armRunWedgedWatchdog(50);
+			runtime.isAgentActive = true;
+
+			// agent_settled 正常路径（extension 接线：清 watchdog + isAgentActive=false + 冲刷）。
+			runtime.clearRunWedgedWatchdog();
+			runtime.isAgentActive = false;
+			runtime.updateStreaming(false);
+			runtime.onAgentSettled?.();
+
+			vi.advanceTimersByTime(10_000);
+			expect(runtime.isAgentActive).toBe(false);
+			expect(onSettled).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("trigger clears itself: no repeat fire after W", () => {
+		vi.useFakeTimers();
+		try {
+			const { runtime } = createRuntime();
+			const onSettled = vi.fn();
+			runtime.onAgentSettled = onSettled;
+
+			runtime.armRunWedgedWatchdog(50);
+			runtime.isAgentActive = true;
+
+			vi.advanceTimersByTime(50);
+			expect(onSettled).toHaveBeenCalledTimes(1);
+
+			vi.advanceTimersByTime(10_000);
+			expect(onSettled).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("real settle racing past W converges: no double flush after forced settle", () => {
+		vi.useFakeTimers();
+		try {
+			const { runtime } = createRuntime();
+			const onSettled = vi.fn();
+			runtime.onAgentSettled = onSettled;
+
+			runtime.armRunWedgedWatchdog(50);
+			runtime.isAgentActive = true;
+
+			// 真实 settle 在 W 后到达：watchdog 已触发自清，不再二次触发。
+			vi.advanceTimersByTime(50);
+			expect(onSettled).toHaveBeenCalledTimes(1);
+
+			runtime.clearRunWedgedWatchdog();
+			runtime.isAgentActive = false;
+			runtime.onAgentSettled?.();
+
+			// 消费侧去重（incrementPending）由 GroupChatInput 承担，运行时侧保证不重复触发。
+			expect(onSettled).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});

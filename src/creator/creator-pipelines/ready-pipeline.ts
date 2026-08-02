@@ -6,6 +6,7 @@ import type { GroupChatState } from "../../data/group-chat-state.js";
 import type { ClientMessage } from "../../protocol/messages.js";
 import type { PublicMessageState } from "../../protocol/public-message-state.js";
 import { JOIN_HISTORY_LIMIT } from "../../shared/constants.js";
+import type { HeartbeatRegistry } from "../heartbeat-registry.js";
 
 type CharacterReadyMessage = Extract<ClientMessage, { type: "character_ready" }>;
 
@@ -17,14 +18,10 @@ export interface ReadyConnectionLike {
 }
 
 /** 心跳簿记的本地窄接口（runtime HeartbeatState 结构子集）。 */
-export interface HeartbeatStateLike {
-	lastPongAt: number;
-}
-
 export interface ReadyPipelineDependencies {
 	state: GroupChatState;
 	connections: Map<string, WebSocket>;
-	heartbeatStates: Map<string, HeartbeatStateLike>;
+	heartbeatRegistry: HeartbeatRegistry;
 	publicMessages: PublicMessageState[];
 	characters: ReadonlyMap<string, CharacterCard>;
 	/** 预留定时器清理（runtime 方法注入，与超时释放同一归属）。 */
@@ -74,7 +71,7 @@ export class ReadyPipeline {
 		this.deps.state.characterReservations.delete(reservedCharacterId);
 		connection.reservedCharacterId = null;
 		this.deps.connections.set(sessionId, socket);
-		this.deps.heartbeatStates.set(sessionId, { lastPongAt: this.deps.now().getTime() });
+		this.deps.heartbeatRegistry.register(sessionId);
 		this.deps.state.onlineCharacters.set(sessionId, {
 			sessionId,
 			character: this.deps.toCharacterSummary(character),

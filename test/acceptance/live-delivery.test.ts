@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -6,6 +6,9 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import { getGroupChatCursorDirectory } from "../../src/data/discovery/active-descriptor.js";
 import { PiProcess } from "./pi-process.js";
+import { pollSessionCursor } from "./cursor-helper.js";
+
+
 
 /**
  * #38 口径 A（T4，进程级佐证）：run 进行中消息经 steer 通道有界可见——
@@ -35,7 +38,7 @@ describe("acceptance: #38 live steer delivery during a run (T4)", () => {
 		await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true }).catch(() => undefined)));
 	});
 
-	async function startPair(): Promise<{ creator: PiProcess; headless: PiProcess; cursorPath: string }> {
+	async function startPair(): Promise<{ creator: PiProcess; headless: PiProcess; cursorDir: string; groupChatId: string }> {
 		// 每测试独立隔离：各自 agent 目录，descriptor 文件/群聊状态互不冲突。
 		const root = await mkdtemp(join(tmpdir(), `pi-tavern-acc-live-${pairIndex}-`));
 		pairIndex += 1;
@@ -81,7 +84,8 @@ describe("acceptance: #38 live steer delivery during a run (T4)", () => {
 		return {
 			creator,
 			headless,
-			cursorPath: join(getGroupChatCursorDirectory(agentDir, projectDir), `${descriptor.groupChatId}.json`),
+			cursorDir: getGroupChatCursorDirectory(agentDir, projectDir),
+			groupChatId: descriptor.groupChatId,
 		};
 	}
 
@@ -94,15 +98,10 @@ describe("acceptance: #38 live steer delivery during a run (T4)", () => {
 	}
 
 	it("T4: 消息有界送达 + widget 状态机一致 + settle 幂等（#52 重基线语义）", async () => {
-		const { creator, headless, cursorPath } = await startPair();
+		const { creator, headless, cursorDir, groupChatId } = await startPair();
 
 		async function readCursor(): Promise<number> {
-			try {
-				const raw = await readFile(cursorPath, "utf8");
-				return (JSON.parse(raw) as { last_sequence: number }).last_sequence;
-			} catch {
-				return 0; // Cursor file not written yet.
-			}
+			return pollSessionCursor(cursorDir, groupChatId, 1, 30_000, "cursor");
 		}
 
 		// 第一次 run 启动：群聊消息触发 turn（idle 投递，followUp + triggerTurn——

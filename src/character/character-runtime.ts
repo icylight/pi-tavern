@@ -41,6 +41,12 @@ export interface PrepareCharacterRuntimeOptions {
 	 * restarts. Omitted → incremental pulls are disabled (history-only mode).
 	 */
 	cursorStorePath?: string;
+	/**
+	 * #66: run wedged watchdog 超时（agent_start 布防、agent_settled 清除；
+	 * 超时 → 强制 settle，恢复增量投递）。默认 180s（3min，产品参数 PM 定值）；
+	 * 测试可注入短值（QA 红钉 1/2 窗口用）。
+	 */
+	agentWedgedTimeoutMs?: number;
 }
 
 interface PendingRequest {
@@ -50,6 +56,9 @@ interface PendingRequest {
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
+
+/** #66 产品参数（PM/User 定值 2026-08-02）：run wedged 判定阈值，默认 3 分钟。 */
+const DEFAULT_AGENT_WEDGED_TIMEOUT_MS = 180_000;
 
 /**
  * ISSUE-013 B5: maximum automatic stale-recovery pulls per round. Beyond
@@ -80,6 +89,15 @@ export class CharacterRuntime {
 	 * activateFromHandoff's explicit false re-send.
 	 */
 	private streamingResetWatchdog: NodeJS.Timeout | null = null;
+	/**
+	 * #66: run wedged watchdog——agent_start 布防、agent_settled 清除。覆盖双
+	 * wedged 窗口（Arch 2026-08-02）：① agent_start 后无 agent_end（完全卡死）
+	 * ② agent_end 已到但 agent_settled 永不到（#14 只复位 is_streaming，不碰
+	 * isAgentActive——② 为真洞）。v2 = #14 超集；超时 → 强制 settle（同路径
+	 * 幂等：isAgentActive=false + 冲刷排队增量，incrementPending 防重入）。
+	 */
+	private runWedgedWatchdog: NodeJS.Timeout | null = null;
+	private readonly agentWedgedTimeoutMs: number;
 	/** Fired after a fresh state snapshot arrives (TUI refresh trigger). */
 	onStateSnapshot: ((snapshot: GroupChatStateMessage) => void) | undefined;
 	/**
@@ -89,8 +107,23 @@ export class CharacterRuntime {
 	 * interrupts the current run.
 	 */
 	isAgentActive = false;
-	/** Fired when the Agent run settles (agent_settled), so queued input can flush. */
-	onAgentSettled: (() => void) | undefined;
+	/**
+	 * Fired when the Agent run settles (agent_settled), so queued input can flush.
+	 * #66：wedged 强制收敛后（wedgedSettled=true）getter 返回 undefined——迟到的
+	 * 真实 settle 经 onAgentSettled?.() 路径幂等跳过，不重复冲刷。
+	 */
+	private _onAgentSettled: (() => void) | undefined;
+	get onAgentSettled(): (() => void) | undefined {
+		if (this.wedgedSettled) {
+			return undefined;
+		}
+		return this._onAgentSettled;
+	}
+	set onAgentSettled(callback: (() => void) | undefined) {
+		this._onAgentSettled = callback;
+	}
+	/** #66：run wedged 强制收敛已执行标记（下一 run agent_start 时重置）。 */
+	private wedgedSettled = false;
 	groupChatInput: GroupChatInput | undefined;
 
 	private socket: WebSocket | null = null;
@@ -156,6 +189,7 @@ export class CharacterRuntime {
 		this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? HEARTBEAT_PING_INTERVAL_MS;
 		this.heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? HEARTBEAT_TIMEOUT_MS;
 		this.cursorStorePath = options.cursorStorePath;
+		this.agentWedgedTimeoutMs = options.agentWedgedTimeoutMs ?? DEFAULT_AGENT_WEDGED_TIMEOUT_MS;
 	}
 
 	static prepare(options: PrepareCharacterRuntimeOptions): CharacterRuntime {
@@ -217,6 +251,53 @@ export class CharacterRuntime {
 			clearTimeout(this.streamingResetWatchdog);
 			this.streamingResetWatchdog = null;
 		}
+	}
+
+	/**
+	 * #66：agent_start 时布防 run wedged watchdog。agent_settled 正常到达由
+	 * clearRunWedgedWatchdog 清除（happy path 零触发）；超时触发强制 settle——
+	 * 与正常 settle 同路径幂等（isAgentActive 先判、触发自清、onAgentSettled
+	 * 内部 incrementPending 防重入）。覆盖双窗口（① 无 agent_end ② #14 不碰
+	 * isAgentActive），v2 = #14 超集。
+	 */
+	armRunWedgedWatchdog(delayMs?: number): void {
+		this.clearRunWedgedWatchdog();
+		this.wedgedSettled = false;
+		this.runWedgedWatchdog = setTimeout(() => {
+			this.runWedgedWatchdog = null;
+			if (!this.isAgentActive) {
+				return;
+			}
+			// 强制收敛 = agent_settled 处理路径：解除忙态、冲刷排队增量（游标
+			// 差量拉全，不丢不重）；pi 原生 followUp 队列串行，无 run 重叠。
+			this.wedgedSettled = true;
+			this.isAgentActive = false;
+			this.clearStreamingResetWatchdog();
+			this.updateStreaming(false);
+			this._onAgentSettled?.();
+		}, delayMs ?? this.agentWedgedTimeoutMs);
+	}
+
+	clearRunWedgedWatchdog(): void {
+		if (this.runWedgedWatchdog !== null) {
+			clearTimeout(this.runWedgedWatchdog);
+			this.runWedgedWatchdog = null;
+		}
+	}
+
+	/**
+	 * #66：agent_settled 统一处理（agent-lifecycle 接线）。与强制收敛幂等合并——
+	 * wedged 已触发时迟到 settle 只复位显示，不重复冲刷；happy path 正常冲刷。
+	 */
+	settleRun(): void {
+		this.isAgentActive = false;
+		this.clearStreamingResetWatchdog();
+		this.clearRunWedgedWatchdog();
+		this.updateStreaming(false);
+		if (this.wedgedSettled) {
+			return;
+		}
+		this._onAgentSettled?.();
 	}
 
 	/**

@@ -1864,6 +1864,25 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 		await taken.close();
 		expect(await readActiveDescriptor(taken.activeDescriptorPath)).toBeNull();
 	});
+
+	it("close after detach rejects: close and detach are mutually exclusive (A.2 guard)", async () => {
+		const root = await createTemporaryDirectory();
+		const runtime = await CreatorRuntime.startNew({
+			cwd: join(root, "project"),
+			agentDir: join(root, "agent"),
+		});
+		const handoff = await runtime.detachForReload("pi-session-a2");
+
+		// A.2（Arch）：close() 与 detachForReload() 是互斥路径——守卫读实时
+		// lifecycle（readLifecycle getter），值拷贝会令守卫永不触发。
+		await expect(runtime.close()).rejects.toThrow("has been detached for reload");
+		// 幂等：再次 close 仍拒绝，不产生半关闭状态。
+		await expect(runtime.close()).rejects.toThrow("has been detached for reload");
+
+		// Handoff 不受影响，通过接管实例正常清理。
+		const taken = await CreatorRuntime.takeHandoff(handoff);
+		await taken.close();
+	});
 });
 
 describe("ISSUE-013 B2: speak staleness check", () => {
