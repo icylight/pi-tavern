@@ -26,7 +26,7 @@ User 自然表达指示 → **PM 负责转译成 Task Brief 并回读确认**（
 - 分支合入 main 由 **User 亲自执行**（2026-08-01 指示），角色侧止于评审通过 + 证据齐备 + 宣布就绪
 - **worktree 纪律（v0.5 补充，2026-08-02 User 指示）**：默认单 worktree——评审/开发一律在主仓库分支内做，不建额外 worktree；worktree 仅例外使用（并发任务需隔离运行时），创建前须 PM 同意 + 群聊声明（属主/任务/目录）+ 记入 issue，未声明的 worktree 一律视为违规（#49 后清理时逐层确认的根因即两个 worktree 从未声明）；生命周期：任务收口随分支清理一并移除，不留未声明旁支
 - **开发完成开 PR（PM 负责推送与 PR 创建/更新，2026-08-02 User 指示）**：PR 标题/描述引用 issue 编号，附 Task Brief 五要素 + 验收证据（命令 + 结果）；评审（Arch）与验收（QA）在 PR 上留痕；角色侧一律不执行 merge，PR 就绪后宣布，由 User 合并
-- **git 写操作统一归 PM（2026-08-02 User 指示）**：迁分支、commit（落盘）、push、PR 创建/更新/评论、issue 操作一律由 PM 执行；Dev/QA/Arch 只产出属主范围内文件改动到工作区（commit 内容属主=各角色），不执行任何 git 写操作；git 只读（status/log/diff）保留用于排查
+- **git 写操作统一归 PM（2026-08-02 User 指示）**：迁分支、创建/删除分支、stash、commit（落盘）、push、PR 创建/更新/评论、issue 操作一律由 PM 执行，**不得委托给其他角色**（Dev/QA/Arch 只产出属主范围内文件改动到工作区，改动需拆分支时交给 PM 执行 stash/建分支/应用）；commit 内容属主=各角色；git 只读（status/log/diff）保留用于排查
 - 动手前先 `git status` + `git branch --show-current`：确认所在分支正确、工作区无他人未提交改动
 
 ## 3. 沟通与确认闭环
