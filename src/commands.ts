@@ -11,11 +11,11 @@ import {
 	type GroupChatSessionSummary,
 	listGroupChatSessions as listPersistedGroupChatSessions,
 } from "./creator/group-chat-sessions.js";
-import { type ActiveGroupChatDescriptor, getGroupChatCursorDirectory } from "./discovery/active-descriptor.js";
+import { type ActiveGroupChatDescriptor, getGroupChatCursorDirectory } from "./data/discovery/active-descriptor.js";
 import {
 	type DiscoverGroupChatsOptions,
 	discoverGroupChats as discoverActiveGroupChats,
-} from "./discovery/discover-group-chats.js";
+} from "./data/discovery/discover-group-chats.js";
 
 export interface RegisterCommandsOptions {
 	agentDir?: string;

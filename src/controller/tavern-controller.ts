@@ -5,7 +5,7 @@ import {
 	type ResumeCreatorRuntimeOptions,
 	type StartNewCreatorRuntimeOptions,
 } from "../creator/creator-runtime.js";
-import type { ActiveGroupChatDescriptor } from "../discovery/active-descriptor.js";
+import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
 import { getReloadHandoffRegistry } from "./reload-handoff-registry.js";
 
 export type TavernState =

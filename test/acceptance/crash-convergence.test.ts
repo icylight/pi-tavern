@@ -155,7 +155,7 @@ describe("acceptance: abnormal termination converges without manual intervention
 		);
 		// The stale descriptor file was removed by the discovery flow.
 		const { readdir } = await import("node:fs/promises");
-		const { getGroupChatProjectDirectory } = await import("../../src/discovery/active-descriptor.js");
+		const { getGroupChatProjectDirectory } = await import("../../src/data/discovery/active-descriptor.js");
 		const activeDir = join(getGroupChatProjectDirectory(agentDir, projectDir), "active");
 		expect(await readdir(activeDir).catch(() => [])).toEqual([]);
 	}, 120_000);

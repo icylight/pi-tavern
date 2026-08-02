@@ -215,7 +215,7 @@ describe("acceptance: concurrent speaks keep creator order and global quota", ()
 });
 
 async function readGroupChatFile(agentDir: string, projectDir: string): Promise<string> {
-	const { getGroupChatSessionDirectory } = await import("../../src/discovery/active-descriptor.js");
+	const { getGroupChatSessionDirectory } = await import("../../src/data/discovery/active-descriptor.js");
 	const { readdir, readFile } = await import("node:fs/promises");
 	const chatsDir = getGroupChatSessionDirectory(agentDir, projectDir);
 	const files = await readdir(chatsDir).catch(() => []);

@@ -1,6 +1,6 @@
 import WebSocket from "ws";
 
-import type { ActiveGroupChatDescriptor } from "../../src/discovery/active-descriptor.js";
+import type { ActiveGroupChatDescriptor } from "../../src/data/discovery/active-descriptor.js";
 
 /**
  * Raw WebSocket client that buffers every frame it receives (ws drops frames

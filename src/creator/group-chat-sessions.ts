@@ -9,7 +9,7 @@ import {
 	getActiveDescriptorPath,
 	getGroupChatSessionDirectory,
 	readActiveDescriptor,
-} from "../discovery/active-descriptor.js";
+} from "../data/discovery/active-descriptor.js";
 
 export interface GroupChatSessionSummary {
 	/** Absolute path to the group chat history JSONL file. */

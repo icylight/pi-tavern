@@ -2,7 +2,7 @@ import { readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import WebSocket from "ws";
-import { SHORT_COORDINATION_TIMEOUT_MS } from "../shared/constants.js";
+import { SHORT_COORDINATION_TIMEOUT_MS } from "../../shared/constants.js";
 import {
 	type ActiveGroupChatDescriptor,
 	getActiveDescriptorDirectory,

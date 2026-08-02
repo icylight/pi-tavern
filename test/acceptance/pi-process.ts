@@ -1,12 +1,12 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { ActiveGroupChatDescriptor } from "../../src/discovery/active-descriptor.js";
+import type { ActiveGroupChatDescriptor } from "../../src/data/discovery/active-descriptor.js";
 import {
 	getActiveDescriptorPath,
 	getGroupChatProjectDirectory,
 	readActiveDescriptor,
-} from "../../src/discovery/active-descriptor.js";
+} from "../../src/data/discovery/active-descriptor.js";
 
 /** Time each step may wait for a real pi process to respond. */
 const STEP_TIMEOUT_MS = 30_000;

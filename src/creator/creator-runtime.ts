@@ -22,7 +22,7 @@ import {
 	readActiveDescriptor,
 	removeOwnedActiveDescriptor,
 	updateActiveDescriptorName,
-} from "../discovery/active-descriptor.js";
+} from "../data/discovery/active-descriptor.js";
 import { decodeClientMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { ClientMessage } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";

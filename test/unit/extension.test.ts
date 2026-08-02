@@ -19,7 +19,7 @@ import type { CreatorReloadHandoff } from "../../src/controller/reload-handoff-r
 import { TavernController } from "../../src/controller/tavern-controller.js";
 import type { CreatorRuntime } from "../../src/creator/creator-runtime.js";
 import { createGroupChatState } from "../../src/creator/group-chat-state.js";
-import type { ActiveGroupChatDescriptor } from "../../src/discovery/active-descriptor.js";
+import type { ActiveGroupChatDescriptor } from "../../src/data/discovery/active-descriptor.js";
 import piTavern from "../../src/index.js";
 
 const descriptor: ActiveGroupChatDescriptor = {

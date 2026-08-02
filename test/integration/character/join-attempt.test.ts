@@ -10,7 +10,7 @@ import { JoinAttempt } from "../../../src/character/join-attempt.js";
 import { type CharacterCard, loadCharacterCard } from "../../../src/config/character-card.js";
 import { getReloadHandoffRegistry } from "../../../src/controller/reload-handoff-registry.js";
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
-import type { ActiveGroupChatDescriptor } from "../../../src/discovery/active-descriptor.js";
+import type { ActiveGroupChatDescriptor } from "../../../src/data/discovery/active-descriptor.js";
 
 const temporaryDirectories: string[] = [];
 const creatorRuntimes: CreatorRuntime[] = [];
