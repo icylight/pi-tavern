@@ -47,6 +47,8 @@ export interface PrepareCharacterRuntimeOptions {
 	 * 测试可注入短值（QA 红钉 1/2 窗口用）。
 	 */
 	agentWedgedTimeoutMs?: number;
+	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
+	triggerDebounceMs?: number;
 }
 
 interface PendingRequest {
@@ -98,6 +100,8 @@ export class CharacterRuntime {
 	 */
 	private runWedgedWatchdog: NodeJS.Timeout | null = null;
 	private readonly agentWedgedTimeoutMs: number;
+	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
+	private readonly triggerDebounceMs: number | undefined;
 	/** Fired after a fresh state snapshot arrives (TUI refresh trigger). */
 	onStateSnapshot: ((snapshot: GroupChatStateMessage) => void) | undefined;
 	/**
@@ -190,6 +194,7 @@ export class CharacterRuntime {
 		this.heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? HEARTBEAT_TIMEOUT_MS;
 		this.cursorStorePath = options.cursorStorePath;
 		this.agentWedgedTimeoutMs = options.agentWedgedTimeoutMs ?? DEFAULT_AGENT_WEDGED_TIMEOUT_MS;
+		this.triggerDebounceMs = options.triggerDebounceMs;
 	}
 
 	static prepare(options: PrepareCharacterRuntimeOptions): CharacterRuntime {
@@ -209,7 +214,7 @@ export class CharacterRuntime {
 		this.startHeartbeat();
 
 		if (pi) {
-			this.groupChatInput = new GroupChatInput(this, pi);
+			this.groupChatInput = new GroupChatInput(this, pi, this.triggerDebounceMs);
 			this.groupChatInput.start();
 		}
 
@@ -671,7 +676,7 @@ export class CharacterRuntime {
 		this.startHeartbeat();
 
 		if (pi) {
-			this.groupChatInput = new GroupChatInput(this, pi);
+			this.groupChatInput = new GroupChatInput(this, pi, this.triggerDebounceMs);
 			this.groupChatInput.start();
 			this.groupChatInput.restoreFromReload({
 				pendingEvents: handoff.pendingEvents,

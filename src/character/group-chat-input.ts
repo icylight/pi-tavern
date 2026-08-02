@@ -59,6 +59,7 @@ export class GroupChatInput {
 	constructor(
 		private readonly runtime: CharacterRuntime,
 		private readonly pi: ExtensionAPI,
+		private readonly triggerDebounceMs: number = TRIGGER_DEBOUNCE_MS,
 	) {
 		// ISSUE-038（口径 A + steer）修订（#64 pull 模型）：run 不再接受任何
 		// 中间投递。运行中到达的 update 只置忙态标记（零中间注入红线）；settle
@@ -110,7 +111,11 @@ export class GroupChatInput {
 				// ISSUE-014/#14（方案 A）：成员/流式变化也走此通道——刷新缓存快照，
 				// 即使拉取结果为空 widget 也保持最新。
 				if (this.runtime.isAgentActive) {
+					// 忙态（User 拍板 2026-08-02）：立即拉取（无合并窗口）——
+					// 单飞行锁仅并发保护；投递走 steer 通道（工具间隙秒级）。
+					// settle 后仍补拉全（游标幂等，不丢不重）。
 					this.incrementPending = true;
+					void this.pullIncrement();
 				} else {
 					this.armIdleWindow();
 				}
@@ -157,10 +162,10 @@ export class GroupChatInput {
 					}
 				}
 				if (messages.length > 0) {
-					// 光标仅在增量到达上下文时推进
-					// （A5：投递失败不得移动光标）。
-					this.runtime.saveCursor(page.latestSequence);
-					this.deliver(messages);
+					// 游标推进移至投递成功判定（双通道契约：idle followUp /
+					// 忙态 steer 入队成功 = 投递成功 → saveCursor；失败不推进，
+					// settle 兜底重投——A5 强化实现）。
+					this.deliver(messages, page.latestSequence);
 				}
 			} while (this.refetchRequested && !this.stopped);
 		} catch {
@@ -176,7 +181,7 @@ export class GroupChatInput {
 	 * 事件合并，保证顺序（事件先到，消息更新）。Agent 运行中事件经 steer
 	 * 通道投递（口径 A）——在下一个工具调用间隙可见，绝不打断 run。
 	 */
-	private deliver(messages: ServerMessage[]): void {
+	private deliver(messages: ServerMessage[], latestSequence: number): void {
 		if (this.stopped) {
 			return;
 		}
@@ -185,7 +190,7 @@ export class GroupChatInput {
 		if (events.length === 0) {
 			return;
 		}
-		void this.flush(events);
+		void this.flush(events, latestSequence);
 	}
 
 	/**
@@ -290,7 +295,7 @@ export class GroupChatInput {
 				return;
 			}
 			void this.pullIncrement();
-		}, TRIGGER_DEBOUNCE_MS);
+		}, this.triggerDebounceMs);
 	}
 
 	private cancelIdleWindow(): void {
@@ -394,7 +399,7 @@ export class GroupChatInput {
 	 * （followUp + triggerTurn + 群聊标记），批次仍能唤醒 agent
 	 * （Arch settle 竞态修复）。
 	 */
-	private async flush(events?: ServerMessage[]): Promise<void> {
+	private async flush(events?: ServerMessage[], latestSequence?: number): Promise<void> {
 		const toDeliver = events ?? this.pendingEvents;
 		if (events === undefined) {
 			this.pendingEvents = [];
@@ -417,7 +422,7 @@ export class GroupChatInput {
 		// idle 路径，批次开启群聊触发的 turn（marker 按 #14 正确点亮
 		// is_streaming）。
 		if (this.runtime.isAgentActive) {
-			await this.deliverSteer(toDeliver, groupChatState);
+			await this.deliverSteer(toDeliver, groupChatState, latestSequence);
 			return;
 		}
 
@@ -457,6 +462,16 @@ export class GroupChatInput {
 			{
 				triggerTurn: true,
 				deliverAs: "followUp",
+				// 双通道契约：入队成功 = 投递成功 → 推进游标（失败由 settle 兜底重投）。
+				...(latestSequence !== undefined
+					? {
+							preflightResult: (success: boolean) => {
+								if (success) {
+									this.runtime.saveCursor(latestSequence);
+								}
+							},
+						}
+					: {}),
 			},
 		);
 	}
@@ -474,7 +489,7 @@ export class GroupChatInput {
 	 * 这里不调用 markGroupChatTurnTriggered——steer 不得点亮 is_streaming
 	 * （#14 边界，QA T3）。
 	 */
-	private async deliverSteer(events: ServerMessage[], groupChatState: unknown): Promise<void> {
+	private async deliverSteer(events: ServerMessage[], groupChatState: unknown, latestSequence?: number): Promise<void> {
 		const content = this.buildContent(events, groupChatState);
 
 		if (process.env.PITAVERN_TEST === "1") {
@@ -506,6 +521,17 @@ export class GroupChatInput {
 			{
 				triggerTurn: true,
 				deliverAs: "steer",
+				// 双通道契约：steer 入队成功 = 投递成功 → 推进游标；
+				// 失败不推进 → settle 兜底重投（Arch 契约点）。
+				...(latestSequence !== undefined
+					? {
+							preflightResult: (success: boolean) => {
+								if (success) {
+									this.runtime.saveCursor(latestSequence);
+								}
+							},
+						}
+					: {}),
 			},
 		);
 	}

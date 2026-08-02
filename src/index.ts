@@ -43,6 +43,10 @@ interface CreatorDisplayEntryData {
 let sessionManagerRef: ProjectionEntryReader | null = null;
 
 export default function piTavern(pi: ExtensionAPI, controller?: TavernController): void {
+	// 闲态触发窗口注入化（Arch 提速项）：默认 1000ms 行为零变化；测试可设
+	// PITAVERN_TRIGGER_DEBOUNCE_MS 缩短（idle 感知延迟降 ~750ms）。启动早期一次性读取。
+	const triggerDebounceMs = Number(process.env.PITAVERN_TRIGGER_DEBOUNCE_MS ?? "1000");
+	const injectTriggerDebounce = Number.isFinite(triggerDebounceMs) && triggerDebounceMs >= 0 ? triggerDebounceMs : undefined;
 	const ctrl = controller ?? new TavernController();
 	const presenter = new TavernUiPresenter();
 	// 组合根装配（ADR-0005 层方向，Phase 4）：adapter 行为默认实现在此注入——
@@ -52,6 +56,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 		open: (path: string, sessionDir: string, cwd: string) => SessionManager.open(path, sessionDir, cwd),
 	};
 	registerCommands(pi, ctrl, {
+		...(injectTriggerDebounce !== undefined ? { triggerDebounceMs: injectTriggerDebounce } : {}),
 		discoverGroupChats: (options) => discoverActiveGroupChats(options),
 		listGroupChatSessions: (agentDir, cwd) =>
 			listPersistedGroupChatSessions(agentDir, cwd, {
@@ -82,6 +87,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 		const run = () => {
 			void autoJoinCharacter(pi, ctrl, ctx, {
 				// 组合根装配（ADR-0005 层方向，Phase 4）。
+				...(injectTriggerDebounce !== undefined ? { triggerDebounceMs: injectTriggerDebounce } : {}),
 				discoverGroupChats: (options) => discoverActiveGroupChats(options),
 				...(process.env.PITAVERN_CHARACTER !== undefined && process.env.PITAVERN_CHARACTER !== ""
 					? { character: process.env.PITAVERN_CHARACTER }

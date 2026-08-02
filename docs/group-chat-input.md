@@ -9,19 +9,19 @@
 ```text
 group_chat_update 通知（广播唤醒：水位 + 最近 3 条预览，不注入）
         ↓
-run 边界（#60/#64）：闲态 ≤1s 聚合窗口（N→1 并入一次消费）/ 忙态 settle 后立即
+run 边界（#60/#64）：闲态 ≤1s 聚合窗口（N→1 并入一次消费）/ 忙态 update 到达即拉取（单飞行锁，在途合并）+ settle 补拉全兜底
         ↓
 fetch_messages_since(本 Session 持久化游标)（扩展机械拉取，sequence 过滤天然补洞）
         ↓
-完整未读批注入（保序、幂等可重拉；run 全程零中间注入）
+完整未读批注入（保序、幂等可重拉；闲态 followUp 触发 run / 忙态 steer 工具间隙投递）
         ↓
 生成一条 pi 原生 custom_message（followUp，不打断）
         ↓
 当前 pi Agent / pi session
 ```
 
-- 公开消息走「通知 + 增量拉取」（M7/ISSUE-012）：广播只携带最新序号与最近 3 条预览，完整增量由角色主动拉取，不再逐条推送；正文在 run 期间零中间注入（#64 pull 模型），成员/环境事件经 steer 通道间隙可见（#38，不打断 run、秒级延迟）。
-- join 批次（`message_history` + 成员事件）保留 1 秒合并防抖；闲态 `group_chat_update` 固定 1s 聚合窗口（多次变化并入单次消费，N→1），忙态 settle 后立即触发（#60/#62）。
+- 公开消息走「通知 + 增量拉取」（M7/ISSUE-012）：广播只携带最新序号与最近 3 条预览，完整增量由角色主动拉取，不再逐条推送；忙态正文经 steer 通道在工具间隙投递（#38 口径 A 恢复 + #64 拉取原语：update 到达即拉取，不打断 run、秒级延迟），settle 补拉全兜底；成员/环境事件同样经 steer 通道间隙可见。
+- join 批次（`message_history` + 成员事件）保留 1 秒合并防抖；闲态 `group_chat_update` 固定 1s 聚合窗口（多次变化并入单次消费，N→1），忙态 update 到达即拉取（#60/#62 拉取原语保留；#64 零中间注入红线解除，User 2026-08-02 拍板恢复忙态 steer 投递）。
 - 游标（上次成功投递的最后一条 message sequence）本地持久化（`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>/<session_id>.json`，**游标跟随 Session**），投递成功后更新，重启不丢；同群聊多角色互不共用游标文件。**旧版群聊级单文件（`cursors/<group_chat_id>.json`）废弃不读**（值无 Session 身份，回退采用会跳过消息）；新 Session 无独立游标时从完整历史分页重新拉取。
 - 一个防抖批次只生成一条输入。单个 WebSocket 消息不直接追加到 pi session。
 

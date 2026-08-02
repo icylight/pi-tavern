@@ -25,6 +25,8 @@ export interface AutoJoinOptions {
 	groupChat?: string;
 	/** 行为默认实现由组合根装配注入（ADR-0005 层方向，Phase 4）。 */
 	discoverGroupChats?: (options: DiscoverGroupChatsOptions) => Promise<ActiveGroupChatDescriptor[]>;
+	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
+	triggerDebounceMs?: number;
 }
 
 /**
@@ -111,6 +113,7 @@ export async function autoJoinCharacter(
 
 	const sessionId = ctx.sessionManager.getSessionId();
 	const attempt = await controller.startJoining(descriptor, sessionId, {
+		...(options.triggerDebounceMs !== undefined ? { triggerDebounceMs: options.triggerDebounceMs } : {}),
 		// 游标跟随 Session（User 2026-08-02）：cursors/<groupId>/<sessionId>.json，同群聊多角色互不共用
 		cursorStorePath: join(getGroupChatCursorDirectory(agentDir, ctx.cwd), descriptor.groupChatId, `${sessionId}.json`),
 	});

@@ -20,6 +20,8 @@ export interface RegisterCommandsOptions {
 	discoverGroupChats?: (options: DiscoverGroupChatsOptions) => Promise<ActiveGroupChatDescriptor[]>;
 	listGroupChatSessions?: (agentDir: string, cwd: string) => Promise<GroupChatSessionSummary[]>;
 	deleteGroupChatSession?: (path: string) => Promise<DeleteGroupChatSessionResult>;
+	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
+	triggerDebounceMs?: number;
 }
 
 export function registerCommands(
@@ -130,6 +132,7 @@ export function registerCommands(
 				}
 				const sessionId = ctx.sessionManager.getSessionId();
 				const attempt = await controller.startJoining(descriptor, sessionId, {
+					...(options.triggerDebounceMs !== undefined ? { triggerDebounceMs: options.triggerDebounceMs } : {}),
 					// 游标跟随 Session（User 2026-08-02）：cursors/<groupId>/<sessionId>.json，
 					// 同群聊多角色互不共用游标文件；旧群聊级单文件由 loadCursor 兼容回退。
 					cursorStorePath: join(

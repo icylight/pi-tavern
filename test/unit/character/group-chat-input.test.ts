@@ -37,7 +37,11 @@ function createMockRuntime(
 
 function createMockPi(): ExtensionAPI {
 	return {
-		sendMessage: vi.fn(),
+		// 双通道契约（User 拍板 2026-08-02）：入队成功 = 投递成功 → 推进游标。
+		// mock 默认 preflight 成功，投递路径据此 saveCursor。
+		sendMessage: vi.fn((_message: unknown, options?: { preflightResult?: (success: boolean) => void }) => {
+			options?.preflightResult?.(true);
+		}),
 	} as unknown as ExtensionAPI;
 }
 
@@ -508,10 +512,10 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("#64: member events during a run merge with the settle-triggered batch, order preserved", async () => {
-		// #64 口径：成员事件仍走 join debounce（1000ms）入 pendingEvents；run
-		// 活跃期 update 只置忙态标记。settle → 消费拉全，与待处理成员事件合并为
-		// 一次投递（到达顺序保持：事件先到，消息更新）。
+	it("#64→busy-steer: member events during a run merge with the immediately-pulled batch, order preserved", async () => {
+		// 忙态 steer 契约（User 拍板 2026-08-02）：成员事件仍走 join debounce
+		// （1000ms）入 pendingEvents；run 活跃期 update 立即拉取 + steer 投递，
+		// 与待处理成员事件合并为一次投递（到达顺序保持：事件先到，消息更新）。
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({
@@ -544,24 +548,23 @@ describe("GroupChatInput", () => {
 			preview_messages: [],
 			total_messages: 7,
 		} as unknown as ServerMessage);
-		// run 活跃期间：零拉取、零投递（红线）。
-		await vi.advanceTimersByTimeAsync(400);
-		expect(runtime.fetchMessagesSince).not.toHaveBeenCalled();
-		expect(pi.sendMessage).not.toHaveBeenCalled();
-
-		// settle → 忙态触发：一次拉全，与待处理 join 事件合并为一次投递（顺序保持）。
-		runtime.isAgentActive = false;
-		runtime.onAgentSettled?.();
+		// run 活跃期间：立即拉取（1 次，飞行锁）+ 立即投递（合并成员事件）。
 		await vi.advanceTimersByTimeAsync(0);
 		expect(runtime.fetchMessagesSince).toHaveBeenCalledWith(6);
 		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
 		const message = call[0] as { details: { events: Array<{ type: string; sequence?: number }> } };
 		expect(message.details.events.map((e) => e.type)).toEqual(["character_joined", "public_message"]);
-		// 消费发生在 run 结束后 → 新 turn 触发（followUp + 群聊标记）。
+		// 忙态投递走 steer 通道（工具间隙），绝不标记群聊触发（#14 边界）。
 		const options = call[1] as { deliverAs: string };
-		expect(options.deliverAs).toBe("followUp");
-		expect(runtime.markGroupChatTurnTriggered).toHaveBeenCalledTimes(1);
+		expect(options.deliverAs).toBe("steer");
+		expect(runtime.markGroupChatTurnTriggered).not.toHaveBeenCalled();
+
+		// settle → 补拉全（游标已推进到 7 → 空拉取，无重复投递）。
+		runtime.isAgentActive = false;
+		runtime.onAgentSettled?.();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
 
 		// join debounce 稍后触发，无剩余可投递。
 		await vi.advanceTimersByTimeAsync(1000);
@@ -570,10 +573,10 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("#64 B6: settle-triggered consume advances the cursor once; no leftover fetch", async () => {
-		// B6 不变量保持：客户端在 speak 时仍不推进光标（仅消费投递推进）。
-		// #64：run 活跃期 update 只置忙态标记；settle 消费拉全 [7,8,9]，
-		// 光标单点推进到 9——无窗口、无尾部补拉、无重复。
+	it("busy-steer B6: busy update pulls immediately and delivers via steer; cursor advances on delivery", async () => {
+		// B6 不变量保持：客户端在 speak 时仍不推进光标（仅投递成功推进）。
+		// 忙态契约：run 活跃期 update 立即拉取 [7,8,9] + steer 投递；
+		// 光标在投递成功（preflight）时推进到 9——settle 补拉从新游标（空）。
 		vi.useFakeTimers();
 
 		let cursor = 6;
@@ -603,13 +606,7 @@ describe("GroupChatInput", () => {
 			preview_messages: [],
 			total_messages: 9,
 		} as unknown as ServerMessage);
-		// run 活跃期间：零拉取（红线）。
-		await vi.advanceTimersByTimeAsync(400);
-		expect(runtime.fetchMessagesSince).not.toHaveBeenCalled();
-
-		// settle → 忙态触发：一次拉全 + 一次投递；光标单点推进到 9。
-		runtime.isAgentActive = false;
-		runtime.onAgentSettled?.();
+		// 忙态：立即拉取 + 立即投递（steer）；光标在投递成功时推进到 9。
 		await vi.advanceTimersByTimeAsync(0);
 		expect(runtime.fetchMessagesSince).toHaveBeenCalledTimes(1);
 		expect(runtime.fetchMessagesSince).toHaveBeenCalledWith(6);
@@ -620,21 +617,20 @@ describe("GroupChatInput", () => {
 		expect(sequences).toEqual([7, 8, 9]);
 		expect(cursor).toBe(9);
 
-		// 忙态标记已清除：再次 settle 无任何额外拉取/投递。
+		// settle → 补拉全（游标已推进 → 空拉取）：无额外投递。
+		runtime.isAgentActive = false;
 		runtime.onAgentSettled?.();
 		await vi.advanceTimersByTimeAsync(0);
-		expect(runtime.fetchMessagesSince).toHaveBeenCalledTimes(1);
 		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
 
 		input.stop();
 	});
 
-	it("#64 T2: cursor advances monotonically; sequential consumes never overlap or duplicate", async () => {
-		// #64 约定的单点推进：消费 = 拉全，光标仅在成功投递时推进。
-		// run 中两条通知（7，然后 9）并入同一忙态标记 → settle 一次消费
-		// （since 6 → [7]，mock 只见 seq 7）；光标推进到 7。此后新通知
-		// （idle）→ 窗口 → 消费（since 7 → [8,9]）。两次光标保存严格
-		// 递增、不重叠——无重复、无间隙、不重拉已投递窗口。
+	it("busy-steer T2: cursor advances monotonically; sequential consumes never overlap or duplicate", async () => {
+		// 忙态契约：光标仅在投递成功时推进（双通道判定）。
+		// run 中两条通知（7，然后 9）：第一条立即拉取（since 6 → [7]）投递
+		// 推进到 7；第二条立即拉取（since 7 → [8,9]）推进到 9。两次光标
+		// 保存严格递增、不重叠——无重复、无间隙、不重拉已投递窗口。
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({
@@ -669,7 +665,7 @@ describe("GroupChatInput", () => {
 		input.start();
 		const handler = runtime.onEnvironmentMessage ?? (() => {});
 
-		// 运行中两条带间隔的通知（7，然后 9）——同一忙态标记。
+		// 运行中两条带间隔的通知（7，然后 9）。
 		handler({
 			type: "group_chat_update",
 			latest_sequence: 7,
@@ -682,19 +678,15 @@ describe("GroupChatInput", () => {
 			preview_messages: [],
 			total_messages: 9,
 		} as unknown as ServerMessage);
-		// run 活跃期间：零拉取（红线）。
-		await vi.advanceTimersByTimeAsync(400);
-		expect(fetchSinceCalls).toEqual([]);
-
-		// settle → 一次消费（since 6 → [7]）；光标单调推进 6 → 7。
-		runtime.isAgentActive = false;
-		runtime.onAgentSettled?.();
+		// 忙态：两条通知各触发立即拉取（第一条 since 6 → [7]，投递推进到 7；
+		// 第二条 since 7 → [8,9]，推进到 9）。
 		await vi.advanceTimersByTimeAsync(0);
-		expect(fetchSinceCalls).toEqual([6]);
-		expect(runtime.saveCursor).toHaveBeenCalledTimes(1);
+		expect(fetchSinceCalls).toEqual([6, 7]);
+		expect(runtime.saveCursor).toHaveBeenCalledTimes(2);
 		expect(runtime.saveCursor).toHaveBeenNthCalledWith(1, 7);
-		// 一次投递：[7]。
-		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+		expect(runtime.saveCursor).toHaveBeenNthCalledWith(2, 9);
+		// 两次 steer 投递：[7] 然后 [8,9]。
+		expect(pi.sendMessage).toHaveBeenCalledTimes(2);
 		const calls = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls as [unknown, unknown][];
 		const deliveries = calls.map(([payload, options]) => {
 			const message = payload as { details: { events: Array<{ sequence?: number }> } };
@@ -702,24 +694,9 @@ describe("GroupChatInput", () => {
 			return { sequences, deliverAs: (options as { deliverAs: string }).deliverAs };
 		});
 		expect(deliveries[0]?.sequences).toEqual([7]);
-		expect(deliveries[0]?.deliverAs).toBe("followUp");
-
-		// 新通知（闲态）→ 窗口到期 → 消费（since 7 → [8,9]）；光标 7 → 9。
-		handler({
-			type: "group_chat_update",
-			latest_sequence: 9,
-			preview_messages: [],
-			total_messages: 9,
-		} as unknown as ServerMessage);
-		await vi.advanceTimersByTimeAsync(1000);
-		expect(fetchSinceCalls).toEqual([6, 7]);
-		expect(runtime.saveCursor).toHaveBeenCalledTimes(2);
-		expect(runtime.saveCursor).toHaveBeenNthCalledWith(2, 9);
-		expect(pi.sendMessage).toHaveBeenCalledTimes(2);
-		const settleDelivery = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[1] as [unknown, unknown];
-		const settleMessage = settleDelivery[0] as { details: { events: Array<{ sequence?: number }> } };
-		const settleSequences = settleMessage.details.events.map((e) => e.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
-		expect(settleSequences).toEqual([8, 9]);
+		expect(deliveries[0]?.deliverAs).toBe("steer");
+		expect(deliveries[1]?.sequences).toEqual([8, 9]);
+		expect(deliveries[1]?.deliverAs).toBe("steer");
 
 		input.stop();
 	});

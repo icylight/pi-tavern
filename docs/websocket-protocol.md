@@ -580,7 +580,7 @@ Character 加入成功后，群聊创建者自动发送最近 10 条公开消息
 
 群聊状态不主动广播。Character 在以下场景使用 `get_group_chat_state` 主动获取最新快照：
 
-- run 边界（闲态 1s 聚合窗口 / 忙态 settle 后）、准备提交一次 Agent run 或 follow-up 时。
+- run 边界（闲态 1s 聚合窗口 / 忙态 update 到达即拉取 + settle 兜底）、准备提交一次 Agent run 或 follow-up 时。
 - 用户执行需要展示完整状态的命令时。
 - 其他明确需要刷新本地群聊状态的交互。
 
