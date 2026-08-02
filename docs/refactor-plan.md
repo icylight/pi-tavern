@@ -60,6 +60,11 @@
 - 验证:unit + 定向
 - 出口:依赖方向可由 lint 强制(adapter 不得触 skills、application 不碰文件)
 
+**Phase 4 定稿留痕（2026-08-02）**：
+- lint 选型（Arch 裁决）：biome 2.3.5 `noRestrictedImports` **patterns 方向性方案**（group=gitignore 源匹配 + importNamePattern=regex 禁入；ADR 五层方向矩阵 ≤8 条编码；单一工具链、CI `biome check src/` 天然覆盖；importNamePattern 匹配书写形 specifier、跨目录深度用 `(\.\./)*` 前缀兼容）；表达力不足时退自定义 script（Dev 定）
+- PR 形态（PM 裁决）：1 PR（基线清零 + lint 加固 + pkill 转义并入）；「拆 schema 与行为」挂起待 User 拍板
+- 测试慢分析（Arch 静态切片）：墙钟模型 = 13 文件 ÷ 8 worker = 2 批，批界 = 批内最长文件（~40-50s）→ 99.5s 吻合；spawn 27×~6s÷8 ≈ 20s 纯启动；worker 拐点 8；杠杆排序：① 进程复用试点（省 ~15-20s）② 文件合并至 ≤8（单批省 ~45s，受最长文件钳制）③ join 3s 延迟注入 ④ worker 试探——等 QA 执行层数据合流后 PM 决策
+
 ### Phase 5:收口
 
 - 内容:全链门禁 + 五层依赖图(架构文档)+ ADR-0005 转 Accepted
