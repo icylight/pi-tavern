@@ -71,8 +71,8 @@ PiTavern 不绑定任何组织结构——但它能承载不同的信息流和�
 
 ```mermaid
 flowchart LR
-    PM["PM"] -->|"需求扇出"| AR["Arch"] & QA["QA"] & DV["Dev"]
-    AR -->|"方案/约束"| DV
+    PM["PM"] -->|"需求/任务扇出"| AR["Arch"] & QA["QA"]
+    AR -->|"方案/约束"| DV["Dev"]
     QA -->|"验收基准"| DV
     DV -->|"实现+证据"| AR & QA
     AR -->|"评审结论"| PM

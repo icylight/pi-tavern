@@ -119,8 +119,8 @@ collaboration conventions**:
 
 ```mermaid
 flowchart LR
-    PM["PM"] -->|"fan-out"| AR["Arch"] & QA["QA"] & DV["Dev"]
-    AR -->|"design/constraints"| DV
+    PM["PM"] -->|"requirements/tasks"| AR["Arch"] & QA["QA"]
+    AR -->|"design/constraints"| DV["Dev"]
     QA -->|"acceptance basis"| DV
     DV -->|"impl + evidence"| AR & QA
     AR -->|"review verdict"| PM
