@@ -162,16 +162,14 @@ flowchart LR
     FC -->|"verification"| AU
     AU -->|"draft"| CW["Copy Editor"]
     CW -->|"edited draft"| ED
-    ED -->|"finalize"| PUB["Publish"]
 ```
 
 ```mermaid
 flowchart LR
     MK["Marketing Lead"] -->|"set goal"| UR["User Researcher"]
     UR -->|"user insights"| CP["Copywriter"] & CH["Channel Operator"]
-    CP -->|"creative assets"| LA["Launch"]
-    CH -->|"channel plan"| LA
-    LA -->|"campaign data"| DA["Data Analyst"]
+    CP -->|"creative assets"| CH
+    CH -->|"launch"| DA["Data Analyst"]
     DA -->|"results"| MK
 ```
 
