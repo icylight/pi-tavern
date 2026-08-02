@@ -118,7 +118,7 @@ describe("PiTavern commands", () => {
 		expect(starter).toHaveBeenCalledWith({
 			cwd: "/project",
 			agentDir: "/isolated-agent",
-			configMaxMessages: 10,
+			configMaxMessages: 20,
 			characters: [],
 		});
 		expect(controller.getState()).toEqual({ type: "creator", runtime });
@@ -302,7 +302,7 @@ describe("PiTavern commands", () => {
 			cwd: "/project",
 			agentDir: "/isolated-agent",
 			sessionPath: "/isolated-agent/chats/old.jsonl",
-			configMaxMessages: 10,
+			configMaxMessages: 20,
 			characters: [],
 		});
 		expect(controller.getState()).toEqual({ type: "creator", runtime });

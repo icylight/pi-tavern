@@ -28,7 +28,7 @@ describe("loadTavernConfig", () => {
 				cwd: join(root, "project"),
 			}),
 		).resolves.toEqual({
-			configMaxMessages: 10,
+			configMaxMessages: 20,
 			characters: [],
 		});
 	});

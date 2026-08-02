@@ -27,7 +27,13 @@ const TavernConfigFileSchema = Type.Object(
 type TavernConfigFile = Static<typeof TavernConfigFileSchema>;
 
 const checkTavernConfigFile = Compile(TavernConfigFileSchema);
-const DEFAULT_CONFIG_MAX_MESSAGES = 10;
+/**
+ * #37 (2026-08-02): default message quota for newly created group chats.
+ * Single source of truth — creator-runtime.ts and commands.ts import this
+ * constant instead of re-declaring it (three identical constants were the
+ * root cause of the 10→100 quota miss).
+ */
+export const DEFAULT_CONFIG_MAX_MESSAGES = 20;
 
 export async function loadTavernConfig(options: LoadTavernConfigOptions): Promise<TavernConfig> {
 	const globalConfigPath = join(resolve(options.agentDir), "tavern.json");

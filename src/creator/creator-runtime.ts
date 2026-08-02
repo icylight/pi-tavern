@@ -8,6 +8,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import WebSocket, { WebSocketServer } from "ws";
 
 import type { CharacterCard, CharacterSummary } from "../config/character-card.js";
+import { DEFAULT_CONFIG_MAX_MESSAGES } from "../config/load-config.js";
 import {
 	type BufferedFrame,
 	type CreatorReloadHandoff,
@@ -106,8 +107,6 @@ export interface CreatorRuntimeDependencies {
 	/** How long close()/detachForReload() waits for the runtime queue to drain. */
 	drainTimeoutMs: number;
 }
-
-const DEFAULT_CONFIG_MAX_MESSAGES = 10;
 
 /** Bit flags tracking first-persist milestones for granular rollback on failure. */
 const FIRST_PERSIST_HEADER_WRITTEN = 1 << 0;
@@ -1136,6 +1135,10 @@ export class CreatorRuntime {
 			character: toCharacterSummaryMessage(character),
 		});
 		this.onMembersChanged?.();
+		// ISSUE-014/#14 (方案 A): membership changes also wake characters via
+		// the M7 notification channel so their widget snapshots refresh even
+		// when no new message arrives.
+		this.broadcastGroupChatUpdate();
 	}
 
 	private handleGetGroupChatState(
@@ -1279,6 +1282,10 @@ export class CreatorRuntime {
 			onlineCharacter.isStreaming = isStreaming;
 		}
 		this.onMembersChanged?.();
+		// ISSUE-014/#14 (方案 A): streaming flips are the most frequent
+		// member-state change — broadcast the update notification so every
+		// character refreshes its snapshot (widget "正在发言" stays live).
+		this.broadcastGroupChatUpdate();
 	}
 
 	private async handleSpeak(
@@ -1564,6 +1571,8 @@ export class CreatorRuntime {
 			});
 		}
 		this.onMembersChanged?.();
+		// ISSUE-014/#14 (方案 A): departures refresh other members' widgets.
+		this.broadcastGroupChatUpdate();
 	}
 
 	private getAvailableCharacters(): CharacterCard[] {
@@ -1675,7 +1684,16 @@ export class CreatorRuntime {
 	 */
 	private broadcastGroupChatUpdate(): void {
 		const latest = this.publicMessages[this.publicMessages.length - 1];
+		// ISSUE-014/#14 (方案 A): member/streaming changes may arrive before
+		// any public message — still broadcast (latest_sequence 0, empty
+		// preview) so characters wake and refresh their snapshots.
 		if (!latest) {
+			this.broadcast({
+				type: "group_chat_update",
+				latest_sequence: 0,
+				preview_messages: [],
+				total_messages: 0,
+			});
 			return;
 		}
 		this.broadcast({
