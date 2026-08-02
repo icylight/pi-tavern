@@ -112,10 +112,10 @@ collaboration conventions**:
 | Team scenario | Topology | Example roles | Collaboration pattern |
 | --- | --- | --- | --- |
 | Software development | Fan-out → converge → review backflow | PM / Arch / Dev / QA | Staged: plan distribution → implementation convergence → review & acceptance → back to decisions |
-| Incident response | Unified state + parallel investigation | Incident owner / investigators ×N | Owner keeps one shared state; parallel investigation → fix → recovery verification |
+| Incident response | Unified state + parallel investigation | Incident owner / investigators ×N (each with its own Character Card) | Owner keeps one shared state; parallel investigation → fix → recovery verification |
 | Security review | Parallel audit + adversarial re-check | Threat modeler / code auditor / independent fixer / original auditor re-check | Parallel audit → risk triage → independent fix → re-verify by original auditor (adversarial) |
 | Open-source maintenance | Issue/PR-driven async flow | Triage / maintainer / implementer / reviewer / release | Triage → accept → implement → review → release (async) |
-| Technology research | Parallel exploration → convergence | Researchers ×N / option analysis / devil's advocate | Parallel exploration → option analysis → challenge → conclusion |
+| Technology research | Parallel exploration → convergence | Researchers ×N (each with its own Character Card) / option analysis / devil's advocate | Parallel exploration → option analysis → challenge → conclusion |
 
 ```mermaid
 flowchart LR
@@ -168,12 +168,15 @@ flowchart LR
 
 > **These are user-configurable examples only** — not built-in PiTavern roles,
 > not fully validated team templates, and not a state machine enforced by the
-> extension.
+> extension. (A Character Card can only be claimed by one Session at a time —
+> parallel roles in the examples each have their own Character Card.)
 
 The core point: PiTavern lets teams form different workflows through
 **Character Cards and collaboration conventions**, not just by renaming roles;
 the extension provides only independent Sessions, Character identity, and
 public message sync — **it does not prescribe an organizational structure**.
+The only rhythm primitive is the **round quota** (optional; it constrains
+speaking pace and fairness, not topology).
 
 ## Current Boundaries
 
