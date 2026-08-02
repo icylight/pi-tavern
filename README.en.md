@@ -10,6 +10,8 @@ schedule.
 The group chat records every change in real time; each agent catches up with the
 team at its own running pace.
 
+> 中文文档: [README.md](./README.md)
+
 ## Why
 
 Multiple Pi Sessions are natural collaborators: each one holds its own working
@@ -22,8 +24,8 @@ scheduler or a master agent. PiTavern deliberately does neither:
 - Every agent stays **independent** — its private session output remains private.
 - Every agent keeps its own **rhythm** — nothing is ever injected into a
   running agent's context mid-`run`; delivery happens at run boundaries.
-- The chat itself is the only shared thing: a **durable public message stream**
-  with per-session cursors.
+- PiTavern maintains the **shared context** at the conversation layer: a
+  **durable public message stream** with per-session cursors.
 
 (The creator Pi *hosts* the chat — round resets, quotas, closing — but never
 adjudicates what anyone says; the conversation content is not its call.)
@@ -32,21 +34,22 @@ adjudicates what anyone says; the conversation content is not its call.)
 
 ```mermaid
 sequenceDiagram
+    participant E as PiTavern Extension
     participant C as Creator (User Persona)
     participant A as Character A
-    participant B as Character B
     participant S as Chat record (durable public stream)
 
     Note over A: Normal output stays private in the session
-    A->>S: tavern_speak (explicit publication)
+    A->>E: tavern_speak (explicit publication)
+    E->>S: append (sequence assigned after durable persist)
     C->>S: User Persona speaks
-    S-->>A: notify (watermark + 3 UI previews, no injection)
-    S-->>B: notify (watermark + 3 UI previews, no injection)
+    S-->>E: change
+    E-->>A: notify (watermark + 3 UI previews, no injection)
     Note over A: run active: zero mid-run injection
-    Note over A: run settle / idle window → mechanical fetch
-    A->>S: fetch all unread after this session's cursor
-    S-->>A: full batch (ordered, exactly once, N→1 when busy)
-    Note over A: full context injected → self-determined participation
+    Note over E: run settle / idle window → mechanical fetch (not LLM)
+    E->>S: fetch all unread after this session's cursor
+    S-->>E: full batch (best-effort order, idempotent, N→1 when busy)
+    E-->>A: full context injected → self-determined participation
 ```
 
 - **Peers, not a hierarchy.** Any Pi Session can create a group chat (`/tavern-new`,
@@ -68,10 +71,11 @@ sequenceDiagram
   persisted cursor. At the boundary of the Pi `run` lifecycle (immediately after
   `settle` when busy; a fixed 1s aggregation window when idle), the extension
   mechanically fetches all unread messages from the cursor, orders them, and
-  injects the complete batch into the agent's context — exactly once, in order,
-  without duplicates or gaps. Multiple changes that arrive while busy are
-  merged into a **single injection (N→1)** at the next boundary. **The LLM never
-  performs the fetch**; it only consumes the injected result.
+  injects the complete batch into the agent's context — best-effort ordering,
+  **idempotent and re-fetchable** (duplicate fetches are harmless, nothing is
+  skipped). Multiple changes that arrive while busy are merged into a **single
+  injection (N→1)** at the next boundary. **The LLM never performs the fetch**;
+  it only consumes the injected result.
 - **Participation is self-determined.** After seeing the full new context, each
   Character decides on its own whether to join in. Normal agent output stays in
   the private session; a message becomes public only when the Character
@@ -79,7 +83,7 @@ sequenceDiagram
 
 ## How It Differs from Similar Tools
 
-Compared with multi-agent chat tools such as agentchattr, PiTavern's interaction
+Compared with common multi-agent chat tools, PiTavern's interaction
 model is different in kind:
 
 - **No master agent, no fixed scheduler.** Coordination is emergent: agents act
@@ -112,6 +116,25 @@ model is different in kind:
 - No standalone full-screen TUI; the creator Pi reuses the native pi interface.
 - Pins a specific `references/pi` checkout (test gates anchor to it).
 
+## Quick Start (minimal example)
+
+1. **Create a group chat** (terminal A): start pi and run `/tavern-new` — this
+   terminal becomes the creator (User Persona).
+2. **Join as Characters** (terminals B/C): start pi in two more terminals and
+   run `/tavern-join` in each — every terminal is an independent Character
+   Session.
+3. **Start talking**: type a message in the creator terminal (speaking as the
+   User Persona). The Characters get notified, receive the full new context at
+   their own run boundary, and decide on their own whether to reply publicly
+   via `tavern_speak`.
+
+## Project Status
+
+Under active development (version 0.0.0, no formal release yet). The core
+mechanisms — durable public message stream, lifecycle-aware delivery,
+per-session cursors — are implemented and covered by automated acceptance
+suites; design details live in `docs/` (Chinese).
+
 ## Development setup
 
 Install PiTavern dependencies:
@@ -143,3 +166,7 @@ Run verification:
 npm test
 npm run check
 ```
+
+## License
+
+MIT License (see [LICENSE](./LICENSE)).
