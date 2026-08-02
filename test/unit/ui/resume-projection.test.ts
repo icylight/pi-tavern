@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { PublicMessageState } from "../../../src/creator/creator-runtime.js";
-import { computeResumeProjection } from "../../../src/ui/resume-projection.js";
+import {
+	computeResumeProjection,
+	computeSessionProjectionAnchor,
+	type ProjectionEntryReader,
+} from "../../../src/ui/resume-projection.js";
 
 /**
  * #42 红测（unit 层）：resume 历史投影的窗口-锚定纯逻辑。
@@ -104,5 +108,85 @@ describe("#42 resume projection: window-anchor pure logic (A1/A3)", () => {
 			expect(message.sender).toEqual(source?.sender);
 			expect(message.round).toEqual(source?.round);
 		}
+	});
+
+	describe("#42 resume projection: session-anchor scan (A3-1 会话复用防御)", () => {
+		const GROUP_CHAT_ID = "group-1";
+
+		function aDisplayEntry(
+			sequence: number,
+			groupChatId = GROUP_CHAT_ID,
+		): {
+			customType?: string;
+			data?: { group_chat_id?: string; event?: { sequence?: unknown } };
+		} {
+			return {
+				customType: "pi-tavern.creator-display",
+				data: {
+					group_chat_id: groupChatId,
+					event: { sequence },
+				},
+			};
+		}
+
+		function readerOf(entries: Array<ReturnType<typeof aDisplayEntry> | Record<string, never>>): ProjectionEntryReader {
+			return { getEntries: () => entries };
+		}
+
+		it("null/undefined reader 与空条目均返回 0", () => {
+			expect(computeSessionProjectionAnchor(null, GROUP_CHAT_ID)).toBe(0);
+			expect(computeSessionProjectionAnchor(undefined, GROUP_CHAT_ID)).toBe(0);
+			expect(computeSessionProjectionAnchor(readerOf([]), GROUP_CHAT_ID)).toBe(0);
+		});
+
+		it("非 creator-display 条目忽略（其他 customType 不参与锚定）", () => {
+			const reader = readerOf([
+				{ customType: "pi-tavern.other", data: { group_chat_id: GROUP_CHAT_ID, event: { sequence: 99 } } },
+				aDisplayEntry(5),
+			]);
+			expect(computeSessionProjectionAnchor(reader, GROUP_CHAT_ID)).toBe(5);
+		});
+
+		it("其他群聊条目忽略（group_chat_id 过滤）", () => {
+			const reader = readerOf([aDisplayEntry(42, "group-other"), aDisplayEntry(7, GROUP_CHAT_ID)]);
+			expect(computeSessionProjectionAnchor(reader, GROUP_CHAT_ID)).toBe(7);
+		});
+
+		it("乱序输入取最大 sequence", () => {
+			const reader = readerOf([aDisplayEntry(3), aDisplayEntry(9), aDisplayEntry(1), aDisplayEntry(5)]);
+			expect(computeSessionProjectionAnchor(reader, GROUP_CHAT_ID)).toBe(9);
+		});
+
+		it("非数值/非安全整数 sequence 忽略（string、NaN、小数）", () => {
+			const reader = readerOf([
+				aDisplayEntry(3),
+				{ customType: "pi-tavern.creator-display", data: { group_chat_id: GROUP_CHAT_ID, event: { sequence: "9" } } },
+				{ customType: "pi-tavern.creator-display", data: { group_chat_id: GROUP_CHAT_ID, event: { sequence: NaN } } },
+				{ customType: "pi-tavern.creator-display", data: { group_chat_id: GROUP_CHAT_ID, event: { sequence: 1.5 } } },
+			]);
+			expect(computeSessionProjectionAnchor(reader, GROUP_CHAT_ID)).toBe(3);
+		});
+
+		it("缺 data/group_chat_id/event.sequence 的条目忽略（不抛错）", () => {
+			const reader = readerOf([
+				{ customType: "pi-tavern.creator-display", data: { group_chat_id: GROUP_CHAT_ID } },
+				{ customType: "pi-tavern.creator-display", data: { event: { sequence: 8 } } },
+				{ customType: "pi-tavern.creator-display" },
+				aDisplayEntry(4),
+			]);
+			expect(computeSessionProjectionAnchor(reader, GROUP_CHAT_ID)).toBe(4);
+		});
+
+		it("组合：扫描锚定 + 窗口投影——已投影段跳过、只补缺失段（会话复用场景）", () => {
+			// 会话内已有 1..3（life-1 增量已写），扫描锚定 = 3；
+			// resume 投影从锚后补：4..5 出现 → 只投影 4..5。
+			const messages = aSequenceRange(1, 5);
+			const anchor = computeSessionProjectionAnchor(
+				readerOf([aDisplayEntry(1), aDisplayEntry(2), aDisplayEntry(3)]),
+				GROUP_CHAT_ID,
+			);
+			expect(anchor).toBe(3);
+			expect(computeResumeProjection(messages, anchor, 100).map((m) => m.sequence)).toEqual([4, 5]);
+		});
 	});
 });

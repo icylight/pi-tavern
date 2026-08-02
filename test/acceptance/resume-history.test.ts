@@ -132,18 +132,30 @@ describe("acceptance: #42 resume history projection (A1/A2/A3-1/A4)", () => {
 		expect(projected.map((e) => e.content)).toEqual(["R1 hello", "R2 world", "R3 final"]);
 		expect(projected.every((e) => e.event_id.length > 0)).toBe(true);
 
-		// 阶段三：重复 resume——无重复投影（A3-1，锚定扫描跳过已投影段）。
+		// 注：RPC 环境 pi 会话为内存态不落盘、无 --continue 不续旧会话
+		// （Dev 实证）——「同会话复用重复投影」在此不可复现；会话内容级防
+		// 重复保证由 unit 层 computeSessionProjectionAnchor 用例钉死
+		// （interactive --continue 场景防御，persistence.md 已注记）。
+
+		// 阶段三：fresh 会话再次 resume——重投影 [1,2,3]（方案 B 扫描语义：
+		// RPC 每次重启都是 fresh 会话，扫描锚定 = 0 → 全窗口重投影，保证
+		// TUI 历史可见——修复 #42 原症状的期望行为，非缺陷）。
 		await resumed.kill("SIGTERM");
 		const resumedAgain = await startCreator(agentDir, sessionDir, projectDir);
 		await resumedAgain.waitForTavernReady();
 		await resumeGroupChat(resumedAgain);
-		// 等待潜在（错误）投影有足够时间出现，再断言无新增。
-		await new Promise((resolveWait) => setTimeout(resolveWait, 2_000));
-		expect(creatorDisplayEvents(resumedAgain)).toEqual([]);
+		expect(creatorDisplayEvents(resumedAgain).map((e) => e.sequence)).toEqual([1, 2, 3]);
+		// 同会话（continued）重复 resume 无重复由 unit 层扫描锚定用例钉死
+		// （RPC 无会话复用场景，进程级不可复现——Arch 裁定防御性设计）。
 
-		// A4：resume 后新消息仍增量到达（无重复无丢失）。
+		// A4：resume 后新消息仍增量到达（投影 3 条 + 增量 1 条 = [1,2,3,4]）。
 		await publishMessage(resumedAgain, "R4 after resume");
-		expect(creatorDisplayEvents(resumedAgain).map((e) => e.sequence)).toEqual([4]);
-		expect(creatorDisplayEvents(resumedAgain).map((e) => e.content)).toEqual(["R4 after resume"]);
+		expect(creatorDisplayEvents(resumedAgain).map((e) => e.sequence)).toEqual([1, 2, 3, 4]);
+		expect(creatorDisplayEvents(resumedAgain).map((e) => e.content)).toEqual([
+			"R1 hello",
+			"R2 world",
+			"R3 final",
+			"R4 after resume",
+		]);
 	});
 });
