@@ -1,8 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CharacterRuntime } from "../../src/character/character-runtime.js";
-import { GroupChatInput } from "../../src/character/group-chat-input.js";
-import type { PublicMessage, ServerMessage } from "../../src/protocol/messages.js";
+import type { CharacterRuntime } from "../../../src/character/character-runtime.js";
+import { GroupChatInput } from "../../../src/character/group-chat-input.js";
+import type { PublicMessage, ServerMessage } from "../../../src/protocol/messages.js";
 
 function createMockRuntime(
 	overrides: {

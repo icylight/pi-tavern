@@ -5,7 +5,7 @@ import {
 	normalizeGroupChatName,
 	setGroupChatName,
 	setGroupMaxMessages,
-} from "../../src/creator/group-chat-state.js";
+} from "../../../src/creator/group-chat-state.js";
 
 describe("GroupChatState", () => {
 	it("creates an empty authoritative state", () => {

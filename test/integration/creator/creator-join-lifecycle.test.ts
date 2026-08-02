@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 
-import type { CharacterCard } from "../../src/config/character-card.js";
-import { CreatorRuntime } from "../../src/creator/creator-runtime.js";
-import { decodeServerMessage, encodeMessage } from "../../src/protocol/codec.js";
+import type { CharacterCard } from "../../../src/config/character-card.js";
+import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
+import { decodeServerMessage, encodeMessage } from "../../../src/protocol/codec.js";
 
 const temporaryDirectories: string[] = [];
 const runtimes: CreatorRuntime[] = [];

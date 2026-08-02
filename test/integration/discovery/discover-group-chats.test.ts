@@ -10,8 +10,8 @@ import {
 	type ActiveGroupChatDescriptor,
 	publishActiveDescriptor,
 	readActiveDescriptor,
-} from "../../src/discovery/active-descriptor.js";
-import { discoverGroupChats } from "../../src/discovery/discover-group-chats.js";
+} from "../../../src/discovery/active-descriptor.js";
+import { discoverGroupChats } from "../../../src/discovery/discover-group-chats.js";
 
 const temporaryDirectories: string[] = [];
 const servers: WebSocketServer[] = [];

@@ -11,7 +11,7 @@ import {
 	readActiveDescriptor,
 	removeOwnedActiveDescriptor,
 	updateActiveDescriptorName,
-} from "../../src/discovery/active-descriptor.js";
+} from "../../../src/discovery/active-descriptor.js";
 
 const temporaryDirectories: string[] = [];
 

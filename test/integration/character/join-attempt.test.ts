@@ -5,12 +5,12 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocketServer } from "ws";
-import { CharacterRuntime } from "../../src/character/character-runtime.js";
-import { JoinAttempt } from "../../src/character/join-attempt.js";
-import { type CharacterCard, loadCharacterCard } from "../../src/config/character-card.js";
-import { getReloadHandoffRegistry } from "../../src/controller/reload-handoff-registry.js";
-import { CreatorRuntime } from "../../src/creator/creator-runtime.js";
-import type { ActiveGroupChatDescriptor } from "../../src/discovery/active-descriptor.js";
+import { CharacterRuntime } from "../../../src/character/character-runtime.js";
+import { JoinAttempt } from "../../../src/character/join-attempt.js";
+import { type CharacterCard, loadCharacterCard } from "../../../src/config/character-card.js";
+import { getReloadHandoffRegistry } from "../../../src/controller/reload-handoff-registry.js";
+import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
+import type { ActiveGroupChatDescriptor } from "../../../src/discovery/active-descriptor.js";
 
 const temporaryDirectories: string[] = [];
 const creatorRuntimes: CreatorRuntime[] = [];
@@ -234,7 +234,7 @@ describe("JoinAttempt and CharacterRuntime", () => {
 });
 
 async function startCreator(
-	creatorOverrides: Partial<import("../../src/creator/creator-runtime.js").CreatorRuntimeDependencies> = {},
+	creatorOverrides: Partial<import("../../../src/creator/creator-runtime.js").CreatorRuntimeDependencies> = {},
 ): Promise<{
 	creator: CreatorRuntime;
 	character: CharacterCard;

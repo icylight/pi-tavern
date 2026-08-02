@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-import { JoinAttempt } from "../../src/character/join-attempt.js";
-import { type CharacterCard, loadCharacterCard } from "../../src/config/character-card.js";
-import { CreatorRuntime } from "../../src/creator/creator-runtime.js";
+import { JoinAttempt } from "../../../src/character/join-attempt.js";
+import { type CharacterCard, loadCharacterCard } from "../../../src/config/character-card.js";
+import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 
 const temporaryDirectories: string[] = [];
 const creatorRuntimes: CreatorRuntime[] = [];

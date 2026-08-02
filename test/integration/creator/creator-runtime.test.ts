@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 
-import { CreatorRuntime } from "../../src/creator/creator-runtime.js";
-import { readActiveDescriptor } from "../../src/discovery/active-descriptor.js";
+import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
+import { readActiveDescriptor } from "../../../src/discovery/active-descriptor.js";
 
 const temporaryDirectories: string[] = [];
 
