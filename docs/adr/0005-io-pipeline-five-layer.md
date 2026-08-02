@@ -69,7 +69,7 @@
 ```
 adapter:      index.ts(组合根) / commands.ts / headless.ts / ui/(tavern-ui-presenter·renderers)
 application:  controller/tavern-controller.ts(管线雏形) / 新拆:creator-pipelines/(submit-message·join·claim·ready·leave·query) / character-pipelines/(发言策略·steer 策略,自 character/group-chat-input.ts 拆出,#38 契约面)
-skills:       新拆:data/(session-store·cursor-store·descriptor-store·resume-projection[裁决:skills]) + discovery/(active-descriptor·discover-group-chats) + creator/group-chat-sessions.ts + creator/group-chat-state.ts
+skills:       新拆:data/(session-store·cursor-store·descriptor-store·resume-projection[裁决:skills]·discovery[active-descriptor·discover-group-chats 迁入]) + creator/group-chat-sessions.ts + creator/group-chat-state.ts
 runtime:      creator-runtime.ts(瘦身:WS+心跳+装配) / character-runtime.ts(瘦身) / character/join-attempt.ts / controller/reload-handoff-registry.ts
 shared:       protocol/(messages·codec) / config/(character-card·load-config) / shared/(constants·runtime-close)
 ```
