@@ -35,6 +35,7 @@
 - PiTavern 无数据库：一致性单元 = 会话文件原子 append + 游标单调推进 + 失败恢复（FIRST_PERSIST_*/recoverSessionManagerFromFailedAppend）
 - 边界归管线 Method 持有；skills 只接收显式传入的上下文，不自开自合
 - 不引入事务/Outbox 抽象（PiTavern 无 DB，无对应物）
+- **跨消息异步状态一律归 runtime 会话状态**（预演裁决，2026-08-02）：run 生命周期状态机（active/streaming/settled + watchdog）留在 runtime（单例持有，非原子能力）；steer 决策策略 = application/character-pipelines（纯策略无状态）；投递通道 = transport。「状态归单例、决策归策略、动作归通道」——请求级管线只显式读写 runtime 持有的状态，不自行缓存，不背跨消息状态
 
 ### 4. 双进程
 
@@ -50,6 +51,16 @@
 ### 6. 层名
 
 - **skills**：取 agent-skill 语义（原子能力单元）；与 pi 宿主 SKILL.md 系统区分（我们不加载宿主技能）；等价 MCP 术语 capabilities
+
+### 7. 跨消息异步状态归属（预演裁决，2026-08-02）
+
+跨消息异步长流程（如 #38 steer：消息 B 读取「消息 A 触发的 run 状态」决策投递）按以下切分：
+
+- **run 生命周期状态机**（active/streaming/settled + watchdog）= 进程级会话状态，留在 runtime——跨消息状态的唯一居所
+- **steer 决策策略**（读 run 状态 → 判 idle/steer/queue）= application/character-pipelines，纯策略无状态
+- **投递通道**（notify/WS）= transport（runtime 下）
+
+管线/门面只显式读写 runtime 会话状态，**不自行缓存跨消息状态**——请求级管线不背长流程状态（防迁移时把长流程状态塞进管线实例）
 
 ## 目标结构（22 文件映射）
 
