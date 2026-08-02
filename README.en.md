@@ -109,61 +109,59 @@ show how the same mechanisms (independent Sessions, Character identity, public
 message sync) form different workflows through **Character Cards and
 collaboration conventions**:
 
-| Team scenario | Topology | Example roles | Collaboration pattern |
-| --- | --- | --- | --- |
-| Software development | Fan-out → converge → review backflow | PM / Arch / Dev / QA | Staged: plan distribution → implementation convergence → review & acceptance → back to decisions |
-| Incident response | Unified state + parallel investigation | Incident owner / investigators ×N (each with its own Character Card) | Owner keeps one shared state; parallel investigation → fix → recovery verification |
-| Security review | Parallel audit + adversarial re-check | Threat modeler / code auditor / independent fixer / original auditor re-check | Parallel audit → risk triage → independent fix → re-verify by original auditor (adversarial) |
-| Open-source maintenance | Issue/PR-driven async flow | Triage / maintainer / implementer / reviewer / release | Triage → accept → implement → review → release (async) |
-| Technology research | Parallel exploration → convergence | Researchers ×N (each with its own Character Card) / option analysis / devil's advocate | Parallel exploration → option analysis → challenge → conclusion |
+| Team | Trigger | Information flow | Topology | Key convention |
+| --- | --- | --- | --- | --- |
+| Software development | Requirement/task | PM fan-out → Dev converge → Arch/QA review backflow | Star fan-out + converge | Role cards + review/acceptance evidence gates |
+| Incident response | Event | Owner keeps unified state, investigators in parallel | Hub-and-spoke | Unified status reporting (each investigator own card) |
+| Security review | Review task | Modeling/audit parallel → triage → independent fix → original auditor re-check | Adversarial loop | Audit/fix separation + original role re-check |
+| Open-source maintenance | Issue/PR | Triage → accept → implement → review → release | Async pipeline | State transition conventions (triage/accept/merge) |
+| Technology research | Research topic | Parallel exploration → option analysis → challenge → converge | Parallel + converge | Devil's advocate role convention |
 
 ```mermaid
 flowchart LR
-    subgraph Software development
-        PM -->|fan-out| A1[Arch] & Q1[QA]
-        A1 & Q1 -->|converge| D1[Dev]
-        D1 -->|review/accept| A1 & Q1
-        A1 & Q1 -->|backflow| PM
-    end
+    PM["PM"] -->|"fan-out"| AR["Arch"] & QA["QA"] & DV["Dev"]
+    AR -->|"design/constraints"| DV
+    QA -->|"acceptance basis"| DV
+    DV -->|"impl + evidence"| AR & QA
+    AR -->|"review verdict"| PM
+    QA -->|"acceptance verdict"| PM
 ```
 
 ```mermaid
 flowchart LR
-    subgraph Incident response
-        L[Incident owner] -->|shared state| I1[Investigator 1] & I2[Investigator 2]
-        I1 & I2 -->|parallel| F[Fix]
-        F --> V[Recovery verify]
-        V --> L
-    end
+    IC["Incident owner"] -->|"shared state"| I1["Investigator A"] & I2["Investigator B"] & I3["Investigator C"]
+    I1 & I2 & I3 -->|"findings"| IC
+    IC -->|"root cause + plan"| FX["Fix"]
+    FX -->|"fix done"| VR["Recovery verify"]
+    VR -->|"verified"| IC
 ```
 
 ```mermaid
 flowchart LR
-    subgraph Security review
-        T[Threat modeling] & C[Code audit] -->|parallel| R[Risk triage]
-        R --> X[Independent fix]
-        X -->|adversarial re-check| C
-    end
+    TM["Threat modeling"] -->|"risk list"| LG["Risk triage"]
+    CA["Code audit"] -->|"findings"| LG
+    LG -->|"triage result"| FX["Independent fix"]
+    FX -->|"fix submitted"| RV["Original auditor re-check"]
+    RV -->|"re-check verdict"| LG
 ```
 
 ```mermaid
 flowchart LR
-    subgraph Open-source maintenance
-        I[Issue / PR] --> T[Triaging]
-        T --> M[Maintainer accepts]
-        M --> U[Implement]
-        U --> R[Review]
-        R --> P[Release]
-    end
+    IS["Issue/PR"] --> TR["Triaging"]
+    TR -->|"accepted"| MT["Maintainer"]
+    MT -->|"assign"| IM["Implement"]
+    IM -->|"PR submitted"| RW["Review"]
+    RW -->|"approved"| RL["Release"]
 ```
 
 ```mermaid
 flowchart LR
-    subgraph Technology research
-        R1[Research A] & R2[Research B] & R3[Research C] -->|parallel| N[Option analysis]
-        N --> G[Challenge]
-        G --> C[Conclusion]
-    end
+    R1["Research A"] --> SA["Option analysis"]
+    R2["Research B"] --> SA
+    R3["Research C"] --> SA
+    SA -->|"candidates"| AD["Challenge"]
+    AD -->|"challenge/reply"| CC["Conclusion"]
+```
 ```
 
 > **These are user-configurable examples only** — not built-in PiTavern roles,
