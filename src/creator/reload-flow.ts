@@ -14,12 +14,13 @@ import type { BroadcastHub } from "./broadcast-hub.js";
 import type { ConnectionContext, ConnectionManager } from "./connection-manager.js";
 import { createFromHandoff } from "./creator-factory.js";
 import type { CreatorRuntime, CreatorRuntimeDependencies } from "./creator-runtime.js";
-import { closeWebSocketServer } from "./creator-runtime.js";
 import type { HeartbeatRegistry } from "./heartbeat-registry.js";
+import { closeWebSocketServer } from "./ws-utils.js";
 
 /** reload 流程访问的骨架窄接口（结构类型；模块不 import CreatorRuntime 类本身）。 */
 export interface ReloadFlowHost {
-	lifecycle: "active" | "detaching" | "disposed";
+	/** 生命周期 getter（构造期值拷贝会冻结判定——Arch A.2 同根因，须调用时读取）。 */
+	readLifecycle: () => "active" | "detaching" | "disposed";
 	webSocketServer: WebSocketServer;
 	connections: Map<string, WebSocket>;
 	connectionManager: ConnectionManager;
@@ -56,7 +57,7 @@ interface BufferedFrame {
  * reload 窗口内到达的新连接立即被拒绝。
  */
 export async function detachForReload(host: ReloadFlowHost, piSessionId: string): Promise<CreatorReloadHandoff> {
-	if (host.lifecycle !== "active") {
+	if (host.readLifecycle() !== "active") {
 		throw new Error("CreatorRuntime is not active");
 	}
 	host.setLifecycle("detaching");

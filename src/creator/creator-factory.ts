@@ -25,12 +25,8 @@ import {
 	SHORT_COORDINATION_TIMEOUT_MS,
 } from "../shared/constants.js";
 import type { ResumeCreatorRuntimeOptions, StartNewCreatorRuntimeOptions } from "./creator-runtime.js";
-import {
-	CreatorRuntime,
-	type CreatorRuntimeDependencies,
-	closeWebSocketServer,
-	listenOnLocalhost,
-} from "./creator-runtime.js";
+import { CreatorRuntime, type CreatorRuntimeDependencies } from "./creator-runtime.js";
+import { closeWebSocketServer, listenOnLocalhost } from "./ws-utils.js";
 
 /** 默认依赖装配（startNew/resume 共用；测试经 overrides 注入）。 */
 export function buildCreatorDependencies(

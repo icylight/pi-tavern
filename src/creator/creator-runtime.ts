@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type WebSocket from "ws";
-import { WebSocketServer } from "ws";
+import type { WebSocketServer } from "ws";
 
 import type { CharacterCard, CharacterSummary } from "../config/character-card.js";
 import { DEFAULT_CONFIG_MAX_MESSAGES } from "../config/load-config.js";
@@ -34,7 +34,7 @@ import {
 	setGroupMaxMessages,
 } from "../data/group-chat-state.js";
 import type { SessionHeaderLike, SessionStore } from "../data/session-store.js";
-import { decodeClientMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
+import { decodeClientMessage, encodeMessage } from "../protocol/codec.js";
 import type { ClientMessage } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 import {
@@ -45,16 +45,21 @@ import {
 import type { RuntimeCloseReason, RuntimeCloseResult } from "../shared/runtime-close.js";
 import { BroadcastHub } from "./broadcast-hub.js";
 import { type ConnectionContext, ConnectionManager } from "./connection-manager.js";
-import { MemberBookkeeping } from "./member-bookkeeping.js";
 import { buildCreatorDependencies, createNewRuntime, resumeRuntime } from "./creator-factory.js";
-import { ClaimPipeline } from "./creator-pipelines/claim-pipeline.js";
-import { JoinPipeline } from "./creator-pipelines/join-pipeline.js";
-import { LeavePipeline } from "./creator-pipelines/leave-pipeline.js";
-import { QueryPipeline } from "./creator-pipelines/query-pipeline.js";
-import { ReadyPipeline } from "./creator-pipelines/ready-pipeline.js";
-import { SubmitMessagePipeline } from "./creator-pipelines/submit-message-pipeline.js";
+import type { ClaimPipeline } from "./creator-pipelines/claim-pipeline.js";
+import { dispatchClientMessage as dispatchClientMessageFlow } from "./creator-pipelines/dispatch.js";
+import type { JoinPipeline } from "./creator-pipelines/join-pipeline.js";
+import type { LeavePipeline } from "./creator-pipelines/leave-pipeline.js";
+import type { QueryPipeline } from "./creator-pipelines/query-pipeline.js";
+import type { ReadyPipeline } from "./creator-pipelines/ready-pipeline.js";
+import type { SubmitMessagePipeline } from "./creator-pipelines/submit-message-pipeline.js";
 import { HeartbeatRegistry } from "./heartbeat-registry.js";
+import { MemberBookkeeping } from "./member-bookkeeping.js";
+import { assemblePipelineDeps } from "./pipeline-assembly.js";
 import { detachForReload as detachForReloadFlow, takeHandoff as takeHandoffFlow } from "./reload-flow.js";
+import { RuntimeFacades } from "./runtime-facades.js";
+import { RuntimeLifecycle } from "./runtime-lifecycle.js";
+import { closeWebSocketServer, listenOnLocalhost } from "./ws-utils.js";
 
 export interface StartNewCreatorRuntimeOptions {
 	cwd: string;
@@ -109,6 +114,10 @@ export class CreatorRuntime {
 	private readonly broadcastHub: BroadcastHub;
 	/** 成员簿记（PR-B：拆自 runtime 的 MemberBookkeeping，构造器内装配）。 */
 	readonly memberBookkeeping: MemberBookkeeping;
+	/** 永久终止流程（PR-B：拆自 runtime 的 RuntimeLifecycle，构造器内装配）。 */
+	private readonly runtimeLifecycle: RuntimeLifecycle;
+	/** 公开门面 API（PR-B：拆自 runtime 的 RuntimeFacades，构造器内装配）。 */
+	private readonly runtimeFacades: RuntimeFacades;
 	/** WebSocket 连接生命周期 + 消息分发（PR-B：拆自 runtime 的 ConnectionManager，构造器内装配）。 */
 	readonly connectionManager: ConnectionManager;
 	private readonly joinPipeline: JoinPipeline;
@@ -189,21 +198,11 @@ export class CreatorRuntime {
 			onSendFailure: (socket) => this.handleSendFailure(socket),
 			toCharacterSummaryMessage,
 		});
-		this.memberBookkeeping = new MemberBookkeeping({
-			state: this.state,
-			connections: this.connections,
-			characters: this.characters,
-			heartbeatRegistry: this.heartbeatRegistry,
-			broadcastHub: this.broadcastHub,
-			enqueue: (operation) => this.enqueue(operation),
-			readyTimeoutMs: this.readyTimeoutMs,
-			onMembersChanged: this.onMembersChanged,
-			toCharacterSummaryMessage,
-		});
+
 		this.connectionManager = new ConnectionManager({
 			isActive: () => this.lifecycle === "active",
 			enqueue: (operation) => this.enqueue(operation),
-			onClientMessage: (socket, connection, message) => this.handleClientMessage(socket, connection, message),
+			onClientMessage: (socket, connection, message) => this.dispatchClientMessage(socket, connection, message),
 			onPong: (connection) => {
 				if (connection.sessionId !== null) {
 					this.heartbeatRegistry.recordPong(connection.sessionId);
@@ -215,79 +214,83 @@ export class CreatorRuntime {
 			},
 		});
 		this.characters = new Map(characters.map((character) => [character.characterId, character]));
+		this.memberBookkeeping = new MemberBookkeeping({
+			state: this.state,
+			connections: this.connections,
+			characters: this.characters,
+			heartbeatRegistry: this.heartbeatRegistry,
+			broadcastHub: this.broadcastHub,
+			enqueue: (operation) => this.enqueue(operation),
+			readyTimeoutMs: this.readyTimeoutMs,
+			readOnMembersChanged: () => this.onMembersChanged,
+			toCharacterSummaryMessage,
+		});
+
 		if (initialPersistedState) {
 			this.publicMessages = initialPersistedState.publicMessages;
 			this.persistedCount = initialPersistedState.persistedCount;
 		}
-		// 门面装配（application 层从 runtime 拿能力实例，不自建；application→runtime 下行依赖合法）
-		this.joinPipeline = new JoinPipeline({
-			connections: this.connections,
-			getAvailableCharacters: () => this.memberBookkeeping.getAvailableCharacters(),
-			toCharacterSummaryMessage,
-			send: (socket, message) => this.broadcastHub.send(socket, message),
-			sendFailure: (socket, id, command, reason) => this.broadcastHub.sendFailure(socket, id, command, reason),
-		});
-		this.leavePipeline = new LeavePipeline({
-			removeOnlineCharacter: (connection, reason) =>
-				this.removeOnlineCharacter(connection as ConnectionContext, reason),
-			send: (socket, message) => this.broadcastHub.send(socket, message),
-			sendFailure: (socket, id, command, reason) => this.broadcastHub.sendFailure(socket, id, command, reason),
-		});
-		// submit-message 管线依赖面（跨消息状态经闭包显式读写，决策 7）
-		this.submitMessageDeps = {
+		this.runtimeLifecycle = new RuntimeLifecycle({
+			readLifecycle: () => this.lifecycle,
+			setLifecycle: (value) => {
+				this.lifecycle = value;
+			},
+			heartbeatRegistry: this.heartbeatRegistry,
+			broadcastHub: this.broadcastHub,
 			state: this.state,
+			webSocketServer: this.webSocketServer,
+			connections: this.connections,
+			activeDescriptor: this.activeDescriptor,
+			activeDescriptorPath: this.activeDescriptorPath,
+			deps: this.deps,
+			readRuntimeTail: () => this.runtimeTail,
+			enqueue: (operation) => this.enqueue(operation),
+		});
+		// 管线门面装配（PR-B：拆至 pipeline-assembly，窄接口 host 注入）
+		const assembly = assemblePipelineDeps({
+			state: this.state,
+			connections: this.connections,
+			heartbeatRegistry: this.heartbeatRegistry,
 			publicMessages: this.publicMessages,
+			characters: this.characters,
+			sessionStore: this.sessionStore,
 			persistedCount: {
 				get: () => this.persistedCount,
 				add: (delta) => {
 					this.persistedCount += delta;
 				},
 			},
-			sessionStore: this.sessionStore,
-			broadcastGroupChatUpdate: () => this.broadcastHub.broadcastGroupChatUpdate(),
-			onPublicMessage: (msg) => this.onPublicMessage?.(msg),
-			onPublicMessageError: (error, sequence, timestamp) => this.onPublicMessageError?.(error, sequence, timestamp),
-			send: (socket, message) => this.broadcastHub.send(socket, message),
-			sendFailure: (socket, id, command, reason) => this.broadcastHub.sendFailure(socket, id, command, reason),
-		};
-		// claim/ready/query 门面依赖面（跨消息状态经注入引用显式读写，决策 7）
-		this.claimDeps = {
-			state: this.state,
-			characters: this.characters,
-			isCharacterAvailable: (characterId) => this.memberBookkeeping.isCharacterAvailable(characterId),
-			startReadyTimer: (socket, connection) => this.memberBookkeeping.startReadyTimer(socket, connection as ConnectionContext),
-			toCharacterSummaryMessage,
-			send: (socket, message) => this.broadcastHub.send(socket, message),
-			sendFailure: (socket, id, command, reason) => this.broadcastHub.sendFailure(socket, id, command, reason),
-		};
-		this.readyDeps = {
-			state: this.state,
-			connections: this.connections,
-			heartbeatRegistry: this.heartbeatRegistry,
-			publicMessages: this.publicMessages,
-			characters: this.characters,
-			clearReadyTimer: (connection) => this.memberBookkeeping.clearReadyTimer(connection as ConnectionContext),
+			broadcastHub: this.broadcastHub,
+			memberBookkeeping: this.memberBookkeeping,
+			enqueue: (operation) => this.enqueue(operation),
+			readOnPublicMessage: () => this.onPublicMessage,
+			readOnPublicMessageError: () => this.onPublicMessageError,
+			readOnMembersChanged: () => this.onMembersChanged,
 			now: () => this.deps.now(),
 			toCharacterSummary,
 			toCharacterSummaryMessage,
-			send: (socket, message) => this.broadcastHub.send(socket, message),
-			sendFailure: (socket, id, command, reason) => this.broadcastHub.sendFailure(socket, id, command, reason),
-			broadcast: (message) => this.broadcastHub.broadcast(message),
-			broadcastGroupChatUpdate: () => this.broadcastHub.broadcastGroupChatUpdate(),
-			onMembersChanged: () => this.onMembersChanged?.(),
-		};
-		this.queryDeps = {
+		});
+		this.joinPipeline = assembly.joinPipeline;
+		this.leavePipeline = assembly.leavePipeline;
+		this.submitMessageDeps = assembly.submitMessageDeps;
+		this.claimDeps = assembly.claimDeps;
+		this.readyDeps = assembly.readyDeps;
+		this.queryDeps = assembly.queryDeps;
+
+		this.runtimeFacades = new RuntimeFacades({
 			state: this.state,
-			publicMessages: this.publicMessages,
 			sessionStore: this.sessionStore,
-			getPersistedCount: () => this.persistedCount,
-			getGroupChatStateMessage: (requestingSessionId) =>
-				this.broadcastHub.getGroupChatStateMessage(requestingSessionId),
-			send: (socket, message) => this.broadcastHub.send(socket, message),
-			sendFailure: (socket, id, command, reason) => this.broadcastHub.sendFailure(socket, id, command, reason),
-			broadcastGroupChatUpdate: () => this.broadcastHub.broadcastGroupChatUpdate(),
-			onMembersChanged: () => this.onMembersChanged?.(),
-		};
+			activeDescriptor: this.activeDescriptor,
+			activeDescriptorPath: this.activeDescriptorPath,
+			persistedCount: {
+				get: () => this.persistedCount,
+				add: (delta) => {
+					this.persistedCount += delta;
+				},
+			},
+			submitMessageDeps: this.submitMessageDeps,
+			enqueue: (operation) => this.enqueue(operation),
+		});
 		this.heartbeatRegistry.start();
 	}
 
@@ -318,122 +321,42 @@ export class CreatorRuntime {
 		return takeHandoffFlow(handoff, dependencyOverrides);
 	}
 
-	async setName(name: string): Promise<string | null> {
-		return this.enqueue(async () => {
-			const normalizedName = normalizeGroupChatName(name);
-
-			// 空群聊：仅更新内存（尚无文件）
-			if (!this.persistedCount) {
-				await updateActiveDescriptorName(this.activeDescriptorPath, this.activeDescriptor.instanceId, normalizedName);
-				setGroupChatName(this.state, name);
-				this.activeDescriptor.name = normalizedName;
-				return normalizedName;
-			}
-
-			this.sessionStore.assertWritable();
-
-			// 活跃群聊：经 session-store 持久化条目
-			try {
-				this.sessionStore.appendSessionInfo(normalizedName ?? "");
-			} catch (error) {
-				this.sessionStore.recoverFromFailedAppend(error);
-			}
-			this.persistedCount++;
-
-			// 持久化成功后提交内存状态（权威）
-			setGroupChatName(this.state, name);
-			this.activeDescriptor.name = normalizedName;
-
-			// 尽力而为的 descriptor 更新（发现投影；失败非致命）
-			try {
-				await updateActiveDescriptorName(this.activeDescriptorPath, this.activeDescriptor.instanceId, normalizedName);
-			} catch {
-				// descriptor 更新失败，但内存与 JSONL 一致
-			}
-
-			return normalizedName;
-		});
+	/** 公开门面 API（PR-B：流程移至 runtime-facades，骨架保留门面）。 */
+	setName(name: string): Promise<string | null> {
+		return this.runtimeFacades.setName(name);
 	}
 
 	setMaxMessages(maxMessages: number): Promise<void> {
-		return this.enqueue(async () => {
-			// 在任何持久化/状态变更之前校验：非法值绝不能写入 JSONL 或推进
-			// persistedCount（BC-18）。
-			assertValidMaxMessages(maxMessages);
-
-			// 空群聊：仅更新内存
-			if (!this.persistedCount) {
-				setGroupMaxMessages(this.state, maxMessages);
-				return;
-			}
-
-			this.sessionStore.assertWritable();
-
-			// 活跃群聊：经 session-store 持久化条目
-			try {
-				this.sessionStore.appendCustomEntry("pi-tavern.group-settings", {
-					group_max_messages: maxMessages,
-				});
-			} catch (error) {
-				this.sessionStore.recoverFromFailedAppend(error);
-			}
-			this.persistedCount++;
-
-			setGroupMaxMessages(this.state, maxMessages);
-		});
+		return this.runtimeFacades.setMaxMessages(maxMessages);
 	}
 
 	submitUserPersonaMessage(content: string): Promise<string> {
-		// 请求级管线实例：校验 → 持久化（first-persist/append）→ 提交 → 广播/投影
-		return this.enqueue(() => new SubmitMessagePipeline(this.submitMessageDeps).runUserPersona(content));
+		return this.runtimeFacades.submitUserPersonaMessage(content);
 	}
 
-	/**
-	 * 永久终止运行时。幂等：并发调用共享同一结果。先排空运行时队列（受协调
-	 * 超时约束）；队列永不排空时，本地清理仍强制完成。
-	 */
+	/** 永久终止运行时（PR-B：流程移至 runtime-lifecycle，骨架保留门面；幂等语义随迁）。 */
 	close(reason: RuntimeCloseReason = "user_leave"): Promise<RuntimeCloseResult> {
-		this.closePromise ??= this.performClose(reason);
-		return this.closePromise;
+		return this.runtimeLifecycle.close(reason);
 	}
 
-	private async performClose(_reason: RuntimeCloseReason): Promise<RuntimeCloseResult> {
-		if (this.lifecycle === "detaching") {
-			// close() 与 detachForReload() 是互斥路径。
-			throw new Error("CreatorRuntime has been detached for reload and cannot be closed");
-		}
-		const errors: Error[] = [];
-		this.lifecycle = "disposed";
-		this.heartbeatRegistry.stop();
-		const timedOut = await this.drainRuntimeQueue(this.deps.drainTimeoutMs);
-
-		try {
-			this.broadcastHub.broadcast({
-				type: "group_chat_closed",
-				group_chat_id: this.state.groupChat.groupChatId,
-			});
-		} catch (error) {
-			errors.push(asError(error));
-		}
-		for (const socket of this.webSocketServer.clients) {
-			socket.close(1001, "Group chat closed");
-		}
-		await closeWebSocketServer(this.webSocketServer);
-		this.connections.clear();
-		this.state.onlineCharacters.clear();
-		this.state.characterReservations.clear();
-		this.heartbeatRegistry.clear();
-		try {
-			await removeOwnedActiveDescriptor(this.activeDescriptorPath, this.activeDescriptor.instanceId);
-		} catch (error) {
-			errors.push(asError(error));
-		}
-		return { timedOut, errors };
+	/** reload-flow 主机接口的生命周期读取（ReloadFlowHost.readLifecycle）。 */
+	readLifecycle(): "active" | "detaching" | "disposed" {
+		return this.lifecycle;
 	}
 
 	/** reload-flow 主机接口的生命周期写入（ReloadFlowHost.setLifecycle）。 */
 	setLifecycle(value: "active" | "detaching" | "disposed"): void {
 		this.lifecycle = value;
+	}
+
+	/** @internal reload-flow 主机接口委托；业务语义不变。 */
+	releaseReservation(connection: ConnectionContext): void {
+		this.memberBookkeeping.releaseReservation(connection);
+	}
+
+	/** @internal reload-flow 主机接口委托；业务语义不变。 */
+	removeOnlineCharacter(connection: ConnectionContext, reason: "left" | "disconnected"): void {
+		this.memberBookkeeping.removeOnlineCharacter(connection, reason);
 	}
 
 	/** 等待运行时队列排空，最长 timeoutMs；超时返回 true。 */
@@ -452,45 +375,25 @@ export class CreatorRuntime {
 		}
 	}
 
-	/** 解码后的客户端消息分发（ConnectionManager 注入回调；管线门面装配）。 */
-	private async handleClientMessage(
+	/** 客户端消息分发（PR-B：流程移至 creator-pipelines/dispatch）。 */
+	private dispatchClientMessage(
 		socket: WebSocket,
 		connection: ConnectionContext,
 		message: ClientMessage,
 	): Promise<void> {
-		switch (message.type) {
-			case "join_group_chat":
-				this.joinPipeline.run(socket, connection, message);
-				return;
-			case "claim_character":
-				new ClaimPipeline(this.claimDeps).run(socket, connection, message);
-				return;
-			case "character_ready":
-				new ReadyPipeline(this.readyDeps).run(socket, connection, message);
-				return;
-			case "get_group_chat_state":
-				new QueryPipeline(this.queryDeps).runGetGroupChatState(socket, connection, message);
-				return;
-			case "get_message_history":
-				new QueryPipeline(this.queryDeps).runGetMessageHistory(socket, connection, message);
-				return;
-			case "fetch_messages_since":
-				new QueryPipeline(this.queryDeps).runFetchMessagesSince(socket, connection, message);
-				return;
-			case "get_chat_history_file":
-				new QueryPipeline(this.queryDeps).runGetChatHistoryFile(socket, connection, message);
-				return;
-			case "update_character_state":
-				new QueryPipeline(this.queryDeps).runUpdateCharacterState(connection, message.is_streaming);
-				return;
-			case "leave_group_chat":
-				this.leavePipeline.run(socket, connection, message);
-				return;
-			case "speak":
-				// 请求级管线实例（ADR：一次协议消息 = 一个管线实例；依赖面由 runtime 装配注入）
-				await new SubmitMessagePipeline(this.submitMessageDeps).runSpeak(socket, connection, message);
-				return;
-		}
+		return dispatchClientMessageFlow(
+			{
+				joinPipeline: this.joinPipeline,
+				leavePipeline: this.leavePipeline,
+				submitMessageDeps: this.submitMessageDeps,
+				claimDeps: this.claimDeps,
+				readyDeps: this.readyDeps,
+				queryDeps: this.queryDeps,
+			},
+			socket,
+			connection,
+			message,
+		);
 	}
 
 	/**
@@ -538,49 +441,4 @@ function toCharacterSummaryMessage(character: CharacterSummary) {
 		name: character.name,
 		description: character.description,
 	};
-}
-
-export async function listenOnLocalhost(path: string): Promise<WebSocketServer> {
-	const server = new WebSocketServer({
-		host: "127.0.0.1",
-		port: 0,
-		path,
-		maxPayload: MAX_WEBSOCKET_FRAME_BYTES,
-	});
-
-	try {
-		await new Promise<void>((resolveListening, rejectListening) => {
-			const onListening = (): void => {
-				server.off("error", onError);
-				resolveListening();
-			};
-			const onError = (error: Error): void => {
-				server.off("listening", onListening);
-				rejectListening(error);
-			};
-
-			server.once("listening", onListening);
-			server.once("error", onError);
-		});
-		return server;
-	} catch (error) {
-		await closeWebSocketServer(server);
-		throw error;
-	}
-}
-
-export async function closeWebSocketServer(server: WebSocketServer): Promise<void> {
-	if (server.address() === null) {
-		return;
-	}
-
-	await new Promise<void>((resolveClose, rejectClose) => {
-		server.close((error) => {
-			if (error) {
-				rejectClose(error);
-			} else {
-				resolveClose();
-			}
-		});
-	});
 }

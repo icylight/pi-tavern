@@ -14,7 +14,8 @@ export interface MemberBookkeepingOptions {
 	broadcastHub: BroadcastHub;
 	enqueue: <T>(operation: () => T | Promise<T>) => Promise<T>;
 	readyTimeoutMs: number;
-	onMembersChanged: (() => void) | undefined;
+	/** 回调经 getter 读取（测试后期赋值仍生效——Arch ②「闭包捕获最终引用」同模式）。 */
+	readOnMembersChanged: () => (() => void) | undefined;
 	toCharacterSummaryMessage: (character: CharacterSummary) => {
 		character_id: string;
 		name: string;
@@ -54,10 +55,7 @@ export class MemberBookkeeping {
 
 	releaseReservation(connection: ConnectionContext): void {
 		const characterId = connection.reservedCharacterId;
-		if (
-			characterId !== null &&
-			this.options.state.characterReservations.get(characterId) === connection.sessionId
-		) {
+		if (characterId !== null && this.options.state.characterReservations.get(characterId) === connection.sessionId) {
 			this.options.state.characterReservations.delete(characterId);
 		}
 		connection.reservedCharacterId = null;
@@ -80,7 +78,7 @@ export class MemberBookkeeping {
 				reason,
 			});
 		}
-		this.options.onMembersChanged?.();
+		this.options.readOnMembersChanged()?.();
 		// ISSUE-014/#14（方案 A）：离开也刷新其他成员的 widget。
 		this.options.broadcastHub.broadcastGroupChatUpdate();
 	}
