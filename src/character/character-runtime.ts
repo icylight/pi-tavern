@@ -355,14 +355,18 @@ export class CharacterRuntime {
 		if (this.cursorSequence !== null) {
 			return this.cursorSequence;
 		}
+		// 游标跟随 Session：只读本 Session 文件。v1 群聊级共享游标无 Session 身份，
+		// 可能由其他角色推进——若回退采用其值会跳过本 Session 从未看过的消息，故
+		// 不采用（User 2026-08-02：新 Session 无独立游标 = 从完整历史重新拉取，
+		// 最多重复、绝不跳过）。旧共享文件物理遗留但不读不写。
+		let sequence: number | null = null;
 		try {
-			// 文件原语失败（ENOENT/EISDIR 等）如实抛错，编排层吞错；损坏返回 null
-			const sequence = readCursorFile(this.cursorStorePath);
-			if (sequence !== null) {
-				this.cursorSequence = sequence;
-			}
+			sequence = readCursorFile(this.cursorStorePath);
 		} catch {
-			// Missing/unreadable cursor: treat as no cursor.
+			// 本 Session 文件不存在（ENOENT/EISDIR 等）——无游标，走完整历史分页
+		}
+		if (sequence !== null) {
+			this.cursorSequence = sequence;
 		}
 		return this.cursorSequence;
 	}

@@ -1,6 +1,6 @@
 # 需求：角色获取新消息的交互调整（推送 + 拉取混合）
 
-> 状态：**需求形态已确认、技术方案已冻结**（2026-08-01 与 User Persona 采访对齐 + 三方评审通过），待实施。
+> 状态：**历史决策记录**——#24 方案已实施；投递时机口径后经 #60/#64 修订为 **pull 模型**（2026-08-02：闲态 1s 聚合窗口 / 忙态 settle 后立即 / run 零中间注入），本文档中与 pull 模型冲突的旧口径（立即拉取、无防抖、缺口检测、严格不重不漏、群聊级游标文件）以第 11 节修订表为准，其余字段/接口契约仍有效。
 > GitHub issue：**#24**（https://github.com/icylight/pi-tavern/issues/24，本地 ISSUE-012）。
 > 分支：`feat/new-message-fetch`（已从 main 切出）。
 > 本文档是需求的事实来源；协议/实现细节以第 10 节冻结方案为准，验收标准以第 7 节为准。
@@ -142,3 +142,15 @@ QA 测试断言与 Dev 实现必须一致的签名（差异点已仲裁）：
    - **RPC 降级口径（PM 裁定）**：RPC 测试模式无真实 LLM run → 验收层「≤X 间隔」降级为"投递发生 + 进程稳定"烟雾；时序断言（活跃时排队、settled 后 ≤5s 投递）由**单测层** fake timers + 注入 run 状态信号完整执行（单测层是 A5 主验证位）。
    - **isAgentActive 默认语义（必须明确）**：无 run 活跃时视为空闲（false）→ 收到通知立即投递；否则 RPC 验收模式将"永远排队"。请 Dev 在方案中明确该默认值。
 2. **观察通道**：沿用 `PITAVERN_TEST=1` testNotify 通道（ISSUE-007 先例）；**投递时注入 `latest_sequence` + 投递消息数**（QA 二评建议，PM 采纳），验收断言与 TUI 预览同源（同一消息数据）。**注入格式（Dev 2026-08-01 提供）**：`[tavern-inject] group=<id> latest_seq=<n> count=<k>`；验收断言：通知 preview 的 latest_sequence == 注入 latest_seq，消息内容同源（TUI 投影数据源 = publicMessages = 拉取数据源）。
+
+## 11. pull 模型修订表（#60/#62/#64 + 游标跟随 Session，2026-08-02）
+
+| 本节旧口径 | 修订后（当前实现/契约） |
+| --- | --- |
+| 2.3 触发（无防抖）：收到广播 → 立即增量拉取 | 闲态固定 1s 聚合窗口（N→1 并入一次消费）；忙态 settle 后立即（run 边界批量，非逐条实时） |
+| 2.5 兜底：缺口检测（最新序号 ≠ 游标+1 → 立即补拉） | sequence 过滤天然补齐——`fetch_messages_since` 返回游标后全部消息，无需缺口检测 |
+| 2.7 / 7 验收：消息**不重不漏** | 尽力保序、**幂等可重拉**（重复投递可容忍；游标只在成功投递后推进） |
+| 7.2 / 9 / 10.2 游标文件：`cursors/<group_chat_id>.json` | **游标跟随 Session**：`cursors/<group_chat_id>/<session_id>.json`；**旧单文件废弃不读**（值无 Session 身份，回退采用会跳过本 Session 未看过的消息）；新 Session 无独立游标 = 从完整历史分页重新拉取（最多重复、绝不跳过） |
+| 10.2 游标内容 `{ character_id, last_sequence, updated_at }` | 实现为 `{ last_sequence, updated_at }`（无 character_id；归属由文件路径的 session 维度表达） |
+| 10.3 去 1s 防抖、立即 fetch | 保留 1s 聚合窗口（闲态）；忙态标记 + settle 触发 |
+| 10.3 缺口检测、单飞行锁 | sequence 过滤补洞；增量窗口内多次变化单次投递 |

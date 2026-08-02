@@ -22,7 +22,7 @@ PiTavern 使用标准 WebSocket `ping` / `pong` 控制帧检测半开连接，�
 - Character 连续 120 秒没有收到创建者的 `ping` 时，主动终止该连接。
 - 普通 WebSocket `close` 或 `error` 事件立即进入断线处理，不等待心跳超时。
 - 心跳超时只用于兜底检测半开连接，不是重连窗口。
-- `ping` / `pong` 不进入环境防抖、Agent、pi session 或群聊记录。
+- `ping` / `pong` 不进入环境聚合批次、Agent、pi session 或群聊记录。
 - 心跳失败后不自动重连，统一执行 `disconnected` 清理。
 
 ## JSON 约定
@@ -296,7 +296,7 @@ Character 已经被预留或已经在线等失败情况使用 pi-coding-agent �
 2. 将 `session_id` 与 WebSocket 写入正式连接集合；
 3. 将 `session_id` 与 Character 写入在线 Character 状态。
 
-成功响应发出后，群聊创建者先向新 Character 发送最近 10 条 `message_history`，再向全部在线 Character 广播 `character_joined`。加入方收到成功响应后把准备好的 `CharacterRuntime` 激活，转交 WebSocket，并将 Controller 从 `joining` 切换为 `character`；激活前已到达的历史和广播由 `JoinAttempt` 缓冲并按接收顺序转交。Character 在环境批次防抖结束后主动请求 `get_group_chat_state`。
+成功响应发出后，群聊创建者先向新 Character 发送最近 10 条 `message_history`，再向全部在线 Character 广播 `character_joined`。加入方收到成功响应后把准备好的 `CharacterRuntime` 激活，转交 WebSocket，并将 Controller 从 `joining` 切换为 `character`；激活前已到达的历史和广播由 `JoinAttempt` 缓冲并按接收顺序转交。Character 在环境批次窗口结束后主动请求 `get_group_chat_state`。
 
 加入方在发送 `character_ready` 前本地准备失败时，关闭 WebSocket 并回到 `idle`；群聊创建者随连接关闭释放预留。首版不自动重试。
 
@@ -317,7 +317,7 @@ Character 完成 `character_ready` 并正式成为群成员后，群聊创建者
 
 - 广播遵循协议的统一广播语义。
 - 消息只携带公开 Character 摘要，不携带 `is_streaming` 或 `hand_raised`。
-- 群聊已有公开消息时，该消息属于环境事件，进入每个接收方的 1 秒环境防抖批次。
+- 群聊已有公开消息时，该消息属于环境事件，进入每个接收方的环境聚合批次（闲态 1s 窗口，N→1）。
 - 群聊尚无公开消息时，该消息只用于界面通知，不进入环境批次，也不触发 Agent run。
 - 新加入的 Character 先处理 `message_history`，再处理自己的 `character_joined` 广播。
 - 群聊已有公开消息时，历史中的 `public_message` 按历史顺序排在自己的加入事件之前，二者合并到同一个首次环境批次。
@@ -383,12 +383,12 @@ Character 主动离开请求：
 
 WebSocket 意外断开时没有离开请求和响应。群聊创建者立即执行同样的移除、释放和广播流程，不保留重连窗口。
 
-角色 pi 在检测到 WebSocket 断开时不等待服务端通知，立即清除当前群聊关联、未提交的防抖批次、群聊输入模块、Character system prompt 和 `tavern_speak`。已经提交给 pi session 或原生 follow-up queue 的群聊输入不回滚，当前 Agent run 不打断。用户之后只能通过 `/tavern-join` 重新加入。
+角色 pi 在检测到 WebSocket 断开时不等待服务端通知，立即清除当前群聊关联、未提交的环境聚合批次、群聊输入模块、Character system prompt 和 `tavern_speak`。已经提交给 pi session 或原生 follow-up queue 的群聊输入不回滚，当前 Agent run 不打断。用户之后只能通过 `/tavern-join` 重新加入。
 
 `character_left`：
 
 - 遵循协议的统一广播语义，接收范围基于成员移除后的在线 Character 集合。
-- 群聊已有公开消息时属于环境事件，进入接收方的 1 秒环境防抖批次。
+- 群聊已有公开消息时属于环境事件，进入接收方的环境聚合批次（闲态 1s 窗口，N→1）。
 - 群聊尚无公开消息时只用于界面通知，不进入环境批次，也不触发 Agent run。
 - 不写入群聊记录文件，也不使用 `event_id` 或 `sequence`。
 - 群聊整体关闭使用单独的关闭消息，不将其表示为所有 Character 逐个离开。
@@ -424,7 +424,7 @@ Character 收到关闭广播后：
 - 保留并继续使用当前 pi Agent 和 pi session。
 - 不强制中断当前 pi Agent 已经在处理的对话；群聊关联清除后，后续 `tavern_speak` 尝试失败。
 
-`group_chat_closed` 是仅存在于当前活动实例中的运行期终止信号，不进入 1 秒环境防抖，也不触发新的 Agent run。它不写入群聊记录文件，也不使用 `event_id` 或 `sequence`。
+`group_chat_closed` 是仅存在于当前活动实例中的运行期终止信号，不进入环境聚合批次，也不触发新的 Agent run。它不写入群聊记录文件，也不使用 `event_id` 或 `sequence`。
 
 PiTavern 与 pi-coding-agent session 一样，不持久化“已结束”状态。是否存在活动群聊只由临时活动描述和当前进程决定；群聊记录文件始终停留在最后一条完整记录。
 
@@ -580,45 +580,45 @@ Character 加入成功后，群聊创建者自动发送最近 10 条公开消息
 
 群聊状态不主动广播。Character 在以下场景使用 `get_group_chat_state` 主动获取最新快照：
 
-- 环境消息防抖结束、准备提交一次 Agent run 或 follow-up 时。
+- run 边界（闲态 1s 聚合窗口 / 忙态 settle 后）、准备提交一次 Agent run 或 follow-up 时。
 - 用户执行需要展示完整状态的命令时。
 - 其他明确需要刷新本地群聊状态的交互。
 
 环境批次触发的状态响应与该批次合并后，作为一次群聊输入提交给当前 pi Agent。Character 提示词由加入期间持续生效的 system prompt 扩展提供，不进入该输入。手动状态命令取得的响应只更新界面，不触发 Agent。
 
-Character 成功领取角色后，群聊创建者自动发送 `message_history`。历史非空时，Character 将其加入首次环境批次；1 秒防抖结束后主动请求群聊状态，再将历史批次和最新状态作为群聊输入提交给当前 pi Agent。空历史只更新界面，不创建环境批次。
+Character 成功领取角色后，群聊创建者自动发送 `message_history`。历史非空时，Character 将其加入首次环境批次；批次窗口（1 秒合并防抖）结束后主动请求群聊状态，再将历史批次和最新状态作为群聊输入提交给当前 pi Agent。空历史只更新界面，不创建环境批次。
 
 首次处理没有特殊的禁言规则。`tavern_speak` 是否被接受只由收到请求时当前 Round 的剩余发言次数判断；没有当前 Round 或当前 Round 没有剩余次数时，公开消息不能进入群聊。
 
-### 环境消息防抖
+### 环境消息聚合与 run 边界投递（#60/#62/#64 pull 模型）
 
-Character 使用固定 1 秒的 trailing-edge debounce 合并连续到达的环境消息：
+Character 使用固定 1 秒聚合窗口（闲态）合并连续到达的环境消息；忙态零中间注入，settle 后立即触发：
 
-1. 收到环境消息后，将其加入当前待处理环境批次并启动计时。
-2. 1 秒内收到新的环境消息时，将新消息合并到当前批次并重新计时。
-3. 连续 1 秒没有收到新环境消息时，请求最新群聊状态。
-4. 将环境批次和群聊状态快照一起提交。
+1. 收到 `group_chat_update` 通知（水位 + 最近 3 条预览）后，将预览并入待处理批次；**公共消息正文不注入**——run 活跃时只置忙态标记（零中间注入红线）。
+2. 闲态：固定 1s 聚合窗口，窗口内多次变化并入**单次消费**（N→1），不重置计时（#60/#62）。
+3. 忙态：settle 后立即消费（#64）；消费 = 按本 Session 持久化游标 `fetch_messages_since` 拉取全部未读，sequence 过滤天然补洞。
+4. 拉取完成后请求最新群聊状态，将批次与状态快照合并提交。
 
 提交环境批次时：
 
-- 当前 pi Agent 空闲：将环境批次和状态快照合并为一次输入并立即提交。
-- 当前 pi Agent 正在运行：将同样的合并输入作为一条 follow-up，交给当前 pi session 的原生队列。
+- 当前 pi Agent 空闲：将环境批次和状态快照合并为一次输入并立即提交（触发新 run）。
+- 当前 pi Agent 正在运行：将同样的合并输入作为一条 follow-up，交给当前 pi session 的原生队列，由 settle 触发投递。
 
-WebSocket 环境消息不会逐条直接追加到 pi session。只有防抖完成后的合并输入才通过 pi 原生对话入口提交，并与随后的 assistant 回复、工具调用和工具结果一起按照 pi 原生 session 逻辑记录。
+WebSocket 环境消息不会逐条直接追加到 pi session。只有聚合完成后的合并输入才通过 pi 原生对话入口提交，并与随后的 assistant 回复、工具调用和工具结果一起按照 pi 原生 session 逻辑记录。成员/环境事件（character_joined/left、message_history）经 steer 通道在工具调用间隙可见（#38，不打断 run、秒级延迟）。
 
-防抖适用于：
+聚合批次适用于：
 
 - `message_history`
 - User Persona 的公开消息
 - 其他 Character 的公开消息
 - 已经产生公开消息的群聊中的成员加入和离开环境事件
 
-以下消息不进入环境批次，也不重置防抖计时：
+以下消息不进入环境批次，也不重置聚合窗口计时：
 
 - Character 自己公开消息的回传确认
 - 普通请求响应
 
-`get_group_chat_state` 响应不独立触发 Agent，而是作为触发它的环境批次的最新快照。防抖本身不修改 `is_streaming`；该字段始终跟随当前 pi Agent 的原生状态。防抖批次只是短暂的消息合并机制，不替代 pi-coding-agent 的 follow-up queue。首版固定为 1 秒，不提供配置项。
+`get_group_chat_state` 响应不独立触发 Agent，而是作为触发它的环境批次的最新快照。聚合窗口本身不修改 `is_streaming`；该字段始终跟随当前 pi Agent 的原生状态（#14 watchdog 兜底）。聚合批次只是短暂的消息合并机制，不替代 pi-coding-agent 的 follow-up queue。闲态窗口固定为 1 秒，不提供配置项。
 
 ## Character 状态同步
 
@@ -825,7 +825,7 @@ User Persona 消息：
 - Character 消息携带成功计数后的 Round 快照。
 - User Persona 消息携带新 Round 的初始快照，其中 `used_messages` 为 `0`。
 - `public_message` 遵循协议的统一消息结构；广播形态为 `group_chat_update` 通知（见「公开消息广播与增量拉取」）。
-- Character 发送方接收自己的广播作为正式发布确认，但该回传不进入自己的环境防抖批次。
+- Character 发送方接收自己的广播作为正式发布确认，但该回传不进入自己的环境聚合批次。
 - `message_history.messages` 与群聊记录中的公开消息复用此结构。
 
 #### `group_chat_update`（广播通知形态）
@@ -843,7 +843,7 @@ User Persona 消息：
 
 - `latest_sequence`：当前最新公开消息序号；角色据此检测缺口（`latest_sequence ≠ 本地游标 + 1` 即应拉取补齐）。无任何公开消息时（群聊刚创建/成员变化先于首条消息）为 `0`、`preview_messages` 为空数组。
 - `preview_messages`：最近 3 条公开消息（微信通知形态），与拉取路径同源（同一 `publicMessages` 数据）。
-- 角色收到通知后立即执行 `fetch_messages_since`（无防抖）拉取增量，投递仍走 followUp（不打断当前 run）；同时刷新本地群聊状态快照（`get_group_chat_state`）。
+- 角色在 run 边界（闲态 1s 聚合窗口 / 忙态 settle 后立即）按本 Session 持久化游标执行 `fetch_messages_since` 拉取全部未读（N→1 单次投递），投递仍走 followUp（不打断当前 run）；同时刷新本地群聊状态快照（`get_group_chat_state`）。
 - **双触发语义（方案 A，ISSUE-014）**：除消息变更（公开消息发布）外，成员加入/离开、`is_streaming` 翻转、举手状态变化也会广播 `group_chat_update`。非空群聊中两类触发在负载上不可区分（成员广播同样携带最新 `latest_sequence` 与预览）——这是有意的通道复用（协议格式零变更），消费端依赖「每次 update 拉增量（按序号幂等）+ 刷新快照」自洽，不得按广播触发源或到达顺序作精确断言（测试宜用谓词式断言）。
 
 #### `fetch_messages_since`（增量拉取命令）

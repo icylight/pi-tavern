@@ -1,9 +1,10 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 import { JoinAttempt } from "../../../src/character/join-attempt.js";
+import { CharacterRuntime } from "../../../src/character/character-runtime.js";
 import { type CharacterCard, loadCharacterCard } from "../../../src/config/character-card.js";
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 
@@ -16,23 +17,27 @@ async function createTemporaryDirectory(): Promise<string> {
 	return directory;
 }
 
-async function startCreator(): Promise<{ creator: CreatorRuntime; character: CharacterCard }> {
+async function startCreator(
+	characterCount = 1,
+): Promise<{ creator: CreatorRuntime; character: CharacterCard; characters: CharacterCard[] }> {
 	const root = await createTemporaryDirectory();
-	const characterPath = join(root, "characters", "architect.md");
 	const configPath = join(root, "tavern.json");
 	await mkdir(join(root, "characters"), { recursive: true });
-	await writeFile(characterPath, "---\nname: Architect\ndescription: Architecture\n---\nArchitect prompt");
-	const character = await loadCharacterCard(characterPath, configPath);
+	const cards = ["Architect", "Developer", "QA", "PM"].slice(0, characterCount).map((name) => ({ name, description: name }));
+	for (const card of cards) {
+		await writeFile(join(root, "characters", `${card.name.toLowerCase()}.md`), `---\nname: ${card.name}\ndescription: ${card.description}\n---\n${card.name} prompt`);
+	}
+	const characters = await Promise.all(cards.map((card) => loadCharacterCard(join(root, "characters", `${card.name.toLowerCase()}.md`), configPath)));
 	const creator = await CreatorRuntime.startNew(
 		{
 			cwd: join(root, "project"),
 			agentDir: join(root, "agent"),
-			characters: [character],
+			characters,
 		},
 		{},
 	);
 	creatorRuntimes.push(creator);
-	return { creator, character };
+	return { creator, character: characters[0]!, characters };
 }
 
 afterEach(async () => {
@@ -156,6 +161,119 @@ describe("M7 message fetch (ISSUE-012)", () => {
 		const runtime = await attempt.claimCharacter(character.characterId);
 
 		expect(runtime.loadCursor()).toBeNull();
+	});
+
+	it("isolates cursors per session: two sessions never advance each other's cursor (P0)", async () => {
+		const { creator, characters } = await startCreator(2);
+		await creator.submitUserPersonaMessage("one"); // seq 1
+		await creator.submitUserPersonaMessage("two"); // seq 2
+		await creator.submitUserPersonaMessage("three"); // seq 3
+
+		const root = await createTemporaryDirectory();
+		const cursorDir = join(root, "cursors", "group-iso");
+		const attemptA = await JoinAttempt.connect(creator.activeDescriptor, "session-iso-a", {
+			cursorStorePath: join(cursorDir, "session-iso-a.json"),
+		});
+		const runtimeA = await attemptA.claimCharacter(characters[0]!.characterId);
+		const attemptB = await JoinAttempt.connect(creator.activeDescriptor, "session-iso-b", {
+			cursorStorePath: join(cursorDir, "session-iso-b.json"),
+		});
+		const runtimeB = await attemptB.claimCharacter(characters[1]!.characterId);
+
+		// A delivered up to 3; B has delivered only seq 1.
+		runtimeA.saveCursor(3);
+		runtimeB.saveCursor(1);
+
+		// Distinct files, no cross-advance, no shared tmp clash.
+		expect(JSON.parse(await readFile(join(cursorDir, "session-iso-a.json"), "utf8")).last_sequence).toBe(3);
+		expect(JSON.parse(await readFile(join(cursorDir, "session-iso-b.json"), "utf8")).last_sequence).toBe(1);
+		expect(runtimeA.loadCursor()).toBe(3);
+		expect(runtimeB.loadCursor()).toBe(1);
+
+		// B pulls from its own cursor: nothing skipped, nothing re-delivered.
+		const pulled = await runtimeB.fetchMessagesSince(1);
+		expect(pulled?.messages.map((m) => (m as { sequence?: number }).sequence)).toEqual([2, 3]);
+	});
+
+	it("does not adopt the v1 group-chat cursor: a fresh session pulls from full history (P0)", async () => {
+		const { creator, character } = await startCreator();
+		await creator.submitUserPersonaMessage("one"); // seq 1
+		await creator.submitUserPersonaMessage("two"); // seq 2
+		await creator.submitUserPersonaMessage("three"); // seq 3
+
+		const root = await createTemporaryDirectory();
+		const groupId = "group-legacy";
+		// A v1 shared cursor advanced by another session (e.g. 120) carries no
+		// session identity: adopting it could skip 91-120 for this session.
+		const legacyPath = join(root, "cursors", `${groupId}.json`);
+		await mkdir(join(root, "cursors"), { recursive: true });
+		await writeFile(legacyPath, JSON.stringify({ last_sequence: 120, updated_at: "2026-01-01T00:00:00.000Z" }));
+
+		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-legacy", {
+			cursorStorePath: join(root, "cursors", groupId, "session-legacy.json"),
+		});
+		const runtime = await attempt.claimCharacter(character.characterId);
+
+		// The legacy file is never adopted: no session cursor means no cursor.
+		expect(runtime.loadCursor()).toBeNull();
+
+		// Full history from 0: nothing skipped, duplicates are acceptable.
+		const pulled = await runtime.fetchMessagesSince(0);
+		expect(pulled?.messages.map((m) => (m as { sequence?: number }).sequence)).toEqual([1, 2, 3]);
+
+		// Saves go to the session file only; the legacy file stays untouched.
+		runtime.saveCursor(3);
+		const sessionFile = join(root, "cursors", groupId, "session-legacy.json");
+		expect(JSON.parse(await readFile(sessionFile, "utf8")).last_sequence).toBe(3);
+		expect(JSON.parse(await readFile(legacyPath, "utf8")).last_sequence).toBe(120);
+	});
+
+	it("writes concurrent session cursors atomically without clobbering (P0)", async () => {
+		const { creator, characters } = await startCreator(2);
+		const root = await createTemporaryDirectory();
+		const cursorDir = join(root, "cursors", "group-conc");
+		const attemptA = await JoinAttempt.connect(creator.activeDescriptor, "session-conc-a", {
+			cursorStorePath: join(cursorDir, "session-conc-a.json"),
+		});
+		const runtimeA = await attemptA.claimCharacter(characters[0]!.characterId);
+		const attemptB = await JoinAttempt.connect(creator.activeDescriptor, "session-conc-b", {
+			cursorStorePath: join(cursorDir, "session-conc-b.json"),
+		});
+		const runtimeB = await attemptB.claimCharacter(characters[1]!.characterId);
+
+		// Interleaved saves across sessions: per-session files mean no shared
+		// tmp name and no last-write-wins clash between sessions.
+		runtimeA.saveCursor(5);
+		runtimeB.saveCursor(9);
+		runtimeA.saveCursor(6);
+
+		expect(JSON.parse(await readFile(join(cursorDir, "session-conc-a.json"), "utf8")).last_sequence).toBe(6);
+		expect(JSON.parse(await readFile(join(cursorDir, "session-conc-b.json"), "utf8")).last_sequence).toBe(9);
+		// No leftover tmp files in the shared directory.
+		const leftovers = (await readdir(cursorDir)).filter((name) => name.endsWith(".tmp"));
+		expect(leftovers).toEqual([]);
+	});
+
+	it("resumes the same session cursor across a reload handoff (P0)", async () => {
+		const { creator, character } = await startCreator();
+		const root = await createTemporaryDirectory();
+		const cursorPath = join(root, "cursors", "group-reload", "session-reload.json");
+
+		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-reload", {
+			cursorStorePath: cursorPath,
+		});
+		const runtime = await attempt.claimCharacter(character.characterId);
+		runtime.saveCursor(7);
+
+		// Reload handoff carries cursorStorePath; the fresh runtime resumes
+		// from the same session cursor without re-delivery.
+		const handoff = await runtime.detachForReload("session-reload");
+		const resumed = await CharacterRuntime.takeHandoff(handoff);
+		expect(resumed.loadCursor()).toBe(7);
+		const pulled = await resumed.fetchMessagesSince(7);
+		expect(pulled?.messages).toEqual([]);
+
+		await resumed.close();
 	});
 });
 

@@ -307,12 +307,12 @@ roundMaxMessages
 
 角色侧本地持久化「上次成功投递的最后一条消息 sequence」，重启/重连不丢：
 
-- 路径：`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>.json`
-- 内容：`{ "last_sequence": 42, "updated_at": "..." }`（原子写：tmp 文件 + rename）
+- 路径：**游标跟随 Session**——`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>/<session_id>.json`（同群聊多角色各持独立游标文件，互不推进）；**旧版群聊级单文件（`cursors/<group_chat_id>.json`）废弃不读**——其值无 Session 身份、可能由其他角色推进，回退采用会跳过本 Session 从未看过的消息（User 2026-08-02 裁定）；新 Session 无独立游标时从完整历史分页重新拉取（最多重复、绝不跳过），旧文件物理遗留不写不删
+- 内容：`{ "last_sequence": 42, "updated_at": "..." }`（原子写：tmp 文件 + rename，同步原语）
 - 更新时机：**每次成功投递后**更新（投递失败游标不动 → 下次重拉同一窗口，按 sequence 幂等）
 - join/重连差分同步：有游标 → `fetch_messages_since(游标)`；无游标 → 现有 `message_history` 全量分页
-- 随 reload handoff 传递（`cursorStorePath` 字段），reload 后继续
-- 不提供服务端 per-character 已读游标（游标在角色侧本地，单一 session 模型）
+- 随 reload handoff 传递（`cursorStorePath` 字段），reload 后继续（sessionId 稳定 → 同路径读回）
+- 不提供服务端 per-character 已读游标（游标在角色侧本地，按 session 维度隔离）
 
 ## Creator 侧 resume 投影锚定（#42/ISSUE-042，方案 B：纯扫描语义）
 

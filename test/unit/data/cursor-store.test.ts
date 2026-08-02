@@ -21,9 +21,7 @@ async function createTemporaryDirectory(): Promise<string> {
 }
 
 afterEach(async () => {
-	await Promise.all(
-		temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
-	);
+	await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
 describe("cursor-store", () => {
@@ -50,7 +48,8 @@ describe("cursor-store", () => {
 		});
 
 		it("rejects missing / non-safe-integer seq", () => {
-			const encode = (value: unknown): string => Buffer.from(JSON.stringify({ v: 1, seq: value })).toString("base64url");
+			const encode = (value: unknown): string =>
+				Buffer.from(JSON.stringify({ v: 1, seq: value })).toString("base64url");
 			expect(decodeCursor(encode(undefined))).toBeNull();
 			expect(decodeCursor(encode(1.5))).toBeNull();
 			expect(decodeCursor(encode(Number.MAX_SAFE_INTEGER + 1))).toBeNull();
@@ -153,4 +152,5 @@ describe("cursor-store", () => {
 			expect(() => writeCursorFile(asDirectory, 5)).toThrow();
 		});
 	});
+
 });
