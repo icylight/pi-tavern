@@ -100,6 +100,16 @@ describe("CreatorRuntime Character join lifecycle", () => {
 			character: toSummaryMessage(characters[0] as CharacterCard),
 		});
 
+		// 方案 A (ISSUE-014/#14): membership changes also broadcast a
+		// group_chat_update so other characters refresh their snapshots.
+		// Join-time: no messages yet, so latest_sequence=0 / empty preview.
+		expect(await peer.next()).toEqual({
+			type: "group_chat_update",
+			latest_sequence: 0,
+			preview_messages: [],
+			total_messages: 0,
+		});
+
 		expect(runtime.state.characterReservations.size).toBe(0);
 		expect(runtime.connections.get("session-1")?.readyState).toBe(WebSocket.OPEN);
 		expect(runtime.state.onlineCharacters.get("session-1")).toMatchObject({
@@ -184,13 +194,41 @@ describe("CreatorRuntime Character join lifecycle", () => {
 		const runtime = await startRuntime();
 		const first = await connectAndReady(runtime, "session-1", characters[0]?.characterId as string);
 		const second = await connectAndReady(runtime, "session-2", characters[1]?.characterId as string);
+		// 方案 A (ISSUE-014/#14): drain first's queue — its own join-time
+		// group_chat_update, then second's join broadcast
+		// (character_joined + group_chat_update).
+		await first.next();
+		await first.next();
 		await first.next();
 
 		first.send({ id: "leave", type: "leave_group_chat" });
+		// 方案 A (ISSUE-014/#14): second still has its own join-time
+		// group_chat_update in the queue before the leave broadcast.
+		expect(await second.next()).toMatchObject({ type: "group_chat_update" });
 		expect(await second.next()).toEqual({
 			type: "character_left",
 			character: toSummaryMessage(characters[0] as CharacterCard),
 			reason: "left",
+		});
+		// 方案 A: the leave broadcast carries a group_chat_update too; the
+		// snapshot must no longer contain the departed member (A4 真值).
+		expect(await second.next()).toMatchObject({ type: "group_chat_update" });
+		second.send({ id: "state-after-leave", type: "get_group_chat_state" });
+		expect(await second.next()).toMatchObject({
+			id: "state-after-leave",
+			type: "response",
+			command: "get_group_chat_state",
+			success: true,
+			data: {
+				online_characters: [
+					{
+						character_id: characters[1]?.characterId,
+						is_self: true,
+						is_streaming: false,
+						hand_raised: false,
+					},
+				],
+			},
 		});
 		expect(await first.next()).toEqual({
 			id: "leave",
