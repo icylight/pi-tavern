@@ -33,19 +33,36 @@ const LAYER_RULES = [
 		forbid: [
 			/(\.\.\/)*data\/(discovery\/discover-group-chats|cursor-store|group-chat-sessions|session-store|resume-projection)\.js/,
 		],
-		// 纯路径函数/类型导入豁免：active-descriptor 的 getGroupChatCursorDirectory
+			// 纯路径函数/类型导入豁免：active-descriptor 的 getGroupChatCursorDirectory
 		// 等路径原语允许 adapter 消费（Arch 裁决 ①）；行为面默认实现已上移组合根。
+		// 行为导出（publish/update/remove/read）禁止（Arch 加固 ③）——见 ACTIVE_DESCRIPTOR_BEHAVIORS。
 		allowFiles: [],
 	},
 	{
 		name: "application 不得直接碰文件 IO（node:fs）",
-		sources: ["controller/"],
+		sources: ["controller/", "creator/creator-pipelines/"],
 		forbid: [/node:fs/],
 		allowFiles: [],
 	},
 	{
+		// Phase 3 拆出的 10 模块全集（文件集已稳定，枚举补全防漂移——Arch 加固 ②）
 		name: "runtime 域不得直连 node:fs（经 deps 注入；factory/组合根豁免）",
-		sources: ["creator/creator-runtime.ts", "character/character-runtime.ts", "character/join-attempt.ts", "character/group-chat-input.ts"],
+		sources: [
+			"creator/creator-runtime.ts",
+			"creator/heartbeat-registry.ts",
+			"creator/broadcast-hub.ts",
+			"creator/connection-manager.ts",
+			"creator/member-bookkeeping.ts",
+			"creator/reload-flow.ts",
+			"creator/runtime-lifecycle.ts",
+			"creator/pipeline-assembly.ts",
+			"creator/runtime-facades.ts",
+			"creator/ws-utils.ts",
+			"creator/creator-pipelines/dispatch.ts",
+			"character/character-runtime.ts",
+			"character/join-attempt.ts",
+			"character/group-chat-input.ts",
+		],
 		forbid: [/node:fs/],
 		allowFiles: ["creator/creator-factory.ts"],
 	},
@@ -66,6 +83,9 @@ function collectTsFiles(dir, out = []) {
 function matchesAny(sourcePath, prefixes) {
 	return prefixes.some((prefix) => sourcePath === prefix || sourcePath.startsWith(prefix));
 }
+
+// active-descriptor 行为导出（纯路径函数豁免的边界，Arch 加固 ③）。
+const ACTIVE_DESCRIPTOR_BEHAVIORS = /(publishActiveDescriptor|updateActiveDescriptorName|removeOwnedActiveDescriptor|readActiveDescriptor)/;
 
 let violations = 0;
 const files = collectTsFiles(SRC);
@@ -96,6 +116,17 @@ for (const rule of LAYER_RULES) {
 					violations += 1;
 					console.error(`[lint-layers] ${rule.name}\n  ${relative(SRC, file)}: ${statement.replace(/\s+/g, " ").slice(0, 120)}`);
 				}
+			}
+			// 加固 ③：adapter 消费 active-descriptor 时，具名导入不得含行为导出。
+			if (
+				rule.name.startsWith("adapter") &&
+				statement.includes("active-descriptor") &&
+				ACTIVE_DESCRIPTOR_BEHAVIORS.test(statement)
+			) {
+				violations += 1;
+				console.error(
+					`[lint-layers] adapter 不得触 active-descriptor 行为导出\n  ${relative(SRC, file)}: ${statement.replace(/\s+/g, " ").slice(0, 120)}`,
+				);
 			}
 		}
 	}
