@@ -110,30 +110,30 @@ PiTavern is not bound to any organizational structure — but it can carry
 different information flows and collaboration topologies. The examples below
 show how the same mechanisms (independent Sessions, Character identity, public
 message sync) form different workflows through **Character Cards and
-collaboration conventions**:
+collaboration conventions**.
+
+### Software scenarios
 
 | Team | Trigger | Roles (who participates) | Collaboration flow (who does what) | Topology |
 | --- | --- | --- | --- | --- |
-| Software development | Requirement/task | Product Manager, Software Architect, Test Engineer, Developer | PM fans out requirements → Architect provides design/constraints, Test Engineer provides acceptance basis → Developer implements and submits evidence → Architect reviews, Test Engineer accepts → conclusions flow back to PM | Star fan-out + converge |
-| Incident response | Event | Incident Commander, SRE, Backend Engineer, Database Engineer, Test Engineer | Commander keeps unified state and dispatches → SRE/Backend/Database investigate in parallel → Commander consolidates → Backend Engineer fixes → Test Engineer verifies recovery → back to Commander | Hub-and-spoke |
-| Security review | Review task | Security Architect, Security Engineer, Developer, Security Test Engineer | Architect threat-models and Engineer code-audits in parallel → risk triage → Developer fixes → Engineer re-checks | Adversarial loop |
-| Open-source maintenance | Issue/PR | Issue Triage, Maintainer, Contributor, Reviewer, Release Manager | Triage routes → Maintainer accepts/assigns → Contributor implements the PR → Reviewer reviews → Release Manager prepares release | Async pipeline |
-| Technology research | Research topic | Research Lead, Researchers, Technical Analyst, Review Expert, Documentation Lead | Researchers explore in parallel → Analyst evaluates options → Expert challenges → Lead converges the conclusion → Documentation Lead writes it up | Parallel + converge |
+| Software development | Requirement/task | Product Manager, Software Architect, Developer, Test Engineer | PM distributes requirements → Architect designs and Test Engineer writes cases (in parallel) → Developer implements → Architect reviews, Test Engineer accepts | Star fan-out + converge |
+| Incident response | Event | Incident Commander, SRE, Backend Engineer, Database Engineer, Test Engineer | Commander keeps unified state and dispatches → SRE/Backend/Database investigate in parallel → Backend Engineer fixes → Test Engineer verifies recovery | Hub-and-spoke |
+| Security review | Review task | Security Architect, Security Engineer, Developer, Security Test Engineer | Architect threat-models and Engineer code-audits (in parallel) → Developer fixes → Security Test Engineer independently re-verifies | Adversarial loop |
 
 ```mermaid
 flowchart LR
-    PM["Product Manager"] -->|"fan-out requirements"| AR["Software Architect"] & TE["Test Engineer"]
-    AR -->|"design/constraints"| DV["Developer"]
-    TE -->|"acceptance basis"| DV
+    PM["Product Manager"] -->|"distribute requirements"| AR["Software Architect"] & TE["Test Engineer"]
+    AR -->|"design"| DV["Developer"]
+    TE -->|"test cases"| DV
     DV -->|"impl + evidence"| AR & TE
-    AR -->|"review verdict"| PM
-    TE -->|"acceptance verdict"| PM
+    AR -->|"review"| PM
+    TE -->|"acceptance"| PM
 ```
 
 ```mermaid
 flowchart LR
-    IC["Incident Commander"] -->|"shared state/dispatch"| SRE["SRE"] & BE["Backend Engineer"] & DBE["Database Engineer"]
-    SRE & BE & DBE -->|"findings"| IC
+    IC["Incident Commander"] -->|"shared state/dispatch"| SRE["SRE"] & BE["Backend Engineer"] & DB["Database Engineer"]
+    SRE & BE & DB -->|"findings"| IC
     IC -->|"root cause + plan"| BE
     BE -->|"fix done"| TE["Test Engineer"]
     TE -->|"recovery verified"| IC
@@ -141,35 +141,55 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    SA["Security Architect"] -->|"threat modeling + triage"| DV["Developer"]
-    SE["Security Engineer"] -->|"code audit + findings"| DV
-    DV -->|"independent fix"| SE
-    SE -->|"re-check"| ST["Security Test Engineer"]
-    ST -->|"regression verify"| SA
+    SA["Security Architect"] -->|"threat modeling"| DE["Developer"]
+    SE["Security Engineer"] -->|"code audit"| DE
+    DE -->|"fix"| ST["Security Test Engineer"]
+    ST -->|"independent re-verify"| SA
+```
+
+### Non-software scenarios
+
+| Team | Trigger | Roles (who participates) | Collaboration flow (who does what) | Topology |
+| --- | --- | --- | --- | --- |
+| Content publishing | Topic | Editor-in-Chief, Research Associate, Writer, Fact-Checker, Copy Editor | Chief picks the topic → Researcher gathers materials and Fact-Checker verifies (in parallel) → Writer writes → Copy Editor edits → Chief finalizes | Serial pipeline + parallel verification |
+| Marketing campaign | Campaign goal | Marketing Lead, User Researcher, Copywriter, Channel Operator, Data Analyst | Lead sets the goal → Researcher studies users → Copywriter creates and Operator picks channels (in parallel) → Launch → Analyst evaluates results | Parallel + launch loop |
+| Business decision | Decision question | Business Owner, Market Analyst, Financial Analyst, Risk Manager, Decision Recorder | Owner poses the question → Market/Financial analysts analyze (in parallel) → Risk Manager challenges → options compared → Recorder records the decision | Parallel analysis + challenge convergence |
+
+```mermaid
+flowchart LR
+    ED["Editor-in-Chief"] -->|"topic"| RS["Research Associate"] & FC["Fact-Checker"]
+    RS -->|"materials"| AU["Writer"]
+    FC -->|"verification"| AU
+    AU -->|"draft"| CW["Copy Editor"]
+    CW -->|"edited draft"| ED
+    ED -->|"finalize"| PUB["Publish"]
 ```
 
 ```mermaid
 flowchart LR
-    TR["Issue Triage"] -->|"route"| MT["Maintainer"]
-    MT -->|"accept/assign"| CT["Contributor"]
-    CT -->|"PR submitted"| RW["Reviewer"]
-    RW -->|"approved"| RL["Release Manager"]
-    RL -->|"release prep"| TR
+    MK["Marketing Lead"] -->|"set goal"| UR["User Researcher"]
+    UR -->|"user insights"| CP["Copywriter"] & CH["Channel Operator"]
+    CP -->|"creative assets"| LA["Launch"]
+    CH -->|"channel plan"| LA
+    LA -->|"campaign data"| DA["Data Analyst"]
+    DA -->|"results"| MK
 ```
 
 ```mermaid
 flowchart LR
-    OL["Research Lead"] -->|"kick-off"| R1["Researcher"] & R2["Researcher"]
-    R1 & R2 -->|"findings"| TA["Technical Analyst"]
-    TA -->|"candidates"| RE["Review Expert"]
-    RE -->|"challenge/reply"| OL
-    OL -->|"conclusion"| DW["Documentation Lead"]
+    BO["Business Owner"] -->|"question"| MA["Market Analyst"] & FA["Financial Analyst"]
+    MA & FA -->|"analysis"| RM["Risk Manager"]
+    RM -->|"risk challenge"| BO
+    BO -->|"compare options"| DR["Decision Recorder"]
+    DR -->|"record decision"| BO
 ```
 
-> **These are user-configurable examples only** — not built-in PiTavern roles,
-> not fully validated team templates, and not a state machine enforced by the
-> extension. (A Character Card can only be claimed by one Session at a time —
-> parallel roles in the examples each have their own Character Card.)
+> **These examples are user-configurable arrangements only** — not built-in
+> PiTavern templates and not a state machine enforced by the extension (a
+> Character Card can only be claimed by one Session at a time — parallel roles
+> each have their own card). The software scenarios are common ways of
+> collaborating; the **non-software scenarios (content publishing / marketing /
+> business decisions) have not been fully validated in practice**.
 
 The core point: PiTavern lets teams form different workflows through
 **Character Cards and collaboration conventions**, not just by renaming roles;
