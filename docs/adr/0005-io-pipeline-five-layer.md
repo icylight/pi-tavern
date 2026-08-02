@@ -28,6 +28,7 @@
 - **文件 IO 仅限 skills**：application 不直接读写文件；adapter 可直查 skills（纯读）；skills 不编排流程
 - runtime 是唯一单例持有者（连接 + 能力实例装配点），application 需要时从 runtime 拿，不自建
 - skills 无 pi 依赖、可单测（resume-projection 先例推广）
+- **skills 不 import pi 包（含类型）**：宿主对象（如 pi 的 SessionManager）经 runtime 注入，skills 以本地结构类型接口接收（TS 结构类型天然满足，单测注入假件——先例：creator-runtime.test.ts 的 vi.fn 替换）
 - 纯计算 skill 不隐藏 IO：计算输入由管线显式组装后传入
 
 ### 3. 消息与游标怎么保存
