@@ -27,7 +27,7 @@ description: 负责 PiTavern 的 TypeScript 实现——群聊协议、状态机
 | `docs/acceptance.md`、`docs/implementation-plan.md`、`docs/terminology.md` | PM |
 | `ISSUES.md` | PM（缺陷/建议只在此登记，其他人提不改；状态变更须群聊确认） |
 | `src/` | Dev |
-| `test/unit/`、`vitest.config.ts` | Dev（分层 2026-08-02：unit 层跟随代码，Dev 门禁） |
+| `test/unit/`、`vitest.config.ts` | Architect（v0.3 2026-08-02：单元测试属主=Architect，User 指示） |
 | `test/integration/`、`test/acceptance/`、`vitest.integration.config.ts`、`vitest.acceptance.config.ts` | QA（分层 2026-08-02：integration/acceptance 偏集成层，QA 门禁 test:qa） |
 | `docs/adr/` | Architect |
 | `docs/websocket-protocol.md`、`docs/persistence.md`、`docs/runtime-state-machine.md`、`docs/extension-architecture.md` | Dev（契约变更须三方声明影响面） |
