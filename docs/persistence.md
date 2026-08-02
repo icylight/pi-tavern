@@ -313,3 +313,18 @@ roundMaxMessages
 - join/重连差分同步：有游标 → `fetch_messages_since(游标)`；无游标 → 现有 `message_history` 全量分页
 - 随 reload handoff 传递（`cursorStorePath` 字段），reload 后继续
 - 不提供服务端 per-character 已读游标（游标在角色侧本地，单一 session 模型）
+
+## Creator 侧 resume 投影锚定（#42/ISSUE-042，方案 B：纯扫描语义）
+
+Creator 侧 resume 历史投影的锚定来源 = **当前 pi 会话内本群聊的
+creator-display 条目最大 sequence**（sessionManager.getEntries() 扫描），
+无持久化标记文件：
+
+- fresh 会话（无条目）→ 锚定 0 → 全窗口投影（尾 JOIN_HISTORY_LIMIT 条，
+  与 join 拉取视图对称）——**任何 fresh resume 都有历史**（#42 主场景）
+- continued 会话（interactive --continue / pi /resume 进旧会话）→ 跳过
+  已显示段防重复（防御性设计：unit 钉死扫描逻辑，RPC 测试环境无会话
+  文件落盘、无法进程级复现）
+- 同会话重复 resume → 扫描幂等空；中断重入 → 按已投影最大 sequence 补尾段
+- 不参与协议、配额、成员决策（纯呈现层投影）；与 Character 侧游标
+  （cursors/）互不冲突

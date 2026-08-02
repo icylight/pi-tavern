@@ -4,8 +4,15 @@ import { Type } from "typebox";
 import { setTestNotify } from "./character/group-chat-input.js";
 import { registerCommands } from "./commands.js";
 import { TavernController } from "./controller/tavern-controller.js";
+import type { CreatorRuntime, PublicMessageState } from "./creator/creator-runtime.js";
 import { type AutoJoinContext, autoJoinCharacter } from "./headless.js";
+import { JOIN_HISTORY_LIMIT } from "./shared/constants.js";
 import { registerRenderers } from "./ui/renderers.js";
+import {
+	computeResumeProjection,
+	computeSessionProjectionAnchor,
+	type ProjectionEntryReader,
+} from "./ui/resume-projection.js";
 import { TavernUiPresenter } from "./ui/tavern-ui-presenter.js";
 
 interface CreatorDisplayEvent {
@@ -23,25 +30,26 @@ interface CreatorDisplayEntryData {
 	event: CreatorDisplayEvent;
 }
 
+/** #42：当前 pi 会话的只读引用（session_start 捕获，用于投影锚定扫描）。 */
+let sessionManagerRef: ProjectionEntryReader | null = null;
+
 export default function piTavern(pi: ExtensionAPI, controller?: TavernController): void {
 	const ctrl = controller ?? new TavernController();
 	const presenter = new TavernUiPresenter();
 	registerCommands(pi, ctrl);
 	registerRenderers(pi);
 
-	// ISSUE-014: headless RPC character mode — auto-join on startup.
-	// RPC mode fires no session_start/resources_discover events, so the join
-	// is scheduled from extension load (the session is already bound when the
-	// extension runs; the delay only lets the runner finish session bootstrap).
-	// Reloads are not part of headless operation (no TUI commands); identity
-	// and connection are held for the process lifetime instead.
+	// ISSUE-014：headless RPC 角色模式——启动时自动 join。RPC 模式不触发
+	// session_start/resources_discover 事件，因此 join 从扩展加载时调度（会话
+	// 在扩展运行时已绑定；延迟只是让 runner 完成会话引导）。reload 不属于
+	// headless 操作（无 TUI 命令）；身份与连接由进程生命周期持有。
 	if (process.env.PITAVERN_AUTO_JOIN === "1") {
 		const ctx: AutoJoinContext = {
 			cwd: process.cwd(),
 			sessionManager: { getSessionId: () => randomUUID() },
 			ui: {
 				notify: (message, type = "info") => {
-					// stderr keeps the RPC JSONL protocol stream clean.
+					// stderr 保持 RPC JSONL 协议流干净。
 					process.stderr.write(`[pi-tavern:auto-join:${type}] ${message}\n`);
 				},
 			},
@@ -61,8 +69,8 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 		setTimeout(run, 3_000);
 	}
 
-	// Keep tavern_speak active-tool state in sync with controller state
-	// Wire up creator-display entry appending when controller enters creator state
+	// 保持 tavern_speak 工具可用状态与 controller 状态同步
+	// controller 进入 creator 状态时接线 creator-display 条目追加
 	ctrl.onStateChange = () => {
 		syncActiveTools(pi, ctrl);
 		wireCreatorDisplay(pi, ctrl);
@@ -105,13 +113,10 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 					};
 				}
 				if (result.reason === "stale") {
-					// ISSUE-013 B3 (final, per User "怎么简单怎么来"): no in-tool pull,
-					// no cache, no truncation — just flag the existing A2 increment
-					// mark and return a short notice. The settle hook pulls once
-					// through the unified pipeline (identity line, snapshot, echo
-					// filter) and the LLM re-decides in the next turn with the
-					// full context. B5: budgeted per round — beyond it, only the
-					// notice, no auto-recovery.
+					// ISSUE-013 B3（最终版，按 User「怎么简单怎么来」）：不在工具内拉取、
+					// 无缓存、无截断——只标记既有 A2 增量待投递并返回简短提示。settle
+					// 钩子经统一管道补拉一次（身份行、快照、echo 过滤），LLM 在下一轮
+					// 以完整上下文重新决策。B5：每轮配额预算——超限后只有提示，无自动恢复。
 					if (result.autoRecover) {
 						state.runtime.markIncrementPending();
 					}
@@ -192,7 +197,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 		},
 	});
 
-	// Inject Character Markdown as system prompt extension when online
+	// 在线时把角色卡 Markdown 注入为系统提示词扩展
 	pi.on("before_agent_start", (event) => {
 		const state = ctrl.getState();
 		if (state.type !== "character") return;
@@ -203,17 +208,16 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 		};
 	});
 
-	// Report streaming state to the group chat creator
+	// 向群聊 creator 汇报流式状态
 	pi.on("agent_start", () => {
 		const state = ctrl.getState();
 		if (state.type === "character") {
-			// M7 (ISSUE-012/#24): mark the run active so a group_chat_update
-			// pull queues instead of interrupting the current turn.
+			// M7（ISSUE-012/#24）：标记 run 活跃，使 group_chat_update 拉取排队
+			// 而不是打断当前轮次。
 			state.runtime.isAgentActive = true;
-			// ISSUE-014/#14-A1/A2: only group-chat-triggered turns light up
-			// is_streaming (semantic convergence). User-direct turns (direct
-			// chat, non-group follow-ups) stay dark. The flag is set by
-			// GroupChatInput.flush right before its delivery.
+			// ISSUE-014/#14-A1/A2：只有群聊触发的轮次点亮 is_streaming（语义收敛）。
+			// 用户直聊轮次（直聊、非群聊跟进）保持暗。标记由 GroupChatInput.flush
+			// 在投递前设置。
 			state.runtime.updateStreaming(state.runtime.consumeGroupChatTurnTriggered());
 		}
 	});
@@ -221,10 +225,9 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	pi.on("agent_end", () => {
 		const state = ctrl.getState();
 		if (state.type === "character") {
-			// ISSUE-014/#14-A3: arm the streaming reset watchdog. If
-			// agent_settled never arrives (aborted/errored/wedged run), the
-			// timer force-resets is_streaming so the "正在发言" display
-			// cannot hang. agent_settled clears the timer on the happy path.
+			// ISSUE-014/#14-A3：布防流式复位 watchdog。若 agent_settled 永不
+			// 到达（run 中止/报错/卡死），定时器强制复位 is_streaming，使「正在
+			// 发言」显示不会悬挂；happy path 下 agent_settled 清除定时器。
 			state.runtime.armStreamingResetWatchdog();
 		}
 	});
@@ -235,13 +238,15 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 			state.runtime.isAgentActive = false;
 			state.runtime.clearStreamingResetWatchdog();
 			state.runtime.updateStreaming(false);
-			// Flush any increment queued while the run was active.
+			// 冲刷 run 活跃期间排队的增量。
 			state.runtime.onAgentSettled?.();
 		}
 	});
 
-	// Enable tavern_speak only when in character state; disable otherwise
+	// 仅 character 状态启用 tavern_speak，其余禁用
 	pi.on("session_start", (event, ctx) => {
+		// #42：捕获会话引用供 resume 投影锚定扫描（会话复用场景跳过已显示段）。
+		sessionManagerRef = ctx.sessionManager;
 		presenter.bind(ctx.ui);
 		setTestNotify(ctx.ui.notify);
 		if (event.reason === "reload") {
@@ -253,7 +258,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 		presenter.refresh(ctrl);
 	});
 
-	// /new and /resume: confirm leaving the group chat first when bound.
+	// /new 与 /resume：已绑定群聊时先确认退出。
 	pi.on("session_before_switch", async (_event, ctx) => {
 		const result = await ctrl.prepareForSessionOperation(() =>
 			ctx.ui.confirm(
@@ -264,7 +269,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 		return { cancel: result.cancel };
 	});
 
-	// /fork and /clone: the same confirmation gate as /new and /resume.
+	// /fork 与 /clone：与 /new、/resume 相同的确认闸门。
 	pi.on("session_before_fork", async (_event, ctx) => {
 		const result = await ctrl.prepareForSessionOperation(() =>
 			ctx.ui.confirm(
@@ -275,8 +280,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 		return { cancel: result.cancel };
 	});
 
-	// quit: finish group chat cleanup (bounded by the coordination timeout)
-	// before pi continues to exit. reload: detach and publish a handoff.
+	// quit：先完成群聊清理（受协调超时约束）再让 pi 退出；reload：分离并发布 handoff。
 	pi.on("session_shutdown", async (event, ctx) => {
 		await ctrl.handleSessionShutdown(event.reason, ctx.sessionManager.getSessionId());
 	});
@@ -284,7 +288,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	pi.on("input", async (event, ctx) => {
 		const state = ctrl.getState();
 		if (state.type === "creator") {
-			// Exclude extension-injected input to prevent re-broadcast loops
+			// 排除扩展注入的输入，防止重新广播循环
 			if (event.source === "extension") {
 				return { action: "continue" } as InputEventResult;
 			}
@@ -316,42 +320,10 @@ function wireCreatorDisplay(pi: ExtensionAPI, ctrl: TavernController): void {
 	if (state.type !== "creator") return;
 
 	state.runtime.onPublicMessage = (msg) => {
-		const data: CreatorDisplayEntryData = {
-			kind: "public_message",
-			group_chat_id: state.runtime.state.groupChat.groupChatId,
-			event: {
-				event_id: msg.event_id,
-				sequence: msg.sequence,
-				timestamp: msg.timestamp,
-				sender: msg.sender,
-				content: msg.content,
-				round: msg.round,
-			},
-		};
-		try {
-			pi.appendEntry("pi-tavern.creator-display", data);
-		} catch (error) {
-			// Best-effort error notification so creator sees projection failure
-			try {
-				pi.appendEntry("pi-tavern.creator-display", {
-					kind: "public_message" as const,
-					group_chat_id: data.group_chat_id,
-					event: {
-						event_id: msg.event_id,
-						sequence: msg.sequence,
-						timestamp: msg.timestamp,
-						sender: msg.sender,
-						content: `TUI projection failed: ${error instanceof Error ? error.message : "Unknown error"}`,
-						round: msg.round,
-					},
-				});
-			} catch {
-				// Even error notification failed — nothing more we can do
-			}
-		}
+		appendCreatorDisplayEntry(pi, state.runtime, msg);
 	};
 
-	// Wire fallback error path: when onPublicMessage itself crashes (e.g., pi unavailable)
+	// 接线降级错误路径：onPublicMessage 自身崩溃时（如 pi 不可用）
 	state.runtime.onPublicMessageError = (error, sequence, timestamp) => {
 		try {
 			pi.appendEntry("pi-tavern.creator-display", {
@@ -367,9 +339,69 @@ function wireCreatorDisplay(pi: ExtensionAPI, ctrl: TavernController): void {
 				},
 			});
 		} catch {
-			// Nothing more we can do
+			// 无能为力
 		}
 	};
+
+	// #42（ISSUE-042）：resume 后把持久化历史窗口投影到当前会话。
+	// 幂等（会话扫描锚定防重复，方案 B），creator-runtime 零改动、零协议变更。
+	projectResumeHistory(pi, state.runtime);
+}
+
+/**
+ * #42：增量/回放共用的 creator-display 条目落盘（格式唯一来源，保证
+ * 回放与增量投影逐字一致——A2）。失败时降级为错误通知条目（与旧行为一致）。
+ */
+function appendCreatorDisplayEntry(pi: ExtensionAPI, runtime: CreatorRuntime, msg: PublicMessageState): void {
+	const data: CreatorDisplayEntryData = {
+		kind: "public_message",
+		group_chat_id: runtime.state.groupChat.groupChatId,
+		event: {
+			event_id: msg.event_id,
+			sequence: msg.sequence,
+			timestamp: msg.timestamp,
+			sender: msg.sender,
+			content: msg.content,
+			round: msg.round,
+		},
+	};
+	try {
+		pi.appendEntry("pi-tavern.creator-display", data);
+	} catch (error) {
+		// 尽力而为的错误通知，让 creator 看到投影失败
+		try {
+			pi.appendEntry("pi-tavern.creator-display", {
+				kind: "public_message" as const,
+				group_chat_id: data.group_chat_id,
+				event: {
+					event_id: msg.event_id,
+					sequence: msg.sequence,
+					timestamp: msg.timestamp,
+					sender: msg.sender,
+					content: `TUI projection failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+					round: msg.round,
+				},
+			});
+		} catch {
+			// 连错误通知都失败——无能为力
+		}
+	}
+}
+
+/**
+ * #42：resume 历史投影（PM 裁决方案 B：纯扫描锚定，无标记文件）。锚定 =
+ * 当前 pi 会话内本群聊 creator-display 条目最大 sequence——fresh 会话
+ * （无条目）→ 全窗口投影（每次 fresh resume 都有历史）；continued 会话
+ * → 跳过已显示段防重复；同会话重复 resume → 幂等空。窗口 =
+ * JOIN_HISTORY_LIMIT 对称（与 join 拉取视图一致）。中断重入按已投影
+ * 最大 sequence 补尾段。新消息增量路径不受影响（A4）。
+ */
+function projectResumeHistory(pi: ExtensionAPI, runtime: CreatorRuntime): void {
+	const anchor = computeSessionProjectionAnchor(sessionManagerRef, runtime.state.groupChat.groupChatId);
+	const messages = computeResumeProjection(runtime.publicMessageList, anchor, JOIN_HISTORY_LIMIT);
+	for (const message of messages) {
+		appendCreatorDisplayEntry(pi, runtime, message);
+	}
 }
 
 function wirePresenter(ctrl: TavernController, presenter: TavernUiPresenter): void {
