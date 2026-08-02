@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type ExtensionAPI, type InputEventResult } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, InputEventResult } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { setTestNotify } from "./character/group-chat-input.js";
 import { registerCommands } from "./commands.js";
