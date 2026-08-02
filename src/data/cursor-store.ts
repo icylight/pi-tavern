@@ -2,6 +2,9 @@
  * 不透明历史游标。编码 sequence 边界：携带此游标的请求返回 sequence < seq
  * 的消息。绝对 sequence 保证新消息到达时游标位置稳定。
  */
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+
 export function encodeCursor(sequence: number): string {
 	return Buffer.from(JSON.stringify({ v: 1, seq: sequence })).toString("base64url");
 }
@@ -35,4 +38,36 @@ export function countPersistedEntries(entries: readonly { type: string; customTy
 		}
 	}
 	return count;
+}
+
+/**
+ * 游标文件读取原语（无状态同步）：readFileSync 失败（ENOENT/EISDIR 等）如实
+ * 抛错；内容非法 JSON 或形状不符返回 null（损坏属数据问题，非 IO 问题）。
+ * 内存缓存与 best-effort 吞错是编排语义，归调用方（character-runtime，
+ * 决策 7：跨消息状态唯一居所 = runtime）。
+ */
+export function readCursorFile(path: string): number | null {
+	const raw = readFileSync(path, "utf8");
+	let data: { last_sequence?: unknown };
+	try {
+		data = JSON.parse(raw) as { last_sequence?: unknown };
+	} catch {
+		return null;
+	}
+	if (typeof data.last_sequence === "number" && Number.isSafeInteger(data.last_sequence) && data.last_sequence >= 0) {
+		return data.last_sequence;
+	}
+	return null;
+}
+
+/**
+ * 游标文件原子写原语（无状态同步）：mkdir 递归建目录 + tmp 写入 + rename
+ * 替换，任何失败如实抛错。固定 tmp 名在同步原语下无竞态（事件循环内天然
+ * 串行）——保持同步是行为零变化铁律（Arch 评审阻断项：async 化 = 阻断）。
+ */
+export function writeCursorFile(path: string, sequence: number): void {
+	mkdirSync(dirname(path), { recursive: true });
+	const tmpPath = `${path}.tmp`;
+	writeFileSync(tmpPath, JSON.stringify({ last_sequence: sequence, updated_at: new Date().toISOString() }), "utf8");
+	renameSync(tmpPath, path);
 }
