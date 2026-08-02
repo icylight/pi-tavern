@@ -8,6 +8,7 @@ import {
 	countPersistedEntries,
 	decodeCursor,
 	encodeCursor,
+	legacyCursorPathFor,
 	readCursorFile,
 	writeCursorFile,
 } from "../../../src/data/cursor-store.js";
@@ -21,9 +22,7 @@ async function createTemporaryDirectory(): Promise<string> {
 }
 
 afterEach(async () => {
-	await Promise.all(
-		temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
-	);
+	await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
 describe("cursor-store", () => {
@@ -50,7 +49,8 @@ describe("cursor-store", () => {
 		});
 
 		it("rejects missing / non-safe-integer seq", () => {
-			const encode = (value: unknown): string => Buffer.from(JSON.stringify({ v: 1, seq: value })).toString("base64url");
+			const encode = (value: unknown): string =>
+				Buffer.from(JSON.stringify({ v: 1, seq: value })).toString("base64url");
 			expect(decodeCursor(encode(undefined))).toBeNull();
 			expect(decodeCursor(encode(1.5))).toBeNull();
 			expect(decodeCursor(encode(Number.MAX_SAFE_INTEGER + 1))).toBeNull();
@@ -151,6 +151,13 @@ describe("cursor-store", () => {
 			const asDirectory = join(directory, "as-dir");
 			await mkdir(asDirectory);
 			expect(() => writeCursorFile(asDirectory, 5)).toThrow();
+		});
+	});
+
+	describe("legacyCursorPathFor（v1 群聊级单文件兼容推导）", () => {
+		it("derives cursors/<groupId>.json from the session-scoped path", () => {
+			expect(legacyCursorPathFor("/agent/cursors/group-1/session-7.json")).toBe("/agent/cursors/group-1.json");
+			expect(legacyCursorPathFor(join("cursors", "g2", "s1.json"))).toBe(join("cursors", "g2.json"));
 		});
 	});
 });

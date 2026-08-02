@@ -1,4 +1,6 @@
+import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from "@earendil-works/pi-coding-agent";
+
 import { describe, expect, it, vi } from "vitest";
 import type { CharacterRuntime } from "../../src/character/character-runtime.js";
 import type { JoinAttempt } from "../../src/character/join-attempt.js";
@@ -194,7 +196,11 @@ describe("PiTavern commands", () => {
 		expect(joinStarter).toHaveBeenCalledWith(
 			descriptor,
 			"session-1",
-			expect.objectContaining({ onDisconnected: expect.any(Function) }),
+			expect.objectContaining({
+				onDisconnected: expect.any(Function),
+				// 游标跟随 Session：路径含群聊目录 + sessionId 文件，同群聊多角色不共用
+				cursorStorePath: expect.stringContaining(join("group-1", "session-1.json")),
+			}),
 		);
 		expect(attempt.claimCharacter).toHaveBeenCalledWith("architect.md", expect.any(Object));
 		expect(controller.getState()).toEqual({

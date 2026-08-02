@@ -3,7 +3,17 @@
  * 的消息。绝对 sequence 保证新消息到达时游标位置稳定。
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { basename, dirname, join } from "node:path";
+
+/**
+ * 旧格式（v1，2026-08-02 前）游标路径推导：群聊级单文件 `cursors/<groupId>.json`。
+ * 新格式为 Session 级 `cursors/<groupId>/<sessionId>.json`；由 loadCursor 作
+ * 保守起点回退（只读不写，多进程无迁移竞态；最多重复拉取、绝不跳过消息）。
+ */
+export function legacyCursorPathFor(sessionCursorPath: string): string {
+	const groupChatId = basename(dirname(sessionCursorPath));
+	return join(dirname(dirname(sessionCursorPath)), `${groupChatId}.json`);
+}
 
 export function encodeCursor(sequence: number): string {
 	return Buffer.from(JSON.stringify({ v: 1, seq: sequence })).toString("base64url");

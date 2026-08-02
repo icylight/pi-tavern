@@ -104,8 +104,10 @@ export async function autoJoinCharacter(
 		return null;
 	}
 
-	const attempt = await controller.startJoining(descriptor, ctx.sessionManager.getSessionId(), {
-		cursorStorePath: join(getGroupChatCursorDirectory(agentDir, ctx.cwd), `${descriptor.groupChatId}.json`),
+	const sessionId = ctx.sessionManager.getSessionId();
+	const attempt = await controller.startJoining(descriptor, sessionId, {
+		// 游标跟随 Session（User 2026-08-02）：cursors/<groupId>/<sessionId>.json，同群聊多角色互不共用
+		cursorStorePath: join(getGroupChatCursorDirectory(agentDir, ctx.cwd), descriptor.groupChatId, `${sessionId}.json`),
 	});
 	if (!attempt.isActive) {
 		notify("Auto-join: join attempt failed", "warning");

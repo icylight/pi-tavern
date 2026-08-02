@@ -10,7 +10,7 @@ import {
 	type CharacterReloadHandoff,
 	getReloadHandoffRegistry,
 } from "../controller/reload-handoff-registry.js";
-import { readCursorFile, writeCursorFile } from "../data/cursor-store.js";
+import { legacyCursorPathFor, readCursorFile, writeCursorFile } from "../data/cursor-store.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { GroupChatStateMessage, ServerMessage } from "../protocol/messages.js";
 import {
@@ -355,14 +355,23 @@ export class CharacterRuntime {
 		if (this.cursorSequence !== null) {
 			return this.cursorSequence;
 		}
+		// 游标跟随 Session：优先读本 Session 文件；v1 群聊级单文件作兼容回退
+		// （保守起点：最多重复拉取、绝不跳过消息；只读旧文件不迁移，防多进程竞态）
+		let sequence: number | null = null;
 		try {
-			// 文件原语失败（ENOENT/EISDIR 等）如实抛错，编排层吞错；损坏返回 null
-			const sequence = readCursorFile(this.cursorStorePath);
-			if (sequence !== null) {
-				this.cursorSequence = sequence;
-			}
+			sequence = readCursorFile(this.cursorStorePath);
 		} catch {
-			// Missing/unreadable cursor: treat as no cursor.
+			// 本 Session 文件不存在（ENOENT/EISDIR 等）——尝试旧格式
+		}
+		if (sequence === null) {
+			try {
+				sequence = readCursorFile(legacyCursorPathFor(this.cursorStorePath));
+			} catch {
+				// 旧格式也不存在——无游标
+			}
+		}
+		if (sequence !== null) {
+			this.cursorSequence = sequence;
 		}
 		return this.cursorSequence;
 	}
