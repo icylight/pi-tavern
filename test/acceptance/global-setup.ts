@@ -17,8 +17,11 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 async function killOrphanedPiProcesses(): Promise<void> {
 	const execFileAsync = promisify(execFile);
 	const pattern = resolve(REPO_ROOT, "references", "pi", "pi-test.sh");
+	// pkill -f 按扩展正则匹配：路径含 ()/+/./[] 等元字符时需转义（Arch B 级，
+	// CI/共享机路径不可控；当前仓库路径无元字符，转义为前瞻性健壮性）。
+	const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 	try {
-		await execFileAsync("pkill", ["-f", pattern]);
+		await execFileAsync("pkill", ["-f", escaped]);
 	} catch {
 		// 无孤儿进程：正常。
 	}

@@ -5,7 +5,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-
 export function encodeCursor(sequence: number): string {
 	return Buffer.from(JSON.stringify({ v: 1, seq: sequence })).toString("base64url");
 }

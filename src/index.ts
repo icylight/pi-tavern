@@ -1,10 +1,16 @@
 import { randomUUID } from "node:crypto";
-import type { ExtensionAPI, InputEventResult } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, type InputEventResult, SessionManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { setTestNotify } from "./character/group-chat-input.js";
 import { registerCommands } from "./commands.js";
 import { TavernController } from "./controller/tavern-controller.js";
 import type { CreatorRuntime } from "./creator/creator-runtime.js";
+import { discoverGroupChats as discoverActiveGroupChats } from "./data/discovery/discover-group-chats.js";
+import {
+	defaultGroupChatSessionIoDependencies,
+	deleteGroupChatSession as deleteGroupChatSessionFile,
+	listGroupChatSessions as listPersistedGroupChatSessions,
+} from "./data/group-chat-sessions.js";
 import {
 	computeResumeProjection,
 	computeSessionProjectionAnchor,
@@ -39,7 +45,21 @@ let sessionManagerRef: ProjectionEntryReader | null = null;
 export default function piTavern(pi: ExtensionAPI, controller?: TavernController): void {
 	const ctrl = controller ?? new TavernController();
 	const presenter = new TavernUiPresenter();
-	registerCommands(pi, ctrl);
+	// 组合根装配（ADR-0005 层方向，Phase 4）：adapter 行为默认实现在此注入——
+	// commands/headless 只留注入面与类型/纯函数导入。
+	const piSessionManager = {
+		list: (cwd: string, sessionDir: string) => SessionManager.list(cwd, sessionDir),
+		open: (path: string, sessionDir: string, cwd: string) => SessionManager.open(path, sessionDir, cwd),
+	};
+	registerCommands(pi, ctrl, {
+		discoverGroupChats: (options) => discoverActiveGroupChats(options),
+		listGroupChatSessions: (agentDir, cwd) =>
+			listPersistedGroupChatSessions(agentDir, cwd, {
+				...defaultGroupChatSessionIoDependencies,
+				sessionManager: piSessionManager,
+			}),
+		deleteGroupChatSession: (path) => deleteGroupChatSessionFile(path),
+	});
 	registerRenderers(pi);
 	registerTavernTools(pi, ctrl);
 	wireAgentLifecycle(pi, ctrl);
@@ -61,6 +81,8 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 		};
 		const run = () => {
 			void autoJoinCharacter(pi, ctrl, ctx, {
+				// 组合根装配（ADR-0005 层方向，Phase 4）。
+				discoverGroupChats: (options) => discoverActiveGroupChats(options),
 				...(process.env.PITAVERN_CHARACTER !== undefined && process.env.PITAVERN_CHARACTER !== ""
 					? { character: process.env.PITAVERN_CHARACTER }
 					: {}),
