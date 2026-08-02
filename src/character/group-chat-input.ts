@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ServerMessage } from "../protocol/messages.js";
+import { AggregationWindow } from "./aggregation-window.js";
 import type { CharacterRuntime } from "./character-runtime.js";
 
 /**
@@ -26,9 +27,19 @@ export interface GroupChatInputReloadSnapshot {
  */
 const JOIN_BATCH_DEBOUNCE_MS = 1000;
 
+/**
+ * #60：运行中增量聚合窗口（固定窗口，有界延迟）。首个活跃期 update 启动
+ * 定时器，窗口内到达的 update 并入一次拉取 + 一次投递（N 条消息 = 1 次
+ * 打断）；窗口末未覆盖的尾部由 settle 钩子兜底。空闲期不走此窗口
+ * （无打断代价，维持 M7 A1 立即投递）。
+ */
+const AGGREGATION_WINDOW_MS = 400;
+
 export class GroupChatInput {
 	private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 	private debounceDueAt: number | null = null;
+	/** #60：运行中增量聚合窗口（固定窗口，一次开启，窗口末合并拉取）。 */
+	private readonly aggregationWindow: AggregationWindow;
 	/**
 	 * ISSUE-013 A1/A2：待投递窗口。持有 join/成员事件（经 debounce 合并，避免
 	 * join 拆散）以及因 Agent turn 运行中而等待的增量。空闲期间公开消息增量
@@ -57,11 +68,18 @@ export class GroupChatInput {
 			if (this.stopped) {
 				return;
 			}
+			// #60：settle 即最终 flush 点——取消未到期的聚合窗口，由下方补拉
+			// 一次覆盖尾部（光标单调，不重不漏）。
+			this.aggregationWindow.cancel();
 			if (this.incrementPending) {
 				this.incrementPending = false;
 				void this.pullIncrement();
 			}
 		};
+		// #60：窗口末 flush = 一次合并拉取（单飞行兜底并发）。
+		this.aggregationWindow = new AggregationWindow(() => {
+			void this.pullIncrement();
+		}, AGGREGATION_WINDOW_MS);
 	}
 
 	private readonly onSettled: () => void;
@@ -92,19 +110,23 @@ export class GroupChatInput {
 				return;
 			}
 			if (message.type === "group_chat_update") {
-				// M7：通知 → 立即增量拉取（无 debounce）。
-				// ISSUE-013 A1：拉取结果立即投递（无批次累积）；preview 仅供 TUI
-				// （同一数据源，内容不会分叉）。
+				// M7：通知 → 增量拉取。ISSUE-013 A1：拉取结果立即投递（无批次累积）；
+				// preview 仅供 TUI（同一数据源，内容不会分叉）。
 				// ISSUE-014/#14（方案 A）：成员/流式变化也走此通道——刷新缓存快照，
 				// 即使拉取结果为空 widget 也保持最新。
 				// ISSUE-038（口径 A）：运行中 update 拉取后立即经 steer 投递；
 				// 标记让 settle 钩子补拉最后一次 steer 投递之后的尾部窗口
 				// （光标单调，无重复）。
+				// #60：运行中（活跃期）update 走固定聚合窗口——窗口内多条顺序
+				// 消息合并为一次拉取 + 一次投递，消除 N 消息 N 打断；空闲期维持
+				// 立即拉取（无打断代价，低延迟优先）。
 				if (this.runtime.isAgentActive) {
 					this.incrementPending = true;
+					this.aggregationWindow.notify();
+				} else {
+					void this.pullIncrement();
 				}
 				void this.runtime.refreshGroupChatState();
-				void this.pullIncrement();
 				return;
 			}
 			if (!this.isEnvironmentEvent(message)) return;
@@ -222,6 +244,7 @@ export class GroupChatInput {
 		}
 		this.handler = undefined;
 		this.clearDebounce();
+		this.aggregationWindow.cancel();
 		this.pendingEvents = [];
 	}
 
