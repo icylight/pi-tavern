@@ -42,9 +42,16 @@
 
 ### Phase 3：runtime 瘦身 + 装配点（里程碑）
 
-- 内容：CreatorRuntime/CharacterRuntime 收敛为骨架（WS + 心跳 + 连接表 + 装配）；index.ts 成为唯一装配点（组合根）；join-attempt/reload-handoff 归位
+- 内容：CreatorRuntime/CharacterRuntime 收敛为骨架（WS + 心跳 + 连接表 + 装配）；index.ts 成为唯一装配点（组合根）；join-attempt/reload-handoff 归位；#66 watchdog（run 卡死超时 → 强制 settle，复用 #14 机制思路）
 - 验证:**全链门禁**(unit + integration + acceptance,V0 留痕)
-- 出口:creator-runtime 1881 行 → ~400 行骨架 + 已拆模块
+- 出口：**绝对行数目标**——终态 creator-runtime ≈ 400 行骨架 + 已拆模块（Phase 2 已消化 1881→1193；PR-B 剩余任务 = 1193→~400，约 800 行拆出）
+
+**Phase 3 裁决留痕（Arch 2026-08-02）**：
+- ① config 豁免成立：组合根唯一 loadTavernConfig、runtime 全收参零直读（决策 7 精神）；commands 保留注入点供测试；豁免理由：装配与行为分离
+- ② 组合根成立：ADR-0005 明示 index.ts=组合根；装配区无业务逻辑只构造+注入；headless.ts 同归 adapter 注册点
+- ③ 出口数字为绝对目标（见上），非按现基线增量
+- ④ #66 契约四要素：**判定**（settle 超时阈值 X 未到 = wedged）、**动作**（强制 settle → 投递挂起批次）、**副作用**（与正常 settle 同路径幂等——游标只在成功投递后推进、N→1 聚合不变）、**阈值归属**（X 为产品参数，默认可配置常量 60s，PM 定、User 可调）
+- ⑤ PR-B 拆骨架时 watchdog/run 状态域留 runtime（决策 7），防 PR-C 返工
 
 ### Phase 4:规范统一(可选挂靠)
 
