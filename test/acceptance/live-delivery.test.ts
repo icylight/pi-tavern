@@ -33,8 +33,7 @@ describe("acceptance: #38 live steer delivery during a run (T4)", () => {
 	});
 
 	async function startPair(): Promise<{ creator: PiProcess; headless: PiProcess; cursorPath: string }> {
-		// Per-test isolation: each pair gets its own agent dir so descriptor
-		// files / group chat state never collide across tests.
+		// 每测试独立隔离：各自 agent 目录，descriptor 文件/群聊状态互不冲突。
 		const root = await mkdtemp(join(tmpdir(), `pi-tavern-acc-live-${pairIndex}-`));
 		pairIndex += 1;
 		roots.push(root);
@@ -103,8 +102,8 @@ describe("acceptance: #38 live steer delivery during a run (T4)", () => {
 			}
 		}
 
-		// Run 1 starts: a group-chat message triggers the turn (idle delivery,
-		// followUp + triggerTurn — cursor advances to 1 before the run starts).
+		// 第一次 run 启动：群聊消息触发 turn（idle 投递，followUp + triggerTurn——
+		// 光标在 run 启动前推进到 1）。
 		await creator.runCommand("/tavern-test-message T4 start");
 		await creator.waitFor(
 			(e) =>
@@ -116,15 +115,15 @@ describe("acceptance: #38 live steer delivery during a run (T4)", () => {
 		);
 		expect(await readCursor()).toBe(1);
 
-		// Publish a second message while the run is still active.
+		// 在 run 仍活跃时发布第二条消息。
 		await creator.runCommand("/tavern-test-message T4 mid");
 		await creator.waitFor(
 			(e) =>
 				e.type === "extension_ui_request" && e.method === "notify" && e.message === "User Persona message published",
 		);
 
-		// Poll the cursor: with steer the mid-run message reaches the context
-		// (cursor → 2) while the run is still streaming…
+		// 轮询光标：steer 投递下，run 中消息在 run 仍 streaming 时即达上下文
+		// （cursor → 2，run 仍处于 streaming 状态）…
 		const deadline = Date.now() + 30_000;
 		let cursor = await readCursor();
 		for (;;) {
@@ -138,10 +137,8 @@ describe("acceptance: #38 live steer delivery during a run (T4)", () => {
 			await new Promise((resolveWait) => setTimeout(resolveWait, 25));
 		}
 
-		// …and the creator widget must still show「正在发言」at that moment:
-		// the run is still active, so the delivery cannot have been deferred
-		// to the settle hook (the old A2 behaviour only advances the cursor
-		// after the settle flush, which follows the streaming-off broadcast).
+		// …此时 run 仍活跃：投递不可能被推迟到 settle 钩子（旧 A2 行为只在
+		// settle flush 之后推进光标，而 settle flush 晚于 streaming-off 广播）。
 		const widgetEvents = creator
 			.dumpEvents()
 			.filter((e) => e.type === "extension_ui_request" && e.method === "setWidget");
@@ -150,15 +147,14 @@ describe("acceptance: #38 live steer delivery during a run (T4)", () => {
 		const lines = (lastWidget as { widgetLines?: string[] }).widgetLines ?? [];
 		expect(lines.some((line) => line.startsWith("正在发言："))).toBe(true);
 
-		// The run is not interrupted: agent_settled fires and the widget
-		// extinguishes normally (M7 A5 preserved).
+		// run 不被中断：agent_settled 正常触发、widget 正常熄灭（M7 A5 保持）。
 		await headless.waitFor((e) => e.type === "agent_settled", 90_000);
 		await creator.waitFor(
 			(e) => e.type === "extension_ui_request" && e.method === "setWidget" && !widgetHasStreaming(e),
 			60_000,
 		);
 
-		// No duplicate delivery: the cursor stays at 2 after settle.
+		// 无重复投递：settle 后光标稳定在 2。
 		await new Promise((resolveWait) => setTimeout(resolveWait, 2_000));
 		expect(await readCursor()).toBe(2);
 	});
