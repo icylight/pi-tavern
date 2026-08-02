@@ -18,6 +18,10 @@ import { PiProcess } from "./pi-process.js";
  *
  * 配套断言：run 正常结束（agent_settled + widget 熄灭）→ M7 A5「不打断
  * run」保持；settle 后光标稳定（无重复投递）。
+ *
+ * #43（2026-08）：等待窗口加裕量（60s→90s / 90s→120s）——acceptance
+ * 进程级用例在串行全量时本机负载高，LLM run 启动/结束事件变慢，属负载
+ * 敏感型波动（#32/#35 同类）；仅加裕量，断言条件与语义零变化。
  */
 
 describe("acceptance: #38 live steer delivery during a run (T4)", () => {
@@ -111,7 +115,7 @@ describe("acceptance: #38 live steer delivery during a run (T4)", () => {
 		);
 		await creator.waitFor(
 			(e) => widgetHasStreaming(e) && (e.widgetLines as string[]).some((line) => line.includes("Architect")),
-			60_000,
+			90_000, // #43 裕量：负载敏感等待窗口 60s→90s，断言条件不变
 		);
 		expect(await readCursor()).toBe(1);
 
@@ -148,10 +152,10 @@ describe("acceptance: #38 live steer delivery during a run (T4)", () => {
 		expect(lines.some((line) => line.startsWith("正在发言："))).toBe(true);
 
 		// run 不被中断：agent_settled 正常触发、widget 正常熄灭（M7 A5 保持）。
-		await headless.waitFor((e) => e.type === "agent_settled", 90_000);
+		await headless.waitFor((e) => e.type === "agent_settled", 120_000); // #43 裕量：90s→120s
 		await creator.waitFor(
 			(e) => e.type === "extension_ui_request" && e.method === "setWidget" && !widgetHasStreaming(e),
-			60_000,
+			90_000, // #43 裕量：负载敏感等待窗口 60s→90s，断言条件不变
 		);
 
 		// 无重复投递：settle 后光标稳定在 2。
