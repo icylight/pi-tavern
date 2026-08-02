@@ -101,6 +101,80 @@ model is different in kind:
 - **Explicit publication.** Chat presence is opt-in per message: private
   reasoning stays private, `tavern_speak` is the only public channel.
 
+## Team Compositions & Workflow Examples
+
+PiTavern is not bound to any organizational structure — but it can carry
+different information flows and collaboration topologies. The examples below
+show how the same mechanisms (independent Sessions, Character identity, public
+message sync) form different workflows through **Character Cards and
+collaboration conventions**:
+
+| Team scenario | Topology | Example roles | Collaboration pattern |
+| --- | --- | --- | --- |
+| Software development | Fan-out → converge → review backflow | PM / Arch / Dev / QA | Staged: plan distribution → implementation convergence → review & acceptance → back to decisions |
+| Incident response | Unified state + parallel investigation | Incident owner / investigators ×N | Owner keeps one shared state; parallel investigation → fix → recovery verification |
+| Security review | Parallel audit + adversarial re-check | Threat modeler / code auditor / independent fixer / original auditor re-check | Parallel audit → risk triage → independent fix → re-verify by original auditor (adversarial) |
+| Open-source maintenance | Issue/PR-driven async flow | Triage / maintainer / implementer / reviewer / release | Triage → accept → implement → review → release (async) |
+| Technology research | Parallel exploration → convergence | Researchers ×N / option analysis / devil's advocate | Parallel exploration → option analysis → challenge → conclusion |
+
+```mermaid
+flowchart LR
+    subgraph Software development
+        PM -->|fan-out| A1[Arch] & Q1[QA]
+        A1 & Q1 -->|converge| D1[Dev]
+        D1 -->|review/accept| A1 & Q1
+        A1 & Q1 -->|backflow| PM
+    end
+```
+
+```mermaid
+flowchart LR
+    subgraph Incident response
+        L[Incident owner] -->|shared state| I1[Investigator 1] & I2[Investigator 2]
+        I1 & I2 -->|parallel| F[Fix]
+        F --> V[Recovery verify]
+        V --> L
+    end
+```
+
+```mermaid
+flowchart LR
+    subgraph Security review
+        T[Threat modeling] & C[Code audit] -->|parallel| R[Risk triage]
+        R --> X[Independent fix]
+        X -->|adversarial re-check| C
+    end
+```
+
+```mermaid
+flowchart LR
+    subgraph Open-source maintenance
+        I[Issue / PR] --> T[Triaging]
+        T --> M[Maintainer accepts]
+        M --> U[Implement]
+        U --> R[Review]
+        R --> P[Release]
+    end
+```
+
+```mermaid
+flowchart LR
+    subgraph Technology research
+        R1[Research A] & R2[Research B] & R3[Research C] -->|parallel| N[Option analysis]
+        N --> G[Challenge]
+        G --> C[Conclusion]
+    end
+```
+
+> **These are user-configurable examples only** — not built-in PiTavern roles,
+> not fully validated team templates, and not a state machine enforced by the
+> extension.
+
+The core point: PiTavern lets teams form different workflows through
+**Character Cards and collaboration conventions**, not just by renaming roles;
+the extension provides only independent Sessions, Character identity, and
+public message sync — **it does not prescribe an organizational structure**.
+
 ## Current Boundaries
 
 - One Pi Session binds to one group chat at a time (creator and Character roles
