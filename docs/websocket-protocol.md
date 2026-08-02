@@ -592,17 +592,19 @@ Character 成功领取角色后，群聊创建者自动发送 `message_history`�
 
 ### 环境消息聚合与 run 边界投递（#60/#62/#64 pull 模型）
 
-Character 使用固定 1 秒聚合窗口（闲态）合并连续到达的环境消息；忙态零中间注入，settle 后立即触发：
+Character 使用固定 1 秒聚合窗口（闲态）合并连续到达的环境消息；忙态 update 到达即拉取（单飞行锁，在途合并），经 steer 通道在工具间隙投递（User 2026-08-02 拍板恢复 #38 口径 A，解除 #64 零中间注入红线）：
 
-1. 收到 `group_chat_update` 通知（水位 + 最近 3 条预览）后，将预览并入待处理批次；**公共消息正文不注入**——run 活跃时只置忙态标记（零中间注入红线）。
+1. 收到 `group_chat_update` 通知（水位 + 最近 3 条预览）后，将预览并入待处理批次。
 2. 闲态：固定 1s 聚合窗口，窗口内多次变化并入**单次消费**（N→1），不重置计时（#60/#62）。
-3. 忙态：settle 后立即消费（#64）；消费 = 按本 Session 持久化游标 `fetch_messages_since` 拉取全部未读，sequence 过滤天然补洞。
+3. 忙态：**立即消费**（无窗口、无有界延迟设计）；消费 = 按本 Session 持久化游标 `fetch_messages_since` 拉取全部未读，sequence 过滤天然补洞；settle 仍补拉全兜底（游标幂等，不丢不重）。
 4. 拉取完成后请求最新群聊状态，将批次与状态快照合并提交。
+
+**游标推进 = 双通道判定**（Arch 契约，2026-08-02）：idle followUp 与忙态 steer 入队成功（preflight 通过）均视为投递成功 → 推进游标；入队失败不推进 → settle 兜底重投。
 
 提交环境批次时：
 
 - 当前 pi Agent 空闲：将环境批次和状态快照合并为一次输入并立即提交（触发新 run）。
-- 当前 pi Agent 正在运行：将同样的合并输入作为一条 follow-up，交给当前 pi session 的原生队列，由 settle 触发投递。
+- 当前 pi Agent 正在运行：将同样的合并输入经 **steer 通道**投递（当前 assistant turn 完成其工具调用后、下次 LLM 调用前——工具间隙秒级，绝不打断 run）；#14 边界保持（steer 不点亮 is_streaming）。
 
 WebSocket 环境消息不会逐条直接追加到 pi session。只有聚合完成后的合并输入才通过 pi 原生对话入口提交，并与随后的 assistant 回复、工具调用和工具结果一起按照 pi 原生 session 逻辑记录。成员/环境事件（character_joined/left、message_history）经 steer 通道在工具调用间隙可见（#38，不打断 run、秒级延迟）。
 

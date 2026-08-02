@@ -46,7 +46,8 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	// 闲态触发窗口注入化（Arch 提速项）：默认 1000ms 行为零变化；测试可设
 	// PITAVERN_TRIGGER_DEBOUNCE_MS 缩短（idle 感知延迟降 ~750ms）。启动早期一次性读取。
 	const triggerDebounceMs = Number(process.env.PITAVERN_TRIGGER_DEBOUNCE_MS ?? "1000");
-	const injectTriggerDebounce = Number.isFinite(triggerDebounceMs) && triggerDebounceMs >= 0 ? triggerDebounceMs : undefined;
+	const injectTriggerDebounce =
+		Number.isFinite(triggerDebounceMs) && triggerDebounceMs >= 0 ? triggerDebounceMs : undefined;
 	const ctrl = controller ?? new TavernController();
 	const presenter = new TavernUiPresenter();
 	// 组合根装配（ADR-0005 层方向，Phase 4）：adapter 行为默认实现在此注入——

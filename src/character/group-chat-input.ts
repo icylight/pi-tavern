@@ -165,7 +165,7 @@ export class GroupChatInput {
 					// 游标推进移至投递成功判定（双通道契约：idle followUp /
 					// 忙态 steer 入队成功 = 投递成功 → saveCursor；失败不推进，
 					// settle 兜底重投——A5 强化实现）。
-					this.deliver(messages, page.latestSequence);
+					await this.deliver(messages, page.latestSequence);
 				}
 			} while (this.refetchRequested && !this.stopped);
 		} catch {
@@ -181,7 +181,7 @@ export class GroupChatInput {
 	 * 事件合并，保证顺序（事件先到，消息更新）。Agent 运行中事件经 steer
 	 * 通道投递（口径 A）——在下一个工具调用间隙可见，绝不打断 run。
 	 */
-	private deliver(messages: ServerMessage[], latestSequence: number): void {
+	private async deliver(messages: ServerMessage[], latestSequence: number): Promise<void> {
 		if (this.stopped) {
 			return;
 		}
@@ -190,7 +190,9 @@ export class GroupChatInput {
 		if (events.length === 0) {
 			return;
 		}
-		void this.flush(events, latestSequence);
+		// await 投递链：flush 内 preflightResult 成功才推进游标——do-while 补拉
+		// 决策必须基于已推进的游标（否则重复投递已投窗口）。
+		await this.flush(events, latestSequence);
 	}
 
 	/**
@@ -447,33 +449,61 @@ export class GroupChatInput {
 			}
 		}
 
-		this.pi.sendMessage(
-			{
-				customType: "pi-tavern.group-chat-input",
-				content,
-				display: true,
-				details: {
-					group_chat_id: this.runtime.groupChatId,
-					character_id: this.runtime.character.characterId,
-					events: toDeliver,
-					group_chat_state: groupChatState,
-				},
-			},
-			{
-				triggerTurn: true,
-				deliverAs: "followUp",
-				// 双通道契约：入队成功 = 投递成功 → 推进游标（失败由 settle 兜底重投）。
-				...(latestSequence !== undefined
-					? {
-							preflightResult: (success: boolean) => {
-								if (success) {
-									this.runtime.saveCursor(latestSequence);
-								}
-							},
+		// 投递承诺（Arch 竞态审计形状）：入队接受（preflightResult）即 resolve——
+		// pi SDK 的 sendMessage 在 run 结束后才 resolve（prompt() 内部 await 链），
+		// await 它会锁死单飞行锁；saveCursor 在 preflightResult 内同步执行，
+		// 承诺 resolve 时游标已推进（do-while 复查读新游标，不重投）。
+		await this.sendWithDeliveryAck(toDeliver, content, groupChatState, latestSequence, "followUp");
+	}
+
+	/**
+	 * 统一投递 + 游标双通道判定（Arch 契约 2026-08-02）：sendMessage 挂
+	 * preflightResult 回调——入队接受（true）即推进游标并 resolve 短承诺；
+	 * 拒绝/抛错不推进（settle 兜底重投）且同样 resolve（防飞行锁挂死）。
+	 * 不 await sendMessage 全量完成（pi SDK：run 结束后才 resolve）。
+	 */
+	private async sendWithDeliveryAck(
+		events: ServerMessage[],
+		content: string,
+		groupChatState: unknown,
+		latestSequence: number | undefined,
+		deliverAs: "followUp" | "steer",
+	): Promise<void> {
+		await new Promise<void>((resolveAck) => {
+			try {
+				// preflightResult：pi SDK 运行时支持（sendMessage 透传 prompt()，
+				// 见 agent-session.js L794）但类型声明未暴露——断言补齐扩展字段。
+				const sendOptions = {
+					triggerTurn: true,
+					deliverAs,
+					preflightResult: (success: boolean) => {
+						// 无条件挂载：ack 恒 resolve（防 flush 挂起泄漏）；无
+						// latestSequence（join 批次）时跳过游标推进（Arch 边角）。
+						if (success && latestSequence !== undefined) {
+							this.runtime.saveCursor(latestSequence);
 						}
-					: {}),
-			},
-		);
+						resolveAck();
+					},
+				} as Parameters<typeof this.pi.sendMessage>[1] & { preflightResult?: (success: boolean) => void };
+				this.pi.sendMessage(
+					{
+						customType: "pi-tavern.group-chat-input",
+						content,
+						display: true,
+						details: {
+							group_chat_id: this.runtime.groupChatId,
+							character_id: this.runtime.character.characterId,
+							events,
+							group_chat_state: groupChatState,
+						},
+					},
+					sendOptions,
+				);
+			} catch {
+				// sendMessage 同步抛错：不推进（settle 兜底重投），仍解除等待。
+				resolveAck();
+			}
+		});
 	}
 
 	/**
@@ -506,34 +536,7 @@ export class GroupChatInput {
 			}
 		}
 
-		this.pi.sendMessage(
-			{
-				customType: "pi-tavern.group-chat-input",
-				content,
-				display: true,
-				details: {
-					group_chat_id: this.runtime.groupChatId,
-					character_id: this.runtime.character.characterId,
-					events,
-					group_chat_state: groupChatState,
-				},
-			},
-			{
-				triggerTurn: true,
-				deliverAs: "steer",
-				// 双通道契约：steer 入队成功 = 投递成功 → 推进游标；
-				// 失败不推进 → settle 兜底重投（Arch 契约点）。
-				...(latestSequence !== undefined
-					? {
-							preflightResult: (success: boolean) => {
-								if (success) {
-									this.runtime.saveCursor(latestSequence);
-								}
-							},
-						}
-					: {}),
-			},
-		);
+		await this.sendWithDeliveryAck(events, content, groupChatState, latestSequence, "steer");
 	}
 
 	private buildContent(events: ServerMessage[], state: unknown): string {
