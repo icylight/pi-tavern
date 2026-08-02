@@ -118,7 +118,7 @@ ACK  执行方 → 验收方：确认 → 交付关闭
 
 **核心原则：同一状态（同 hash + 同层 + 同套件）只验证一次；留痕即证据，引用不重跑。**
 
-- **V0 证据格式与四级锚定**：每次测试运行在 PR/issue 评论区留痕一行「命令 | 结果摘要 | hash@层 | 环境」（层 = unit / integration / acceptance / 全量；环境 = pi 版本 / node 版本，acceptance 跑真实 pi 进程必须含，引用前先对照环境）；未留痕视为未发生；引用写「引用 <hash> 证据」。hash 锚定分四级：
+- **V0 证据格式与四级锚定**：每次测试运行在 PR/issue 评论区留痕一行「命令 | 结果摘要 | hash@层 | 环境」（层 = unit / integration / acceptance / 全量；环境分两类锚，不可混用——① 验收门禁锚 = references/pi@子模块 commit + node 版本（acceptance 经 pi-test.sh 驱动子模块内真实 pi，当前 5bc1c2c0）；② 真实环境锚 = 全局 pi 版本 + node（User 实测 / main 验证）。acceptance 证据必须含门禁锚；跨类引用 = 环境漂移 → 重跑受影响层；references/pi 子模块升级（User 日常更新）即触发；子模块 pin 与全局版本的已知差异属 Dev/PM 协调项）；未留痕视为未发生；引用写「引用 <hash> 证据」。hash 锚定分四级：
   - ① 自测/红测（常含未提交改动，PM 落盘前）：标注「含未提交改动，基线 HEAD=<hash>」——仅参考/测试有效性证明（证明测试钉住缺陷），不作权威证据、不可引用
   - ② 权威锚 = PR 门禁分支头（committed tree）：QA 在分支头跑全量 test:qa 那一刻的树，是唯一可引用锚；跑启动时记 HEAD，运行中分支头前进则该证据对新头过期——补跑或标注 delta
   - ③ 同树引用：已提交树上的绿跑（main 验证树相等核对）可直接引用
@@ -133,6 +133,15 @@ ACK  执行方 → 验收方：确认 → 交付关闭
 - **V3 证据复用与树相等**：同 hash 直接引用；main 验证 = `git rev-parse main^{tree} == PR头^{tree}` 树相等核对 + 引用 PR 门禁证据 + User 实测（真实环境），不重跑全量；树不等（合并冲突解决）才重跑受影响层。树相等只证内容相同、不证环境相同——引用时对照证据行环境上下文（pi 版本号），环境漂移则重跑受影响层。
 - **V4 红/绿状态区分**：QA 证红与 Dev 证绿是不同状态，各跑一次不算重复；重复指同状态同层同套件多次运行。
 - **V5 与 #45 分工**：本规则消「重复跑」（次数维度）；#45 优化单次成本（耗时/CPU），排期不受本规则影响。
+
+**工作示例（V0/V2 实战，QA 2026-08-02 证据链）**：
+
+```
+命令：env -u PITAVERN_TEST npx vitest run --config vitest.acceptance.config.ts test/acceptance/resume-history.test.ts → 1/1 绿
+hash@层：含未提交改动，基线 HEAD=eab1f98 | acceptance-定向
+影响面：acceptance 全链（config 级改动覆盖所有跑法）；npm 路径零行为变化
+判定：实现者声明与 diff 一致 → 全链验证随 PR 门禁一次覆盖，不单独重复跑
+```
 
 ## 8. 生效与修订
 
