@@ -1,6 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ServerMessage } from "../protocol/messages.js";
-import { AggregationWindow } from "./aggregation-window.js";
 import type { CharacterRuntime } from "./character-runtime.js";
 
 /**
@@ -21,65 +20,59 @@ export interface GroupChatInputReloadSnapshot {
 }
 
 /**
- * M7（ISSUE-012/#24）：非 update 事件（join 历史、成员变化）后提交环境批次
- * 前的等待时长。旧的 1s 后沿 debounce 已从 group_chat_update 移除——update
- * 立即拉取——但成员/历史批次仍短暂合并，避免一次 join 拆成多次输入。
+ * M7（ISSUE-012/#24）修订（#64 pull 模型）：非 update 事件（join 历史、成员
+ * 变化）后提交环境批次前的等待时长。旧的 1s 后沿 debounce 已从 group_chat_update
+ * 移除——update 仅置标记——但成员/历史批次仍短暂合并，避免一次 join 拆成多次输入。
  */
 const JOIN_BATCH_DEBOUNCE_MS = 1000;
 
 /**
- * #60：运行中增量聚合窗口（固定窗口，有界延迟）。首个活跃期 update 启动
- * 定时器，窗口内到达的 update 并入一次拉取 + 一次投递（N 条消息 = 1 次
- * 打断）；窗口末未覆盖的尾部由 settle 钩子兜底。空闲期不走此窗口
- * （无打断代价，维持 M7 A1 立即投递）。
+ * #64：闲态触发窗口（固定窗口，有界延迟）。广播 = 纯标记；无 run 时首条标记
+ * 启动 1s 固定窗口，窗口内 N 条并入（不重置）→ 到期 1 次触发拉全（N 条 = 1 次
+ * 消费）。忙态（run 活跃期）不走窗口——settle 后立即触发（对话连续性优先）。
  */
-const AGGREGATION_WINDOW_MS = 400;
+const TRIGGER_DEBOUNCE_MS = 1000;
 
 export class GroupChatInput {
 	private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 	private debounceDueAt: number | null = null;
-	/** #60：运行中增量聚合窗口（固定窗口，一次开启，窗口末合并拉取）。 */
-	private readonly aggregationWindow: AggregationWindow;
+	/** #64：闲态触发窗口定时器（fixed 1s，窗口内并入不重置；零交接字段）。 */
+	private idleWindowTimer: ReturnType<typeof setTimeout> | null = null;
 	/**
 	 * ISSUE-013 A1/A2：待投递窗口。持有 join/成员事件（经 debounce 合并，避免
-	 * join 拆散）以及因 Agent turn 运行中而等待的增量。空闲期间公开消息增量
-	 * 不会在此累积——它们被立即拉取并投递（A1）。
+	 * join 拆散）以及因 Agent turn 运行中而等待的增量。
 	 */
 	private pendingEvents: ServerMessage[] = [];
 	private handler: ((message: ServerMessage) => void) | undefined;
 	private stopped = false;
 	/** 单飞行锁：最多同时一个 fetch_messages_since 在途。 */
 	private fetchInFlight = false;
-	/** 拉取在途时有新 update 到达 → 之后补拉一次。 */
+	/** 拉取在途时有新触发 → 之后补拉一次。 */
 	private refetchRequested = false;
-	/** Agent 运行中时有 update 到达（settle 时补拉尾部窗口）。 */
+	/**
+	 * 忙态标记（#64）：Agent 运行中有 update 到达时置位；settle = 忙态触发点，
+	 * 立即消费拉全（游标单调，消费即拉全，无尾部补拉）。ISSUE-013 B3 的
+	 * stale 拒绝恢复也走同一标记。
+	 */
 	private incrementPending = false;
 
 	constructor(
 		private readonly runtime: CharacterRuntime,
 		private readonly pi: ExtensionAPI,
 	) {
-		// ISSUE-038（口径 A + steer）：run 不再阻塞投递。运行中到达的 update
-		// 被拉取后经 steer 通道在工具调用间隙投递（秒级延迟，绝不打断 run——
-		// M7 A5 保持）。settle 钩子对最后一次运行中投递之后到达的内容补拉一次；
-		// 光标在每次投递时推进，因此 settle 补拉从已投递消息之后开始
-		// （单调不重不漏，光标单点推进）。
+		// ISSUE-038（口径 A + steer）修订（#64 pull 模型）：run 不再接受任何
+		// 中间投递。运行中到达的 update 只置忙态标记（零中间注入红线）；settle
+		// = 忙态触发点——立即消费拉全（游标单调不重不漏，消费即拉全，无需尾部
+		// 补拉窗口）。
 		this.onSettled = () => {
 			if (this.stopped) {
 				return;
 			}
-			// #60：settle 即最终 flush 点——取消未到期的聚合窗口，由下方补拉
-			// 一次覆盖尾部（光标单调，不重不漏）。
-			this.aggregationWindow.cancel();
 			if (this.incrementPending) {
 				this.incrementPending = false;
 				void this.pullIncrement();
 			}
 		};
-		// #60：窗口末 flush = 一次合并拉取（单飞行兜底并发）。
-		this.aggregationWindow = new AggregationWindow(() => {
-			void this.pullIncrement();
-		}, AGGREGATION_WINDOW_MS);
 	}
 
 	private readonly onSettled: () => void;
@@ -110,21 +103,16 @@ export class GroupChatInput {
 				return;
 			}
 			if (message.type === "group_chat_update") {
-				// M7：通知 → 增量拉取。ISSUE-013 A1：拉取结果立即投递（无批次累积）；
+				// #64（pull 模型）：广播 = 纯标记（水位），消费 = run 边界拉全未读。
+				// 闲态：首条标记启动 1s 固定窗口（窗口内并入不重置），到期 1 次触发
+				// 拉全；忙态：置忙态标记，settle 后立即触发（零中间注入红线）。
 				// preview 仅供 TUI（同一数据源，内容不会分叉）。
 				// ISSUE-014/#14（方案 A）：成员/流式变化也走此通道——刷新缓存快照，
 				// 即使拉取结果为空 widget 也保持最新。
-				// ISSUE-038（口径 A）：运行中 update 拉取后立即经 steer 投递；
-				// 标记让 settle 钩子补拉最后一次 steer 投递之后的尾部窗口
-				// （光标单调，无重复）。
-				// #60：运行中（活跃期）update 走固定聚合窗口——窗口内多条顺序
-				// 消息合并为一次拉取 + 一次投递，消除 N 消息 N 打断；空闲期维持
-				// 立即拉取（无打断代价，低延迟优先）。
 				if (this.runtime.isAgentActive) {
 					this.incrementPending = true;
-					this.aggregationWindow.notify();
 				} else {
-					void this.pullIncrement();
+					this.armIdleWindow();
 				}
 				void this.runtime.refreshGroupChatState();
 				return;
@@ -139,13 +127,13 @@ export class GroupChatInput {
 	}
 
 	/**
-	 * M7 + ISSUE-013 A1/A2 + ISSUE-038：拉取持久化光标之后的所有消息并立即
-	 * 投递——中间无批次累积。
+	 * #64：消费原语——拉取持久化光标之后的所有未读并立即投递（一次拉全，
+	 * 保序不重不漏）。由两个触发点调用：闲态窗口到期 / settle（忙态标记）。
 	 *
-	 * 单飞行：并发的 update 只标记 refetchRequested，合并为一次后续拉取。
-	 * ISSUE-038（口径 A）：Agent 运行中不再延迟拉取——update 被拉取后经 steer
-	 * 通道在工具调用间隙投递（秒级可见，绝不打断 run）；settle 钩子对尾部
-	 * 窗口补拉一次。
+	 * 单飞行：并发的消费只标记 refetchRequested，合并为一次后续拉取。
+	 * ISSUE-038 的 settle 竞态修复保留：拉取期间 run 可能 settle/启动，投递
+	 * 前重查 isAgentActive 决定通道（空闲 → followUp 触发新 run；活跃 → steer
+	 * 兜底，绝不打断 run）。
 	 */
 	private async pullIncrement(): Promise<void> {
 		if (this.stopped || this.fetchInFlight) {
@@ -244,7 +232,7 @@ export class GroupChatInput {
 		}
 		this.handler = undefined;
 		this.clearDebounce();
-		this.aggregationWindow.cancel();
+		this.cancelIdleWindow();
 		this.pendingEvents = [];
 	}
 
@@ -275,6 +263,72 @@ export class GroupChatInput {
 					void this.flush();
 				}, remaining);
 			}
+		}
+		// #64：派生再评估——reload 后若有未读（latest_sequence > 游标）则重挂
+		// 新窗口（fresh 1s，零交接字段；窗口瞬态可重置）。状态不可得时保持
+		// 静默，由下次事件/组装边界拉全兜底（不丢，仅延迟）。
+		void this.reEvaluateUnread();
+	}
+
+	/**
+	 * #64：闲态触发窗口（固定 1s，窗口内并入不重置）。窗口到期派生判定：
+	 * run 已活跃（窗口开启期间他源启动的 run）→ 交忙态（settle 触发），
+	 * 不触发、不拉取（零中间注入红线）；仍空闲 → 消费拉全。
+	 */
+	private armIdleWindow(): void {
+		if (this.stopped || this.idleWindowTimer !== null) {
+			return;
+		}
+		this.idleWindowTimer = setTimeout(() => {
+			this.idleWindowTimer = null;
+			if (this.stopped) {
+				return;
+			}
+			if (this.runtime.isAgentActive) {
+				// 窗口到期遇活跃 run：交忙态（settle 后立即消费）。
+				this.incrementPending = true;
+				return;
+			}
+			void this.pullIncrement();
+		}, TRIGGER_DEBOUNCE_MS);
+	}
+
+	private cancelIdleWindow(): void {
+		if (this.idleWindowTimer !== null) {
+			clearTimeout(this.idleWindowTimer);
+			this.idleWindowTimer = null;
+		}
+	}
+
+	/**
+	 * #64：派生标记再评估——未读 ⟺ latest_sequence > 已见游标（单一事实来源，
+	 * 不携带不落盘）。reload/崩溃恢复路径共用：重 join 拉状态后派生求值，
+	 * 有未读则重挂新窗口（闲态）或置忙态标记（活跃）。
+	 */
+	private async reEvaluateUnread(): Promise<void> {
+		if (this.stopped) {
+			return;
+		}
+		try {
+			const state = (await this.runtime.getGroupChatState()) as { latest_sequence?: number } | null;
+			if (!state || this.stopped) {
+				return;
+			}
+			const latest = state.latest_sequence;
+			if (typeof latest !== "number") {
+				return;
+			}
+			const cursor = this.runtime.loadCursor() ?? 0;
+			if (latest <= cursor) {
+				return;
+			}
+			if (this.runtime.isAgentActive) {
+				this.incrementPending = true;
+			} else {
+				this.armIdleWindow();
+			}
+		} catch {
+			// 状态不可得：保持静默，由下次事件/组装边界兜底（不丢，仅延迟）。
 		}
 	}
 
