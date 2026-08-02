@@ -23,15 +23,14 @@ import {
 	removeOwnedActiveDescriptor,
 	updateActiveDescriptorName,
 } from "../data/discovery/active-descriptor.js";
-import { countPersistedEntries, decodeCursor, encodeCursor } from "../data/cursor-store.js";
-import { formatEntryContent, SessionStore, type SessionHeaderLike } from "../data/session-store.js";
+import { countPersistedEntries, decodeCursor } from "../data/cursor-store.js";
+import { SessionStore, type SessionHeaderLike } from "../data/session-store.js";
 import { decodeClientMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { ClientMessage } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 import {
 	HEARTBEAT_PING_INTERVAL_MS,
 	HEARTBEAT_TIMEOUT_MS,
-	JOIN_HISTORY_LIMIT,
 	SHORT_COORDINATION_TIMEOUT_MS,
 } from "../shared/constants.js";
 import type { RuntimeCloseReason, RuntimeCloseResult } from "../shared/runtime-close.js";
@@ -42,10 +41,12 @@ import {
 	normalizeGroupChatName,
 	setGroupChatName,
 	setGroupMaxMessages,
-	setHandRaised,
 } from "../data/group-chat-state.js";
+import { ClaimPipeline } from "./creator-pipelines/claim-pipeline.js";
 import { JoinPipeline } from "./creator-pipelines/join-pipeline.js";
 import { LeavePipeline } from "./creator-pipelines/leave-pipeline.js";
+import { QueryPipeline } from "./creator-pipelines/query-pipeline.js";
+import { ReadyPipeline } from "./creator-pipelines/ready-pipeline.js";
 import { SubmitMessagePipeline } from "./creator-pipelines/submit-message-pipeline.js";
 
 export interface StartNewCreatorRuntimeOptions {
@@ -98,6 +99,9 @@ export class CreatorRuntime {
 	private readonly joinPipeline: JoinPipeline;
 	private readonly leavePipeline: LeavePipeline;
 	private readonly submitMessageDeps: ConstructorParameters<typeof SubmitMessagePipeline>[0];
+	private readonly claimDeps: ConstructorParameters<typeof ClaimPipeline>[0];
+	private readonly readyDeps: ConstructorParameters<typeof ReadyPipeline>[0];
+	private readonly queryDeps: ConstructorParameters<typeof QueryPipeline>[0];
 	private persistedCount = 0;
 	private heartbeatTimer: NodeJS.Timeout | null = null;
 
@@ -185,6 +189,43 @@ export class CreatorRuntime {
 			onPublicMessageError: (error, sequence, timestamp) => this.onPublicMessageError?.(error, sequence, timestamp),
 			send: (socket, message) => this.send(socket, message),
 			sendFailure: (socket, id, command, reason) => this.sendFailure(socket, id, command, reason),
+		};
+		// claim/ready/query 门面依赖面（跨消息状态经注入引用显式读写，决策 7）
+		this.claimDeps = {
+			state: this.state,
+			characters: this.characters,
+			isCharacterAvailable: (characterId) => this.isCharacterAvailable(characterId),
+			startReadyTimer: (socket, connection) => this.startReadyTimer(socket, connection as ConnectionContext),
+			toCharacterSummaryMessage,
+			send: (socket, message) => this.send(socket, message),
+			sendFailure: (socket, id, command, reason) => this.sendFailure(socket, id, command, reason),
+		};
+		this.readyDeps = {
+			state: this.state,
+			connections: this.connections,
+			heartbeatStates: this.heartbeatStates,
+			publicMessages: this.publicMessages,
+			characters: this.characters,
+			clearReadyTimer: (connection) => this.clearReadyTimer(connection as ConnectionContext),
+			now: () => this.deps.now(),
+			toCharacterSummary,
+			toCharacterSummaryMessage,
+			send: (socket, message) => this.send(socket, message),
+			sendFailure: (socket, id, command, reason) => this.sendFailure(socket, id, command, reason),
+			broadcast: (message) => this.broadcast(message),
+			broadcastGroupChatUpdate: () => this.broadcastGroupChatUpdate(),
+			onMembersChanged: () => this.onMembersChanged?.(),
+		};
+		this.queryDeps = {
+			state: this.state,
+			publicMessages: this.publicMessages,
+			sessionStore: this.sessionStore,
+			getPersistedCount: () => this.persistedCount,
+			getGroupChatStateMessage: (requestingSessionId) => this.getGroupChatStateMessage(requestingSessionId),
+			send: (socket, message) => this.send(socket, message),
+			sendFailure: (socket, id, command, reason) => this.sendFailure(socket, id, command, reason),
+			broadcastGroupChatUpdate: () => this.broadcastGroupChatUpdate(),
+			onMembersChanged: () => this.onMembersChanged?.(),
 		};
 		this.startHeartbeat();
 	}
@@ -846,25 +887,25 @@ export class CreatorRuntime {
 				this.joinPipeline.run(socket, connection, message);
 				return;
 			case "claim_character":
-				this.handleClaimCharacter(socket, connection, message);
+				new ClaimPipeline(this.claimDeps).run(socket, connection, message);
 				return;
 			case "character_ready":
-				this.handleCharacterReady(socket, connection, message);
+				new ReadyPipeline(this.readyDeps).run(socket, connection, message);
 				return;
 			case "get_group_chat_state":
-				this.handleGetGroupChatState(socket, connection, message);
+				new QueryPipeline(this.queryDeps).runGetGroupChatState(socket, connection, message);
 				return;
 			case "get_message_history":
-				this.handleGetMessageHistory(socket, connection, message);
+				new QueryPipeline(this.queryDeps).runGetMessageHistory(socket, connection, message);
 				return;
 			case "fetch_messages_since":
-				this.handleFetchMessagesSince(socket, connection, message);
+				new QueryPipeline(this.queryDeps).runFetchMessagesSince(socket, connection, message);
 				return;
 			case "get_chat_history_file":
-				this.handleGetChatHistoryFile(socket, connection, message);
+				new QueryPipeline(this.queryDeps).runGetChatHistoryFile(socket, connection, message);
 				return;
 			case "update_character_state":
-				this.handleUpdateCharacterState(connection, message.is_streaming);
+				new QueryPipeline(this.queryDeps).runUpdateCharacterState(connection, message.is_streaming);
 				return;
 			case "leave_group_chat":
 				this.leavePipeline.run(socket, connection, message);
@@ -874,260 +915,6 @@ export class CreatorRuntime {
 				await new SubmitMessagePipeline(this.submitMessageDeps).runSpeak(socket, connection, message);
 				return;
 		}
-	}
-
-	private handleClaimCharacter(
-		socket: WebSocket,
-		connection: ConnectionContext,
-		message: Extract<ClientMessage, { type: "claim_character" }>,
-	): void {
-		const character = this.characters.get(message.character_id);
-		if (
-			connection.sessionId === null ||
-			connection.online ||
-			connection.reservedCharacterId !== null ||
-			!character ||
-			!this.isCharacterAvailable(message.character_id)
-		) {
-			this.sendFailure(socket, message.id, "claim_character", "Character is no longer available");
-			return;
-		}
-
-		this.state.characterReservations.set(character.characterId, connection.sessionId);
-		connection.reservedCharacterId = character.characterId;
-		this.startReadyTimer(socket, connection);
-		this.send(socket, {
-			...(message.id !== undefined ? { id: message.id } : {}),
-			type: "response",
-			command: "claim_character",
-			success: true,
-			data: {
-				character: {
-					...toCharacterSummaryMessage(character),
-					path: character.path,
-				},
-			},
-		});
-	}
-
-	private handleCharacterReady(
-		socket: WebSocket,
-		connection: ConnectionContext,
-		message: Extract<ClientMessage, { type: "character_ready" }>,
-	): void {
-		const { sessionId, reservedCharacterId } = connection;
-		const character = reservedCharacterId ? this.characters.get(reservedCharacterId) : undefined;
-		if (
-			sessionId === null ||
-			reservedCharacterId === null ||
-			!character ||
-			connection.online ||
-			this.state.characterReservations.get(reservedCharacterId) !== sessionId
-		) {
-			this.sendFailure(socket, message.id, "character_ready", "Character reservation is no longer valid");
-			return;
-		}
-		if (this.connections.has(sessionId)) {
-			this.sendFailure(socket, message.id, "character_ready", "This pi session is already in the group chat");
-			return;
-		}
-
-		this.clearReadyTimer(connection);
-		this.state.characterReservations.delete(reservedCharacterId);
-		connection.reservedCharacterId = null;
-		this.connections.set(sessionId, socket);
-		this.heartbeatStates.set(sessionId, { lastPongAt: this.deps.now().getTime() });
-		this.state.onlineCharacters.set(sessionId, {
-			sessionId,
-			character: toCharacterSummary(character),
-			isStreaming: false,
-			handRaised: false,
-		});
-		connection.online = true;
-
-		this.send(socket, {
-			...(message.id !== undefined ? { id: message.id } : {}),
-			type: "response",
-			command: "character_ready",
-			success: true,
-		});
-
-		// 在 join 广播前发送历史，使新 Character 处理自己的 character_joined
-		// 事件时 hasPublicMessages 已为 true。
-		// User 2026-08-01：join 推送窗口 10 → JOIN_HISTORY_LIMIT（100）。
-		const recentMessages = this.publicMessages.slice(-JOIN_HISTORY_LIMIT);
-		const earliest = recentMessages[0];
-		const hasMore = earliest !== undefined && earliest.sequence > 1;
-		this.send(socket, {
-			type: "message_history",
-			messages: recentMessages.map((m) => ({
-				type: "public_message" as const,
-				event_id: m.event_id,
-				sequence: m.sequence,
-				timestamp: m.timestamp,
-				sender: m.sender,
-				content: m.content,
-				round: m.round,
-			})),
-			cursor: hasMore ? encodeCursor(earliest.sequence) : null,
-			has_more: hasMore,
-			total_messages: this.publicMessages.length,
-		});
-
-		// 在 message_history 之后广播 character_joined，使新 Character 处理
-		// 自己的 join 事件时 hasPublicMessages 已为 true。
-		this.broadcast({
-			type: "character_joined",
-			character: toCharacterSummaryMessage(character),
-		});
-		this.onMembersChanged?.();
-		// ISSUE-014/#14（方案 A）：成员变化也经 M7 通知通道唤醒角色，使即使
-		// 没有新消息到达时其 widget 快照也刷新。
-		this.broadcastGroupChatUpdate();
-	}
-
-	private handleGetGroupChatState(
-		socket: WebSocket,
-		connection: ConnectionContext,
-		message: Extract<ClientMessage, { type: "get_group_chat_state" }>,
-	): void {
-		if (!connection.online || connection.sessionId === null) {
-			this.sendFailure(socket, message.id, "get_group_chat_state", "Character is not in the group chat");
-			return;
-		}
-		this.send(socket, {
-			...(message.id !== undefined ? { id: message.id } : {}),
-			type: "response",
-			command: "get_group_chat_state",
-			success: true,
-			data: this.getGroupChatStateMessage(connection.sessionId),
-		});
-	}
-
-	private handleGetMessageHistory(
-		socket: WebSocket,
-		connection: ConnectionContext,
-		message: Extract<ClientMessage, { type: "get_message_history" }>,
-	): void {
-		if (!connection.online || connection.sessionId === null) {
-			this.sendFailure(socket, message.id, "get_message_history", "Character is not in the group chat");
-			return;
-		}
-
-		// 游标是绝对 sequence 边界：返回 sequence < cursorSeq 的最近 10 条。
-		// 新消息不会使其移位。
-		// 注：分页大小保持 10（增量分页粒度）；只有 join 推送窗口用
-		// JOIN_HISTORY_LIMIT（User 2026-08-01）。
-		const cursorSeq = message.cursor === undefined || message.cursor === null ? null : decodeCursor(message.cursor);
-		const page =
-			cursorSeq === null
-				? this.publicMessages.slice(-10)
-				: this.publicMessages.filter((m) => m.sequence < cursorSeq).slice(-10);
-		const earliest = page[0];
-		const hasMore = earliest !== undefined && earliest.sequence > 1;
-
-		this.send(socket, {
-			...(message.id !== undefined ? { id: message.id } : {}),
-			type: "response",
-			command: "get_message_history",
-			success: true,
-			data: {
-				messages: page.map((m) => ({
-					type: "public_message" as const,
-					event_id: m.event_id,
-					sequence: m.sequence,
-					timestamp: m.timestamp,
-					sender: m.sender,
-					content: m.content,
-					round: m.round,
-				})),
-				cursor: hasMore ? encodeCursor(earliest.sequence) : null,
-				has_more: hasMore,
-				total_messages: this.publicMessages.length,
-			},
-		});
-	}
-
-	private handleFetchMessagesSince(
-		socket: WebSocket,
-		connection: ConnectionContext,
-		message: Extract<ClientMessage, { type: "fetch_messages_since" }>,
-	): void {
-		if (!connection.online || connection.sessionId === null) {
-			this.sendFailure(socket, message.id, "fetch_messages_since", "Character is not in the group chat");
-			return;
-		}
-
-		// 增量拉取（M7/ISSUE-012）：返回客户端游标之后的全部消息。sequence
-		// 过滤天然补洞——漏掉的通知由下一次拉取自愈。
-		const since = message.since_sequence;
-		const increment = this.publicMessages.filter((m) => m.sequence > since);
-		const latest = this.publicMessages[this.publicMessages.length - 1];
-
-		this.send(socket, {
-			...(message.id !== undefined ? { id: message.id } : {}),
-			type: "response",
-			command: "fetch_messages_since",
-			success: true,
-			data: {
-				messages: increment.map((m) => ({
-					type: "public_message" as const,
-					event_id: m.event_id,
-					sequence: m.sequence,
-					timestamp: m.timestamp,
-					sender: m.sender,
-					content: m.content,
-					round: m.round,
-				})),
-				latest_sequence: latest?.sequence ?? since,
-				total_messages: this.publicMessages.length,
-			},
-		});
-	}
-
-	private handleGetChatHistoryFile(
-		socket: WebSocket,
-		connection: ConnectionContext,
-		message: Extract<ClientMessage, { type: "get_chat_history_file" }>,
-	): void {
-		if (!connection.online || connection.sessionId === null) {
-			this.sendFailure(socket, message.id, "get_chat_history_file", "Character is not in the group chat");
-			return;
-		}
-
-		let path: string;
-		try {
-			path = this.sessionStore.getSessionFilePath();
-		} catch {
-			this.sendFailure(socket, message.id, "get_chat_history_file", "Group chat has no chat history file yet");
-			return;
-		}
-		// 文件在首次持久化后才存在；SessionManager 在文件写入前可能已知路径。
-		if (this.persistedCount === 0) {
-			this.sendFailure(socket, message.id, "get_chat_history_file", "Group chat has no chat history file yet");
-			return;
-		}
-		this.send(socket, {
-			...(message.id !== undefined ? { id: message.id } : {}),
-			type: "response",
-			command: "get_chat_history_file",
-			success: true,
-			data: { path },
-		});
-	}
-
-	private handleUpdateCharacterState(connection: ConnectionContext, isStreaming: boolean): void {
-		if (!connection.online || connection.sessionId === null) {
-			return;
-		}
-		const onlineCharacter = this.state.onlineCharacters.get(connection.sessionId);
-		if (onlineCharacter) {
-			onlineCharacter.isStreaming = isStreaming;
-		}
-		this.onMembersChanged?.();
-		// ISSUE-014/#14（方案 A）：流式翻转是最频繁的成员状态变化——广播更新
-		// 通知使每个角色刷新快照（widget「正在发言」保持实时）。
-		this.broadcastGroupChatUpdate();
 	}
 
 	private startReadyTimer(socket: WebSocket, connection: ConnectionContext): void {
