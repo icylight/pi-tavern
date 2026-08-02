@@ -359,20 +359,9 @@ export class CreatorRuntime {
 		this.memberBookkeeping.removeOnlineCharacter(connection, reason);
 	}
 
-	/** 等待运行时队列排空，最长 timeoutMs；超时返回 true。 */
+	/** 等待运行时队列排空（Arch B 级：与 runtime-lifecycle 合一，委托单一实现）。 */
 	async drainRuntimeQueue(timeoutMs: number): Promise<boolean> {
-		let timer: NodeJS.Timeout | undefined;
-		try {
-			return await Promise.race([
-				this.runtimeTail.then(() => false),
-				new Promise<boolean>((resolve) => {
-					timer = setTimeout(() => resolve(true), timeoutMs);
-					timer.unref?.();
-				}),
-			]);
-		} finally {
-			if (timer) clearTimeout(timer);
-		}
+		return this.runtimeLifecycle.drainRuntimeQueue(timeoutMs);
 	}
 
 	/** 客户端消息分发（PR-B：流程移至 creator-pipelines/dispatch）。 */

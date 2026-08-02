@@ -26,6 +26,9 @@ export function wireAgentLifecycle(pi: ExtensionAPI, ctrl: TavernController): vo
 			// 用户直聊轮次（直聊、非群聊跟进）保持暗。标记由 GroupChatInput.flush
 			// 在投递前设置。
 			state.runtime.updateStreaming(state.runtime.consumeGroupChatTurnTriggered());
+			// #66：agent_start 布防 run wedged watchdog（W 内无 agent_settled →
+			// 强制收敛）；happy path 由 agent_settled 的 settleRun 清除。
+			state.runtime.armRunWedgedWatchdog();
 		}
 	});
 
@@ -42,11 +45,8 @@ export function wireAgentLifecycle(pi: ExtensionAPI, ctrl: TavernController): vo
 	pi.on("agent_settled", () => {
 		const state = ctrl.getState();
 		if (state.type === "character") {
-			state.runtime.isAgentActive = false;
-			state.runtime.clearStreamingResetWatchdog();
-			state.runtime.updateStreaming(false);
-			// 冲刷 run 活跃期间排队的增量。
-			state.runtime.onAgentSettled?.();
+			// #66：统一 settle 路径（含 run watchdog 清除与 wedged 幂等合并）。
+			state.runtime.settleRun();
 		}
 	});
 }
