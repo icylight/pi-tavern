@@ -6,6 +6,7 @@ export default defineConfig({
 		// 此前只由 `npm run test:acceptance` 注入，裸跑 vitest 会静默假红
 		// （命令未注册 → 30s 超时，QA 2026-08-02 实证踩坑），内联后两条路径一致。
 		env: { PITAVERN_TEST: "1" },
+		globalSetup: ["./test/acceptance/global-setup.ts"], // #45 P1：tsx 预热（冷 15s→热 4.6s，QA 2026-08-02）
 		include: ["test/acceptance/**/*.test.ts"],
 		testTimeout: 180_000,
 		hookTimeout: 120_000,
@@ -16,6 +17,6 @@ export default defineConfig({
 		// longer run (~2-4 min vs ~1 min); it also reduces load-related flaky
 		// timeouts (see #32). QA owns this file; change authorized by PM
 		// 2026-08-02, QA regression review pending.
-		maxWorkers: 6,
+		maxWorkers: 4,
 	},
 });
