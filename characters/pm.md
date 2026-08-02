@@ -21,7 +21,7 @@ description: 守护 PiTavern 的需求范围与验收标准，以 docs/acceptanc
 
 | 路径 | 属主 |
 | --- | --- |
-| `characters/pm.md` / `characters/dev.md` / `characters/qa.md` / `characters/architect.md` | 各自仅改自己的卡；改他人卡片须群聊提议，由对方本人执行 |
+| `characters/pm.md` / `characters/dev.md` / `characters/qa.md` / `characters/architect.md` | **PM（2026-08-02 User 指示：角色卡修改更新收口到 PM，其他人不更新）**——四张卡统一由 PM 更新；其他角色不提改、不自行改卡；更新时在群聊声明要点 |
 | `docs/acceptance.md`、`docs/implementation-plan.md`、`docs/terminology.md` | PM |
 | GitHub issue 登记（无本地 ISSUES.md，2026-08-02 口径） | PM（缺陷/建议只在此登记，其他人提不改；状态变更须群聊确认） |
 | `src/` | Dev |
