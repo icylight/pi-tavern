@@ -13,7 +13,7 @@
 | character/group-chat-input.ts | 513 | application/character-pipelines（**补映射**） | — | **裸奔** ⚠️ #38 契约面 |
 | protocol/messages.ts | 437 | shared | — | 裸奔（契约面，零 diff 约束） |
 | commands.ts | 422 | adapter | commands.test（unit） | unit 钉住 |
-| index.ts | 416 | adapter（组合根） | extension.test（unit） | unit 钉住 |
+| index.ts | 416 | adapter（入口/装配点） | extension.test（unit） | unit 钉住 |
 | character/join-attempt.ts | 311 | runtime | commands.test, extension.test（unit） | unit 钉住 |
 | controller/tavern-controller.ts | 252 | application（管线雏形） | commands.test, extension.test（unit） | unit 钉住 |
 | discovery/active-descriptor.ts | 185 | skills | commands.test, extension.test + **5 个 acceptance** | **覆盖最厚（8 引用）** |

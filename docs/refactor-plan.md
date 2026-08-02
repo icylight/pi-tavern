@@ -9,8 +9,8 @@
 1. **行为等价基准（QA 承诺 + characterize-first）**：迁移 PR 内先写行为钉测（旧代码上绿）→ 迁移 → 断言零改动仍绿 = 行为零变化成立；每拆一层补一层钉测（裸奔文件随迁移逐个补钉）
 2. **试点排序（QA 覆盖现状表定序）**：resume-projection（小+纯计算）→ active-descriptor（acceptance 覆盖最厚，兜底最强）→ session/cursor；discover-group-chats 裸奔，**先补钉测再迁**
 3. **阶段门禁**：每阶段末 unit 全量 + 定向 acceptance；Phase 3/5 全链门禁
-4. **粒度约束（Arch 判据 + QA 细化）**：管线 iff ≥3 顺序阶段 + 共享中间状态 +（≥2 入口复用 或 显式一致性边界）；短流程留用例门面；Phase 1 按 skills 模块拆 2-3 个 PR，各带定向验证
-5. **契约不动**：protocol/messages.ts wire schema 零改动；每阶段 git diff 核对 messages/codec 零 diff；「拆 schema 与行为」挂 Phase 4 可选
+4. **粒度约束（Arch 判据 + QA 细化）**：管线 iff ≥3 顺序阶段 + 共享中间状态 +（≥2 入口复用 或 需要显式安排读写顺序）；短流程留用例门面；Phase 1 按 skills 模块拆 2-3 个 PR，各带定向验证
+5. **契约不动**：protocol/messages.ts 的消息格式定义（wire schema）零改动；每阶段 git diff 核对 messages/codec 零 diff；「拆 schema 与行为」挂 Phase 4 可选
 
 ## 模块覆盖现状（QA 实测，2026-08-02）
 
@@ -32,13 +32,13 @@
 
 ### Phase 2:application 提取(管线化)
 
-- 内容:协议消息 → 请求级管线实例(submit-message / join / claim / ready / leave / query);tavern-controller 的 transitionTail 串行化保留为管线雏形基座;store 改注入
+- 内容：协议消息 → 请求级管线实例（submit-message / join / claim / ready / leave / query）；tavern-controller 的 transitionTail 一次只处理一个轮次（排队执行）保留为管线雏形基座；store 由 runtime 交给管线（不自建）
 - 验证:unit + 定向(round / speak-order / join-resume)
-- 出口:每个协议消息有对应管线;一致性边界归管线 Method 持有
+- 出口：每个协议消息有对应管线；读写顺序与落盘时机归管线 Method 安排
 
-### Phase 3:runtime 瘦身 + 组合根(里程碑)
+### Phase 3：runtime 瘦身 + 装配点（里程碑）
 
-- 内容:CreatorRuntime/CharacterRuntime 收敛为骨架(WS + 心跳 + 连接表 + 装配);index.ts 成为唯一组合根;join-attempt/reload-handoff 归位
+- 内容：CreatorRuntime/CharacterRuntime 收敛为骨架（WS + 心跳 + 连接表 + 装配）；index.ts 成为唯一装配点（组合根）；join-attempt/reload-handoff 归位
 - 验证:**全链门禁**(unit + integration + acceptance,V0 留痕)
 - 出口:creator-runtime 1881 行 → ~400 行骨架 + 已拆模块
 
@@ -58,7 +58,7 @@
 
 | 风险 | 对策 |
 | --- | --- |
-| 迁移期 import/测试路径 churn | 五阶段切分消化；每阶段独立 commit、独立验证 |
+| 迁移期 import/测试路径牵动 | 五阶段切分消化；每阶段独立 commit、独立验证 |
 | **IO 收敛面超出预期（Dev 实测：16/22 文件直触 IO，含 adapter 侧 commands/tavern-ui-presenter/headless 与 shared 侧 messages/config）** | Phase 1 以「读写点唯一化」为原则覆盖全仓：runtime 内 IO + adapter 直读点 + shared 侧 IO 全部收进 skills；协议侧 IO 若属契约无关工具则一并迁出；按 1.5× 规模预留 Phase 1 |
 | 管线化初期样板感 | 评审约束阶段粒度;仅「有独立步骤/状态/复用边界」的流程建管线 |
 | 试点模块回退 | 先迁移覆盖最厚模块(QA 覆盖现状表);回退 = 单文件 revert + 定向回归 |
@@ -67,7 +67,7 @@
 
 ## 遗留项清单
 
-1. ~~ADR-0005 §3「一致性边界（无 DB 的事务对应物）」表述~~（User 评论 r3698822940「这部分太奇怪了」）——**已解决**：User 裁定「这个 pr 上改」，§3 重写（标题改「一致性（文件原子写 + 游标单调推进）」、删事务类比、跨消息裁决归决策 7）+ §2 依赖规则简化已随 PR #55 一并入库（2026-08-02）
+1. ~~ADR-0005 §3「一致性边界（无 DB 的事务对应物）」表述~~（User 评论 r3698822940「这部分太奇怪了」）——**已解决**：User 裁定「这个 pr 上改」，§3 重写（标题改「消息与游标怎么保存」、删事务类比、跨消息裁决归决策 7）+ §2 依赖规则简化已随 PR #55 一并入库（2026-08-02）
 
 ## 待四方确认项（评审收敛进度）
 

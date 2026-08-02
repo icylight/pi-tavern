@@ -8,7 +8,7 @@
 
 `src/creator/creator-runtime.ts`（1881 行）单体：WS 传输（handleConnection/心跳）、业务编排（submitUserPersonaMessage/join/claim/ready/leave）、持久化（游标/FIRST_PERSIST_*/session 文件恢复）全部混在一个类；依赖方向靠约定不靠结构；目录与命名无统一规范（22 文件 6415 行，按既有目录分布）。
 
-设计范式 = **IO 模型**：application 层是请求级 IO 管线——输入与中间状态收于管线实例、阶段为私有 Method、一致性边界由主管线持有；其下为原子能力层（skills），进程级共享能力由 runtime 单例持有（MCP 同构）。PiTavern 无 DB，「事务」对应物为文件原子写与游标单调推进。
+设计范式 = **IO 模型**：application 层是请求级 IO 管线——输入与中间状态收于管线实例、阶段为私有处理函数（Method）、读写顺序由主管线安排；其下为能力单元层（skills），进程级共享能力由 runtime 单例持有（MCP 同构）。PiTavern 没有数据库，落盘就是「追加写文件 + 游标只前进」，不引入事务概念。
 
 ## 决策
 
@@ -16,31 +16,33 @@
 
 | 层 | 定义 | PiTavern 落点 |
 | --- | --- | --- |
-| **adapter** | 薄入口：显式展开管线顺序与分支；领域结果 → 协议响应 / notify / steer | commands / tools / headless / ui（presenter·renderers·resume-projection）/ WS handler 壳 |
-| **application** | **请求级 IO 管线**：一次协议消息 / 内部事件 = 一个管线实例；输入与中间 IO 收于实例字段；阶段 = 私有 Method；一致性边界由主管线 Method 持有；子管线只给有独立步骤/状态/复用边界的流程 | SubmitMessage / Join / Claim / Ready / Leave / 查询 管线；`tavern-controller.ts` 的 transitionTail 串行化 = 已存在的管线雏形 |
-| **skills** | 原子能力（原 data）：单一用途、一次明确读写；按业务能力组织；不开启一致性边界、不编排；显式接收管线传入的上下文；纯计算不隐藏 IO；返回领域错误由 adapter 映射 | session-store / cursor-store / descriptor-store / resume-projection / discovery 原语 |
+| **adapter** | 薄入口：显式展开管线顺序与分支；处理结果 → 协议响应 / notify / steer | commands / tools / headless / ui（presenter·renderers·resume-projection）/ WS handler 壳 |
+| **application** | **请求级 IO 管线**：一次协议消息 / 内部事件 = 一个管线实例；输入与中间 IO 收于实例字段；阶段 = 私有处理函数（Method）；读写顺序与落盘时机由主管线安排；子管线只给有独立步骤/状态/复用边界的流程 | SubmitMessage / Join / Claim / Ready / Leave / 查询 管线；`tavern-controller.ts` 的 transitionTail 一次只处理一个轮次（排队执行），已是管线雏形 |
+| **skills** | 能力单元（原 data）：单一用途、一次明确读写；按业务能力组织；不把多步串在一起、不自行决定读写时机；显式接收管线传入的输入；纯计算不隐藏 IO；出错时返回明确原因，由入口层决定如何回应 | session-store / cursor-store / descriptor-store / resume-projection / discovery 原语 |
 | **runtime** | 进程单例（**MCP 同构**）：WS server + 连接表 + 心跳 + 能力实例装配；不保存单次任务中间状态 | 瘦身后的 CreatorRuntime / CharacterRuntime；join-attempt（WS 客户端传输）；reload-handoff（进程级交接） |
-| **shared** | 跨进程通用契约 | protocol（messages·codec）/ config / constants / runtime-close |
+| **shared** | 跨进程通用契约（双进程共同遵守的消息格式约定） | protocol（messages·codec）/ config / constants / runtime-close |
 
 ### 2. 依赖规则（硬约束）
 
 - **依赖单向**：adapter → application → runtime → skills → shared；允许跨层依赖任意下层，禁止上行
 - **文件 IO 仅限 skills**：application 不直接读写文件；adapter 可直查 skills（纯读）；skills 不编排流程
-- runtime 是唯一单例持有者（连接 + 能力实例装配点），application 经注入取接口
+- runtime 是唯一单例持有者（连接 + 能力实例装配点），application 需要时从 runtime 拿，不自建
 - skills 无 pi 依赖、可单测（resume-projection 先例推广）
-- 纯计算 skill 不隐藏 IO：计算上下文由管线显式组装后传入
+- 纯计算 skill 不隐藏 IO：计算输入由管线显式组装后传入
 
-### 3. 一致性（文件原子写 + 游标单调推进）
+### 3. 消息与游标怎么保存
 
-- PiTavern 无数据库：写入保证 = 会话文件原子 append + 游标单调推进 + 失败恢复（FIRST_PERSIST_*/recoverSessionManagerFromFailedAppend）——以代码事实为准，不借用事务概念
-- 持久化边界归管线 Method 持有；skills 只接收显式传入的上下文，不自开自合
-- 不引入事务/Outbox 抽象（无 DB，无对应物）
+- **消息整条追加**：每条新消息一次性追加到会话文件末尾，旧消息不会被覆盖或改写
+- **游标只前进**：游标（last_sequence）记录「已送达的序号」，只增不减，是送达进度的唯一依据
+- **写一半断了能恢复**：写入中断时，FIRST_PERSIST_*/recoverSessionManagerFromFailedAppend 从已落盘位置继续，不重复、不丢已确认的消息
+- **谁来安排**：协议消息的处理流程（application）按步骤安排「何时读、何时写」；skills 只做单一步骤的读写，不自行串联多步
+- 这里不引入数据库的「事务」「Outbox」等概念——没有数据库，用不上这些词
 - 跨消息异步状态的归属见决策 7
 
 ### 4. 双进程
 
 - creator 进程与每个 character 进程各实例化一套（adapter/application/skills/runtime）；只有 shared 跨进程
-- 组合根 = `src/index.ts`，与 pi 扩展生命周期对齐
+- 装配点（组合根，即程序启动时把所有零件接起来的地方）= `src/index.ts`，与 pi 扩展生命周期对齐
 
 ### 5. 契约不动 + 行为零变化
 
@@ -50,7 +52,7 @@
 
 ### 6. 层名
 
-- **skills**：取 agent-skill 语义（原子能力单元）；与 pi 宿主 SKILL.md 系统区分（我们不加载宿主技能）；等价 MCP 术语 capabilities
+- **skills**：取 agent-skill 语义（能力单元：一次只做一件事的读写/计算）；与 pi 宿主 SKILL.md 系统区分（我们不加载宿主技能）；等价 MCP 术语 capabilities
 
 ### 7. 跨消息异步状态归属（预演裁决，2026-08-02）
 
@@ -96,11 +98,11 @@ shared:       protocol/(messages·codec) / config/(character-card·load-config) 
 | 大爆炸式一次重构 | 单体一次性拆 = 高风险，无法逐层验证 |
 | 保持现状 | 违背动机，单体只会随新能力继续膨胀 |
 | 按领域包（不按层） | 群聊/角色/协议域内仍混传输与持久化，依赖方向不可循 |
-| 引入 DI 容器 | 项目规模不需要，组合根手动装配即可，零新依赖 |
-| 引入事务/Outbox 抽象（跨层框架化） | PiTavern 无 DB，一致性单元只是文件原子写，不引入事务框架 |
+| 引入依赖注入框架 | PiTavern 没有数据库，落盘只是追加写文件 + 游标推进，不需要事务框架；依赖管理靠装配点手动拼接即可，零新依赖 |
+| 引入事务/Outbox 抽象（跨层框架化） | PiTavern 没有数据库，落盘只是追加写文件 + 游标推进，不需要事务框架 |
 
 ## 后果
 
-正：可读性（小文件单职责）、可测性（skills 无 pi 依赖可单测）、依赖方向可循（lint 可强制）、与 pi 生态词汇同构（新成员低心智负担）、范式统一（管线 + 原子能力 + 单例的职责划分清晰）。
+正：可读性（小文件单职责）、可测性（skills 无 pi 依赖可单测）、依赖方向可循（lint 可强制）、与 pi 生态词汇同构（新成员低心智负担）、范式统一（管线 + 能力单元 + 单例的职责划分清晰）。
 
-负：迁移期文件移动的 import/测试路径 churn（机械性，五阶段消化）；管线化初期有样板感（每协议一管线），阶段粒度靠评审约束防过度拆分；规划分支本身不产出可运行增量。
+负：迁移期文件移动的 import/测试路径牵动（机械性，五阶段消化）；管线化初期有样板感（每协议一管线），阶段粒度靠评审约束防过度拆分；规划分支本身不产出可运行增量。
