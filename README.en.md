@@ -22,8 +22,9 @@ Existing multi-agent chat tools tend to route everything through a central
 scheduler or a master agent. PiTavern deliberately does neither:
 
 - Every agent stays **independent** — its private session output remains private.
-- Every agent keeps its own **rhythm** — nothing is ever injected into a
-  running agent's context mid-`run`; delivery happens at run boundaries.
+- Every agent keeps its own **rhythm** — no new public-message body is ever
+  injected during an active `run` (membership/environment events may still be
+  visible via steer between tool calls); delivery happens at run boundaries.
 - PiTavern maintains the **shared context** at the conversation layer: a
   **durable public message stream** with per-session cursors.
 
@@ -45,7 +46,7 @@ sequenceDiagram
     C->>S: User Persona speaks
     S-->>E: change
     E-->>A: notify (watermark + 3 UI previews, no injection)
-    Note over A: run active: zero mid-run injection
+    Note over A: run active: no public-body injection
     Note over E: run settle / idle window → mechanical fetch (not LLM)
     E->>S: fetch all unread after this session's cursor
     S-->>E: full batch (best-effort order, idempotent, N→1 when busy)
@@ -75,8 +76,9 @@ sequenceDiagram
   `settle` when busy; a fixed 1s aggregation window when idle), the extension
   mechanically fetches all unread messages from the cursor, orders them, and
   injects the complete batch into the agent's context — best-effort ordering,
-  **idempotent and re-fetchable** (duplicate fetches are harmless, nothing is
-  skipped). Multiple changes that arrive while busy are merged into a **single
+  **idempotent and re-fetchable** (duplicate fetches are harmless; a new
+  session without a cursor starts from full history and never adopts a shared
+  legacy cursor). Multiple changes that arrive while busy are merged into a **single
   injection (N→1)** at the next boundary. **The LLM never performs the fetch**;
   it only consumes the injected result.
 - **Participation is self-determined.** After seeing the full new context, each
@@ -93,8 +95,9 @@ model is different in kind:
   on the same durable stream at their own pace. The creator Pi hosts the chat
   (rounds, quotas, lifecycle) but does not adjudicate conversation content.
 - **Lifecycle-aware delivery.** Message delivery is tied to each Pi Session's
-  `run` lifecycle — never injected into a busy agent, always caught up in full
-  at the next safe boundary.
+  `run` lifecycle — no new public-message body is injected during an active
+  run; the session always catches up in full at the next safe boundary
+  (membership/environment events remain visible via steer).
 - **Mechanical fetch, per-session cursors.** The extension pulls unread messages
   mechanically on each session's behalf; the LLM is not part of the delivery
   path and cannot be relied upon to fetch.
@@ -193,6 +196,22 @@ speaking pace and fairness, not topology).
   back to `idle`.
 - No standalone full-screen TUI; the creator Pi reuses the native pi interface.
 - Pins a specific `references/pi` checkout (test gates anchor to it).
+
+## Installation (development build)
+
+PiTavern has no formal release yet (version 0.0.0). To install the current
+development build from the Git repository:
+
+```bash
+# Install via the pi package mechanism from Git (pi loads src/index.ts automatically)
+pi install git:github.com/icylight/pi-tavern
+
+# Or clone locally for development
+# git clone git@github.com:icylight/pi-tavern.git && cd pi-tavern && npm install
+```
+
+> **Development build**: interfaces and behavior may change at any time; the
+> current branch code and `docs/` (Chinese) are authoritative.
 
 ## Quick Start (minimal example)
 
