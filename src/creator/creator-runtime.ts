@@ -72,9 +72,8 @@ interface PersistedRuntimeState {
 }
 
 /**
- * Opaque history cursor. Encodes the sequence boundary: a request with
- * this cursor returns messages with sequence < seq. Absolute sequence
- * keeps the cursor position stable while new messages arrive.
+ * 不透明历史游标。编码 sequence 边界：携带此游标的请求返回 sequence < seq
+ * 的消息。绝对 sequence 保证新消息到达时游标位置稳定。
  */
 function encodeCursor(sequence: number): string {
 	return Buffer.from(JSON.stringify({ v: 1, seq: sequence })).toString("base64url");
@@ -100,15 +99,15 @@ export interface CreatorRuntimeDependencies {
 	publishDescriptor: (agentDir: string, descriptor: ActiveGroupChatDescriptor) => Promise<string>;
 	writeFile: (path: string, data: string) => Promise<void>;
 	rm: (path: string) => Promise<void>;
-	/** Interval between WebSocket heartbeat pings (defaults to 30s). */
+	/** WebSocket 心跳 ping 间隔（默认 30s）。 */
 	heartbeatIntervalMs: number;
-	/** Pong timeout threshold (defaults to 120s); overdue members are terminated. */
+	/** Pong 超时阈值（默认 120s）；超时成员被终止。 */
 	heartbeatTimeoutMs: number;
-	/** How long close()/detachForReload() waits for the runtime queue to drain. */
+	/** close()/detachForReload() 等待运行时队列排空的最长时间。 */
 	drainTimeoutMs: number;
 }
 
-/** Bit flags tracking first-persist milestones for granular rollback on failure. */
+/** 首次持久化里程碑位标记，用于失败时的精细回滚。 */
 const FIRST_PERSIST_HEADER_WRITTEN = 1 << 0;
 const FIRST_PERSIST_SESSION_OPENED = 1 << 1;
 const FIRST_PERSIST_NAME_APPENDED = 1 << 2;
@@ -119,7 +118,7 @@ export class CreatorRuntime {
 	readonly connections = new Map<string, WebSocket>();
 	readonly characters: Map<string, CharacterCard>;
 
-	/** Per-member heartbeat bookkeeping, keyed by pi session id. */
+	/** 按 pi session id 索引的成员心跳簿记。 */
 	readonly heartbeatStates = new Map<string, HeartbeatState>();
 
 	private lifecycle: "active" | "detaching" | "disposed" = "active";
@@ -131,13 +130,13 @@ export class CreatorRuntime {
 	private serverConnectionHandler: ((socket: WebSocket) => void) | null = null;
 	private rejectConnectionsHandler: ((socket: WebSocket) => void) | null = null;
 
-	/** Maps each live socket back to its connection context for failure cleanup. */
+	/** 把每个存活 socket 映射回其连接上下文，用于失败清理。 */
 	private readonly connectionBySocket = new WeakMap<WebSocket, ConnectionContext>();
 
-	/** Set when the session file cannot be written or recovered. All mutating operations reject. */
+	/** 会话文件无法写入或恢复时置位。此后所有变更操作一律拒绝。 */
 	private persistenceFatal = false;
 
-	/** Tracks which steps have completed during first-persist, for rollback on failure. */
+	/** 记录首次持久化已完成的步骤，用于失败回滚。 */
 	private firstPersistFlags = 0;
 
 	onPublicMessage:
@@ -153,7 +152,7 @@ export class CreatorRuntime {
 
 	onPublicMessageError: ((error: string, sequence: number, timestamp: string) => void) | undefined;
 
-	/** Fired when online membership or streaming state changes (TUI refresh trigger). */
+	/** 在线成员或流式状态变化时触发（TUI 刷新信号）。 */
 	onMembersChanged: (() => void) | undefined;
 
 	private publicMessages: PublicMessageState[] = [];
@@ -254,12 +253,10 @@ export class CreatorRuntime {
 	}
 
 	/**
-	 * Resume a previously persisted group chat from its chat history JSONL file.
-	 * Rebuilds name, groupMaxMessages, Round, next sequence, and the public
-	 * message list from the session entries; allocates a fresh instance_id and
-	 * port; restores no member connections. Publishing the active descriptor is
-	 * the atomic exclusive claim — a concurrently resumed group chat loses the
-	 * hard-link race and fails.
+	 * 从群聊历史 JSONL 文件恢复此前持久化的群聊。从会话条目重建 name、
+	 * groupMaxMessages、Round、next sequence 与公开消息列表；分配全新
+	 * instance_id 与端口；不恢复任何成员连接。发布 active descriptor 即
+	 * 原子排他声明——并发 resume 的群聊在硬链接竞争上失败。
 	 */
 	static async resume(
 		options: ResumeCreatorRuntimeOptions,
@@ -280,9 +277,8 @@ export class CreatorRuntime {
 		};
 		const cwd = resolve(options.cwd);
 		const configMaxMessages = options.configMaxMessages ?? DEFAULT_CONFIG_MAX_MESSAGES;
-		// Reject missing or empty files up front: SessionManager.open() silently
-		// creates a brand-new random session when the file does not exist or is
-		// empty, which would publish an active descriptor for a phantom group chat.
+		// 前置拒绝缺失/空文件：SessionManager.open() 在文件不存在或为空时静默
+		// 创建全新随机会话，会导致为幽灵群聊发布 active descriptor。
 		const sessionStat = statSync(options.sessionPath, { throwIfNoEntry: false });
 		if (!sessionStat?.isFile() || sessionStat.size === 0) {
 			throw new Error(`Group chat session file does not exist or is empty: ${options.sessionPath}`);
@@ -297,14 +293,14 @@ export class CreatorRuntime {
 			throw new Error("Group chat session file has no id header");
 		}
 
-		// Active instance exclusivity: an already active group chat cannot be resumed.
+		// 活跃实例排他：已活跃的群聊不可被 resume。
 		const activeDescriptorPath = getActiveDescriptorPath(options.agentDir, cwd, header.id);
 		const existingActive = await readActiveDescriptor(activeDescriptorPath);
 		if (existingActive) {
 			throw new Error(`Group chat ${header.id} is already active; leave the active group chat before resuming`);
 		}
 
-		// Rebuild PiTavern extension state by scanning the session entries in file order.
+		// 按文件顺序扫描会话条目重建 PiTavern 扩展状态。
 		const entries = groupSessionManager.getEntries();
 		const publicMessages: PublicMessageState[] = [];
 		let name: string | null = null;
@@ -365,7 +361,7 @@ export class CreatorRuntime {
 		state.round = round;
 		state.nextSequence = nextSequence;
 
-		// Fresh runtime identity: new instance_id and new port; no member connections.
+		// 全新运行时身份：新 instance_id 与新端口；无成员连接。
 		const instanceId = dependencies.createId();
 		const startedAt = dependencies.now().toISOString();
 		const webSocketServer = await listenOnLocalhost(`/${header.id}/${instanceId}`);
@@ -405,10 +401,9 @@ export class CreatorRuntime {
 	}
 
 	/**
-	 * Detach the runtime for a reload: keep stable members and the WebSocket
-	 * server alive, buffer reload-window frames, and publish a one-shot
-	 * handoff. Not-yet-online connections are released and closed; new
-	 * connections during the reload window are closed immediately.
+	 * 为 reload 分离运行时：保持稳定成员与 WebSocket 服务器存活，缓冲
+	 * reload 窗口内的帧，发布一次性 handoff。未完成上线的连接被释放并关闭；
+	 * reload 窗口内到达的新连接立即被拒绝。
 	 */
 	async detachForReload(piSessionId: string): Promise<CreatorReloadHandoff> {
 		if (this.lifecycle !== "active") {
@@ -418,7 +413,7 @@ export class CreatorRuntime {
 		this.stopHeartbeat();
 		await this.drainRuntimeQueue(this.deps.drainTimeoutMs);
 
-		// Release connections that never completed character_ready.
+		// 释放从未完成 character_ready 的连接。
 		for (const socket of this.webSocketServer.clients) {
 			const connection = this.connectionBySocket.get(socket);
 			if (connection && (!connection.online || connection.sessionId === null)) {
@@ -427,14 +422,13 @@ export class CreatorRuntime {
 			}
 		}
 
-		// The server keeps listening on the same port; new connections during
-		// the reload window are rejected immediately.
+		// 服务器保持在同一端口监听；reload 窗口内到达的新连接被立即拒绝。
 		this.webSocketServer.removeAllListeners("connection");
 		this.serverConnectionHandler = null;
 		this.rejectConnectionsHandler = (socket) => socket.close(1001, "Group chat closed");
 		this.webSocketServer.on("connection", this.rejectConnectionsHandler);
 
-		// Buffer reload-window frames and record disconnects per member.
+		// 缓冲 reload 窗口内的帧并按成员记录断连。
 		const bufferedFrames = new Map<string, BufferedFrame[]>();
 		const bufferingHandlers = new Map<string, { message: (data: WebSocket.RawData) => void; close: () => void }>();
 		const closedSessionIds = new Set<string>();
@@ -491,11 +485,9 @@ export class CreatorRuntime {
 	}
 
 	/**
-	 * Take over a creator handoff published by the previous Extension Runtime:
-	 * re-attaches member sockets with fresh handlers, replays buffered frames
-	 * in received order, cleans up members that disconnected during the window,
-	 * and resumes heartbeats. The group chat identity and listening port are
-	 * preserved.
+	 * 接管前一 Extension Runtime 发布的 creator handoff：以全新处理器重新
+	 * 挂接成员 socket，按接收顺序回放缓冲帧，清理窗口期间断连的成员，恢复
+	 * 心跳。群聊身份与监听端口保持不变。
 	 */
 	static async takeHandoff(
 		handoff: CreatorReloadHandoff,
@@ -527,7 +519,7 @@ export class CreatorRuntime {
 			{ publicMessages: handoff.publicMessages, persistedCount: handoff.persistedCount },
 		);
 
-		// Move the connection table and heartbeat states into the new runtime.
+		// 把连接表与心跳状态移入新运行时。
 		runtime.connections.clear();
 		for (const [sessionId, socket] of handoff.connections) {
 			runtime.connections.set(sessionId, socket);
@@ -537,7 +529,7 @@ export class CreatorRuntime {
 			runtime.heartbeatStates.set(sessionId, { lastPongAt: state.lastPongAt });
 		}
 
-		// Re-attach member sockets with fresh connection contexts and handlers.
+		// 以全新连接上下文与处理器重新挂接成员 socket。
 		for (const [sessionId, socket] of runtime.connections) {
 			const buffering = handoff.bufferingHandlers.get(sessionId);
 			if (buffering) {
@@ -555,8 +547,7 @@ export class CreatorRuntime {
 			runtime.attachSocketHandlers(socket, connection);
 		}
 
-		// Replay reload-window frames in received order, then clean up members
-		// that disconnected during the window.
+		// 按接收顺序回放 reload 窗口内的帧，然后清理窗口期间断连的成员。
 		for (const [sessionId, frames] of handoff.bufferedFrames) {
 			const socket = runtime.connections.get(sessionId);
 			const connection = socket ? runtime.connectionBySocket.get(socket) : undefined;
@@ -583,7 +574,7 @@ export class CreatorRuntime {
 		return this.enqueue(async () => {
 			const normalizedName = normalizeGroupChatName(name);
 
-			// Empty group chat: update memory only (no file yet)
+			// 空群聊：仅更新内存（尚无文件）
 			if (!this.persistedCount) {
 				await updateActiveDescriptorName(this.activeDescriptorPath, this.activeDescriptor.instanceId, normalizedName);
 				setGroupChatName(this.state, name);
@@ -593,7 +584,7 @@ export class CreatorRuntime {
 
 			this.assertWritable();
 
-			// Active group chat: persist entry via SessionManager
+			// 活跃群聊：经 SessionManager 持久化条目
 			try {
 				this.groupSessionManager.appendSessionInfo(normalizedName ?? "");
 			} catch (error) {
@@ -601,15 +592,15 @@ export class CreatorRuntime {
 			}
 			this.persistedCount++;
 
-			// Commit memory state (authoritative after successful persist)
+			// 持久化成功后提交内存状态（权威）
 			setGroupChatName(this.state, name);
 			this.activeDescriptor.name = normalizedName;
 
-			// Best-effort descriptor update (discovery projection; failure is non-fatal)
+			// 尽力而为的 descriptor 更新（发现投影；失败非致命）
 			try {
 				await updateActiveDescriptorName(this.activeDescriptorPath, this.activeDescriptor.instanceId, normalizedName);
 			} catch {
-				// Descriptor update failed but memory and JSONL are consistent
+				// descriptor 更新失败，但内存与 JSONL 一致
 			}
 
 			return normalizedName;
@@ -618,11 +609,11 @@ export class CreatorRuntime {
 
 	setMaxMessages(maxMessages: number): Promise<void> {
 		return this.enqueue(async () => {
-			// Validate BEFORE any persistence or state mutation: an invalid
-			// value must never reach the JSONL or advance persistedCount (BC-18).
+			// 在任何持久化/状态变更之前校验：非法值绝不能写入 JSONL 或推进
+			// persistedCount（BC-18）。
 			assertValidMaxMessages(maxMessages);
 
-			// Empty group chat: update memory only
+			// 空群聊：仅更新内存
 			if (!this.persistedCount) {
 				setGroupMaxMessages(this.state, maxMessages);
 				return;
@@ -630,7 +621,7 @@ export class CreatorRuntime {
 
 			this.assertWritable();
 
-			// Active group chat: persist entry via SessionManager
+			// 活跃群聊：经 SessionManager 持久化条目
 			try {
 				this.groupSessionManager.appendCustomEntry("pi-tavern.group-settings", {
 					group_max_messages: maxMessages,
@@ -653,25 +644,24 @@ export class CreatorRuntime {
 				throw new Error("User Persona message exceeds 64 KiB");
 			}
 
-			// Compute candidate state values (committed only after successful persist)
+			// 计算候选状态值（仅在持久化成功后提交）
 			const roundMaxMessages = this.state.groupChat.groupMaxMessages;
 			const sequence = this.state.nextSequence + 1;
 			const timestamp = new Date().toISOString();
 			let entryId: string;
 
-			// For the very first persist, seed the file with SessionManager's header,
-			// then use its append API for all entries so IDs, parentId chain, and envelopes
-			// are fully managed by SessionManager (persistence.md L6-8).
-			// Bit flags track each step for granular rollback on partial failure.
+			// 首次持久化：先用 SessionManager 的 header 种子文件，之后全部走它的
+			// append API，使 ID、parentId 链与信封都由 SessionManager 管理
+			// （persistence.md L6-8）。位标记跟踪每步，便于部分失败时精细回滚。
 			if (this.persistedCount === 0) {
 				const sessionPath = this.getSessionFilePath();
-				// Use canonical createdAt so header timestamp matches state and descriptor
+				// 用规范 createdAt，使 header 时间戳与状态、descriptor 一致
 				const header = { ...this.groupSessionManager.getHeader(), timestamp: this.state.groupChat.createdAt };
 
 				this.firstPersistFlags = 0;
 				try {
-					// Set bit before operation so rollback knows this step was attempted
-					// (writeFile may create/partially-write the file before throwing).
+					// 操作前先置位，回滚才能知道该步已尝试
+					// （writeFile 可能先建/部分写入文件再抛错）。
 					this.firstPersistFlags |= FIRST_PERSIST_HEADER_WRITTEN;
 					await this.deps.writeFile(sessionPath, `${JSON.stringify(header)}\n`);
 
@@ -737,21 +727,21 @@ export class CreatorRuntime {
 					);
 					this.persistedCount++;
 				} catch (error) {
-					// SessionManager._appendEntry mutates memory before disk write.
-					// On failure, purge the unpersisted entry from memory.
+					// SessionManager._appendEntry 在磁盘写入前先改内存。
+					// 失败时把未持久化的条目从内存清除。
 					this.recoverSessionManagerFromFailedAppend(error);
 				}
 			}
 
-			// Read the real entry timestamp from SessionManager for consistency
-			// between disk envelope and broadcast/display timestamps (finding 3).
+			// 从 SessionManager 读真实条目时间戳，保证磁盘信封与广播/显示时间戳
+			// 一致（finding 3）。
 			const persisted = this.groupSessionManager.getEntry(entryId);
 			const entryTimestamp = persisted?.timestamp ?? timestamp;
 
-			// Commit state only after successful persist
+			// 仅在持久化成功后提交状态
 			this.state.round = { roundMaxMessages, usedMessages: 0 };
 			this.state.nextSequence = sequence;
-			// Clear hand-raised flags from previous round (only on success)
+			// 清除上一轮的手举标志（仅成功时）
 			for (const character of this.state.onlineCharacters.values()) {
 				character.handRaised = false;
 			}
@@ -766,11 +756,11 @@ export class CreatorRuntime {
 			};
 			this.publicMessages.push(message);
 
-			// Broadcast and TUI projection are independent — neither blocks the other
+			// 广播与 TUI 投影相互独立——互不阻塞
 			try {
 				this.broadcastGroupChatUpdate();
 			} catch {
-				// Broadcast failure silently swallowed — no impact on state or TUI
+				// 广播失败静默吞掉——对状态与 TUI 无影响
 			}
 
 			try {
@@ -788,9 +778,8 @@ export class CreatorRuntime {
 	}
 
 	/**
-	 * Permanently end the runtime. Idempotent: concurrent calls share the same
-	 * result. The runtime queue is drained first (bounded by the coordination
-	 * timeout); when it never drains, local cleanup still force-completes.
+	 * 永久终止运行时。幂等：并发调用共享同一结果。先排空运行时队列（受协调
+	 * 超时约束）；队列永不排空时，本地清理仍强制完成。
 	 */
 	close(reason: RuntimeCloseReason = "user_leave"): Promise<RuntimeCloseResult> {
 		this.closePromise ??= this.performClose(reason);
@@ -799,7 +788,7 @@ export class CreatorRuntime {
 
 	private async performClose(_reason: RuntimeCloseReason): Promise<RuntimeCloseResult> {
 		if (this.lifecycle === "detaching") {
-			// close() and detachForReload() are mutually exclusive paths.
+			// close() 与 detachForReload() 是互斥路径。
 			throw new Error("CreatorRuntime has been detached for reload and cannot be closed");
 		}
 		const errors: Error[] = [];
@@ -831,7 +820,7 @@ export class CreatorRuntime {
 		return { timedOut, errors };
 	}
 
-	/** Wait for the runtime queue to drain, up to timeoutMs; returns true when timed out. */
+	/** 等待运行时队列排空，最长 timeoutMs；超时返回 true。 */
 	private async drainRuntimeQueue(timeoutMs: number): Promise<boolean> {
 		let timer: NodeJS.Timeout | undefined;
 		try {
@@ -870,7 +859,7 @@ export class CreatorRuntime {
 				continue;
 			}
 			if (now - state.lastPongAt > this.deps.heartbeatTimeoutMs) {
-				// Half-open connection: terminating emits close → unified disconnected cleanup.
+				// 半开连接：terminate 触发 close → 统一断连清理。
 				socket.terminate();
 				continue;
 			}
@@ -878,7 +867,7 @@ export class CreatorRuntime {
 		}
 	}
 
-	/** Install the server's connection handler (also used after reload takeover). */
+	/** 安装服务器连接处理器（reload 接管后也使用）。 */
 	private attachServerHandler(): void {
 		this.webSocketServer.removeAllListeners("connection");
 		this.rejectConnectionsHandler = null;
@@ -1114,9 +1103,9 @@ export class CreatorRuntime {
 			success: true,
 		});
 
-		// Send history before join broadcast so hasPublicMessages is true
-		// when the new Character processes its own character_joined event.
-		// User 2026-08-01: join push window 10 → JOIN_HISTORY_LIMIT (100).
+		// 在 join 广播前发送历史，使新 Character 处理自己的 character_joined
+		// 事件时 hasPublicMessages 已为 true。
+		// User 2026-08-01：join 推送窗口 10 → JOIN_HISTORY_LIMIT（100）。
 		const recentMessages = this.publicMessages.slice(-JOIN_HISTORY_LIMIT);
 		const earliest = recentMessages[0];
 		const hasMore = earliest !== undefined && earliest.sequence > 1;
@@ -1136,16 +1125,15 @@ export class CreatorRuntime {
 			total_messages: this.publicMessages.length,
 		});
 
-		// Broadcast character_joined after message_history so the new Character
-		// already has hasPublicMessages=true when processing its own join event.
+		// 在 message_history 之后广播 character_joined，使新 Character 处理
+		// 自己的 join 事件时 hasPublicMessages 已为 true。
 		this.broadcast({
 			type: "character_joined",
 			character: toCharacterSummaryMessage(character),
 		});
 		this.onMembersChanged?.();
-		// ISSUE-014/#14 (方案 A): membership changes also wake characters via
-		// the M7 notification channel so their widget snapshots refresh even
-		// when no new message arrives.
+		// ISSUE-014/#14（方案 A）：成员变化也经 M7 通知通道唤醒角色，使即使
+		// 没有新消息到达时其 widget 快照也刷新。
 		this.broadcastGroupChatUpdate();
 	}
 
@@ -1177,10 +1165,10 @@ export class CreatorRuntime {
 			return;
 		}
 
-		// Cursor is an absolute sequence boundary: return the 10 most recent
-		// messages with sequence < cursorSeq. New messages never shift it.
-		// NOTE: page size stays 10 (incremental paging granularity); only the
-		// join push window uses JOIN_HISTORY_LIMIT (User 2026-08-01).
+		// 游标是绝对 sequence 边界：返回 sequence < cursorSeq 的最近 10 条。
+		// 新消息不会使其移位。
+		// 注：分页大小保持 10（增量分页粒度）；只有 join 推送窗口用
+		// JOIN_HISTORY_LIMIT（User 2026-08-01）。
 		const cursorSeq = message.cursor === undefined || message.cursor === null ? null : decodeCursor(message.cursor);
 		const page =
 			cursorSeq === null
@@ -1221,9 +1209,8 @@ export class CreatorRuntime {
 			return;
 		}
 
-		// Incremental pull (M7/ISSUE-012): return every message after the
-		// client's cursor. Sequence filtering naturally fills gaps — a missed
-		// notification is healed by the next pull.
+		// 增量拉取（M7/ISSUE-012）：返回客户端游标之后的全部消息。sequence
+		// 过滤天然补洞——漏掉的通知由下一次拉取自愈。
 		const since = message.since_sequence;
 		const increment = this.publicMessages.filter((m) => m.sequence > since);
 		const latest = this.publicMessages[this.publicMessages.length - 1];
@@ -1266,8 +1253,7 @@ export class CreatorRuntime {
 			this.sendFailure(socket, message.id, "get_chat_history_file", "Group chat has no chat history file yet");
 			return;
 		}
-		// The file only exists after the first persist; SessionManager may
-		// already know the path before the file is written.
+		// 文件在首次持久化后才存在；SessionManager 在文件写入前可能已知路径。
 		if (this.persistedCount === 0) {
 			this.sendFailure(socket, message.id, "get_chat_history_file", "Group chat has no chat history file yet");
 			return;
@@ -1290,9 +1276,8 @@ export class CreatorRuntime {
 			onlineCharacter.isStreaming = isStreaming;
 		}
 		this.onMembersChanged?.();
-		// ISSUE-014/#14 (方案 A): streaming flips are the most frequent
-		// member-state change — broadcast the update notification so every
-		// character refreshes its snapshot (widget "正在发言" stays live).
+		// ISSUE-014/#14（方案 A）：流式翻转是最频繁的成员状态变化——广播更新
+		// 通知使每个角色刷新快照（widget「正在发言」保持实时）。
 		this.broadcastGroupChatUpdate();
 	}
 
@@ -1324,18 +1309,15 @@ export class CreatorRuntime {
 			return;
 		}
 
-		// ISSUE-013 B2: staleness check — only when the client sent
-		// based_on_sequence. Legacy clients omit the field and skip the check
-		// entirely (smooth protocol evolution). A stale speak is a business
-		// refusal (mirrors round_limit_reached): not published, no quota
-		// consumed, no hand raised.
+		// ISSUE-013 B2：陈旧性检查——仅当客户端发送了 based_on_sequence 时
+		// 生效。legacy 客户端省略该字段则完全跳过检查（平滑协议演进）。陈旧
+		// speak 是业务性拒绝（与 round_limit_reached 对称）：不发布、不耗配额、
+		// 不举手。
 		//
-		// B6: the check excludes the requester's own messages — the client's
-		// single cursor never advances past its own published message (the
-		// echo is filtered client-side), so a naive "latest sequence" compare
-		// would falsely reject the next speak against itself. Tail scan for
-		// the most recent message by anyone else: no extra state, and the
-		// requester's trailing run is usually 0-1 messages.
+		// B6：检查排除请求者自己的消息——客户端单一游标从不越过自己发布的
+		// 消息（echo 在客户端侧过滤），朴素的「最新 sequence」比较会错误拒绝
+		// 针对自身的下一次 speak。尾扫找最近一条他人消息：无额外状态，且请求者
+		// 的尾部 run 通常为 0-1 条。
 		let latestOtherSequence = 0;
 		for (let i = this.publicMessages.length - 1; i >= 0; i--) {
 			const candidate = this.publicMessages[i];
@@ -1354,10 +1336,9 @@ export class CreatorRuntime {
 		const latestPublic = this.publicMessages[this.publicMessages.length - 1];
 		const latestSequence = latestPublic !== undefined ? latestPublic.sequence : 0;
 		if (message.based_on_sequence !== undefined && message.based_on_sequence < latestOtherSequence) {
-			// missing_sequences is the plain contiguous range to the latest
-			// sequence (informational only): the client re-pulls from its
-			// cursor via fetch_messages_since and isOwnEcho filters its own
-			// messages — no need for a precise other-message range here.
+			// missing_sequences 是到最新 sequence 的普通连续区间（仅信息性）：
+			// 客户端经 fetch_messages_since 从游标重拉，isOwnEcho 过滤自己的
+			// 消息——这里无需精确的他人消息区间。
 			this.send(socket, {
 				...(message.id !== undefined ? { id: message.id } : {}),
 				type: "response",
@@ -1382,8 +1363,7 @@ export class CreatorRuntime {
 
 		const canPublish = round.usedMessages < round.roundMaxMessages;
 
-		// If persistence is broken, reject even non-publishing speaks
-		// (state can't be mutated safely).
+		// 持久化损坏时连非发布型 speak 也拒绝（状态无法安全变更）。
 		try {
 			this.assertWritable();
 		} catch (error) {
@@ -1415,7 +1395,7 @@ export class CreatorRuntime {
 
 			let entryId: string;
 			try {
-				// Use SessionManager's append API for post-init writes
+				// 初始化后的写入走 SessionManager 的 append API
 				entryId = this.groupSessionManager.appendCustomMessageEntry(
 					"pi-tavern.public-message",
 					formatEntryContent(senderName, message.content),
@@ -1423,8 +1403,8 @@ export class CreatorRuntime {
 					details,
 				);
 			} catch (error) {
-				// SessionManager._appendEntry mutates memory before disk write.
-				// Purge the unpersisted entry from byId/leafId.
+				// SessionManager._appendEntry 在磁盘写入前先改内存。
+				// 把未持久化的条目从 byId/leafId 清除。
 				const reportError = this.recoverSessionManagerAndCatch(error);
 				this.sendFailure(socket, message.id, "speak", `Failed to persist message: ${reportError.message}`);
 				return;
@@ -1432,11 +1412,11 @@ export class CreatorRuntime {
 
 			this.persistedCount++;
 
-			// Read the real entry timestamp from SessionManager for consistency
+			// 从 SessionManager 读真实条目时间戳，保证一致性
 			const persisted = this.groupSessionManager.getEntry(entryId);
 			const entryTimestamp = persisted?.timestamp ?? timestamp;
 
-			// Commit state only after successful persist
+			// 仅在持久化成功后提交状态
 			round.usedMessages = newUsed;
 			this.state.nextSequence = sequence;
 			setHandRaised(this.state, connection.sessionId, false);
@@ -1459,11 +1439,11 @@ export class CreatorRuntime {
 			};
 			this.publicMessages.push(msg);
 
-			// Broadcast and TUI projection are independent — neither blocks the other
+			// 广播与 TUI 投影相互独立——互不阻塞
 			try {
 				this.broadcastGroupChatUpdate();
 			} catch {
-				// Broadcast failure silently swallowed
+				// 广播失败静默吞掉
 			}
 
 			try {
@@ -1485,9 +1465,8 @@ export class CreatorRuntime {
 					published: true,
 					event_id: entryId,
 					sequence,
-					// ISSUE-013 B6: lets the client advance its last-seen sequence
-					// past its own published message (echo is filtered client-side
-					// so the pull cursor never advances on its own).
+					// ISSUE-013 B6：让客户端把 last-seen sequence 越过自己发布的
+					// 消息（echo 在客户端侧过滤，因此拉取游标不会自行推进）。
 					latest_sequence: sequence,
 					round: msg.round,
 				},
@@ -1579,7 +1558,7 @@ export class CreatorRuntime {
 			});
 		}
 		this.onMembersChanged?.();
-		// ISSUE-014/#14 (方案 A): departures refresh other members' widgets.
+		// ISSUE-014/#14（方案 A）：离开也刷新其他成员的 widget。
 		this.broadcastGroupChatUpdate();
 	}
 
@@ -1650,19 +1629,17 @@ export class CreatorRuntime {
 				return;
 			}
 		} catch {
-			// Fall through: the socket is unusable.
+			// 落入下面：socket 不可用。
 		}
-		// During close/detach the runtime performs its own cleanup; a send
-		// failure must not race the termination flow.
+		// close/detach 期间由运行时自行清理；发送失败不得与终止流程竞争。
 		if (this.lifecycle === "active") {
 			this.handleSendFailure(socket);
 		}
 	}
 
 	/**
-	 * Route a failed send into the unified disconnected cleanup. The socket is
-	 * removed from the connection table first so the character_left broadcast
-	 * cannot hit the same dead socket recursively.
+	 * 把失败的发送引入统一断连清理。先从连接表移除 socket，使 character_left
+	 * 广播不会递归命中同一个死 socket。
 	 */
 	private handleSendFailure(socket: WebSocket): void {
 		const connection = this.connectionBySocket.get(socket);
@@ -1683,18 +1660,15 @@ export class CreatorRuntime {
 	}
 
 	/**
-	 * M7 (ISSUE-012/#24): broadcast a group_chat_update notification instead
-	 * of the full public_message event. Characters wake on the notification
-	 * and pull the actual increment via fetch_messages_since. The preview
-	 * carries the most recent messages (WeChat-style); content is the same
-	 * source (publicMessages) as the pull path, so UI and agent context
-	 * never diverge.
+	 * M7（ISSUE-012/#24）：广播 group_chat_update 通知而非完整 public_message
+	 * 事件。角色收到通知后经 fetch_messages_since 拉取真实增量。preview 携带
+	 * 最近消息（微信风格）；内容与拉取路径同源（publicMessages），UI 与
+	 * agent 上下文永不分叉。
 	 */
 	private broadcastGroupChatUpdate(): void {
 		const latest = this.publicMessages[this.publicMessages.length - 1];
-		// ISSUE-014/#14 (方案 A): member/streaming changes may arrive before
-		// any public message — still broadcast (latest_sequence 0, empty
-		// preview) so characters wake and refresh their snapshots.
+		// ISSUE-014/#14（方案 A）：成员/流式变化可能先于任何公开消息到达——
+		// 仍广播（latest_sequence 0、空 preview），使角色唤醒并刷新快照。
 		if (!latest) {
 			this.broadcast({
 				type: "group_chat_update",
@@ -1721,22 +1695,20 @@ export class CreatorRuntime {
 	}
 
 	/**
-	 * Recover SessionManager in-memory state after a failed append.
-	 * SessionManager._appendEntry mutates byId/leafId before disk write;
-	 * on failure the disk file is still valid (the write never happened)
-	 * so setSessionFile can reload clean state. If even that fails, the
-	 * Runtime is marked persistence-fatal — all future mutating operations
-	 * will reject rather than continue with corrupt/empty in-memory state.
+	 * 追加失败后恢复 SessionManager 内存态。SessionManager._appendEntry 在
+	 * 磁盘写入前先改 byId/leafId；失败时磁盘文件仍有效（写入从未发生），
+	 * 因此 setSessionFile 可重载干净状态。若连这也失败，Runtime 被标记为
+	 * 持久化致命——此后所有变更操作一律拒绝，而不是带着损坏/空内存态继续。
 	 */
 	private recoverSessionManagerFromFailedAppend(originalError: unknown): never {
 		try {
 			this.groupSessionManager.setSessionFile(this.getSessionFilePath());
-			// Recovery succeeded — re-throw the original error so the caller
-			// can report it; the SessionManager is clean for the next operation.
+			// 恢复成功——重抛原始错误供调用方上报；SessionManager 已为下一次
+			// 操作保持干净。
 			throw originalError;
 		} catch (recoveryError) {
 			if (recoveryError === originalError) throw originalError;
-			// setSessionFile itself failed — unrecoverable.
+			// setSessionFile 自身失败——不可恢复。
 			this.persistenceFatal = true;
 			throw new Error(
 				`Persistence recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}. ` +
@@ -1747,8 +1719,8 @@ export class CreatorRuntime {
 	}
 
 	/**
-	 * Recover and return the error to report. For callers that must continue
-	 * after recovery (e.g., handleSpeak which sends a response).
+	 * 恢复并返回要上报的错误。供恢复后仍需继续的调用方使用（如 handleSpeak
+	 * 需要发送响应）。
 	 */
 	private recoverSessionManagerAndCatch(originalError: unknown): Error {
 		try {
@@ -1771,8 +1743,7 @@ export class CreatorRuntime {
 	}
 
 	/**
-	 * Roll back a partially-completed first persist using bit flags to decide
-	 * what cleanup is needed. Each bit represents a completed step.
+	 * 用位标记决定首次持久化部分完成时的回滚清理。每一位代表一个已完成步骤。
 	 */
 	private async rollbackFirstPersist(sessionPath: string): Promise<void> {
 		const flags = this.firstPersistFlags;
@@ -1780,9 +1751,8 @@ export class CreatorRuntime {
 		this.persistedCount = 0;
 
 		if (flags & FIRST_PERSIST_HEADER_WRITTEN) {
-			// Delete the half-initialized file. If deletion fails,
-			// the Runtime cannot safely continue — it would start
-			// a new session while a broken file remains on disk.
+			// 删除半初始化的文件。若删除失败，Runtime 无法安全继续——会在磁盘
+			// 残留损坏文件的同时启动新会话。
 			try {
 				await this.deps.rm(sessionPath);
 			} catch {
@@ -1795,9 +1765,8 @@ export class CreatorRuntime {
 		}
 
 		if (flags & FIRST_PERSIST_SESSION_OPENED) {
-			// SessionManager in-memory state was mutated by the failed appends.
-			// Recreate a fresh instance — the file was already deleted above.
-			// The next first-persist will write the header with canonical createdAt.
+			// SessionManager 内存态已被失败的追加改动。重建全新实例——文件
+			// 已在上方删除。下一次首次持久化将以规范 createdAt 写 header。
 			this.groupSessionManager = SessionManager.create(
 				this.groupSessionManager.getCwd(),
 				this.groupSessionManager.getSessionDir(),
@@ -1827,7 +1796,7 @@ interface ConnectionContext {
 	reservedCharacterId: string | null;
 	online: boolean;
 	readyTimer: NodeJS.Timeout | null;
-	/** Event handler references so detachForReload can swap in buffering handlers. */
+	/** 事件处理器引用，供 detachForReload 换入缓冲处理器。 */
 	handlers: {
 		message: (data: WebSocket.RawData, isBinary: boolean) => void;
 		pong: () => void;
@@ -1836,7 +1805,7 @@ interface ConnectionContext {
 	} | null;
 }
 
-/** Per-member heartbeat bookkeeping (times are epoch milliseconds). */
+/** 成员心跳簿记（时间为 epoch 毫秒）。 */
 interface HeartbeatState {
 	lastPongAt: number;
 }
