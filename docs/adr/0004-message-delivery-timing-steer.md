@@ -45,6 +45,22 @@ ADR-0003 **不被修订**：is_streaming 语义收敛、watchdog 兜底、group_
 | agent 主动拉取工具 | 交互模型变更（新工具+行为训练），延迟仅软保证（agent 不自调则不可达），范围大 |
 | run 中仅 TUI 可见不投递 | 只解决可观测性，不解决上下文延迟（#38 核心诉求）；且 appendEntry 与游标语义有显示重复代价 |
 
+## 实现级补充（评审修订，随实现同批落盘）
+
+### settle 竞态与修复
+
+`deliverSteer` 原实现于 `await getGroupChatState()` 前检查 `isAgentActive`；若 run 在该 await 期间 settle，`sendMessage` 时 pi 已不 streaming 且 `triggerTurn:false` → 消息仅 append 不唤醒 agent，settle 钩子补拉因光标已推进而空窗口 → 错过唤醒。
+
+修复（Dev 实施）：状态 fetch **之后**重新检查 `isAgentActive`（检查+发送在同一微任务内原子执行，无事件交错）——已 settle → 走 idle 路径（markGroupChatTurnTriggered + followUp + triggerTurn=true，群聊触发 turn 点亮 is_streaming 语义正确）；仍活跃 → steer。
+
+### 滞留救援
+
+`agent_settled` 缺失时（wedged/aborted，#14 watchdog 场景）`isAgentActive` 长期滞留 true、settle 钩子永不触发 → 若 `triggerTurn:false` 会无限 append-only。修复：steer 分支 `triggerTurn:true`——streaming 时 pi 忽略该选项照常入队；非 streaming 时触发 run 唤醒。代价：救援 run 无 group-chat marker，is_streaming 显示暗（**接受**，watchdog 仍兜底复位）。
+
+### 已知残余边缘（文档化，不钉测试）
+
+steer 消息恰落在 run 最终边界对 steering 队列的读取之后 → 留在队列等下一次 run 启动时注入（亚毫秒窗口；无丢失、无重复；光标单调性不受影响——T2 断言成立）。
+
 ## 验收
 
 QA T1-T4（unit 分支参数钉死：active=steer / idle=followUp+triggerTurn；光标单调不重不漏：间隙已投 7、settle 补 8..9；#14 双防线：steer 不触发 agent_start/不点亮 is_streaming、marker 生命周期；acceptance 端到端一条：streaming-truth 基建、run 窗口内有界可见）+ 3 处 A2 语义用例改写（:508/:567/:617）。
