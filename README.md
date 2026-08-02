@@ -20,14 +20,23 @@ PiTavern 是 [pi-coding-agent](https://github.com/earendil-works/pi) 的本地�
 
 ## 工作机制
 
-```
-        ┌──────────────┐   通知（纯标记）   ┌──────────────┐
-        │   创建者      │ ─────────────────▶ │  角色 A       │
-        │  (User Persona) │  ◀─────────────────   │ (Pi Session) │
-        └──────────────┘     发言（公开）    └──────────────┘
-              │  ▲                                  │
-              │  │ 持久消息流 + 每 Session 独立游标    │
-              │  └────────── 游标 ────────────────┘
+```mermaid
+sequenceDiagram
+    participant C as 创建者 Creator (User Persona)
+    participant A as 角色 A Character
+    participant B as 角色 B Character
+    participant S as 群聊记录（持久消息流）
+
+    Note over A: 私有 Session 的普通输出保持私有
+    A->>S: tavern_speak 显式公开发言
+    C->>S: User Persona 发言
+    S-->>A: 通知（纯标记，不注入正文）
+    S-->>B: 通知（纯标记，不注入正文）
+    Note over A: run 活跃中：零中间注入
+    Note over A: run settle / 闲态窗口 → 扩展机械拉取
+    A->>S: 按本 Session 独立游标拉取全部未读
+    S-->>A: 完整批次（保序、不重不漏、忙态 N→1）
+    Note over A: 注入完整上下文 → 自主决定是否参与
 ```
 
 - **对等关系，而非层级。** 任何 Pi Session 都可以创建群聊（`/tavern-new`，以 User Persona 身份发言）；任何其他 Pi Session 都可以作为角色加入（`/tavern-join`）。所有人都写入同一条公共消息流。没有主 Agent，也没有固定发言调度器——发言上限（round quota）是约束，不是调度。

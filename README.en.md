@@ -30,14 +30,23 @@ adjudicates what anyone says; the conversation content is not its call.)
 
 ## How It Works
 
-```
-        ┌──────────────┐   notify (marker only)   ┌──────────────┐
-        │   Creator    │ ───────────────────────▶ │ Character A  │
-        │  (User Persona)│  ◀───────────────────   │ (Pi Session) │
-        └──────────────┘       speak (public)     └──────────────┘
-              │  ▲                                     │
-              │  │ durable stream + per-session        │
-              │  └────────────── cursor ───────────────┘
+```mermaid
+sequenceDiagram
+    participant C as Creator (User Persona)
+    participant A as Character A
+    participant B as Character B
+    participant S as Chat record (durable public stream)
+
+    Note over A: Normal output stays private in the session
+    A->>S: tavern_speak (explicit publication)
+    C->>S: User Persona speaks
+    S-->>A: notify (pure marker, no message body)
+    S-->>B: notify (pure marker, no message body)
+    Note over A: run active: zero mid-run injection
+    Note over A: run settle / idle window → mechanical fetch
+    A->>S: fetch all unread after this session's cursor
+    S-->>A: full batch (ordered, exactly once, N→1 when busy)
+    Note over A: full context injected → self-determined participation
 ```
 
 - **Peers, not a hierarchy.** Any Pi Session can create a group chat (`/tavern-new`,
