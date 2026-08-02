@@ -50,7 +50,7 @@
 - ① config 豁免成立：组合根唯一 loadTavernConfig、runtime 全收参零直读（决策 7 精神）；commands 保留注入点供测试；豁免理由：装配与行为分离
 - ② 组合根成立：ADR-0005 明示 index.ts=组合根；装配区无业务逻辑只构造+注入；headless.ts 同归 adapter 注册点
 - ③ 出口数字为绝对目标（见上），非按现基线增量
-- ④ #66 契约四要素：**判定**（settle 超时阈值 X 未到 = wedged）、**动作**（强制 settle → 投递挂起批次）、**副作用**（与正常 settle 同路径幂等——游标只在成功投递后推进、N→1 聚合不变）、**阈值归属**（X 为产品参数，默认可配置常量 60s，PM 定、User 可调）
+- ④ #66 契约四要素：**判定**（settle 超时阈值 X 未到 = wedged）、**动作**（强制 settle → 投递挂起批次）、**副作用**（与正常 settle 同路径幂等——游标只在成功投递后推进、N→1 聚合不变）、**阈值归属**（X 为产品参数，默认 180_000ms=3min 常量 + 构造注入点供测试短值，PM 定、User 可调；agent_start 布防 run watchdog、agent_end 后 #14 5s 显示 watchdog 并存）
 - ⑤ PR-B 拆骨架时 watchdog/run 状态域留 runtime（决策 7），防 PR-C 返工
 
 ### Phase 4:规范统一(可选挂靠)
