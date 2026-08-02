@@ -1,6 +1,6 @@
 # PiTavern 工作流规范（Workflow）
 
-> 目的：减少任务布置分歧、杜绝 main 直接改动，统一四方（PM/Dev/QA/Architect）协作节奏。
+> 目的：减少任务布置分歧、杜绝 main 直接改动，统一四方（PM/Dev/QA/Arch）协作节奏。
 > 属主：PM。变更须群聊声明影响面。
 > 版本：v0.3（2026-08-02，User 批准定稿：v0.2 四项 + 信息流/握手/挥手/裁决线）
 
@@ -24,7 +24,7 @@ User 自然表达指示 → **PM 负责转译成 Task Brief 并回读确认**（
 - 所有改动落工作分支（`feat/*`、`fix/*`）；角色卡、docs、scripts 等一切文件改动同样遵守——**无例外**
 - 分支从 main 切出（`git checkout -b feat/xxx main`），逻辑独立、一个任务一条分支（或按 User 指示并入既有分支）
 - 分支合入 main 由 **User 亲自执行**（2026-08-01 指示），角色侧止于评审通过 + 证据齐备 + 宣布就绪
-- **开发完成开 PR**（Dev 负责 PR 创建与更新）：PR 标题/描述引用 issue 编号，附 Task Brief 五要素 + 验收证据（命令 + 结果）；评审（Architect）与验收（QA）在 PR 上留痕；角色侧一律不执行 merge，PR 就绪后宣布，由 User 合并
+- **开发完成开 PR**（Dev 负责 PR 创建与更新）：PR 标题/描述引用 issue 编号，附 Task Brief 五要素 + 验收证据（命令 + 结果）；评审（Arch）与验收（QA）在 PR 上留痕；角色侧一律不执行 merge，PR 就绪后宣布，由 User 合并
 - 动手前先 `git status` + `git branch --show-current`：确认所在分支正确、工作区无他人未提交改动
 
 ## 3. 沟通与确认闭环
@@ -52,7 +52,7 @@ User 自然表达指示 → **PM 负责转译成 Task Brief 并回读确认**（
 开工后：Dev 以 PM 需求为准，自主思考实现；与 Arch/QA 有分歧 → 继续对齐交互
 ```
 
-- **单元测试属主 = Architect**（User 指示：单元测试可以让架构师写）
+- **单元测试属主 = Arch**（User 指示：单元测试可以让架构师写）
 - 对齐目的：前期三次对齐（PM↔Arch、PM↔QA、Arch↔QA）让 Dev 拿到的输入收敛
 
 ### 对齐交互：三次握手（固定 3 条消息，无快速通道）
@@ -79,7 +79,7 @@ ACK  执行方 → 验收方：确认 → 交付关闭
 
 ### 分歧裁决线（2026-08-02 User 批准）
 
-- **文档/需求分歧 → PM 裁决**；**技术/契约分歧 → Architect 裁决**
+- **文档/需求分歧 → PM 裁决**；**技术/契约分歧 → Arch 裁决**
 - Arch 的架构产出必须以文档形式提交 PM 裁决
 - 实现落地触发的既有测试适配：**Arch + PM 裁决，QA/Dev 提供意见**
 - 裁决记录：本地文档（按记录要求存），不直接写 GitHub
@@ -89,7 +89,7 @@ ACK  执行方 → 验收方：确认 → 交付关闭
 | 争议类型 | 仲裁者 | 依据 |
 | --- | --- | --- |
 | 范围之争 | PM | docs/acceptance.md、docs/implementation-plan.md |
-| 契约之争 | Architect | docs/ 契约文档 + docs/adr/ |
+| 契约之争 | Arch | docs/ 契约文档 + docs/adr/ |
 | 质量之争 | QA | 可复现证据（最小步骤 + 期望/实际差异） |
 | 执行落点之争 | User | User 指示优先（默认分支、main 不动） |
 
@@ -98,12 +98,12 @@ ACK  执行方 → 验收方：确认 → 交付关闭
 - 默认落点：PM 指定分支（跟随 issue）；main 不动
 - 默认只读：讨论阶段不写文件、不写 issue（本地临时记录）
 - 默认范围：User 没提的不做；"其他不动"严格执行
-- 默认署名：【PM】【Dev】【QA】【Architect】
+- 默认署名：【PM】【Dev】【QA】【Arch】
 - 默认提交：一个逻辑一个 commit，不积压工作区；只 add 属主路径，禁 `git add -A`
 
 ## 7. 任务状态流转与汇报
 
-讨论收敛 → User 批准 → 开 issue（PM）→ 布置 → 回读确认 → 分支开发 → 开 PR（附五要素 + 验收证据）→ 评审/验收（Architect/QA，PR 留痕）→ User 合并 → **QA 在 main 验证（User 已更新本机 pi 至最新 pi-tavern；命令 + 结果留痕）** → 关闭 issue（main 验证通过 + User 确认）
+讨论收敛 → User 批准 → 开 issue（PM）→ 布置 → 回读确认 → 分支开发 → 开 PR（附五要素 + 验收证据）→ 评审/验收（Arch/QA，PR 留痕）→ User 合并 → **QA 在 main 验证（User 已更新本机 pi 至最新 pi-tavern；命令 + 结果留痕）** → 关闭 issue（main 验证通过 + User 确认）
 
 **状态汇报归 PM（2026-08-02 User 指示）**：PM 向 User 汇报任务状态（卡点、等谁、下一步）；其他角色通过群聊与 PM 对接，不直接向 User 汇报；User 可看群聊讨论。状态在群聊声明 + issue 评论区登记（PM 属主，状态变更须群聊确认）。
 

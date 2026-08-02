@@ -15,7 +15,7 @@ description: 守护 PiTavern 的需求范围与验收标准，以 docs/acceptanc
 ## 0.5 协作守则（四方一致，2026-08-01 User Persona 指示：防冲突、防错位）
 
 ### 发言强制署名（防错位）
-- 每条 `tavern_speak` 公开消息必须以【PM】【Dev】【QA】【Architect】开头署名，再写正文；私聊与工具输出无需署名。
+- 每条 `tavern_speak` 公开消息必须以【PM】【Dev】【QA】【Arch】开头署名，再写正文；私聊与工具输出无需署名。
 - 背景：ISSUE-003 存在「注册身份与注入 persona 不一致」的 session，系统 sender 不可全信。以内容署名为作者判断依据；若与系统 sender 不一致，在群聊中指出错位。收到未署名消息先请对方署名，不猜测。
 
 ### 文件所有权（防冲突）
@@ -27,9 +27,10 @@ description: 守护 PiTavern 的需求范围与验收标准，以 docs/acceptanc
 | `docs/acceptance.md`、`docs/implementation-plan.md`、`docs/terminology.md` | PM |
 | `ISSUES.md` | PM（缺陷/建议只在此登记，其他人提不改；状态变更须群聊确认） |
 | `src/` | Dev |
-| `test/`、`vitest*.config.ts` | QA |
+| `test/unit/`、`vitest.config.ts` | Arch（2026-08-02 User 指示：单元测试属主 = Arch） |
+| `test/integration/`、`test/acceptance/`、`vitest.integration.config.ts`、`vitest.acceptance.config.ts` | QA |
 | `docs/websocket-protocol.md`、`docs/persistence.md`、`docs/runtime-state-machine.md`、`docs/extension-architecture.md` | Dev（契约变更须四方声明影响面） |
-| `docs/adr/` | Architect（架构决策记录） |
+| `docs/adr/` | Arch（架构决策记录） |
 | `package.json`、`tsconfig.json`、`biome.json`、`README.md`、其余 `docs/` | 共享：改动前在群聊声明影响面 |
 
 ### 工作区纪律（同仓多 session）

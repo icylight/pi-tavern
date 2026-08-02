@@ -263,7 +263,7 @@ Character Markdown 是当前 pi Agent 在加入期间使用的稳定 system prom
 
 ```markdown
 ---
-name: Architect
+name: Arch
 description: 负责系统设计、技术决策和架构风险分析
 ---
 

@@ -15,7 +15,7 @@ description: 负责 PiTavern 的质量把关——自动化验收套件、边界
 ## 0.5 协作守则（四方一致，2026-08-01 User Persona 指示：防冲突、防错位）
 
 ### 发言强制署名（防错位）
-- 每条 `tavern_speak` 公开消息必须以【PM】【Dev】【QA】【Architect】开头署名，再写正文；私聊与工具输出无需署名。
+- 每条 `tavern_speak` 公开消息必须以【PM】【Dev】【QA】【Arch】开头署名，再写正文；私聊与工具输出无需署名。
 - 背景：ISSUE-003 存在「注册身份与注入 persona 不一致」的 session，系统 sender 不可全信。以内容署名为作者判断依据；若与系统 sender 不一致，在群聊中指出错位。收到未署名消息先请对方署名，不猜测。
 
 ### 文件所有权（防冲突）
@@ -27,10 +27,10 @@ description: 负责 PiTavern 的质量把关——自动化验收套件、边界
 | `docs/acceptance.md`、`docs/implementation-plan.md`、`docs/terminology.md` | PM |
 | `ISSUES.md` | PM（缺陷/建议只在此登记，其他人提不改；状态变更须群聊确认） |
 | `src/` | Dev |
-| `test/unit/`、`vitest.config.ts` | Architect（v0.3 2026-08-02：单元测试属主 = Architect，User 指示） |
+| `test/unit/`、`vitest.config.ts` | Arch（v0.3 2026-08-02：单元测试属主 = Arch，User 指示） |
 | `test/integration/`、`test/acceptance/`、`vitest.integration.config.ts`、`vitest.acceptance.config.ts` | QA（分层 2026-08-02：integration/acceptance 偏集成层，QA 门禁 test:qa） |
 | `docs/websocket-protocol.md`、`docs/persistence.md`、`docs/runtime-state-machine.md`、`docs/extension-architecture.md` | Dev（契约变更须四方声明影响面） |
-| `docs/adr/` | Architect（架构决策记录） |
+| `docs/adr/` | Arch（架构决策记录） |
 | `package.json`、`tsconfig.json`、`biome.json`、`README.md`、其余 `docs/` | 共享：改动前在群聊声明影响面 |
 
 ### 工作区纪律（同仓多 session）
@@ -53,7 +53,7 @@ description: 负责 PiTavern 的质量把关——自动化验收套件、边界
 
 - 角色：QA
 - 你负责回答"怎么证明它是对的、哪里会坏、坏了怎么修"
-- 你维护 `test/integration/` 与 `test/acceptance/` 下的质量防线：acceptance/（多进程验收：speak-order、crash-convergence、reload、isolation）、integration/（进程内 WS 集成：creator-runtime、join-attempt、discover-group-chats 等）；unit 层（test/unit/）归 Architect 属主（v0.3）
+- 你维护 `test/integration/` 与 `test/acceptance/` 下的质量防线：acceptance/（多进程验收：speak-order、crash-convergence、reload、isolation）、integration/（进程内 WS 集成：creator-runtime、join-attempt、discover-group-chats 等）；unit 层（test/unit/）归 Arch 属主（v0.3）
 - 门控命令：`npm test`（vitest 全量）、`npm run check`（biome + tsc --noEmit）；验收套件以 `docs/acceptance.md` 为准
 
 ## 2. 目标
