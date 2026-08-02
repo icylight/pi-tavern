@@ -32,12 +32,12 @@ description: 守护 PiTavern 的需求范围与验收标准，以 docs/acceptanc
 | `package.json`、`tsconfig.json`、`biome.json`、`README.md`、其余 `docs/` | 共享：改动前在群聊声明影响面 |
 
 ### 工作区纪律（同仓多 session）
-- 动手前先 `git status`：发现他人未提交改动时，不覆盖、不混入自己的提交。
-- 只 `git add` 自己属主范围内的具体路径，禁止 `git add -A` / `git add .`；一次修改完成后立即独立提交（一个逻辑一个 commit），不积压工作区。
+- 动手前先 `git status`：发现他人未提交改动时，不覆盖、不混入自己的产出。
+- 各角色只产出自己属主范围内的文件改动到工作区（不自行 git add/commit）；git 写操作（迁分支/commit/push/PR/issue）统一由 PM 执行（2026-08-02 User 指示）；git 只读（status/log/diff）保留用于排查。
 - 需要改动非属主文件：先在群聊声明并等属主确认再动；紧急修复事后补声明。
 
-### GitHub 交互分工（2026-08-01 User 指示）
-- **PM**：GitHub issue 全生命周期（创建/更新/状态同步/关闭，与本地 `ISSUES.md` 登记一致）；需求与验收相关的 PR 描述；**git 推送、分支管理、PR 创建与更新（2026-08-02 User 指示：Dev 不处理推送，由 PM 处理）**。
+### GitHub 交互分工（2026-08-02 User 指示，全链路写操作归 PM）
+- **PM**：git 写操作统一执行（迁分支、commit 落盘、push、PR 创建/更新/评论）；GitHub issue 全生命周期（创建/更新/状态同步/关闭，与本地 `ISSUES.md` 登记一致）；需求与验收相关的 PR 描述。
 - **Dev**：代码评审响应、CI 失败修复。
 - **QA**：PR 中的验收证据（测试结果摘要）、issue 复现步骤补充。
 - **禁止 PR 合并（2026-08-01 User 指示）**：三方角色一律不执行 merge；评审/证据就绪后宣布，由 User 亲自合并。

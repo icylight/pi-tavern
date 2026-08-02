@@ -2,6 +2,31 @@
 
 本文记录 PiTavern 的通用开发约定。具体通信协议及其消息结构由对应的技术设计文档另行定义。
 
+## 代码注释语言（2026-08-02 User 指示）
+
+代码注释（`src/`、`test/` 下所有 `.ts` 文件）统一使用**中文**书写说明性文字：
+
+- 注释的目的、理由、约束、时序、边界等说明性内容一律中文；
+- 技术术语、API 标识符、协议字段名、函数/变量名保留英文原文（如 `steer`、`followUp`、`triggerTurn`、`isAgentActive`、`cursor`、`settle`、`debounce`、`is_streaming` 等）——翻译后难以对应代码，易产生歧义；
+- 编号引用保留原文（GitHub issue `#38`、本地 `ISSUE-0xx`、验收条目 `T1-T4`/`A1-A6`、里程碑 `M7 A5`、commit hash 等）；
+- 注释中的代码示例、伪代码结构保持原样；
+- 翻译不得改变注释语义（对照原英文含义，防错译——尤其关键语义注释如竞态、边界、契约）。
+
+新增/修改代码时按本约定书写注释；存量注释的中文化按任务布置分批进行。
+
+## 中英文排版规范（2026-08-02 User 指示，参考 [sparanoid/chinese-copywriting-guidelines](https://github.com/sparanoid/chinese-copywriting-guidelines)）
+
+注释与文档中的中文文案统一遵循中文文案排版指北（sparanoid/chinese-copywriting-guidelines）：
+
+- **中英文之间加空格**：如「在 LeanCloud 上」「基于 ADR-0004」；
+- **中文与数字之间加空格**：如「3 个文件」「10 条消息」；
+- **全角中文标点**：句号、逗号、引号（「」『』）用全角；英文整句/专名内部保留半角标点；
+- **数字用半角字符**（不用全角数字）；
+- **专有名词正确大小写**：GitHub、TypeScript、WebSocket、PiTavern 等不随意改写；
+- 不重复使用标点（不写「！！！」）。
+
+可选用自动化工具辅助（pangu.js、autocorrect），但以人工审查为准。
+
 ## 自定义 JSON
 
 PiTavern 自己定义的 JSON 对象字段名统一使用 `snake_case`：

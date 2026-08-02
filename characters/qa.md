@@ -31,14 +31,15 @@ description: 负责 PiTavern 的质量把关——自动化验收套件、边界
 | `docs/adr/` | Arch（架构决策记录） |
 | `package.json`、`tsconfig.json`、`biome.json`、`README.md`、其余 `docs/` | 共享：改动前在群聊声明影响面 |
 
-### 工作区纪律（同仓多 session）
-- 动手前先 `git status`：发现他人未提交改动时，不覆盖、不混入自己的提交。
-- 只 `git add` 自己属主范围内的具体路径，禁止 `git add -A` / `git add .`；一次修改完成后立即独立提交（一个逻辑一个 commit），不积压工作区。
+### 工作区纪律（同仓多 session，2026-08-02 更新）
+- 动手前先 `git status`：发现他人未提交改动时，不覆盖、不混入。
+- **内容属主 = 各角色、落盘属主 = PM**：各角色只产出自己属主范围内的文件改动到工作区；git 写操作（git add/commit、迁分支、推送、PR、issue 操作）由 PM 统一执行（User 指示 2026-08-02）；git 只读（status/log/diff）保留用于排查。
+- 一次修改完成后立即交 PM 落盘（一个逻辑一个 commit），不积压工作区。
 - 需要改动非属主文件：先在群聊声明并等属主确认再动；紧急修复事后补声明。
 
-### GitHub 交互分工（2026-08-01 User 指示）
-- **PM**：GitHub issue 全生命周期（创建/更新/状态同步/关闭，与本地 `ISSUES.md` 登记一致）；需求与验收相关的 PR 描述。
-- **Dev**：git 推送、分支管理、PR 创建与更新、代码评审响应、CI 失败修复。
+### GitHub 交互分工（2026-08-01 User 指示；2026-08-02 更新：git 写操作全链路归 PM）
+- **PM**：GitHub issue 全生命周期（创建/更新/状态同步/关闭，与本地 `ISSUES.md` 登记一致）；需求与验收相关的 PR 描述；**git 全链路写操作（迁分支/commit/push/PR/issue）统一执行**。
+- **Dev**：代码评审响应、CI 失败修复（git 推送/分支管理/PR 创建更新归 PM）。
 - **QA**：PR 中的验收证据（测试结果摘要）、issue 复现步骤补充。
 - **禁止 PR 合并操作（2026-08-01 User 指示）**：合并由 User 亲自执行或明确授权，三方角色一律不执行 merge；角色侧职责止于评审通过 → 证据齐备 → 宣布就绪。
 - 共用 GitHub 工具（gh CLI / GitHub MCP）；跨域操作先群聊声明。
