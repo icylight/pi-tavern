@@ -1,21 +1,23 @@
 import { join } from "node:path";
 
-import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, getAgentDir, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { CharacterRuntime } from "./character/character-runtime.js";
 import { DEFAULT_CONFIG_MAX_MESSAGES, loadTavernConfig, type TavernConfig } from "./config/load-config.js";
 import type { TavernController } from "./controller/tavern-controller.js";
 import type { CreatorRuntime } from "./creator/creator-runtime.js";
-import {
-	type DeleteGroupChatSessionResult,
-	deleteGroupChatSession as deleteGroupChatSessionFile,
-	type GroupChatSessionSummary,
-	listGroupChatSessions as listPersistedGroupChatSessions,
-} from "./creator/group-chat-sessions.js";
 import { type ActiveGroupChatDescriptor, getGroupChatCursorDirectory } from "./data/discovery/active-descriptor.js";
 import {
 	type DiscoverGroupChatsOptions,
 	discoverGroupChats as discoverActiveGroupChats,
 } from "./data/discovery/discover-group-chats.js";
+import {
+	type DeleteGroupChatSessionResult,
+	defaultGroupChatSessionIoDependencies,
+	deleteGroupChatSession as deleteGroupChatSessionFile,
+	type GroupChatSessionManagerLike,
+	type GroupChatSessionSummary,
+	listGroupChatSessions as listPersistedGroupChatSessions,
+} from "./data/group-chat-sessions.js";
 
 export interface RegisterCommandsOptions {
 	agentDir?: string;
@@ -34,7 +36,18 @@ export function registerCommands(
 	const agentDir = options.agentDir ?? getAgentDir();
 	const loadConfig = options.loadConfig ?? loadTavernConfig;
 	const discoverGroupChats = options.discoverGroupChats ?? discoverActiveGroupChats;
-	const listGroupChatSessions = options.listGroupChatSessions ?? listPersistedGroupChatSessions;
+	// data/ 零 pi 依赖（ADR-0005 §2）：pi 的 SessionManager 真实现在此（adapter 层）装配。
+	const piSessionManager: GroupChatSessionManagerLike = {
+		list: (cwd, sessionDir) => SessionManager.list(cwd, sessionDir),
+		open: (path, sessionDir, cwd) => SessionManager.open(path, sessionDir, cwd),
+	};
+	const listGroupChatSessions =
+		options.listGroupChatSessions ??
+		((agentDir: string, cwd: string) =>
+			listPersistedGroupChatSessions(agentDir, cwd, {
+				...defaultGroupChatSessionIoDependencies,
+				sessionManager: piSessionManager,
+			}));
 	const deleteGroupChatSession = options.deleteGroupChatSession ?? deleteGroupChatSessionFile;
 
 	pi.registerCommand("tavern-new", {

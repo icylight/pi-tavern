@@ -119,6 +119,44 @@ describe("M7 message fetch (ISSUE-012)", () => {
 		const runtime2 = await attempt2.claimCharacter(character2.characterId);
 		expect(runtime2.loadCursor()).toBeNull();
 	});
+
+	it("swallows a cursor write failure while advancing the in-memory position (best-effort)", async () => {
+		const { creator, character } = await startCreator();
+		const root = await createTemporaryDirectory();
+		// A file in the parent path forces mkdirSync(recursive) to fail with
+		// ENOTDIR: the write can never land, but the in-memory cursor advances.
+		const blocker = join(root, "blocker");
+		await writeFile(blocker, "not a directory");
+		const cursorPath = join(blocker, "sub", "cursor.json");
+
+		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-m7-writefail", {
+			cursorStorePath: cursorPath,
+		});
+		const runtime = await attempt.claimCharacter(character.characterId);
+
+		expect(runtime.loadCursor()).toBeNull();
+		expect(() => runtime.saveCursor(9)).not.toThrow();
+		// Memory advanced despite the failed write...
+		expect(runtime.loadCursor()).toBe(9);
+		// ...and nothing was written to disk.
+		await expect(readFile(cursorPath, "utf8")).rejects.toThrow();
+	});
+
+	it("treats an EISDIR cursor path as no cursor (runtime swallows the primitive's throw)", async () => {
+		const { creator, character } = await startCreator();
+		const root = await createTemporaryDirectory();
+		// The primitive throws on EISDIR (IO failure); the runtime's best-effort
+		// orchestration swallows it and reports no cursor, per decision 7.
+		const eisdirPath = join(root, "cursors", "group-1.json");
+		await mkdir(eisdirPath, { recursive: true });
+
+		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-m7-eisdir", {
+			cursorStorePath: eisdirPath,
+		});
+		const runtime = await attempt.claimCharacter(character.characterId);
+
+		expect(runtime.loadCursor()).toBeNull();
+	});
 });
 
 describe("ISSUE-013 B: speak staleness client side", () => {

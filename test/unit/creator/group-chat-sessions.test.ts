@@ -1,13 +1,51 @@
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-import { deleteGroupChatSession, listGroupChatSessions } from "../../../src/creator/group-chat-sessions.js";
-import { getActiveDescriptorPath, getGroupChatSessionDirectory } from "../../../src/data/discovery/active-descriptor.js";
+import {
+	getActiveDescriptorPath,
+	getGroupChatSessionDirectory,
+} from "../../../src/data/discovery/active-descriptor.js";
+import {
+	deleteGroupChatSession,
+	type GroupChatSessionManagerLike,
+	listGroupChatSessions,
+} from "../../../src/data/group-chat-sessions.js";
 
 const temporaryDirectories: string[] = [];
+
+/**
+ * 本地 SessionManager 注入面假件（skills 零 pi 依赖的钉测先例）：list 返回
+ * 目录中的会话文件摘要，open 从真实 jsonl 解析条目——断言面与迁移前一致。
+ */
+function fakeSessionManager(sessionDir: string): GroupChatSessionManagerLike {
+	return {
+		// 假件固定使用构造时捕获的 sessionDir，忽略调用参数（签名兼容即可）。
+		list: async () => {
+			const files = await readdir(sessionDir);
+			return files.map((file) => {
+				const match = /^[^_]+_(.+)\.jsonl$/.exec(file);
+				const id = match?.[1] ?? file.replace(/\.jsonl$/, "");
+				return {
+					id,
+					path: join(sessionDir, file),
+					name: null,
+					created: new Date(0),
+				};
+			});
+		},
+		open: (path) => {
+			const raw = readFileSync(path, "utf8");
+			const entries = raw
+				.split("\n")
+				.filter((line) => line.trim() !== "")
+				.map((line) => JSON.parse(line) as { type: string; customType?: string; content?: unknown });
+			return { getEntries: () => entries };
+		},
+	};
+}
 
 async function createTemporaryDirectory(): Promise<string> {
 	const directory = await mkdtemp(join(tmpdir(), "pi-tavern-sessions-"));
@@ -70,6 +108,7 @@ describe("group chat sessions", () => {
 		);
 
 		const sessions = await listGroupChatSessions(agentDir, cwd, {
+			sessionManager: fakeSessionManager(sessionDir),
 			trash: () => ({ status: 0 }),
 			exists: () => false,
 			unlink: async () => undefined,

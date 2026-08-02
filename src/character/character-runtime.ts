@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -11,6 +10,7 @@ import {
 	type CharacterReloadHandoff,
 	getReloadHandoffRegistry,
 } from "../controller/reload-handoff-registry.js";
+import { readCursorFile, writeCursorFile } from "../data/cursor-store.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { GroupChatStateMessage, ServerMessage } from "../protocol/messages.js";
 import {
@@ -356,17 +356,13 @@ export class CharacterRuntime {
 			return this.cursorSequence;
 		}
 		try {
-			const raw = readFileSync(this.cursorStorePath, "utf8");
-			const data = JSON.parse(raw) as { last_sequence?: number };
-			if (
-				typeof data.last_sequence === "number" &&
-				Number.isSafeInteger(data.last_sequence) &&
-				data.last_sequence >= 0
-			) {
-				this.cursorSequence = data.last_sequence;
+			// 文件原语失败（ENOENT/EISDIR 等）如实抛错，编排层吞错；损坏返回 null
+			const sequence = readCursorFile(this.cursorStorePath);
+			if (sequence !== null) {
+				this.cursorSequence = sequence;
 			}
 		} catch {
-			// Missing/corrupt cursor: treat as no cursor.
+			// Missing/unreadable cursor: treat as no cursor.
 		}
 		return this.cursorSequence;
 	}
@@ -380,12 +376,10 @@ export class CharacterRuntime {
 		if (!this.cursorStorePath) {
 			return;
 		}
+		// 内存先推进（保持：写失败时同进程 loadCursor 仍回读新值——QA 场景 7 钉）
 		this.cursorSequence = sequence;
 		try {
-			mkdirSync(dirname(this.cursorStorePath), { recursive: true });
-			const tmpPath = `${this.cursorStorePath}.tmp`;
-			writeFileSync(tmpPath, JSON.stringify({ last_sequence: sequence, updated_at: new Date().toISOString() }), "utf8");
-			renameSync(tmpPath, this.cursorStorePath);
+			writeCursorFile(this.cursorStorePath, sequence);
 		} catch {
 			// Persistence is best-effort: losing a cursor write only means the
 			// next join re-pulls from an older position (idempotent by sequence).

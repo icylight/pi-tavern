@@ -23,6 +23,7 @@ description: 负责 PiTavern 的质量把关——自动化验收套件、边界
 | --- | --- |
 | `characters/pm.md` / `characters/dev.md` / `characters/qa.md` / `characters/architect.md` | 各自仅改自己的卡；改他人卡片须群聊提议，由对方本人执行 |
 | `docs/acceptance.md`、`docs/implementation-plan.md`、`docs/terminology.md` | PM |
+| `CHANGELOG.md` | **PM（2026-08-02 User 指示：生成与维护归口 PM，其他角色不提改）**——每里程碑/显著 PR 合入后由 PM 同步更新（Keep a Changelog 格式，面向用户影响，不倾倒 git log） |
 | `ISSUES.md` | PM（缺陷/建议只在此登记，其他人提不改；状态变更须群聊确认） |
 | `src/` | Dev |
 | `test/unit/`、`vitest.config.ts` | Arch（v0.3 2026-08-02：单元测试属主 = Arch，User 指示） |

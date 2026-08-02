@@ -3,8 +3,8 @@ import type WebSocket from "ws";
 import type { WebSocketServer } from "ws";
 
 import type { CharacterCard } from "../config/character-card.js";
-import type { GroupChatState } from "../creator/group-chat-state.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
+import type { GroupChatState } from "../data/group-chat-state.js";
 import type { ServerMessage } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 
