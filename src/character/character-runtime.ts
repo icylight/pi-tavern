@@ -356,7 +356,9 @@ export class CharacterRuntime {
 			return this.cursorSequence;
 		}
 		// 游标跟随 Session：优先读本 Session 文件；v1 群聊级单文件作兼容回退
-		// （保守起点：最多重复拉取、绝不跳过消息；只读旧文件不迁移，防多进程竞态）
+		// （保守起点：最多重复拉取、绝不跳过消息；只读旧文件不迁移，防多进程竞态）。
+		// 本文件损坏（null 非抛）同样落旧文件回退——旧文件冻结于修复前且 ≤ 本文件
+		// 创建时位置，采纳旧值仍保守。
 		let sequence: number | null = null;
 		try {
 			sequence = readCursorFile(this.cursorStorePath);
