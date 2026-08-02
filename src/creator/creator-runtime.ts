@@ -44,6 +44,8 @@ import {
 	setGroupMaxMessages,
 	setHandRaised,
 } from "../data/group-chat-state.js";
+import { JoinPipeline } from "./creator-pipelines/join-pipeline.js";
+import { LeavePipeline } from "./creator-pipelines/leave-pipeline.js";
 
 export interface StartNewCreatorRuntimeOptions {
 	cwd: string;
@@ -92,6 +94,8 @@ export class CreatorRuntime {
 	private closePromise: Promise<RuntimeCloseResult> | null = null;
 	private runtimeTail = Promise.resolve();
 	private readonly deps: CreatorRuntimeDependencies;
+	private readonly joinPipeline: JoinPipeline;
+	private readonly leavePipeline: LeavePipeline;
 	private persistedCount = 0;
 	private heartbeatTimer: NodeJS.Timeout | null = null;
 
@@ -149,6 +153,20 @@ export class CreatorRuntime {
 			this.publicMessages = initialPersistedState.publicMessages;
 			this.persistedCount = initialPersistedState.persistedCount;
 		}
+		// 门面装配（application 层从 runtime 拿能力实例，不自建；application→runtime 下行依赖合法）
+		this.joinPipeline = new JoinPipeline({
+			connections: this.connections,
+			getAvailableCharacters: () => this.getAvailableCharacters(),
+			toCharacterSummaryMessage,
+			send: (socket, message) => this.send(socket, message),
+			sendFailure: (socket, id, command, reason) => this.sendFailure(socket, id, command, reason),
+		});
+		this.leavePipeline = new LeavePipeline({
+			removeOnlineCharacter: (connection, reason) =>
+				this.removeOnlineCharacter(connection as ConnectionContext, reason),
+			send: (socket, message) => this.send(socket, message),
+			sendFailure: (socket, id, command, reason) => this.sendFailure(socket, id, command, reason),
+		});
 		this.startHeartbeat();
 	}
 
@@ -908,7 +926,7 @@ export class CreatorRuntime {
 	): Promise<void> {
 		switch (message.type) {
 			case "join_group_chat":
-				this.handleJoinGroupChat(socket, connection, message);
+				this.joinPipeline.run(socket, connection, message);
 				return;
 			case "claim_character":
 				this.handleClaimCharacter(socket, connection, message);
@@ -932,38 +950,12 @@ export class CreatorRuntime {
 				this.handleUpdateCharacterState(connection, message.is_streaming);
 				return;
 			case "leave_group_chat":
-				this.handleLeaveGroupChat(socket, connection, message);
+				this.leavePipeline.run(socket, connection, message);
 				return;
 			case "speak":
 				await this.handleSpeak(socket, connection, message);
 				return;
 		}
-	}
-
-	private handleJoinGroupChat(
-		socket: WebSocket,
-		connection: ConnectionContext,
-		message: Extract<ClientMessage, { type: "join_group_chat" }>,
-	): void {
-		if (
-			connection.online ||
-			this.connections.has(message.session_id) ||
-			(connection.sessionId !== null && connection.sessionId !== message.session_id)
-		) {
-			this.sendFailure(socket, message.id, "join_group_chat", "This pi session is already in the group chat");
-			return;
-		}
-
-		connection.sessionId = message.session_id;
-		this.send(socket, {
-			...(message.id !== undefined ? { id: message.id } : {}),
-			type: "response",
-			command: "join_group_chat",
-			success: true,
-			data: {
-				available_characters: this.getAvailableCharacters().map(toCharacterSummaryMessage),
-			},
-		});
 	}
 
 	private handleClaimCharacter(
@@ -1430,26 +1422,6 @@ export class CreatorRuntime {
 				},
 			});
 		}
-	}
-
-	private handleLeaveGroupChat(
-		socket: WebSocket,
-		connection: ConnectionContext,
-		message: Extract<ClientMessage, { type: "leave_group_chat" }>,
-	): void {
-		if (!connection.online) {
-			this.sendFailure(socket, message.id, "leave_group_chat", "Character is not in the group chat");
-			return;
-		}
-
-		this.removeOnlineCharacter(connection, "left");
-		this.send(socket, {
-			...(message.id !== undefined ? { id: message.id } : {}),
-			type: "response",
-			command: "leave_group_chat",
-			success: true,
-		});
-		socket.close(1000, "Left group chat");
 	}
 
 	private startReadyTimer(socket: WebSocket, connection: ConnectionContext): void {
