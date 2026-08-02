@@ -6,8 +6,8 @@ import { registerCommands } from "../../src/commands.js";
 import type { CharacterCard } from "../../src/config/character-card.js";
 import { TavernController } from "../../src/controller/tavern-controller.js";
 import type { CreatorRuntime } from "../../src/creator/creator-runtime.js";
-import { createGroupChatState } from "../../src/creator/group-chat-state.js";
 import type { ActiveGroupChatDescriptor } from "../../src/data/discovery/active-descriptor.js";
+import { createGroupChatState } from "../../src/data/group-chat-state.js";
 
 const descriptor: ActiveGroupChatDescriptor = {
 	instanceId: "instance-1",

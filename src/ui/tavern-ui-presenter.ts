@@ -1,7 +1,7 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 
 import type { TavernController } from "../controller/tavern-controller.js";
-import type { RoundState } from "../creator/group-chat-state.js";
+import type { RoundState } from "../data/group-chat-state.js";
 
 /** Fixed key used for both the footer status and the bottom widget. */
 export const TAVERN_UI_KEY = "pi-tavern";

@@ -6,8 +6,8 @@ import {
 	type CreatorReloadHandoff,
 	getReloadHandoffRegistry,
 } from "../../../src/controller/reload-handoff-registry.js";
-import { createGroupChatState } from "../../../src/creator/group-chat-state.js";
 import type { ActiveGroupChatDescriptor } from "../../../src/data/discovery/active-descriptor.js";
+import { createGroupChatState } from "../../../src/data/group-chat-state.js";
 
 const descriptor: ActiveGroupChatDescriptor = {
 	instanceId: "instance-1",

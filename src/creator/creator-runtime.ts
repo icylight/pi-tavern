@@ -43,7 +43,7 @@ import {
 	setGroupChatName,
 	setGroupMaxMessages,
 	setHandRaised,
-} from "./group-chat-state.js";
+} from "../data/group-chat-state.js";
 
 export interface StartNewCreatorRuntimeOptions {
 	cwd: string;
