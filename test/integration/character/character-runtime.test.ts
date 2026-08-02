@@ -195,27 +195,37 @@ describe("M7 message fetch (ISSUE-012)", () => {
 		expect(pulled?.messages.map((m) => (m as { sequence?: number }).sequence)).toEqual([2, 3]);
 	});
 
-	it("falls back to the v1 group-chat cursor file as a conservative start (P0)", async () => {
+	it("does not adopt the v1 group-chat cursor: a fresh session pulls from full history (P0)", async () => {
 		const { creator, character } = await startCreator();
+		await creator.submitUserPersonaMessage("one"); // seq 1
+		await creator.submitUserPersonaMessage("two"); // seq 2
+		await creator.submitUserPersonaMessage("three"); // seq 3
+
 		const root = await createTemporaryDirectory();
 		const groupId = "group-legacy";
+		// A v1 shared cursor advanced by another session (e.g. 120) carries no
+		// session identity: adopting it could skip 91-120 for this session.
 		const legacyPath = join(root, "cursors", `${groupId}.json`);
 		await mkdir(join(root, "cursors"), { recursive: true });
-		await writeFile(legacyPath, JSON.stringify({ last_sequence: 3, updated_at: "2026-01-01T00:00:00.000Z" }));
+		await writeFile(legacyPath, JSON.stringify({ last_sequence: 120, updated_at: "2026-01-01T00:00:00.000Z" }));
 
 		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-legacy", {
 			cursorStorePath: join(root, "cursors", groupId, "session-legacy.json"),
 		});
 		const runtime = await attempt.claimCharacter(character.characterId);
 
-		// Conservative start: re-pull from the legacy value, never skip.
-		expect(runtime.loadCursor()).toBe(3);
+		// The legacy file is never adopted: no session cursor means no cursor.
+		expect(runtime.loadCursor()).toBeNull();
 
-		// Saves go to the session file only; the legacy file is untouched (read-only compat).
-		runtime.saveCursor(4);
+		// Full history from 0: nothing skipped, duplicates are acceptable.
+		const pulled = await runtime.fetchMessagesSince(0);
+		expect(pulled?.messages.map((m) => (m as { sequence?: number }).sequence)).toEqual([1, 2, 3]);
+
+		// Saves go to the session file only; the legacy file stays untouched.
+		runtime.saveCursor(3);
 		const sessionFile = join(root, "cursors", groupId, "session-legacy.json");
-		expect(JSON.parse(await readFile(sessionFile, "utf8")).last_sequence).toBe(4);
-		expect(JSON.parse(await readFile(legacyPath, "utf8")).last_sequence).toBe(3);
+		expect(JSON.parse(await readFile(sessionFile, "utf8")).last_sequence).toBe(3);
+		expect(JSON.parse(await readFile(legacyPath, "utf8")).last_sequence).toBe(120);
 	});
 
 	it("writes concurrent session cursors atomically without clobbering (P0)", async () => {
