@@ -31,6 +31,17 @@ export interface RpcEvent {
 }
 
 /**
+ * 事件流检查点（测试架构改造 v2，Arch 评审 2026-08-02）：共享 fixture 下场景间
+ * 事件必然串扰（pi-process 保留全量事件、waitFor 全历史重放）——场景隔离单元
+ * 升级为 checkpoint 游标。checkpoint() 快照当前事件流位置，waitForAfter 只匹配
+ * 检查点之后的事件（含检查点后新到达的，先查重放、后查新到）。
+ */
+export interface EventCheckpoint {
+	/** 检查点处已收事件数（events.length 快照）。 */
+	index: number;
+}
+
+/**
  * A real pi process driven over `--mode rpc`: JSON commands on stdin, JSON
  * events (including extension_ui_request dialogs) on stdout.
  */
@@ -39,7 +50,7 @@ export class PiProcess {
 	readonly label: string;
 	private readonly events: RpcEvent[] = [];
 	private readonly stderrChunks: string[] = [];
-	private readonly waiters: Array<(event: RpcEvent) => void> = [];
+	private readonly waiters: Array<(event: RpcEvent, index: number) => void> = [];
 	private buffered = "";
 	private commandId = 0;
 
@@ -104,9 +115,16 @@ export class PiProcess {
 		);
 	}
 
+	/** Snapshot of the event stream position (see EventCheckpoint). */
+	checkpoint(): EventCheckpoint {
+		return { index: this.events.length };
+	}
+
 	/** Wait for the next event matching a predicate; past events are replayed first. */
 	waitFor(predicate: (event: RpcEvent) => boolean, timeoutMs = STEP_TIMEOUT_MS): Promise<RpcEvent> {
 		return new Promise((resolveEvent, rejectEvent) => {
+			// 旧语义：全历史重放（含调用前已到达的匹配事件）——waitForTavernReady
+			// 等重入调用依赖此语义（ready 事件早已到达，仍须命中）。
 			const existing = this.events.find(predicate);
 			if (existing) {
 				resolveEvent(existing);
@@ -121,9 +139,46 @@ export class PiProcess {
 					return;
 				}
 				clearTimeout(timer);
-				const index = this.waiters.indexOf(waiter);
-				if (index !== -1) {
-					this.waiters.splice(index, 1);
+				const waiterIndex = this.waiters.indexOf(waiter);
+				if (waiterIndex !== -1) {
+					this.waiters.splice(waiterIndex, 1);
+				}
+				resolveEvent(event);
+			};
+			this.waiters.push(waiter);
+		});
+	}
+
+	/**
+	 * waitFor 的 checkpoint 变体：只匹配 checkpoint 之后的事件（重放从
+	 * checkpoint.index 起查，新到事件按序号过滤）——共享 fixture 场景隔离用；
+	 * 旧 waitFor 语义（全历史重放）由 checkpoint()=0 等价保持。
+	 */
+	waitForAfter(
+		checkpoint: EventCheckpoint,
+		predicate: (event: RpcEvent) => boolean,
+		timeoutMs = STEP_TIMEOUT_MS,
+	): Promise<RpcEvent> {
+		return new Promise((resolveEvent, rejectEvent) => {
+			const existing = this.events.slice(checkpoint.index).find(predicate);
+			if (existing) {
+				resolveEvent(existing);
+				return;
+			}
+			const timer = setTimeout(
+				() => rejectEvent(new Error(`[${this.label}] timeout waiting for event after ${timeoutMs}ms`)),
+				timeoutMs,
+			);
+			const waiter = (event: RpcEvent, index: number): void => {
+				// checkpoint.index 之后到达的事件从 index == checkpoint.index 起算；
+				// < 的才是检查点前的旧事件（off-by-one 修正 2026-08-02）。
+				if (index < checkpoint.index || !predicate(event)) {
+					return;
+				}
+				clearTimeout(timer);
+				const waiterIndex = this.waiters.indexOf(waiter);
+				if (waiterIndex !== -1) {
+					this.waiters.splice(waiterIndex, 1);
 				}
 				resolveEvent(event);
 			};
@@ -241,7 +296,7 @@ export class PiProcess {
 			}
 			this.events.push(event);
 			for (const waiter of [...this.waiters]) {
-				waiter(event);
+				waiter(event, this.events.length - 1);
 			}
 		}
 	}

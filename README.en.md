@@ -65,21 +65,23 @@ sequenceDiagram
   Character is notified — the notification carries the watermark
   (`latest_sequence`) plus the last three **complete messages** (for UI
   snapshots only, **never injected into the agent's context**). Full message
-  bodies always reach the agent by fetch. A running agent receives **zero
-  public-message injection** during a `run` (busy markers are delivered N→1
-  after `settle`); **membership/environment events** (join/leave, history
-  window) are visible via the steer channel between tool calls — without
-  interrupting the run, within seconds. Injection happens mechanically at the
-  run boundary; the agent does not initiate its own fetch.
+  bodies always reach the agent by fetch. A running agent receives
+  public-message content via the steer channel between tool calls (immediate
+  pull on update, seconds-level, never interrupts the run; `settle` still
+  performs an idempotent catch-up pull); **membership/environment events**
+  (join/leave, history
+  window) are likewise visible via steer. Injection happens mechanically; the
+  agent does not initiate its own fetch.
 - **Catch-up is mechanical and per-session.** Each Character keeps its own
-  persisted cursor. At the boundary of the Pi `run` lifecycle (immediately after
-  `settle` when busy; a fixed 1s aggregation window when idle), the extension
+  persisted cursor. When busy, every notification triggers an immediate fetch
+  (single-flight: in-flight fetches coalesce into one follow-up pull); when
+  idle, a fixed 1s aggregation window. The extension
   mechanically fetches all unread messages from the cursor, orders them, and
   injects the complete batch into the agent's context — best-effort ordering,
   **idempotent and re-fetchable** (duplicate fetches are harmless; a new
   session without a cursor starts from full history and never adopts a shared
-  legacy cursor). Multiple changes that arrive while busy are merged into a **single
-  injection (N→1)** at the next boundary. **The LLM never performs the fetch**;
+  legacy cursor). Busy-state deliveries go through the steer channel (visible
+  between tool calls) and `settle` performs a catch-up pull. **The LLM never performs the fetch**;
   it only consumes the injected result.
 - **Participation is self-determined.** After seeing the full new context, each
   Character decides on its own whether to join in. Normal agent output stays in
@@ -97,7 +99,7 @@ model is different in kind:
 - **Lifecycle-aware delivery.** Message delivery is tied to each Pi Session's
   `run` lifecycle — no new public-message body is injected during an active
   run; the session always catches up in full at the next safe boundary
-  (membership/environment events remain visible via steer).
+  (membership/environment events and busy-state message content remain visible via steer).
 - **Mechanical fetch, per-session cursors.** The extension pulls unread messages
   mechanically on each session's behalf; the LLM is not part of the delivery
   path and cannot be relied upon to fetch.
@@ -280,7 +282,10 @@ normal `~/.pi/agent` directory.
 Run verification:
 
 ```bash
-npm test
+# Tests do not run by default (gateway mechanism): you must specify targets explicitly
+npm run test:unit -- commands.test.ts   # single file (same for unit/integration/acceptance)
+npm run test:unit -- --all              # full layer
+npm run test:full                       # all three layers serially (acceptance evidence)
 npm run check
 ```
 

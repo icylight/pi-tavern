@@ -23,6 +23,8 @@ export interface JoinAttemptOptions {
 	 * restarts and reloads.
 	 */
 	cursorStorePath?: string;
+	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
+	triggerDebounceMs?: number;
 }
 
 interface PendingRequest {
@@ -44,6 +46,7 @@ export class JoinAttempt {
 	private readonly heartbeatIntervalMs: number | undefined;
 	private readonly heartbeatTimeoutMs: number | undefined;
 	private readonly cursorStorePath: string | undefined;
+	private readonly triggerDebounceMs: number | undefined;
 	private transferred = false;
 	private closed = false;
 
@@ -95,6 +98,7 @@ export class JoinAttempt {
 		this.heartbeatIntervalMs = options.heartbeatIntervalMs;
 		this.heartbeatTimeoutMs = options.heartbeatTimeoutMs;
 		this.cursorStorePath = options.cursorStorePath;
+		this.triggerDebounceMs = options.triggerDebounceMs;
 		this.socket.on("message", this.onMessage);
 		this.socket.on("close", this.onClose);
 		this.socket.on("error", this.onError);
@@ -158,6 +162,7 @@ export class JoinAttempt {
 				...(this.heartbeatIntervalMs !== undefined ? { heartbeatIntervalMs: this.heartbeatIntervalMs } : {}),
 				...(this.heartbeatTimeoutMs !== undefined ? { heartbeatTimeoutMs: this.heartbeatTimeoutMs } : {}),
 				...(this.cursorStorePath !== undefined ? { cursorStorePath: this.cursorStorePath } : {}),
+				...(this.triggerDebounceMs !== undefined ? { triggerDebounceMs: this.triggerDebounceMs } : {}),
 			});
 			const readyResponse = await this.request({ type: "character_ready" });
 			if (readyResponse.type !== "response" || readyResponse.command !== "character_ready") {

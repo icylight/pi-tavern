@@ -301,11 +301,9 @@ export class SessionStore {
 		if (sessionOpened) {
 			// SessionManager 内存态已被失败的追加改动。重建全新实例——文件
 			// 已在上方删除。下一次首次持久化将以规范 createdAt 写 header。
-			this.sessionManager = this.factory.create(
-				this.sessionManager.getCwd(),
-				this.sessionManager.getSessionDir(),
-				{ id: groupChatId },
-			);
+			this.sessionManager = this.factory.create(this.sessionManager.getCwd(), this.sessionManager.getSessionDir(), {
+				id: groupChatId,
+			});
 		}
 	}
 }

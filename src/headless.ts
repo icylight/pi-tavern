@@ -17,12 +17,16 @@ import { join } from "node:path";
 import { type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { TavernController } from "./controller/tavern-controller.js";
 import { type ActiveGroupChatDescriptor, getGroupChatCursorDirectory } from "./data/discovery/active-descriptor.js";
-import { discoverGroupChats } from "./data/discovery/discover-group-chats.js";
+import type { DiscoverGroupChatsOptions } from "./data/discovery/discover-group-chats.js";
 
 export interface AutoJoinOptions {
 	agentDir?: string;
 	character?: string;
 	groupChat?: string;
+	/** 行为默认实现由组合根装配注入（ADR-0005 层方向，Phase 4）。 */
+	discoverGroupChats?: (options: DiscoverGroupChatsOptions) => Promise<ActiveGroupChatDescriptor[]>;
+	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
+	triggerDebounceMs?: number;
 }
 
 /**
@@ -93,7 +97,10 @@ export async function autoJoinCharacter(
 		return null;
 	}
 
-	const candidates = await discoverGroupChats({ agentDir, cwd: ctx.cwd });
+	if (!options.discoverGroupChats) {
+		throw new Error("autoJoinCharacter: discoverGroupChats must be injected by the composition root");
+	}
+	const candidates = await options.discoverGroupChats({ agentDir, cwd: ctx.cwd });
 	if (candidates.length === 0) {
 		notify("Auto-join: no active group chat found for this project", "warning");
 		return null;
@@ -106,6 +113,7 @@ export async function autoJoinCharacter(
 
 	const sessionId = ctx.sessionManager.getSessionId();
 	const attempt = await controller.startJoining(descriptor, sessionId, {
+		...(options.triggerDebounceMs !== undefined ? { triggerDebounceMs: options.triggerDebounceMs } : {}),
 		// 游标跟随 Session（User 2026-08-02）：cursors/<groupId>/<sessionId>.json，同群聊多角色互不共用
 		cursorStorePath: join(getGroupChatCursorDirectory(agentDir, ctx.cwd), descriptor.groupChatId, `${sessionId}.json`),
 	});

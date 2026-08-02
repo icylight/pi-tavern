@@ -6,6 +6,8 @@
 
 ## 背景
 
+> 状态注记（2026-08-02，Phase 3 达成后补）：正文为决策记录时的基线（1881 行单体）；Phase 3 已达成目标结构（creator-runtime 1193→429 行骨架，ADR 目标结构映射见下，与现状一致）。
+
 `src/creator/creator-runtime.ts`（1881 行）单体：WS 传输（handleConnection/心跳）、业务编排（submitUserPersonaMessage/join/claim/ready/leave）、持久化（游标/FIRST_PERSIST_*/session 文件恢复）全部混在一个类；依赖方向靠约定不靠结构；目录与命名无统一规范（22 文件 6415 行，按既有目录分布）。
 
 设计范式 = **IO 模型**：application 层是请求级 IO 管线——输入与中间状态收于管线实例、阶段为私有处理函数（Method）、读写顺序由主管线安排；其下为能力单元层（skills），进程级共享能力由 runtime 单例持有（MCP 同构）。PiTavern 没有数据库，落盘就是「追加写文件 + 游标只前进」，不引入事务概念。
@@ -76,6 +78,8 @@ shared:       protocol/(messages·codec) / config/(character-card·load-config) 
 ```
 
 拆解重心：
+
+> 达成注记（2026-08-02）：creator-runtime 已达成 ~400 行骨架（现 429 行：构造/依赖/公开 API 门面/生命周期），WS 连接域、心跳域、装配域、reload 域、成员簿记已拆出；character-runtime 拆分与下两行目标同为目标结构（ADR 映射表为准）。
 
 - `creator-runtime.ts` 1881 行 → 骨架（~400 行：WS/心跳/连接表/装配）+ 管线（join/claim/ready/speak/leave/查询 各 ~80-200 行）+ skills（session/cursor/persist ~250 行）
 - `character-runtime.ts` 768 行同理拆分

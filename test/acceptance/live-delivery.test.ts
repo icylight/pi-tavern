@@ -1,14 +1,12 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 
 import { getGroupChatCursorDirectory } from "../../src/data/discovery/active-descriptor.js";
-import { PiProcess } from "./pi-process.js";
 import { pollSessionCursor } from "./cursor-helper.js";
-
-
+import { PiProcess } from "./pi-process.js";
 
 /**
  * #38 口径 A（T4，进程级佐证）：run 进行中消息经 steer 通道有界可见——
@@ -38,7 +36,12 @@ describe("acceptance: #38 live steer delivery during a run (T4)", () => {
 		await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true }).catch(() => undefined)));
 	});
 
-	async function startPair(): Promise<{ creator: PiProcess; headless: PiProcess; cursorDir: string; groupChatId: string }> {
+	async function startPair(): Promise<{
+		creator: PiProcess;
+		headless: PiProcess;
+		cursorDir: string;
+		groupChatId: string;
+	}> {
 		// 每测试独立隔离：各自 agent 目录，descriptor 文件/群聊状态互不冲突。
 		const root = await mkdtemp(join(tmpdir(), `pi-tavern-acc-live-${pairIndex}-`));
 		pairIndex += 1;

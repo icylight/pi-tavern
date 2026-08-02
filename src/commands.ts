@@ -1,22 +1,16 @@
 import { join } from "node:path";
 
-import { type ExtensionAPI, getAgentDir, SessionManager } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { CharacterRuntime } from "./character/character-runtime.js";
 import { DEFAULT_CONFIG_MAX_MESSAGES, loadTavernConfig, type TavernConfig } from "./config/load-config.js";
 import type { TavernController } from "./controller/tavern-controller.js";
 import type { CreatorRuntime } from "./creator/creator-runtime.js";
 import { type ActiveGroupChatDescriptor, getGroupChatCursorDirectory } from "./data/discovery/active-descriptor.js";
-import {
-	type DiscoverGroupChatsOptions,
-	discoverGroupChats as discoverActiveGroupChats,
-} from "./data/discovery/discover-group-chats.js";
-import {
-	type DeleteGroupChatSessionResult,
-	defaultGroupChatSessionIoDependencies,
-	deleteGroupChatSession as deleteGroupChatSessionFile,
-	type GroupChatSessionManagerLike,
-	type GroupChatSessionSummary,
-	listGroupChatSessions as listPersistedGroupChatSessions,
+import type { DiscoverGroupChatsOptions } from "./data/discovery/discover-group-chats.js";
+import type {
+	DeleteGroupChatSessionResult,
+	GroupChatSessionManagerLike,
+	GroupChatSessionSummary,
 } from "./data/group-chat-sessions.js";
 
 export interface RegisterCommandsOptions {
@@ -26,6 +20,8 @@ export interface RegisterCommandsOptions {
 	discoverGroupChats?: (options: DiscoverGroupChatsOptions) => Promise<ActiveGroupChatDescriptor[]>;
 	listGroupChatSessions?: (agentDir: string, cwd: string) => Promise<GroupChatSessionSummary[]>;
 	deleteGroupChatSession?: (path: string) => Promise<DeleteGroupChatSessionResult>;
+	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
+	triggerDebounceMs?: number;
 }
 
 export function registerCommands(
@@ -35,20 +31,12 @@ export function registerCommands(
 ): void {
 	const agentDir = options.agentDir ?? getAgentDir();
 	const loadConfig = options.loadConfig ?? loadTavernConfig;
-	const discoverGroupChats = options.discoverGroupChats ?? discoverActiveGroupChats;
-	// data/ 零 pi 依赖（ADR-0005 §2）：pi 的 SessionManager 真实现在此（adapter 层）装配。
-	const piSessionManager: GroupChatSessionManagerLike = {
-		list: (cwd, sessionDir) => SessionManager.list(cwd, sessionDir),
-		open: (path, sessionDir, cwd) => SessionManager.open(path, sessionDir, cwd),
-	};
-	const listGroupChatSessions =
-		options.listGroupChatSessions ??
-		((agentDir: string, cwd: string) =>
-			listPersistedGroupChatSessions(agentDir, cwd, {
-				...defaultGroupChatSessionIoDependencies,
-				sessionManager: piSessionManager,
-			}));
-	const deleteGroupChatSession = options.deleteGroupChatSession ?? deleteGroupChatSessionFile;
+	// 行为默认实现由组合根（index.ts）装配注入（ADR-0005 层方向，Phase 4）；
+	// 未注入时调用点为装配错误，显式报错。
+	const discoverGroupChats = options.discoverGroupChats;
+	// 行为默认实现由组合根（index.ts）装配注入（ADR-0005 层方向，Phase 4）。
+	const listGroupChatSessions = options.listGroupChatSessions;
+	const deleteGroupChatSession = options.deleteGroupChatSession;
 
 	pi.registerCommand("tavern-new", {
 		description: "Create a new PiTavern group chat",
@@ -79,7 +67,8 @@ export function registerCommands(
 					throw new Error("/tavern-resume requires an interactive UI");
 				}
 				const config = await loadConfig({ agentDir, cwd: ctx.cwd });
-				const sessions = await listGroupChatSessions(agentDir, ctx.cwd);
+				// 组合根契约：index.ts 装配注入行为默认实现（ADR-0005 层方向）。
+				const sessions = await listGroupChatSessions!(agentDir, ctx.cwd);
 				const resumable = sessions.filter((session) => !session.active);
 				if (resumable.length === 0) {
 					ctx.ui.notify("No resumable group chat found for this project", "info");
@@ -92,7 +81,13 @@ export function registerCommands(
 					return;
 				}
 				if (choice === deleteLabel) {
-					await runDeleteGroupChatFlow(resumable, ctx.ui.select, ctx.ui.confirm, ctx.ui.notify, deleteGroupChatSession);
+					await runDeleteGroupChatFlow(
+						resumable,
+						ctx.ui.select,
+						ctx.ui.confirm,
+						ctx.ui.notify,
+						deleteGroupChatSession!,
+					);
 					return;
 				}
 				const session = resumable[labels.indexOf(choice)];
@@ -123,7 +118,7 @@ export function registerCommands(
 				if (!ctx.hasUI) {
 					throw new Error("/tavern-join requires an interactive UI");
 				}
-				const candidates = await discoverGroupChats({
+				const candidates = await discoverGroupChats!({
 					agentDir,
 					cwd: ctx.cwd,
 				});
@@ -137,6 +132,7 @@ export function registerCommands(
 				}
 				const sessionId = ctx.sessionManager.getSessionId();
 				const attempt = await controller.startJoining(descriptor, sessionId, {
+					...(options.triggerDebounceMs !== undefined ? { triggerDebounceMs: options.triggerDebounceMs } : {}),
 					// 游标跟随 Session（User 2026-08-02）：cursors/<groupId>/<sessionId>.json，
 					// 同群聊多角色互不共用游标文件；旧群聊级单文件由 loadCursor 兼容回退。
 					cursorStorePath: join(

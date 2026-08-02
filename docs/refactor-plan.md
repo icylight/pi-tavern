@@ -60,6 +60,13 @@
 - 验证:unit + 定向
 - 出口:依赖方向可由 lint 强制(adapter 不得触 skills、application 不碰文件)
 
+**Phase 4 定稿留痕（2026-08-02）**：
+- lint 选型（Arch 裁决）：biome 2.3.5 `noRestrictedImports` **patterns 方向性方案**（group=gitignore 源匹配 + importNamePattern=regex 禁入；ADR 五层方向矩阵 ≤8 条编码；单一工具链、CI `biome check src/` 天然覆盖；importNamePattern 匹配书写形 specifier、跨目录深度用 `(\.\./)*` 前缀兼容）；表达力不足时退自定义 script（Dev 定）
+- **patterns 实测证伪（2026-08-02 Dev 实验）**：group glob 匹配**被 import 模块 specifier**（无「源文件路径」维度），「adapter 文件不得 import data/」不可表达（全局禁 data/ 误杀 controller→skills 合法引用）→ 按预案退 **scripts/lint-layers.mjs**（~50 行零依赖，`npm run lint:layers` 并 CI，与 biome check 并列）；前置实验教训：选型以实测能力为准，不凭文档语义
+- **规则矩阵定稿（Arch 边界裁决）**：① adapter→skills 禁行为面（纯函数/类型豁免、默认实现上移组合根 index.ts 注入——commands/headless 只留注入面，unit 注入面已存在测试零改动；getGroupChatCursorDirectory 纯路径函数豁免）② application→文件 IO 禁（controller 零 fs 已核 0 处，直接启用）③ runtime→node:fs 禁直连（creator-runtime 死导入先删零调用点；creator-factory/组合根豁免——默认依赖装配语义）
+- PR 形态（PM 裁决）：1 PR（基线清零 + lint 加固 + pkill 转义并入）；「拆 schema 与行为」挂起待 User 拍板
+- 测试慢分析（Arch 静态切片）：墙钟模型 = 13 文件 ÷ 8 worker = 2 批，批界 = 批内最长文件（~40-50s）→ 99.5s 吻合；spawn 27×~6s÷8 ≈ 20s 纯启动；worker 拐点 8；杠杆排序：① 进程复用试点（省 ~15-20s）② 文件合并至 ≤8（单批省 ~45s，受最长文件钳制）③ join 3s 延迟注入 ④ worker 试探——等 QA 执行层数据合流后 PM 决策
+
 ### Phase 5:收口
 
 - 内容:全链门禁 + 五层依赖图(架构文档)+ ADR-0005 转 Accepted

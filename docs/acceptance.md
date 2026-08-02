@@ -5,12 +5,15 @@ M6 验证只有真实进程边界才能观察的行为：多个真实 pi 进程�
 ## 自动化验收套件
 
 ```bash
-npm run test:acceptance
+# 测试默认不跑（门卫机制）：显式指定目标——只跑改动到的文件
+npm run test:acceptance -- headless.test.ts      # 单文件/目录
+npm run test:acceptance -- --all                 # acceptance 全量（日常复核）
+npm run test:full                                # 三层串行全量（收口验收证据）
 ```
 
-套件位于 `test/acceptance/`，通过 `vitest.acceptance.config.ts` 独立配置，**不纳入日常 `npm test`**（真实 pi 进程启动慢，完整跑约 2 分钟）。
+套件位于 `test/acceptance/`，通过 `vitest.acceptance.config.ts` 独立配置，**不纳入日常默认测试**（真实 pi 进程启动慢，完整跑约 1-2 分钟；门卫机制下所有测试层均须显式指定目标才执行）。
 
-> ⚠️ 真实 pi 进程共享端口与临时目录：`npm run test:acceptance` **必须与 `npm test` / `npm run check` 串行执行**，不能并行，否则进程互相干扰导致假失败。
+> ⚠️ 真实 pi 进程共享端口与临时目录：acceptance 全量（`npm run test:acceptance -- --all`）**必须与 `npm run check` 串行执行**，不能并行，否则进程互相干扰导致假失败。
 
 所有测试：
 
@@ -30,7 +33,7 @@ npm run test:acceptance
 3. **speaker 一致**：speak-order 断言每条消息的 sender 与消息来源 session 的注入 persona 一致（内容作者一致性）；
 4. **并发不串**：两个 character 同时 join（现有 ecd7e6a 并发场景）时注册身份互不串扰，群聊中每个注册名只对应一个注入 persona。
 
-验收方式：`npm run test:acceptance` 全绿 + 上述断言存在且非空（不接受仅靠人工检查）。
+验收方式：`npm run test:acceptance -- --all` 全绿 + 上述断言存在且非空（不接受仅靠人工检查）。
 
 ### 身份可查询状态（ISSUE-007，2026-08-01 PM 设计）
 
@@ -51,7 +54,7 @@ character session 已 join 后修改角色卡文件，reload 后注入内容必�
 3. **可观察**：改动后经现有观察通道验证（身份行注入 notify / tavern-whoami 返回新 description）；
 4. **回归**：现有 reload 行为不变——成员连接、身份、端口保持（reload.test.ts 不破坏）。
 
-验收方式：`npm run test:acceptance` 全绿 + 新增 reload 身份刷新用例。
+验收方式：`npm run test:acceptance -- --all` 全绿 + 新增 reload 身份刷新用例。
 
 ### TUI 发言次数显示（ISSUE-001，2026-08-01 User 指示）
 
@@ -89,11 +92,11 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 7. **A7 边界**：无游标 join 走现有全量分页；单飞行锁防并发竞态；自己的 echo 仍过滤；`message_history`/`get_message_history` 回归不破坏。
 8. **A8 游标 Session 隔离（2026-08-02 User 指示）**：同群聊多 Session 游标文件互异（`cursors/<groupId>/<sessionId>.json`）；A 推进游标不影响 B；旧群聊级文件保守回退为起点（只读不写不删）、save 只写新路径；reload 后同 session 游标接续（QA integration 四项：隔离/旧兼容/并发写/重启恢复）。
 
-验收方式：`npm run test:acceptance` 全绿 + 上述断言存在且非空 + 单测/check 全绿 + 协议与持久化文档无语义分歧。
+验收方式：`npm run test:acceptance -- --all` 全绿 + 上述断言存在且非空 + 单测/check 全绿 + 协议与持久化文档无语义分歧。
 
 ### 测试门控命令
 
-RPC 模式没有输入通道、也无法调用扩展工具，因此 `PITAVERN_TEST=1`（`npm run test:acceptance` 自动设置）时额外注册：
+RPC 模式没有输入通道、也无法调用扩展工具，因此 `PITAVERN_TEST=1`（acceptance 门卫自动设置）时额外注册：
 
 - `/tavern-test-message <text>`：creator 状态下以 User Persona 发布公开消息（创建 Round）；
 - `/tavern-test-reload`：调用 `ctx.reload()` 触发真实 pi reload。
@@ -129,4 +132,4 @@ cd references/pi && npm ci && npm run generate-models --workspace packages/ai
 5. 终端 B：`/tavern-leave`；终端 A：`/tavern-leave`。
 6. 确认 macOS 上 descriptor 文件路径（`<agent-dir>/tavern/--<project-key>--/active/`）与 Linux 一致，项目键的路径规范化对 macOS 路径同样有效。
 
-如条件允许，将 `npm run test:acceptance` 原样在 macOS 上运行即为平台一致性自动化验证。
+如条件允许，将 `npm run test:acceptance -- --all` 原样在 macOS 上运行即为平台一致性自动化验证。

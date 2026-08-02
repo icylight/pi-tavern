@@ -59,6 +59,7 @@ export class GroupChatInput {
 	constructor(
 		private readonly runtime: CharacterRuntime,
 		private readonly pi: ExtensionAPI,
+		private readonly triggerDebounceMs: number = TRIGGER_DEBOUNCE_MS,
 	) {
 		// ISSUE-038（口径 A + steer）修订（#64 pull 模型）：run 不再接受任何
 		// 中间投递。运行中到达的 update 只置忙态标记（零中间注入红线）；settle
@@ -110,7 +111,11 @@ export class GroupChatInput {
 				// ISSUE-014/#14（方案 A）：成员/流式变化也走此通道——刷新缓存快照，
 				// 即使拉取结果为空 widget 也保持最新。
 				if (this.runtime.isAgentActive) {
+					// 忙态（User 拍板 2026-08-02）：立即拉取（无合并窗口）——
+					// 单飞行锁仅并发保护；投递走 steer 通道（工具间隙秒级）。
+					// settle 后仍补拉全（游标幂等，不丢不重）。
 					this.incrementPending = true;
+					void this.pullIncrement();
 				} else {
 					this.armIdleWindow();
 				}
@@ -157,10 +162,10 @@ export class GroupChatInput {
 					}
 				}
 				if (messages.length > 0) {
-					// 光标仅在增量到达上下文时推进
-					// （A5：投递失败不得移动光标）。
-					this.runtime.saveCursor(page.latestSequence);
-					this.deliver(messages);
+					// 游标推进移至投递成功判定（双通道契约：idle followUp /
+					// 忙态 steer 入队成功 = 投递成功 → saveCursor；失败不推进，
+					// settle 兜底重投——A5 强化实现）。
+					await this.deliver(messages, page.latestSequence);
 				}
 			} while (this.refetchRequested && !this.stopped);
 		} catch {
@@ -176,7 +181,7 @@ export class GroupChatInput {
 	 * 事件合并，保证顺序（事件先到，消息更新）。Agent 运行中事件经 steer
 	 * 通道投递（口径 A）——在下一个工具调用间隙可见，绝不打断 run。
 	 */
-	private deliver(messages: ServerMessage[]): void {
+	private async deliver(messages: ServerMessage[], latestSequence: number): Promise<void> {
 		if (this.stopped) {
 			return;
 		}
@@ -185,7 +190,9 @@ export class GroupChatInput {
 		if (events.length === 0) {
 			return;
 		}
-		void this.flush(events);
+		// await 投递链：flush 内 preflightResult 成功才推进游标——do-while 补拉
+		// 决策必须基于已推进的游标（否则重复投递已投窗口）。
+		await this.flush(events, latestSequence);
 	}
 
 	/**
@@ -290,7 +297,7 @@ export class GroupChatInput {
 				return;
 			}
 			void this.pullIncrement();
-		}, TRIGGER_DEBOUNCE_MS);
+		}, this.triggerDebounceMs);
 	}
 
 	private cancelIdleWindow(): void {
@@ -394,7 +401,7 @@ export class GroupChatInput {
 	 * （followUp + triggerTurn + 群聊标记），批次仍能唤醒 agent
 	 * （Arch settle 竞态修复）。
 	 */
-	private async flush(events?: ServerMessage[]): Promise<void> {
+	private async flush(events?: ServerMessage[], latestSequence?: number): Promise<void> {
 		const toDeliver = events ?? this.pendingEvents;
 		if (events === undefined) {
 			this.pendingEvents = [];
@@ -417,7 +424,7 @@ export class GroupChatInput {
 		// idle 路径，批次开启群聊触发的 turn（marker 按 #14 正确点亮
 		// is_streaming）。
 		if (this.runtime.isAgentActive) {
-			await this.deliverSteer(toDeliver, groupChatState);
+			await this.deliverSteer(toDeliver, groupChatState, latestSequence);
 			return;
 		}
 
@@ -442,23 +449,55 @@ export class GroupChatInput {
 			}
 		}
 
-		this.pi.sendMessage(
-			{
-				customType: "pi-tavern.group-chat-input",
-				content,
-				display: true,
-				details: {
-					group_chat_id: this.runtime.groupChatId,
-					character_id: this.runtime.character.characterId,
-					events: toDeliver,
-					group_chat_state: groupChatState,
+		// 投递承诺（Arch 竞态审计形状）：入队接受（preflightResult）即 resolve——
+		// pi SDK 的 sendMessage 在 run 结束后才 resolve（prompt() 内部 await 链），
+		// await 它会锁死单飞行锁；saveCursor 在 preflightResult 内同步执行，
+		// 承诺 resolve 时游标已推进（do-while 复查读新游标，不重投）。
+		await this.sendWithDeliveryAck(toDeliver, content, groupChatState, latestSequence, "followUp");
+	}
+
+	/**
+	 * 统一投递 + 游标双通道判定（Arch 契约 2026-08-02）：sendMessage 挂
+	 * preflightResult 回调——入队接受（true）即推进游标并 resolve 短承诺；
+	 * 拒绝/抛错不推进（settle 兜底重投）且同样 resolve（防飞行锁挂死）。
+	 * 不 await sendMessage 全量完成（pi SDK：run 结束后才 resolve）。
+	 */
+	private async sendWithDeliveryAck(
+		events: ServerMessage[],
+		content: string,
+		groupChatState: unknown,
+		latestSequence: number | undefined,
+		deliverAs: "followUp" | "steer",
+	): Promise<void> {
+		try {
+			// 方案 A（Arch 裁决 2026-08-02）：乐观推进——sendMessage 调用后
+			// 同步 saveCursor，不 await（await 会持有单飞行锁整个 run 时长，
+			// 忙态秒级可见在连续对话主场景退化回 run 边界——PM 矛盾实证）。
+			// 忙态 steer/followUp = agent.steer/followUp 同步入队无失败返回
+			// （QA 实证）；idle triggerTurn 的异步 run 启动失败 = pi 环境
+			// 不可用例外（与改造前语义一致、与 wedged 同类，QA 钉注明）。
+			// T2 竞态由调用方 await deliver 闭合（同步推进后 do-while 复查
+			// 读新游标）。
+			this.pi.sendMessage(
+				{
+					customType: "pi-tavern.group-chat-input",
+					content,
+					display: true,
+					details: {
+						group_chat_id: this.runtime.groupChatId,
+						character_id: this.runtime.character.characterId,
+						events,
+						group_chat_state: groupChatState,
+					},
 				},
-			},
-			{
-				triggerTurn: true,
-				deliverAs: "followUp",
-			},
-		);
+				{ triggerTurn: true, deliverAs },
+			);
+			if (latestSequence !== undefined) {
+				this.runtime.saveCursor(latestSequence);
+			}
+		} catch {
+			// 同步抛错（入队拒绝）：不推进 → settle 兜底重投（A5 保持）。
+		}
 	}
 
 	/**
@@ -474,7 +513,7 @@ export class GroupChatInput {
 	 * 这里不调用 markGroupChatTurnTriggered——steer 不得点亮 is_streaming
 	 * （#14 边界，QA T3）。
 	 */
-	private async deliverSteer(events: ServerMessage[], groupChatState: unknown): Promise<void> {
+	private async deliverSteer(events: ServerMessage[], groupChatState: unknown, latestSequence?: number): Promise<void> {
 		const content = this.buildContent(events, groupChatState);
 
 		if (process.env.PITAVERN_TEST === "1") {
@@ -491,23 +530,7 @@ export class GroupChatInput {
 			}
 		}
 
-		this.pi.sendMessage(
-			{
-				customType: "pi-tavern.group-chat-input",
-				content,
-				display: true,
-				details: {
-					group_chat_id: this.runtime.groupChatId,
-					character_id: this.runtime.character.characterId,
-					events,
-					group_chat_state: groupChatState,
-				},
-			},
-			{
-				triggerTurn: true,
-				deliverAs: "steer",
-			},
-		);
+		await this.sendWithDeliveryAck(events, content, groupChatState, latestSequence, "steer");
 	}
 
 	private buildContent(events: ServerMessage[], state: unknown): string {

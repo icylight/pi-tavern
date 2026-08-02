@@ -109,7 +109,7 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 		);
 	}
 
-	it("A1: group-chat-triggered turn lights is_streaming, settled extinguishes it", async () => {
+	it.concurrent("A1: group-chat-triggered turn lights is_streaming, settled extinguishes it", async () => {
 		const { creator } = await startPair();
 
 		// Group-chat input (User Persona message) triggers the character turn.
@@ -132,7 +132,7 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 		);
 	});
 
-	it("A2: user-direct turn does NOT light is_streaming (semantic convergence)", async () => {
+	it.concurrent("A2: user-direct turn does NOT light is_streaming (semantic convergence)", async () => {
 		const { creator, headless } = await startPair();
 
 		// #52（白名单毫秒级 run 暴露的时序缺陷修复）：先确认 join 完成
@@ -170,7 +170,7 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 		expect(memberDrop).toEqual([]);
 	});
 
-	it("A4: all observers converge on the same streaming truth (multi-connection consistency)", async () => {
+	it.concurrent("A4: all observers converge on the same streaming truth (multi-connection consistency)", async () => {
 		const { creator, headless, port, groupChatId, instanceId } = await startPair();
 
 		// Second observer: a raw WS client that completes the join flow as

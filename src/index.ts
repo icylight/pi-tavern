@@ -1,10 +1,16 @@
 import { randomUUID } from "node:crypto";
-import type { ExtensionAPI, InputEventResult } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, type InputEventResult, SessionManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { setTestNotify } from "./character/group-chat-input.js";
 import { registerCommands } from "./commands.js";
 import { TavernController } from "./controller/tavern-controller.js";
 import type { CreatorRuntime } from "./creator/creator-runtime.js";
+import { discoverGroupChats as discoverActiveGroupChats } from "./data/discovery/discover-group-chats.js";
+import {
+	defaultGroupChatSessionIoDependencies,
+	deleteGroupChatSession as deleteGroupChatSessionFile,
+	listGroupChatSessions as listPersistedGroupChatSessions,
+} from "./data/group-chat-sessions.js";
 import {
 	computeResumeProjection,
 	computeSessionProjectionAnchor,
@@ -37,9 +43,29 @@ interface CreatorDisplayEntryData {
 let sessionManagerRef: ProjectionEntryReader | null = null;
 
 export default function piTavern(pi: ExtensionAPI, controller?: TavernController): void {
+	// 闲态触发窗口注入化（Arch 提速项）：默认 1000ms 行为零变化；测试可设
+	// PITAVERN_TRIGGER_DEBOUNCE_MS 缩短（idle 感知延迟降 ~750ms）。启动早期一次性读取。
+	const triggerDebounceMs = Number(process.env.PITAVERN_TRIGGER_DEBOUNCE_MS ?? "1000");
+	const injectTriggerDebounce =
+		Number.isFinite(triggerDebounceMs) && triggerDebounceMs >= 0 ? triggerDebounceMs : undefined;
 	const ctrl = controller ?? new TavernController();
 	const presenter = new TavernUiPresenter();
-	registerCommands(pi, ctrl);
+	// 组合根装配（ADR-0005 层方向，Phase 4）：adapter 行为默认实现在此注入——
+	// commands/headless 只留注入面与类型/纯函数导入。
+	const piSessionManager = {
+		list: (cwd: string, sessionDir: string) => SessionManager.list(cwd, sessionDir),
+		open: (path: string, sessionDir: string, cwd: string) => SessionManager.open(path, sessionDir, cwd),
+	};
+	registerCommands(pi, ctrl, {
+		...(injectTriggerDebounce !== undefined ? { triggerDebounceMs: injectTriggerDebounce } : {}),
+		discoverGroupChats: (options) => discoverActiveGroupChats(options),
+		listGroupChatSessions: (agentDir, cwd) =>
+			listPersistedGroupChatSessions(agentDir, cwd, {
+				...defaultGroupChatSessionIoDependencies,
+				sessionManager: piSessionManager,
+			}),
+		deleteGroupChatSession: (path) => deleteGroupChatSessionFile(path),
+	});
 	registerRenderers(pi);
 	registerTavernTools(pi, ctrl);
 	wireAgentLifecycle(pi, ctrl);
@@ -61,6 +87,9 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 		};
 		const run = () => {
 			void autoJoinCharacter(pi, ctrl, ctx, {
+				// 组合根装配（ADR-0005 层方向，Phase 4）。
+				...(injectTriggerDebounce !== undefined ? { triggerDebounceMs: injectTriggerDebounce } : {}),
+				discoverGroupChats: (options) => discoverActiveGroupChats(options),
 				...(process.env.PITAVERN_CHARACTER !== undefined && process.env.PITAVERN_CHARACTER !== ""
 					? { character: process.env.PITAVERN_CHARACTER }
 					: {}),
@@ -71,7 +100,10 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 				process.stderr.write(`[pi-tavern:auto-join:error] ${error instanceof Error ? error.message : String(error)}\n`);
 			});
 		};
-		setTimeout(run, 3_000);
+		// 延迟注入化（Phase 4 提速 ①）：默认 3s 等 boot 完成后再 join；测试可设
+		// PITAVERN_AUTO_JOIN_DELAY_MS 缩短（行为零变化——默认路径不变）。
+		const autoJoinDelayMs = Number(process.env.PITAVERN_AUTO_JOIN_DELAY_MS ?? "3000");
+		setTimeout(run, Number.isFinite(autoJoinDelayMs) && autoJoinDelayMs >= 0 ? autoJoinDelayMs : 3_000);
 	}
 
 	// 保持 tavern_speak 工具可用状态与 controller 状态同步

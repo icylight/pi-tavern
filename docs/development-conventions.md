@@ -191,15 +191,17 @@ vitest
 
 ## 质量命令
 
-首版 npm scripts：
+npm scripts（**门卫语义，v1.3**：无参调用拒绝 exit 1 并打印指引——验证必须显式指定目标，默认不跑）：
 
 ```text
-npm test       → 运行 vitest 非交互测试
-npm run check  → 运行 Biome 检查和 TypeScript noEmit
-npm run format → 使用 Biome 自动格式化
+npm run test:unit -- <pattern>    → 只跑指定文件/目录（unit / integration / acceptance 同规）
+npm run test:unit -- --all        → 层内全量
+npm run test:full                 → 三层全量串行（收口门禁）
+npm run check                     → 运行 Biome 检查和 TypeScript noEmit
+npm run format                    → 使用 Biome 自动格式化
 ```
 
-`npm test` 必须使用单次运行模式，不能默认进入 watch。
+任何测试命令必须显式指定目标（文件/`--all`），无参调用 = 拒绝（exit 1，非失败非 watch）。
 
 ## 测试层级
 
