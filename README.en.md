@@ -40,8 +40,8 @@ sequenceDiagram
     Note over A: Normal output stays private in the session
     A->>S: tavern_speak (explicit publication)
     C->>S: User Persona speaks
-    S-->>A: notify (watermark + short preview, no injection)
-    S-->>B: notify (watermark + short preview, no injection)
+    S-->>A: notify (watermark + 3 UI previews, no injection)
+    S-->>B: notify (watermark + 3 UI previews, no injection)
     Note over A: run active: zero mid-run injection
     Note over A: run settle / idle window → mechanical fetch
     A->>S: fetch all unread after this session's cursor
@@ -58,12 +58,12 @@ sequenceDiagram
   record, persisted independently of any Pi Session. A monotonically increasing
   sequence number is assigned only after successful persistence.
 - **Notify, don't inject (while working).** When the chat changes, every online
-  Character is notified — the notification carries only the watermark
-  (`latest_sequence`) plus a short preview of the last few messages (for UI
-  snapshots, **never injected into the agent's context**). Full message bodies
-  are always obtained by fetch. A running agent is never interrupted mid-`run`.
-  Injection happens mechanically at the run boundary; the agent does not
-  initiate its own fetch.
+  Character is notified — the notification carries the watermark
+  (`latest_sequence`) plus the last three **complete messages** (for UI
+  snapshots only, **never injected into the agent's context**). Full message
+  bodies always reach the agent by fetch. A running agent is never interrupted
+  mid-`run`. Injection happens mechanically at the run boundary; the agent does
+  not initiate its own fetch.
 - **Catch-up is mechanical and per-session.** Each Character keeps its own
   persisted cursor. At the boundary of the Pi `run` lifecycle (immediately after
   `settle` when busy; a fixed 1s aggregation window when idle), the extension
