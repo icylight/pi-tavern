@@ -52,6 +52,7 @@
 - ③ 出口数字为绝对目标（见上），非按现基线增量
 - ④ #66 契约四要素：**判定**（settle 超时阈值 X 未到 = wedged）、**动作**（强制 settle → 投递挂起批次）、**副作用**（与正常 settle 同路径幂等——游标只在成功投递后推进、N→1 聚合不变）、**阈值归属**（X 为产品参数，默认 180_000ms=3min 常量 + 构造注入点供测试短值，PM 定、User 可调；agent_start 布防 run watchdog、agent_end 后 #14 5s 显示 watchdog 并存）
 - ⑤ PR-B 拆骨架时 watchdog/run 状态域留 runtime（决策 7），防 PR-C 返工
+- ⑥ run watchdog 覆盖**双 wedged 窗口**（Arch 核实，实现注释/红钉引用）：① agent_start 后无 agent_end（完全卡死）② agent_end 已到但 agent_settled 永不到（#14 只复位 is_streaming、不碰 isAgentActive，② 同为真洞）；watchdog 在 agent_start 布防、agent_settled 清除 → v2 为 #14 超集
 
 ### Phase 4:规范统一(可选挂靠)
 
