@@ -67,6 +67,11 @@ export class PiProcess {
 				env: {
 					...process.env,
 					...(options.env ?? {}),
+					// #45 (b) 类实验注入：假 key → 401 快速失败，run 从 50-130s（连接重试退避）
+					// 降到 ~12s。QA 实证（2026-08-02）。仅用于 T4 语义验证，定案后移入正式实现。
+					ANTHROPIC_API_KEY: options.env?.ANTHROPIC_API_KEY ?? "sk-ant-fake-acceptance",
+					OPENAI_API_KEY: options.env?.OPENAI_API_KEY ?? "sk-fake-acceptance",
+					GEMINI_API_KEY: options.env?.GEMINI_API_KEY ?? "fake-acceptance",
 					PI_CODING_AGENT_DIR: options.agentDir,
 					TERM: "dumb",
 				},
