@@ -469,41 +469,35 @@ export class GroupChatInput {
 		latestSequence: number | undefined,
 		deliverAs: "followUp" | "steer",
 	): Promise<void> {
-		await new Promise<void>((resolveAck) => {
-			try {
-				// preflightResult：pi SDK 运行时支持（sendMessage 透传 prompt()，
-				// 见 agent-session.js L794）但类型声明未暴露——断言补齐扩展字段。
-				const sendOptions = {
-					triggerTurn: true,
-					deliverAs,
-					preflightResult: (success: boolean) => {
-						// 无条件挂载：ack 恒 resolve（防 flush 挂起泄漏）；无
-						// latestSequence（join 批次）时跳过游标推进（Arch 边角）。
-						if (success && latestSequence !== undefined) {
-							this.runtime.saveCursor(latestSequence);
-						}
-						resolveAck();
+		try {
+			// 方案 A（Arch 裁决 2026-08-02）：乐观推进——sendMessage 调用后
+			// 同步 saveCursor，不 await（await 会持有单飞行锁整个 run 时长，
+			// 忙态秒级可见在连续对话主场景退化回 run 边界——PM 矛盾实证）。
+			// 忙态 steer/followUp = agent.steer/followUp 同步入队无失败返回
+			// （QA 实证）；idle triggerTurn 的异步 run 启动失败 = pi 环境
+			// 不可用例外（与改造前语义一致、与 wedged 同类，QA 钉注明）。
+			// T2 竞态由调用方 await deliver 闭合（同步推进后 do-while 复查
+			// 读新游标）。
+			this.pi.sendMessage(
+				{
+					customType: "pi-tavern.group-chat-input",
+					content,
+					display: true,
+					details: {
+						group_chat_id: this.runtime.groupChatId,
+						character_id: this.runtime.character.characterId,
+						events,
+						group_chat_state: groupChatState,
 					},
-				} as Parameters<typeof this.pi.sendMessage>[1] & { preflightResult?: (success: boolean) => void };
-				this.pi.sendMessage(
-					{
-						customType: "pi-tavern.group-chat-input",
-						content,
-						display: true,
-						details: {
-							group_chat_id: this.runtime.groupChatId,
-							character_id: this.runtime.character.characterId,
-							events,
-							group_chat_state: groupChatState,
-						},
-					},
-					sendOptions,
-				);
-			} catch {
-				// sendMessage 同步抛错：不推进（settle 兜底重投），仍解除等待。
-				resolveAck();
+				},
+				{ triggerTurn: true, deliverAs },
+			);
+			if (latestSequence !== undefined) {
+				this.runtime.saveCursor(latestSequence);
 			}
-		});
+		} catch {
+			// 同步抛错（入队拒绝）：不推进 → settle 兜底重投（A5 保持）。
+		}
 	}
 
 	/**

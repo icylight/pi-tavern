@@ -599,7 +599,7 @@ Character 使用固定 1 秒聚合窗口（闲态）合并连续到达的环境�
 3. 忙态：**立即消费**（无窗口、无有界延迟设计）；消费 = 按本 Session 持久化游标 `fetch_messages_since` 拉取全部未读，sequence 过滤天然补洞；settle 仍补拉全兜底（游标幂等，不丢不重）。
 4. 拉取完成后请求最新群聊状态，将批次与状态快照合并提交。
 
-**游标推进 = 双通道判定**（Arch 契约，2026-08-02）：idle followUp 与忙态 steer 入队成功（preflight 通过）均视为投递成功 → 推进游标；入队失败不推进 → settle 兜底重投。
+**游标推进 = 双通道判定**（Arch 契约，2026-08-02）：idle followUp 与忙态 steer 在 sendMessage 调用无同步异常后**同步乐观推进**（followUp/steer 入队即推进；triggerTurn 调用后即推进——不 await run 完成，防飞行锁持有整个 run 阻断忙态秒级投递）；同步抛错不推进 → settle 兜底重投；**异步 run 启动失败（无模型/无 key 等 pi 环境不可用）丢面 = 与 wedged 救援同类例外**，与改造前长期语义一致（QA 钉注明）。
 
 提交环境批次时：
 
