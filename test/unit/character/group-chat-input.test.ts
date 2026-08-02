@@ -29,6 +29,9 @@ function createMockRuntime(
 		loadCursor: () => null,
 		saveCursor: () => undefined,
 		fetchMessagesSince: async () => ({ messages: [], latestSequence: 0, totalMessages: 0 }),
+		// ISSUE-014/#14: delivery marks the next turn as group-chat triggered.
+		markGroupChatTurnTriggered: () => undefined,
+		refreshGroupChatState: async () => undefined,
 	} as unknown as CharacterRuntime;
 }
 

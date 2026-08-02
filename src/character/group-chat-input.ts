@@ -110,6 +110,10 @@ export class GroupChatInput {
 				// ISSUE-013 A1: the pull result is delivered straight away (no
 				// batch accumulation); the preview is only for the TUI (same
 				// source, so content never diverges).
+				// ISSUE-014/#14 (方案 A): member/streaming changes also ride
+				// this channel — refresh the cached snapshot so the widget
+				// stays current even when the pull comes back empty.
+				void this.runtime.refreshGroupChatState();
 				void this.pullIncrement();
 				return;
 			}
@@ -350,6 +354,11 @@ export class GroupChatInput {
 			this.flushQueuedForSettle = true;
 			return;
 		}
+
+		// ISSUE-014/#14-A1: this delivery starts a group-chat-triggered turn.
+		// agent_start consumes the flag to light up is_streaming only for
+		// group chat turns (user-direct turns stay dark).
+		this.runtime.markGroupChatTurnTriggered();
 
 		let groupChatState: unknown = null;
 		try {

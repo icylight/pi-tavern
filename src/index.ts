@@ -210,9 +210,22 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 			// M7 (ISSUE-012/#24): mark the run active so a group_chat_update
 			// pull queues instead of interrupting the current turn.
 			state.runtime.isAgentActive = true;
-			// Keep the legacy streaming signal; its semantic correction (only
-			// group-chat-triggered turns) is tracked separately (ISSUE-002/#14).
-			state.runtime.updateStreaming(true);
+			// ISSUE-014/#14-A1/A2: only group-chat-triggered turns light up
+			// is_streaming (semantic convergence). User-direct turns (direct
+			// chat, non-group follow-ups) stay dark. The flag is set by
+			// GroupChatInput.flush right before its delivery.
+			state.runtime.updateStreaming(state.runtime.consumeGroupChatTurnTriggered());
+		}
+	});
+
+	pi.on("agent_end", () => {
+		const state = ctrl.getState();
+		if (state.type === "character") {
+			// ISSUE-014/#14-A3: arm the streaming reset watchdog. If
+			// agent_settled never arrives (aborted/errored/wedged run), the
+			// timer force-resets is_streaming so the "正在发言" display
+			// cannot hang. agent_settled clears the timer on the happy path.
+			state.runtime.armStreamingResetWatchdog();
 		}
 	});
 
@@ -220,6 +233,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 		const state = ctrl.getState();
 		if (state.type === "character") {
 			state.runtime.isAgentActive = false;
+			state.runtime.clearStreamingResetWatchdog();
 			state.runtime.updateStreaming(false);
 			// Flush any increment queued while the run was active.
 			state.runtime.onAgentSettled?.();
