@@ -46,20 +46,20 @@ export class GroupChatInput {
 	private fetchInFlight = false;
 	/** Set when an update arrives while a fetch is in flight → refetch after. */
 	private refetchRequested = false;
-	/** Set when the Agent is mid-run and an increment must wait for settle. */
-	private flushQueuedForSettle = false;
-	/** Set when an update arrives while the Agent is mid-run (A2: no fetch). */
+	/** Set when an update arrives while the Agent is mid-run (settle re-pulls). */
 	private incrementPending = false;
 
 	constructor(
 		private readonly runtime: CharacterRuntime,
 		private readonly pi: ExtensionAPI,
 	) {
-		// M7 A5 / ISSUE-013 A2/A4: when the Agent run settles, deliver what was
-		// queued while the run was active ("不打断": never interrupt a running
-		// turn). The increment is pulled ONCE at settle time, covering
-		// everything after the cursor at that moment — no accumulated stale
-		// batch (A2: delivery == latest at settle, no intermediate state).
+		// ISSUE-038 (口径 A + steer): runs no longer stall delivery. Updates
+		// arriving mid-run are fetched and delivered through the steer channel
+		// at tool-call gaps (秒级延迟, never interrupting the run — M7 A5
+		// preserved). The settle hook re-pulls once for anything that arrived
+		// after the last mid-run delivery; the cursor is advanced on every
+		// delivery, so the settle pull starts past already-delivered messages
+		// (单调不重不漏, single-point cursor advancement).
 		this.onSettled = () => {
 			if (this.stopped) {
 				return;
@@ -67,11 +67,6 @@ export class GroupChatInput {
 			if (this.incrementPending) {
 				this.incrementPending = false;
 				void this.pullIncrement();
-				return;
-			}
-			if (this.flushQueuedForSettle) {
-				this.flushQueuedForSettle = false;
-				void this.flush();
 			}
 		};
 	}
@@ -113,6 +108,13 @@ export class GroupChatInput {
 				// ISSUE-014/#14 (方案 A): member/streaming changes also ride
 				// this channel — refresh the cached snapshot so the widget
 				// stays current even when the pull comes back empty.
+				// ISSUE-038 (口径 A): mid-run updates are fetched and delivered
+				// via steer immediately; the mark keeps the settle hook pulling
+				// the tail window past the last steer delivery (monotonic cursor,
+				// no duplication).
+				if (this.runtime.isAgentActive) {
+					this.incrementPending = true;
+				}
 				void this.runtime.refreshGroupChatState();
 				void this.pullIncrement();
 				return;
@@ -127,22 +129,18 @@ export class GroupChatInput {
 	}
 
 	/**
-	 * M7 + ISSUE-013 A1/A2: pull every message after the persisted cursor and
-	 * deliver it straight away — no batch accumulation in between.
+	 * M7 + ISSUE-013 A1/A2 + ISSUE-038: pull every message after the persisted
+	 * cursor and deliver it straight away — no batch accumulation in between.
 	 *
 	 * Single-flight: a concurrent update only marks refetchRequested and is
-	 * coalesced into one follow-up pull. While the Agent is mid-run the pull
-	 * is deferred entirely (A2: zero fetches during a run); the settle hook
-	 * pulls once, covering everything after the cursor at settle time — so
-	 * delivery is "latest at settle", never a stale accumulation.
+	 * coalesced into one follow-up pull. ISSUE-038 (口径 A): the Agent being
+	 * mid-run no longer defers the fetch — updates are pulled and delivered
+	 * through the steer channel at tool-call gaps (visible in seconds, run
+	 * never interrupted); the settle hook re-pulls once for the tail window.
 	 */
 	private async pullIncrement(): Promise<void> {
 		if (this.stopped || this.fetchInFlight) {
 			this.refetchRequested = true;
-			return;
-		}
-		if (this.runtime.isAgentActive) {
-			this.incrementPending = true;
 			return;
 		}
 		this.fetchInFlight = true;
@@ -177,10 +175,11 @@ export class GroupChatInput {
 	}
 
 	/**
-	 * ISSUE-013 A1/A2: unified delivery window. Merges the increment with any
-	 * pending join/member events so ordering is preserved (events arrive
-	 * first, then newer messages). Never interrupts a running turn: while the
-	 * Agent is mid-run the events are kept and the settle hook flushes.
+	 * ISSUE-013 A1/A2 + ISSUE-038: unified delivery window. Merges the
+	 * increment with any pending join/member events so ordering is preserved
+	 * (events arrive first, then newer messages). While the Agent is mid-run
+	 * the events are delivered via the steer channel (口径 A) — visible at
+	 * the next tool-call gap, never interrupting the run.
 	 */
 	private deliver(messages: ServerMessage[]): void {
 		if (this.stopped) {
@@ -189,11 +188,6 @@ export class GroupChatInput {
 		const events = [...this.pendingEvents, ...messages];
 		this.pendingEvents = [];
 		if (events.length === 0) {
-			return;
-		}
-		if (this.runtime.isAgentActive) {
-			this.pendingEvents = events;
-			this.flushQueuedForSettle = true;
 			return;
 		}
 		void this.flush(events);
@@ -335,9 +329,13 @@ export class GroupChatInput {
 
 	/**
 	 * Deliver a batch of events to the agent context. When called with no
-	 * arguments the pending window is delivered. Never interrupts a running
-	 * turn: while the Agent is mid-run the events stay pending and the settle
-	 * hook flushes them.
+	 * arguments the pending window is delivered. ISSUE-038 (口径 A): the
+	 * channel is decided AFTER the state fetch, atomically with the send —
+	 * while the Agent is mid-run the events go through the steer channel
+	 * (visible at the next tool-call gap, seconds not minutes; run never
+	 * interrupted, M7 A5 preserved); if the run settled during the fetch,
+	 * the idle path (followUp + triggerTurn + group-chat mark) is used so
+	 * the batch still wakes the agent (Arch settle-race fix).
 	 */
 	private async flush(events?: ServerMessage[]): Promise<void> {
 		const toDeliver = events ?? this.pendingEvents;
@@ -347,19 +345,6 @@ export class GroupChatInput {
 
 		if (toDeliver.length === 0 || this.stopped) return;
 
-		if (this.runtime.isAgentActive) {
-			// M7 A5 / ISSUE-013 A4: never interrupt a running turn — the settle
-			// hook flushes once the run is done.
-			this.pendingEvents = [...this.pendingEvents, ...toDeliver];
-			this.flushQueuedForSettle = true;
-			return;
-		}
-
-		// ISSUE-014/#14-A1: this delivery starts a group-chat-triggered turn.
-		// agent_start consumes the flag to light up is_streaming only for
-		// group chat turns (user-direct turns stay dark).
-		this.runtime.markGroupChatTurnTriggered();
-
 		let groupChatState: unknown = null;
 		try {
 			groupChatState = await this.runtime.getGroupChatState();
@@ -368,6 +353,22 @@ export class GroupChatInput {
 		}
 
 		if (this.stopped) return;
+
+		// Arch settle-race fix: re-check isAgentActive AFTER the await, in the
+		// same microtask as the send. If the run settled while fetching state,
+		// pi is no longer streaming — steer would only append without waking
+		// (triggerTurn ignored when idle). Fall back to the idle path so the
+		// batch starts a group-chat-triggered turn (marker lights is_streaming
+		// correctly per #14).
+		if (this.runtime.isAgentActive) {
+			await this.deliverSteer(toDeliver, groupChatState);
+			return;
+		}
+
+		// ISSUE-014/#14-A1: this delivery starts a group-chat-triggered turn.
+		// agent_start consumes the flag to light up is_streaming only for
+		// group chat turns (user-direct turns stay dark).
+		this.runtime.markGroupChatTurnTriggered();
 
 		const content = this.buildContent(toDeliver, groupChatState);
 
@@ -401,6 +402,58 @@ export class GroupChatInput {
 			{
 				triggerTurn: true,
 				deliverAs: "followUp",
+			},
+		);
+	}
+
+	/**
+	 * ISSUE-038 口径 A: deliver events into the agent context through pi's
+	 * steer channel while a run is active. Steer semantics (pi agent-session):
+	 * delivered after the current assistant turn finishes its tool calls,
+	 * before the next LLM call — i.e. at tool-call gaps, seconds not minutes
+	 * for long tool loops, and the run is never interrupted.
+	 *
+	 * triggerTurn:true — Arch rescue guard: pi ignores triggerTurn while
+	 * streaming (steer queues normally), but if isAgentActive is stale (wedged
+	 * run where agent_settled never arrives, #14 watchdog scenario), the
+	 * delivery still wakes the agent instead of being appended silently.
+	 * Cost: a rescue run has no group-chat mark, so is_streaming stays dark
+	 * (documented, ADR-0004). No markGroupChatTurnTriggered here — steer must
+	 * not light up is_streaming (#14 boundary, QA T3).
+	 */
+	private async deliverSteer(events: ServerMessage[], groupChatState: unknown): Promise<void> {
+		const content = this.buildContent(events, groupChatState);
+
+		if (process.env.PITAVERN_TEST === "1") {
+			// M7 A6 observation channel (same as idle flush): assert in
+			// acceptance that steer-delivered increments reached the agent
+			// context.
+			const sequences = events
+				.filter((e) => e.type === "public_message")
+				.map((e) => e.sequence)
+				.sort((a, b) => a - b);
+			if (sequences.length > 0) {
+				testNotify?.(
+					`[tavern-inject] group=${this.runtime.groupChatId} latest_seq=${sequences[sequences.length - 1]} count=${sequences.length}`,
+				);
+			}
+		}
+
+		this.pi.sendMessage(
+			{
+				customType: "pi-tavern.group-chat-input",
+				content,
+				display: true,
+				details: {
+					group_chat_id: this.runtime.groupChatId,
+					character_id: this.runtime.character.characterId,
+					events,
+					group_chat_state: groupChatState,
+				},
+			},
+			{
+				triggerTurn: true,
+				deliverAs: "steer",
 			},
 		);
 	}
