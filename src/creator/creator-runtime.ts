@@ -412,10 +412,6 @@ export class CreatorRuntime {
 	}
 }
 
-function asError(error: unknown): Error {
-	return error instanceof Error ? error : new Error(String(error));
-}
-
 function toCharacterSummary(character: CharacterCard): CharacterSummary {
 	return {
 		characterId: character.characterId,
