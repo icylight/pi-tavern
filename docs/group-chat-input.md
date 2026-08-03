@@ -134,4 +134,4 @@ WebSocket 断开时，角色 pi 立即停止群聊输入模块并丢弃尚未提
 - 尚未触发的新 Agent run 不再获得已经移除的 Character system prompt。
 - `tavern_speak` 已经停用，因此这些输入后续产生的普通回复只能保留在当前 pi session，不能进入群聊。
 
-PiTavern 只管理提交前的防抖缓冲区，不实现 pi 原生队列的回滚或清理。
+PiTavern 只管理提交前的防抖缓冲区，不实现 pi 原生队列的撤销或清理。

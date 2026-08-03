@@ -114,7 +114,7 @@ refactor: simplify <area>   # 仅在确实需要时
 - 创建者输入由 Extension 处理且不启动创建者 LLM；
 - 第一条 User Persona 消息先落盘，再进入状态、TUI 和广播；
 - 新 User Persona 消息继承 `groupMaxMessages` 创建新 Round；
-- Character 发言按照 frame 到达顺序原子占用额度；
+- Character 发言按照 frame 到达顺序原子占用额度（原子 = 不可分割地占用，无中间可见态）；
 - 达到 `roundMaxMessages` 后内容不公开并设置举手；
 - 成功发言广播给包括发送者在内的全部 Character；
 - Character 自己的广播回显不再次触发群聊输入；
@@ -160,7 +160,7 @@ refactor: simplify <area>   # 仅在确实需要时
 先行测试：
 
 - 非 idle 状态执行 `/new`、`/resume`、`/fork` 或 `/clone` 时先询问；
-- 取消保持当前 Runtime，确认则先退出且失败后不回滚；
+- 取消保持当前 Runtime，确认则先退出且失败后不撤销；
 - graceful quit 在 5 秒内尽力完成关闭；
 - reload 只交接稳定 Creator 或 Character；
 - `joining` reload 后回到 `idle`；

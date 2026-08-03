@@ -304,7 +304,7 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 - 先关闭新任务入口并标记 lifecycle，避免新的 frame 入队。
 - drain 当前 runtime queue，最多等待统一短期协调超时。
-- 超时后强制清理本地资源；已经持久化的消息不回滚。
+- 超时后强制清理本地资源；已经持久化的消息不撤销。
 - 不应简单地在任意上下文中把 `closePermanently()` 再次 enqueue，以免从队列任务内部调用关闭时产生自等待。
 
 **涉及组件：**
@@ -385,7 +385,7 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 ---
 
-## BC-10: speak 持久化成功但响应发送超时——消息不回滚
+## BC-10: speak 持久化成功但响应发送超时——消息不撤销
 
 **状态：** 已满足，测试已覆盖（M6 补测）
 
@@ -396,7 +396,7 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 **文档要求：**
 
-> 服务端对已经完成持久化提交的公开消息不因响应发送超时而回滚。Character 如果没有取得成功响应，只能以后从公开广播或历史中观察该消息是否已经提交，首版不自动重试同一 speak，避免重复公开。
+> 服务端对已经完成持久化提交的公开消息不因响应发送超时而撤销。Character 如果没有取得成功响应，只能以后从公开广播或历史中观察该消息是否已经提交，首版不自动重试同一 speak，避免重复公开。
 
 **当前实现：**
 
@@ -406,7 +406,7 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 3. broadcast（广播给所有 Character）
 4. send response（返回给发送者）
 
-如果步骤 4 的响应未送达，步骤 1–3 已完成，不会回滚。这与文档一致。这里的“超时”是 CharacterRuntime 等待请求响应超时，不是服务端 `socket.send()` 自身提供了响应超时。
+如果步骤 4 的响应未送达，步骤 1–3 已完成，不会撤销。这与文档一致。这里的“超时”是 CharacterRuntime 等待请求响应超时，不是服务端 `socket.send()` 自身提供了响应超时。
 
 **需确认：**
 
@@ -643,7 +643,7 @@ this.runtimeTail = task.then(
 
 - 后一个任务只在前一个任务 settle 后开始。
 - 前一个任务 rejected 不会永久阻塞队列。
-- 队列不负责事务回滚；失败任务必须在 settle 前恢复 SessionManager、业务 state 和派生计数，使后一个任务看到一致状态。
+- 队列不负责撤销；失败任务必须在 settle 前恢复 SessionManager、业务 state 和派生计数，使后一个任务看到一致状态。
 
 公共消息、`setName()` 和 `setMaxMessages()` 的磁盘 append 失败路径已经恢复 SessionManager。因此问题不在 enqueue，而在 mutation 之前是否完成全部校验。
 
