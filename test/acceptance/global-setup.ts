@@ -16,14 +16,20 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
  */
 async function killOrphanedPiProcesses(): Promise<void> {
 	const execFileAsync = promisify(execFile);
-	const pattern = resolve(REPO_ROOT, "references", "pi", "pi-test.sh");
+	// #83：默认清 references/pi 路径；PI_TEST_SH 覆盖时（0.83.0 补跑）追加匹配。
+	const patterns = [resolve(REPO_ROOT, "references", "pi", "pi-test.sh")];
+	if (process.env.PI_TEST_SH) {
+		patterns.push(resolve(REPO_ROOT, process.env.PI_TEST_SH));
+	}
 	// pkill -f 按扩展正则匹配：路径含 ()/+/./[] 等元字符时需转义（Arch B 级，
 	// CI/共享机路径不可控；当前仓库路径无元字符，转义为前瞻性健壮性）。
-	const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	try {
-		await execFileAsync("pkill", ["-f", escaped]);
-	} catch {
-		// 无孤儿进程：正常。
+	for (const pattern of patterns) {
+		const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		try {
+			await execFileAsync("pkill", ["-f", escaped]);
+		} catch {
+			// 无孤儿进程：正常。
+		}
 	}
 	await new Promise((resolveWait) => setTimeout(resolveWait, 500));
 }

@@ -306,11 +306,18 @@ export class CharacterRuntime {
 		}
 		this.lastGroupChatState = response.data;
 		this.onStateSnapshot?.(response.data);
-		// #77 候选①：守卫可观测化 + 自愈——状态拉取成功说明连接健康；若
-		// run 仍活跃而此前的点亮上报因半开连接丢失（online 守卫静默丢弃），
-		// 在此补偿重发（幂等，creator 重复置 true 无副作用）。
+		// #77 候选①自愈 + #83 收敛修正（User 2026-08-03 根因）：补偿重发
+		// 保留自愈价值（半开连接点亮丢失盲区），但**仅当服务端快照中本角色
+		// is_streaming == false**（点亮确实丢失）且本地 run 仍活跃时补发一次。
+		// 原无条件补发 + creator 无条件广播（query-pipeline runUpdateCharacterState）
+		// 构成自激循环：updateStreaming(true) → group_chat_update →
+		// getGroupChatState → updateStreaming(true) → …，风暴致 5s 请求超时
+		// failConnection 掉线。状态一致（服务端已 true）后不再补发——循环终止。
 		if (this.isAgentActive) {
-			this.updateStreaming(true);
+			const self = response.data.online_characters?.find((c) => c.is_self);
+			if (self && !self.is_streaming) {
+				this.updateStreaming(true);
+			}
 		}
 		return response.data;
 	}

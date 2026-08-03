@@ -36,6 +36,7 @@ import { decodeClientMessage, encodeMessage } from "../protocol/codec.js";
 import type { ClientMessage } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 import {
+	CHARACTER_REFRESH_TIMEOUT_MS,
 	HEARTBEAT_PING_INTERVAL_MS,
 	HEARTBEAT_TIMEOUT_MS,
 	SHORT_COORDINATION_TIMEOUT_MS,
@@ -375,28 +376,71 @@ export class CreatorRuntime {
 		return this.runtimeLifecycle.drainRuntimeQueue(timeoutMs);
 	}
 
+	/** #83（Arch 评审要点③）：角色清单刷新单飞行锁——并发 join/claim/query 复用飞行中刷新，防重扫风暴。 */
+	private refreshInFlight: Promise<void> | null = null;
+
 	/**
 	 * #25：角色清单懒刷新——join/claim/query 前重扫磁盘。
 	 * 成功且非空 = 原地更新 characters Map（保持实例引用，member-bookkeeping
 	 * 与各 pipeline 持有的同一引用自动可见）；失败/空结果 = 回退旧快照（不动 Map）。
 	 * 未注入 loadCharacters = 启动快照语义（行为零变化）。
+	 * #83（QA 红绿钉死 + Arch 评审三要点）：
+	 * ① 竞速短超时（1s）——挂起重扫不得无限阻塞 join 热路径，超时按失败回退；
+	 * ② 迟到成功仍更新 Map（load 不可取消，完成后 .then 照常应用）——保延迟可见性、不丢刷新；
+	 * ③ 单飞行锁复用飞行中刷新——并发 join/claim/query 不重复重扫。
 	 */
 	private async refreshCharacters(): Promise<void> {
 		const load = this.deps.loadCharacters;
 		if (!load) {
 			return;
 		}
+		if (this.refreshInFlight) {
+			await this.refreshInFlight;
+			return;
+		}
+		const loadPromise = load();
+		const refresh = (async () => {
+			try {
+				const fresh = await Promise.race([
+					loadPromise,
+					new Promise<never>((_, reject) => {
+						const timer = setTimeout(
+							() => reject(new Error("PiTavern character refresh timed out")),
+							CHARACTER_REFRESH_TIMEOUT_MS,
+						);
+						timer.unref?.();
+					}),
+				]);
+				this.applyCharacters(fresh);
+			} catch {
+				// 超时/失败：回退旧快照（不动 Map）；迟到成功由下方 .then 兜底更新。
+			}
+			// Arch 要点②：load 不可取消，完成后照常应用（幂等；失败静默）——
+			// 超时路径下延迟可见性保留，不丢刷新。
+			loadPromise
+				.then((fresh) => {
+					if (fresh.length > 0) {
+						this.applyCharacters(fresh);
+					}
+				})
+				.catch(() => undefined);
+		})();
+		this.refreshInFlight = refresh;
 		try {
-			const fresh = await load();
-			if (fresh.length === 0) {
-				return;
-			}
-			this.characters.clear();
-			for (const character of fresh) {
-				this.characters.set(character.characterId, character);
-			}
-		} catch {
-			// 失败回退旧快照：保持现有 Map 内容不变。
+			await refresh;
+		} finally {
+			this.refreshInFlight = null;
+		}
+	}
+
+	/** 应用刷新结果到 characters Map（幂等；空结果不动）。 */
+	private applyCharacters(fresh: CharacterCard[]): void {
+		if (fresh.length === 0) {
+			return;
+		}
+		this.characters.clear();
+		for (const character of fresh) {
+			this.characters.set(character.characterId, character);
 		}
 	}
 

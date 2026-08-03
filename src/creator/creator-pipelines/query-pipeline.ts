@@ -173,9 +173,15 @@ export class QueryPipeline {
 			return;
 		}
 		const onlineCharacter = this.deps.state.onlineCharacters.get(connection.sessionId);
-		if (onlineCharacter) {
-			onlineCharacter.isStreaming = isStreaming;
+		// #83（User 2026-08-03 根因）：状态未变化（true→true / false→false）
+		// 直接返回——原实现无条件广播，与 character 侧 getGroupChatState 补偿
+		// 重发构成自激循环（updateStreaming → 广播 → 拉状态 → updateStreaming），
+		// 风暴致 5s 请求超时 failConnection 掉线。状态翻转才广播（TUI 实时性
+		// 不受影响：翻转时仍广播）。
+		if (!onlineCharacter || onlineCharacter.isStreaming === isStreaming) {
+			return;
 		}
+		onlineCharacter.isStreaming = isStreaming;
 		this.deps.onMembersChanged?.();
 		// ISSUE-014/#14（方案 A）：流式翻转是最频繁的成员状态变化——广播更新
 		// 通知使每个角色刷新快照（widget「正在发言」保持实时）。

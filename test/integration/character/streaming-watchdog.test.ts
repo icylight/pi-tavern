@@ -142,21 +142,40 @@ describe("A3: streaming reset watchdog (#14 悬挂兜底)", () => {
 		const updateStreaming = vi.spyOn(runtime, "updateStreaming");
 		runtime.isAgentActive = true;
 		// request 为私有方法——经类型断言的 spy（仅测试态）。
-		vi.spyOn(runtime as unknown as { request: (message: unknown) => Promise<unknown> }, "request").mockResolvedValue({
+		const mockRequest = vi.spyOn(runtime as unknown as { request: (message: unknown) => Promise<unknown> }, "request");
+
+		// 场景 A（#83 收敛修正）：快照中本角色 is_streaming == false（点亮确实
+		// 丢失）且 run 活跃 → 补发点亮（自愈保留）。
+		mockRequest.mockResolvedValueOnce({
 			type: "response",
 			command: "get_group_chat_state",
 			success: true,
-			data: {},
+			data: { online_characters: [{ character_id: "c", name: "self", is_self: true, is_streaming: false, hand_raised: false }] },
 		});
-
-		// 状态拉取成功（连接健康）且 run 仍活跃 → 补偿重发点亮（幂等），
-		// 修复半开连接期间点亮上报被静默丢弃的盲区。
 		await runtime.getGroupChatState();
 		expect(updateStreaming).toHaveBeenCalledWith(true);
 
-		// run 已结束：状态拉取不再重发点亮。
+		// 场景 B（#83 收敛修正）：快照已是 true（状态一致）→ 不补发——
+		// 自激循环在此终止（原无条件补发 + creator 无条件广播 = 风暴掉线根因）。
+		updateStreaming.mockClear();
+		mockRequest.mockResolvedValueOnce({
+			type: "response",
+			command: "get_group_chat_state",
+			success: true,
+			data: { online_characters: [{ character_id: "c", name: "self", is_self: true, is_streaming: true, hand_raised: false }] },
+		});
+		await runtime.getGroupChatState();
+		expect(updateStreaming).not.toHaveBeenCalled();
+
+		// 场景 C：run 已结束 → 无论快照状态都不补发。
 		updateStreaming.mockClear();
 		runtime.isAgentActive = false;
+		mockRequest.mockResolvedValueOnce({
+			type: "response",
+			command: "get_group_chat_state",
+			success: true,
+			data: { online_characters: [{ character_id: "c", name: "self", is_self: true, is_streaming: false, hand_raised: false }] },
+		});
 		await runtime.getGroupChatState();
 		expect(updateStreaming).not.toHaveBeenCalled();
 	});
