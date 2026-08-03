@@ -5,9 +5,9 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/2.0.0/)，
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-> 此 changelog 从项目初始化（2026-07-24）开始记录。项目尚未发布正式版本，全部变更汇集于 `[未发布]`。
+> 此 changelog 从项目初始化（2026-07-24）开始记录。首次正式发布 0.1.0（2026-08-03），此前全部变更汇集于此版本；后续变更记入 `[未发布]`。
 
-## [未发布]
+## [0.1.0] - 2026-08-03
 
 ### 新增
 
@@ -47,6 +47,14 @@
 - 闲态触发窗口可注入：`PITAVERN_TRIGGER_DEBOUNCE_MS`（默认 1000ms 行为不变），需要更快感知的环境可设短值（idle 感知延迟降 ~750ms）。
 - 依赖方向由 lint 强制：`npm run lint:layers`（adapter 禁 skills 行为面 / application 与 runtime 禁直连 node:fs，组合根与工厂豁免），与 biome 同入 CI 门禁。
 - TUI 状态语义「正在发言」→「正在工作」（#77/#81）：run 活跃即亮（agent_start 无条件点亮），标记机制删除、复位三件套保留（agent_end / 5s watchdog / wedged 3min）——长 run 常亮为预期行为。
+- 仓库健康度检查（#87/#93）：`npm run health` 三合一体检——npm audit 依赖漏洞 / gitleaks 凭据扫描（承接 #53）/ 卫生自查（未提交改动、残留分支、超大文件）；纯本地手动命令，不做 CI 集成。
+- J 系列投递边界钉测（#85/#94）：长 run 循环输入不丢投递（unit）/ RPC 中途 abort 不清队（acceptance，0→1→abort→1→2 完整序列）/ 半开恢复断连不丢（integration）；双版本（pi 0.82.1-1 vs 0.83.0）行为一致三路实证（RPC 实测 + 源码 diff + 176 commits 检索）。
+
+### 变更
+
+- 本地门禁清理（#89/#91）：存量 biome/TS 欠账清零 + husky pre-push 钩子（推送自动跑全量 check，非零拒绝）——合入 main 前 check 全绿留痕为合入三件套之一。
+- 协作流程 v1.4（#95）：§7.6 机制九条（状态以 git log 为准 / 分工矩阵 / 等待窗口显式化 / 钉测即验收 / PM 总收尾 / 验收两级制试点 / 测试分层下沉 / 双 worktree 声明制）+ PM 落盘职责边界（机械修复先声明、语义修改归属主）。
+- 验收基线刷新（#88）：0.1.0 基线三层全量 338 用例 ≈102.9s（acceptance 11 文件含 J 系列/W1-c 新钉测负载，非性能回归）；旧 34/45 基线废弃标注留档。
 
 ### 修复
 
@@ -58,6 +66,12 @@
 - 验收游标断言修复：headless/live-delivery 改读 Session 隔离路径（共享 cursor-helper，断耦实现路径）。
 - 验收卡死修复：孤儿 pi 进程自动清理（10 个孤儿曾致全量 >600s 未完成）。
 - 忙态游标推进竞态修复（#68 T2）：投递确认短承诺化（入队接受即推进游标），消除并发拉取下同一窗口重复投递。
+
+## [未发布]
+
+### 新增
+
+（暂无）
 - 断连后停止流式状态上报竞态（#14/#82）：updateStreaming 在连接未建立/已关闭时静默跳过（display-only 语义，绝不 throw），finishDisconnected 同步拆除 streaming reset 与 run wedged watchdog——消除定时器路径 uncaughtException 导致整个 pi 进程崩溃的问题。
 
 ### 安全
