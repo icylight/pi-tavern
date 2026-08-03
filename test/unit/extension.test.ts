@@ -947,4 +947,19 @@ describe("PiTavern extension", () => {
 		expect(runtime.detachForReload).toHaveBeenCalledWith("pi-session-1");
 		expect(runtime.close).not.toHaveBeenCalled();
 	});
+	it("J4 断言②a: character 断连离开后 syncActiveTools 移除 tavern_speak（#83 风暴→failConnection→工具消失链）", async () => {
+		const controller = await createCharacterController({ published: true, eventId: "evt-1", sequence: 1 });
+		const api = createMockExtensionAPI();
+		api.getActiveTools.mockReturnValue(["tavern_speak", "tavern_whoami", "other_tool"]);
+		piTavern(api as unknown as ExtensionAPI, controller);
+		expect(controller.getState().type).toBe("character");
+
+		// 断连后离开（character → idle）→ onStateChange → syncActiveTools → 移除 tavern_speak
+		await controller.leave();
+
+		const lastCall = api.setActiveTools.mock.calls.at(-1)?.[0] as string[];
+		expect(lastCall).toBeDefined();
+		expect(lastCall).not.toContain("tavern_speak");
+		expect(lastCall).toContain("other_tool");
+	});
 });
