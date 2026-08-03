@@ -48,10 +48,7 @@ describe("acceptance: #85 J2 降级——RPC abort 不清已入队 steer", () =>
 		const projectDir = join(root, "project");
 		await mkdir(join(agentDir, "characters"), { recursive: true });
 		await mkdir(projectDir, { recursive: true });
-		await writeFile(
-			join(agentDir, "characters", "dev.md"),
-			"---\nname: Dev\ndescription: Developer\n---\nDev prompt",
-		);
+		await writeFile(join(agentDir, "characters", "dev.md"), "---\nname: Dev\ndescription: Developer\n---\nDev prompt");
 		await writeFile(join(agentDir, "tavern.json"), JSON.stringify({ characters: ["characters/dev.md"] }));
 
 		const creator = PiProcess.spawn({
