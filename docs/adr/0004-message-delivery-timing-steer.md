@@ -28,7 +28,7 @@ pi-agent-core `agent-loop.js` `runLoop`：内层循环每轮 turn（LLM 调用+�
    - 不打断 run：无 agent_end、无 run 重启、无上下文丢失（steer 通道保证）；
    - 协议格式与消息类型零变更；creator 零改动；
    - isAgentActive 语义保留（仍用于 settle 收尾/守卫；#14 is_streaming 真值不变）；
-   - 光标单点推进：run 中拉取照常 saveCursor，settle 补投从 cursor 后拉——单调、不重不漏；
+   - 光标单点推进：run 中拉取照常 saveCursor，settle 补投从 cursor 后拉——单调（只前进不倒退）、不重不漏；
    - **#77 修订（2026-08-03，User 拍板）**：「正在发言」指示语义 = **run 活跃即亮**（agent_start 无条件 updateStreaming(true)），不区分触发源（群聊/steer/救援/私有直聊）；`groupChatTurnTriggered` 标记机制已删除（无消费方）；投递路径（idle followUp / 忙态 steer）不再涉及点亮判定；长工具循环下「正在工作」常亮数分钟 = **预期行为**（run 结束才复位，非卡死）。
 3. **延迟目标**：秒级（单次工具调用间隙）。验收先例沿用 M7 A5：单测 ≤5s / 验收 ≤10s。
 
@@ -51,7 +51,7 @@ ADR-0003 **不被修订**：is_streaming 语义收敛、watchdog 兜底、group_
 
 `deliverSteer` 原实现于 `await getGroupChatState()` 前检查 `isAgentActive`；若 run 在该 await 期间 settle，`sendMessage` 时 pi 已不 streaming 且 `triggerTurn:false` → 消息仅 append 不唤醒 agent，settle 钩子补拉因光标已推进而空窗口 → 错过唤醒。
 
-修复（Dev 实施）：状态 fetch **之后**重新检查 `isAgentActive`（检查+发送在同一微任务内原子执行，无事件交错）——已 settle → 走 idle 路径（markGroupChatTurnTriggered + followUp + triggerTurn=true，群聊触发 turn 点亮 is_streaming 语义正确）；仍活跃 → steer。
+修复（Dev 实施）：状态 fetch **之后**重新检查 `isAgentActive`（检查+发送在同一微任务内原子执行——不可分割、无事件交错）——已 settle → 走 idle 路径（markGroupChatTurnTriggered + followUp + triggerTurn=true，群聊触发 turn 点亮 is_streaming 语义正确）；仍活跃 → steer。
 
 ### 滞留救援
 
