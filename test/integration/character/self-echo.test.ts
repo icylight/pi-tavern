@@ -1,11 +1,9 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { afterEach, describe, expect, it, vi } from "vitest";
-
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { CharacterRuntime } from "../../../src/character/character-runtime.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { CharacterRuntime } from "../../../src/character/character-runtime.js";
 import { JoinAttempt } from "../../../src/character/join-attempt.js";
 import { type CharacterCard, loadCharacterCard } from "../../../src/config/character-card.js";
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
@@ -92,10 +90,7 @@ async function joinCharacter(
  * 到 seq 1（message_history 投递 flush 不带 latestSequence 不推进游标，B6
  * 同款 saveCursor），随后清空 sendMessage 计数——保证后续断言只反映回声。
  */
-async function settleJoin(
-	runtime: CharacterRuntime,
-	pi: ExtensionAPI,
-): Promise<void> {
+async function settleJoin(runtime: CharacterRuntime, pi: ExtensionAPI): Promise<void> {
 	const sendMessage = pi.sendMessage as ReturnType<typeof vi.fn>;
 	await waitFor(() => sendMessage.mock.calls.length > 0, 5_000);
 	// join 后存在二次投递窗口（reEvaluateUnread 1s 窗口）：等待稳定后再清计数，
