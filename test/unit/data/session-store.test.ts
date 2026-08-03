@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+	formatEntryContent,
 	type SessionEntryLike,
 	type SessionHeaderLike,
 	type SessionManagerFactory,
 	type SessionManagerLike,
 	SessionStore,
-	formatEntryContent,
 } from "../../../src/data/session-store.js";
 
 const HEADER: SessionHeaderLike = {
@@ -64,7 +64,7 @@ class FakeSessionManager implements SessionManagerLike {
 		return "session-info-1";
 	}
 
-	appendCustomEntry(customType: string, data?: unknown): string {
+	appendCustomEntry(customType: string, _data?: unknown): string {
 		this.calls.push(`appendCustomEntry:${customType}`);
 		if (this.failAppendCustomEntry) throw new Error("appendCustomEntry failed");
 		return "custom-entry-1";
@@ -72,9 +72,9 @@ class FakeSessionManager implements SessionManagerLike {
 
 	appendCustomMessageEntry<T = unknown>(
 		customType: string,
-		content: string | unknown[],
-		display: boolean,
-		details?: T,
+		_content: string | unknown[],
+		_display: boolean,
+		_details?: T,
 	): string {
 		this.calls.push(`appendCustomMessageEntry:${customType}`);
 		if (this.failAppendCustomMessageEntry) throw new Error("appendCustomMessageEntry failed");
@@ -314,7 +314,9 @@ describe("SessionStore", () => {
 			const store = new SessionStore(manager, new FakeFactory(), createDeps());
 			const original = new Error("disk full");
 
-			expect(() => store.recoverFromFailedAppend(original)).toThrow("Persistence recovery failed: setSessionFile failed");
+			expect(() => store.recoverFromFailedAppend(original)).toThrow(
+				"Persistence recovery failed: setSessionFile failed",
+			);
 			expect(() => store.assertWritable()).toThrow("persistence is broken");
 		});
 

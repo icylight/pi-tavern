@@ -152,5 +152,4 @@ describe("cursor-store", () => {
 			expect(() => writeCursorFile(asDirectory, 5)).toThrow();
 		});
 	});
-
 });
