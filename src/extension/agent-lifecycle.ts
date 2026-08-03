@@ -22,10 +22,10 @@ export function wireAgentLifecycle(pi: ExtensionAPI, ctrl: TavernController): vo
 			// M7（ISSUE-012/#24）：标记 run 活跃，使 group_chat_update 拉取排队
 			// 而不是打断当前轮次。
 			state.runtime.isAgentActive = true;
-			// ISSUE-014/#14-A1/A2：只有群聊触发的轮次点亮 is_streaming（语义收敛）。
-			// 用户直聊轮次（直聊、非群聊跟进）保持暗。标记由 GroupChatInput.flush
-			// 在投递前设置。
-			state.runtime.updateStreaming(state.runtime.consumeGroupChatTurnTriggered());
+			// #77：语义 = 「正在工作」（run 活跃即亮，User 2026-08-03 拍板）。
+			// 任何 run（群聊触发/忙态 steer/救援/私有直聊）启动都点亮，
+			// 不区分触发源——「正在发言」指示改为 agent 活跃指示。
+			state.runtime.updateStreaming(true);
 			// #66：agent_start 布防 run wedged watchdog（W 内无 agent_settled →
 			// 强制收敛）；happy path 由 agent_settled 的 settleRun 清除。
 			state.runtime.armRunWedgedWatchdog();

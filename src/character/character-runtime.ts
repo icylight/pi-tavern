@@ -78,13 +78,6 @@ export class CharacterRuntime {
 	/** Latest group chat state snapshot (cached for read-only TUI projection). */
 	lastGroupChatState: GroupChatStateMessage | null = null;
 	/**
-	 * ISSUE-014/#14: true when the most recent delivery into the pi Agent was
-	 * group-chat triggered (GroupChatInput.flush). agent_start consumes this
-	 * to decide whether to light up is_streaming — user-direct turns must
-	 * NOT light it (semantic convergence, #14-A1/A2).
-	 */
-	groupChatTurnTriggered = false;
-	/**
 	 * ISSUE-014/#14: agent_end watchdog — resets is_streaming if
 	 * agent_settled never arrives (aborted/errored runs must not hang the
 	 * "正在发言" display). Cleared by agent_settled; reload re-arms via
@@ -224,21 +217,6 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * Mark that the next agent run is group-chat triggered (called right
-	 * before GroupChatInput flushes a delivery into the pi Agent).
-	 */
-	markGroupChatTurnTriggered(): void {
-		this.groupChatTurnTriggered = true;
-	}
-
-	/** Read and clear the group-chat-triggered flag (called on agent_start). */
-	consumeGroupChatTurnTriggered(): boolean {
-		const triggered = this.groupChatTurnTriggered;
-		this.groupChatTurnTriggered = false;
-		return triggered;
-	}
-
-	/**
 	 * ISSUE-014/#14 watchdog: after agent_end, force is_streaming back to
 	 * false if agent_settled does not arrive within the window. Node timers
 	 * do not depend on agent state, so a wedged run still resets.
@@ -328,6 +306,12 @@ export class CharacterRuntime {
 		}
 		this.lastGroupChatState = response.data;
 		this.onStateSnapshot?.(response.data);
+		// #77 候选①：守卫可观测化 + 自愈——状态拉取成功说明连接健康；若
+		// run 仍活跃而此前的点亮上报因半开连接丢失（online 守卫静默丢弃），
+		// 在此补偿重发（幂等，creator 重复置 true 无副作用）。
+		if (this.isAgentActive) {
+			this.updateStreaming(true);
+		}
 		return response.data;
 	}
 

@@ -428,10 +428,8 @@ export class GroupChatInput {
 			return;
 		}
 
-		// ISSUE-014/#14-A1：本次投递开启一个群聊触发的 turn。
-		// agent_start 消费该标记，仅群聊 turn 点亮 is_streaming
-		// （用户直聊 turn 保持暗）。
-		this.runtime.markGroupChatTurnTriggered();
+		// 向 agent 上下文投递一批事件（#77：run 活跃即亮，投递不再设置
+		// 群聊触发标记——语义 = 「正在工作」，agent_start 无条件点亮）。
 
 		const content = this.buildContent(toDeliver, groupChatState);
 
@@ -509,9 +507,8 @@ export class GroupChatInput {
 	 * triggerTurn:true —— Arch 滞留救援：pi 在 streaming 时忽略 triggerTurn
 	 * （steer 照常入队），但若 isAgentActive 陈旧（agent_settled 永不到达的
 	 * wedged run，#14 watchdog 场景），投递仍能唤醒 agent，而非被静默 append。
-	 * 代价：救援 run 无群聊标记，is_streaming 保持暗（已文档化，ADR-0004）。
-	 * 这里不调用 markGroupChatTurnTriggered——steer 不得点亮 is_streaming
-	 * （#14 边界，QA T3）。
+	 * #77：run 活跃即亮（agent_start 无条件点亮），steer 投递不再涉及点亮判定
+	 * ——投递内容（群聊/救援）不区分触发源（User 2026-08-03 拍板）。
 	 */
 	private async deliverSteer(events: ServerMessage[], groupChatState: unknown, latestSequence?: number): Promise<void> {
 		const content = this.buildContent(events, groupChatState);

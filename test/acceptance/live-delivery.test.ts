@@ -96,7 +96,7 @@ describe("acceptance: #38 live steer delivery during a run (T4)", () => {
 		return (
 			event.type === "extension_ui_request" &&
 			event.method === "setWidget" &&
-			((event.widgetLines as string[] | undefined) ?? []).some((line) => line.startsWith("正在发言："))
+			((event.widgetLines as string[] | undefined) ?? []).some((line) => line.startsWith("正在工作："))
 		);
 	}
 

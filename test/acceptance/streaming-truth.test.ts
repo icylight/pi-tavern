@@ -12,7 +12,7 @@ import { BufferedWsClient } from "./ws-helper.js";
  * A1/A2/A4（验收清单 #14-A1/#14-A2/#14-A4）：is_streaming 点亮语义收敛与
  * 多连接一致性——进程级。
  *
- * A1：群聊触发的 turn 点亮 is_streaming（creator widget「正在发言」出现），
+ * #77：任何 run（群聊触发/私有直聊）点亮 is_streaming（creator widget「正在工作」出现），
  *     agent_settled 后熄灭。
  * A2：用户直聊（非群聊输入）触发的 turn 不点亮——语义收敛核心用例，
  *     旧行为误报（agent_start 全量点亮）在此被钉死。
@@ -20,7 +20,7 @@ import { BufferedWsClient } from "./ws-helper.js";
  *     同一真值（翻转广播到达 + 终态快照一致）。
  *
  * 观察通道：creator 侧 widget（extension_ui_request setWidget：成员数 +
- * 「正在发言」行），方案 A 保证 streaming 翻转即时广播。
+ * 「正在工作」行），#77 保证 streaming 翻转即时广播。
  */
 
 describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
@@ -105,7 +105,7 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 		return (
 			event.type === "extension_ui_request" &&
 			event.method === "setWidget" &&
-			((event.widgetLines as string[] | undefined) ?? []).some((line) => line.startsWith("正在发言："))
+			((event.widgetLines as string[] | undefined) ?? []).some((line) => line.startsWith("正在工作："))
 		);
 	}
 
@@ -119,7 +119,7 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 				e.type === "extension_ui_request" && e.method === "notify" && e.message === "User Persona message published",
 		);
 
-		// The turn lights up: creator widget shows "正在发言：Architect".
+		// The turn lights up: creator widget shows "正在工作：Architect".
 		await creator.waitFor(
 			(e) => widgetHasStreaming(e) && (e.widgetLines as string[]).some((line) => line.includes("Architect")),
 			60_000,
@@ -132,7 +132,7 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 		);
 	});
 
-	it.concurrent("A2: user-direct turn does NOT light is_streaming (semantic convergence)", async () => {
+	it.concurrent("A2 (#77): user-direct RPC turn has no agent_start — no lighting trigger (mechanism, not semantic)", async () => {
 		const { creator, headless } = await startPair();
 
 		// #52（白名单毫秒级 run 暴露的时序缺陷修复）：先确认 join 完成
@@ -148,11 +148,15 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 		const baseline = creator.countEvents();
 
 		// Direct RPC prompt = a user-direct turn, NOT group-chat input.
+		// #77：点亮由 agent_start 驱动（run 活跃即亮）——但 headless RPC 模式
+		// 不触发 agent_start 生命周期事件（index.ts：RPC 不触发
+		// session_start/resources_discover；agent_start 同理），扩展无点亮时机，
+		// 故窗口内不应出现「正在工作」widget——这是机制结果，非语义拒绝。
 		await headless.runCommand("A2 direct question, not a group chat message");
 		await headless.waitFor((e) => e.type === "response" && e.command === "prompt", 60_000);
 
 		// Let the agent run settle; then scan the window: no widget event
-		// may ever show "正在发言" (the old behaviour would light it).
+		// may ever show "正在工作" (RPC turn has no agent_start).
 		await new Promise((resolveWait) => setTimeout(resolveWait, 1_500));
 		const windowEvents = creator.dumpEvents().slice(baseline);
 		const streamingWidgets = windowEvents.filter(widgetHasStreaming);
@@ -160,13 +164,14 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 
 		// The character stays online with 2 members throughout: no
 		// member-count drop (1/0 人在线) event may appear in the window.
-		const memberDrop = windowEvents.filter(
-			(e) =>
-				e.type === "extension_ui_request" &&
-				e.method === "setWidget" &&
-				((e.widgetLines as string[])?.[0]?.startsWith("1 人在线") === true ||
-					(e.widgetLines as string[])?.[0]?.startsWith("0 人在线") === true),
-		);
+		const memberDrop = windowEvents
+			.filter(
+				(e) =>
+					e.type === "extension_ui_request" &&
+					e.method === "setWidget" &&
+					((e.widgetLines as string[])?.[0]?.startsWith("1 人在线") === true ||
+						(e.widgetLines as string[])?.[0]?.startsWith("0 人在线") === true),
+			);
 		expect(memberDrop).toEqual([]);
 	});
 

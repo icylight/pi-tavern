@@ -59,7 +59,8 @@ function creatorWidgetLines(state: {
 		.map((online) => online.character.name);
 	const lines = [`${onlineCount} 人在线`];
 	if (streaming.length > 0) {
-		lines.push(`正在发言：${streaming.join("、")}`);
+		// #77：语义 = 「正在工作」（run 活跃即亮，User 2026-08-03 拍板）。
+		lines.push(`正在工作：${streaming.join("、")}`);
 	}
 	const round = state.round;
 	if (round) {
@@ -89,7 +90,8 @@ function characterWidgetLines(
 	const lines = [`${snapshot.online_characters.length + 1} 人在线`];
 	const streaming = snapshot.online_characters.filter((c) => c.is_streaming).map((c) => c.name);
 	if (streaming.length > 0) {
-		lines.push(`正在发言：${streaming.join("、")}`);
+		// #77：语义 = 「正在工作」（run 活跃即亮，User 2026-08-03 拍板）。
+		lines.push(`正在工作：${streaming.join("、")}`);
 	}
 	const round = snapshot.round;
 	if (round) {
