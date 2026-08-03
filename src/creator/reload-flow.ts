@@ -10,7 +10,6 @@ import { removeOwnedActiveDescriptor } from "../data/discovery/active-descriptor
 import type { GroupChatState } from "../data/group-chat-state.js";
 import type { SessionStore } from "../data/session-store.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
-import type { BroadcastHub } from "./broadcast-hub.js";
 import type { ConnectionContext, ConnectionManager } from "./connection-manager.js";
 import { createFromHandoff } from "./creator-factory.js";
 import type { CreatorRuntime, CreatorRuntimeDependencies } from "./creator-runtime.js";

@@ -14,7 +14,7 @@
  */
 import { join } from "node:path";
 
-import { type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { TavernController } from "./controller/tavern-controller.js";
 import { type ActiveGroupChatDescriptor, getGroupChatCursorDirectory } from "./data/discovery/active-descriptor.js";
 import type { DiscoverGroupChatsOptions } from "./data/discovery/discover-group-chats.js";
@@ -49,7 +49,7 @@ function pickGroupChat(
 	if (wanted !== undefined && wanted !== "") {
 		const byId = candidates.find((c) => c.groupChatId === wanted);
 		if (byId) return byId;
-		const byName = candidates.find((c) => c.name !== undefined && c.name !== null && c.name.includes(wanted));
+		const byName = candidates.find((c) => c.name?.includes(wanted));
 		if (byName) return byName;
 	}
 	if (candidates.length === 1) {

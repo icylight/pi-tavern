@@ -150,7 +150,11 @@ describe("A3: streaming reset watchdog (#14 悬挂兜底)", () => {
 			type: "response",
 			command: "get_group_chat_state",
 			success: true,
-			data: { online_characters: [{ character_id: "c", name: "self", is_self: true, is_streaming: false, hand_raised: false }] },
+			data: {
+				online_characters: [
+					{ character_id: "c", name: "self", is_self: true, is_streaming: false, hand_raised: false },
+				],
+			},
 		});
 		await runtime.getGroupChatState();
 		expect(updateStreaming).toHaveBeenCalledWith(true);
@@ -162,7 +166,9 @@ describe("A3: streaming reset watchdog (#14 悬挂兜底)", () => {
 			type: "response",
 			command: "get_group_chat_state",
 			success: true,
-			data: { online_characters: [{ character_id: "c", name: "self", is_self: true, is_streaming: true, hand_raised: false }] },
+			data: {
+				online_characters: [{ character_id: "c", name: "self", is_self: true, is_streaming: true, hand_raised: false }],
+			},
 		});
 		await runtime.getGroupChatState();
 		expect(updateStreaming).not.toHaveBeenCalled();
@@ -174,7 +180,11 @@ describe("A3: streaming reset watchdog (#14 悬挂兜底)", () => {
 			type: "response",
 			command: "get_group_chat_state",
 			success: true,
-			data: { online_characters: [{ character_id: "c", name: "self", is_self: true, is_streaming: false, hand_raised: false }] },
+			data: {
+				online_characters: [
+					{ character_id: "c", name: "self", is_self: true, is_streaming: false, hand_raised: false },
+				],
+			},
 		});
 		await runtime.getGroupChatState();
 		expect(updateStreaming).not.toHaveBeenCalled();

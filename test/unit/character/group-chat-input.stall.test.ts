@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { CharacterRuntime } from "../../../src/character/character-runtime.js";
 import { GroupChatInput } from "../../../src/character/group-chat-input.js";
 import type { PublicMessage, ServerMessage } from "../../../src/protocol/messages.js";
@@ -34,8 +34,7 @@ function createMockRuntime(
 		loadCursor: () => null,
 		saveCursor: vi.fn(),
 		fetchMessagesSince:
-			overrides.fetchMessagesSince ??
-			(async () => ({ messages: [], latestSequence: 0, totalMessages: 0 })),
+			overrides.fetchMessagesSince ?? (async () => ({ messages: [], latestSequence: 0, totalMessages: 0 })),
 		refreshGroupChatState: async () => undefined,
 	} as unknown as CharacterRuntime;
 }

@@ -262,6 +262,8 @@ ACK  执行方 → 验收方：确认 → 交付关闭
 - 修复 = 因果修复（fix the cause, not the symptom）
 - 回归测试先红后绿（钉测：旧代码失败/新代码通过形态），定向 + 层内全量门禁
 - 版本缺口补跑：运行时 pi ≠ 测试锚定 pi 时补跑受影响层（#83：0.83.0 验收面）
+- **合入前 check 清零（#89 教训：无 CI 本地人工门禁，欠账累积）**：项目无 CI（无 .github/workflows），check 为本地人工门禁——每批合入 main 前 `npm run check` 全绿留痕（命令 | 结果 | hash@层），与定向测试绿、V0 留痕构成合入三件套；biome/TS 版本变更 → 全量 check 清零后再合
+- **git hook 自动化提醒（#89 落地，2026-08-03 User 指示）**：husky（devDependency ~2kB，prepare 自动安装）pre-push hook 跑 `npm run check`，非零拒绝推送（`.husky/pre-push` 版本化）。本质 = 纪律的自动化提醒，`--no-verify` 可绕过、仅对安装了 hook 的机器生效，不替代纪律；GitHub 云端无免费 pre-receive hook（仅 GHES 有，云版靠付费 Rulesets 或 CI 载体）
 
 ### S6：复盘收口
 

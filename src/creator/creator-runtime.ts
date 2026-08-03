@@ -1,46 +1,15 @@
-import { randomUUID } from "node:crypto";
-import type { AddressInfo } from "node:net";
-import { resolve } from "node:path";
-
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type WebSocket from "ws";
 import type { WebSocketServer } from "ws";
 
 import type { CharacterCard, CharacterSummary } from "../config/character-card.js";
-import { DEFAULT_CONFIG_MAX_MESSAGES } from "../config/load-config.js";
-import {
-	type BufferedFrame,
-	type CreatorReloadHandoff,
-	getReloadHandoffRegistry,
-} from "../controller/reload-handoff-registry.js";
-import { countPersistedEntries, decodeCursor } from "../data/cursor-store.js";
-import {
-	type ActiveGroupChatDescriptor,
-	getActiveDescriptorPath,
-	getGroupChatSessionDirectory,
-	publishActiveDescriptor,
-	readActiveDescriptor,
-	removeOwnedActiveDescriptor,
-	updateActiveDescriptorName,
-} from "../data/discovery/active-descriptor.js";
-import {
-	assertValidMaxMessages,
-	createGroupChatState,
-	type GroupChatState,
-	normalizeGroupChatName,
-	setGroupChatName,
-	setGroupMaxMessages,
-} from "../data/group-chat-state.js";
-import type { SessionHeaderLike, SessionStore } from "../data/session-store.js";
-import { decodeClientMessage, encodeMessage } from "../protocol/codec.js";
+import type { CreatorReloadHandoff } from "../controller/reload-handoff-registry.js";
+import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
+import type { GroupChatState } from "../data/group-chat-state.js";
+import type { SessionStore } from "../data/session-store.js";
 import type { ClientMessage } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
-import {
-	CHARACTER_REFRESH_TIMEOUT_MS,
-	HEARTBEAT_PING_INTERVAL_MS,
-	HEARTBEAT_TIMEOUT_MS,
-	SHORT_COORDINATION_TIMEOUT_MS,
-} from "../shared/constants.js";
+import { CHARACTER_REFRESH_TIMEOUT_MS } from "../shared/constants.js";
 import type { RuntimeCloseReason, RuntimeCloseResult } from "../shared/runtime-close.js";
 import { BroadcastHub } from "./broadcast-hub.js";
 import { type ConnectionContext, ConnectionManager } from "./connection-manager.js";
@@ -58,7 +27,6 @@ import { assemblePipelineDeps } from "./pipeline-assembly.js";
 import { detachForReload as detachForReloadFlow, takeHandoff as takeHandoffFlow } from "./reload-flow.js";
 import { RuntimeFacades } from "./runtime-facades.js";
 import { RuntimeLifecycle } from "./runtime-lifecycle.js";
-import { closeWebSocketServer, listenOnLocalhost } from "./ws-utils.js";
 
 export interface StartNewCreatorRuntimeOptions {
 	cwd: string;
@@ -115,7 +83,6 @@ export class CreatorRuntime {
 
 	/** @internal reload-flow 主机接口读取；语义不变。 */
 	lifecycle: "active" | "detaching" | "disposed" = "active";
-	private closePromise: Promise<RuntimeCloseResult> | null = null;
 	private runtimeTail = Promise.resolve();
 	/** @internal reload-flow 访问；语义不变。 */
 	readonly deps: CreatorRuntimeDependencies;

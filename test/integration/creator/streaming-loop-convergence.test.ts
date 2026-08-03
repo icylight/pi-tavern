@@ -55,7 +55,10 @@ describe("CreatorRuntime #83 J4 广播收敛（自激循环修复验收）", () 
 			cmdId += 1;
 			client.send(JSON.stringify({ id: String(cmdId), ...message }));
 		};
-		const waitFor = async (pred: (m: Record<string, unknown>) => boolean, timeoutMs = 10_000): Promise<Record<string, unknown>> => {
+		const waitFor = async (
+			pred: (m: Record<string, unknown>) => boolean,
+			timeoutMs = 10_000,
+		): Promise<Record<string, unknown>> => {
 			const deadline = Date.now() + timeoutMs;
 			for (;;) {
 				const hit = frames.find(pred);
@@ -84,8 +87,9 @@ describe("CreatorRuntime #83 J4 广播收敛（自激循环修复验收）", () 
 						setTimeout(checkState, 50);
 						return;
 					}
-					const self = (resp.data as { online_characters?: Array<{ is_self?: boolean; is_streaming?: boolean }> })
-						?.online_characters?.find((c) => c.is_self);
+					const self = (
+						resp.data as { online_characters?: Array<{ is_self?: boolean; is_streaming?: boolean }> }
+					)?.online_characters?.find((c) => c.is_self);
 					// 快照活跃 → 补偿重发点亮（update_character_state schema 不含 id）
 					if (self?.is_streaming) {
 						client.send(JSON.stringify({ type: "update_character_state", is_streaming: true }));
@@ -99,7 +103,8 @@ describe("CreatorRuntime #83 J4 广播收敛（自激循环修复验收）", () 
 		send({ type: "join_group_chat", session_id: "j4-s1" });
 		const joinResp = await waitFor((m) => m.id === "1" && m.type === "response");
 		expect(joinResp.success).toBe(true);
-		const available = (joinResp.data as { available_characters?: Array<{ character_id: string }> })?.available_characters;
+		const available = (joinResp.data as { available_characters?: Array<{ character_id: string }> })
+			?.available_characters;
 		const claimId = available?.[0]?.character_id;
 		expect(claimId).toBeTruthy();
 		send({ type: "claim_character", character_id: claimId ?? "dev" });
