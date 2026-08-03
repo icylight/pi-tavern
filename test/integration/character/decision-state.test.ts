@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -110,6 +111,10 @@ async function declareAsUser(
 		supersedes: decl.supersedes ?? [],
 		status: decl.status ?? "proposed",
 	});
+}
+
+async function exists(p: string): Promise<boolean> {
+	return existsSync(p);
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
@@ -363,6 +368,35 @@ describe("#107 decision state (QA integration)", () => {
 		},
 	);
 
+	it("N1: omitted supersedes field is accepted (G1 — no crash on undefined)", { timeout: 15_000 }, async () => {
+		const { creator } = await startCreator();
+		// 合法客户端省略 supersedes（协议 Optional）——服务端 ?? [] 归一，不崩溃。
+		const pipeline = new DecisionPipeline(creator.decisionDeps);
+		const result = await pipeline.declareAsUser({
+			decision_id: "D1",
+			version: 1,
+			content: "无 supersedes 字段",
+			supersedes: undefined as unknown as string[],
+		});
+		expect(result.accepted).toBe(true);
+		expect(creator.decisionStore.records[0]?.supersedes).toEqual([]);
+	});
+
+	it("N3: user command rejects invalid input via wire schema (G3)", { timeout: 15_000 }, async () => {
+		const { creator } = await startCreator();
+		// 命令入口与 wire schema 同一套校验：非法 version/status/supersedes 拒绝且不持久化。
+		const pipeline = new DecisionPipeline(creator.decisionDeps);
+		const bad = await pipeline.declareAsUser({
+			decision_id: "D1",
+			version: 1.5 as unknown as number,
+			content: "非法版本",
+			supersedes: [],
+			status: "garbage" as unknown as "proposed" | "closed",
+		});
+		expect(bad.accepted).toBe(false);
+		expect(creator.decisionStore.records).toHaveLength(0);
+	});
+
 	it("T15: restart preserves supersede relations — D1 stays superseded (P0-1/R1)", { timeout: 15_000 }, async () => {
 		const { creator, character, root } = await startCreator();
 		const groupId = creator.state.groupChat.groupChatId;
@@ -432,7 +466,7 @@ describe("#107 decision state (QA integration)", () => {
 
 	it("T14: reload resync — decision_snapshot rides state (C2)", { timeout: 15_000 }, async () => {
 		const { creator, character } = await startCreator();
-		// D1 proposed（current = null，active 含 D1）→ User 关闭后 current = D1@v2。
+		// D1 proposed → User 关闭 D1@v2（同 id 版本修订 = 隐式替代 G4：v1 自动 superseded）。
 		await declareAsUser(creator, { decision_id: "D1", version: 1, content: "方向 A" });
 		await declareAsUser(creator, { decision_id: "D1", version: 2, content: "方向 A 定稿", status: "closed" });
 
@@ -440,6 +474,62 @@ describe("#107 decision state (QA integration)", () => {
 		const state = await runtime.getGroupChatState();
 		expect(state.decision_snapshot).toBeDefined();
 		expect(state.decision_snapshot?.current).toMatchObject({ decision_id: "D1", version: 2, status: "closed" });
-		expect(state.decision_snapshot?.active).toHaveLength(2);
+		// v1 被 v2 隐式替代（不再活跃、不再注入）。
+		expect(state.decision_snapshot?.active).toHaveLength(1);
+		expect(state.decision_snapshot?.active[0]?.version).toBe(2);
+		const d1v1 = creator.decisionStore.records.find((r) => r.decision_id === "D1" && r.version === 1);
+		expect(d1v1?.status).toBe("superseded");
+	});
+
+	it("N4: close permission binds to the version's declarer (G5)", { timeout: 15_000 }, async () => {
+		const { creator, characters } = await startCreator(2);
+		await creator.submitUserPersonaMessage("hello 1");
+		const { runtime: a } = await joinCharacter(creator, characters[0] as CharacterCard, "session-n4a");
+		const { runtime: b } = await joinCharacter(creator, characters[1] as CharacterCard, "session-n4b");
+		await new Promise((resolve) => setTimeout(resolve, 2_000));
+
+		// A 声明 D1@v1；B 声明 D1@v2（隐式替代 v1，最新声明者 = B）。
+		const ra = await a.declareDecision({ decision_id: "D1", version: 1, content: "A 的 v1" });
+		expect(ra.accepted).toBe(true);
+		const rb = await b.declareDecision({ decision_id: "D1", version: 2, content: "B 的 v2" });
+		expect(rb.accepted).toBe(true);
+
+		// A（非 v2 声明者）尝试关闭 D1 的最新版本 → 拒绝；B 关闭自己声明的版本 → 成功。
+		const aClose = await a.declareDecision({ decision_id: "D1", version: 3, content: "A 想关", status: "closed" });
+		expect(aClose.accepted).toBe(false);
+		expect(aClose.error_code).toBe("permission_denied");
+		const bClose = await b.declareDecision({ decision_id: "D1", version: 3, content: "B 关闭", status: "closed" });
+		expect(bClose.accepted).toBe(true);
+	});
+
+	it("N5: deleting group chat history also removes decisions sidecar (G6)", { timeout: 15_000 }, async () => {
+		const { creator, root } = await startCreator();
+		const groupId = creator.state.groupChat.groupChatId;
+		await declareAsUser(creator, { decision_id: "D1", version: 1, content: "决定 1" });
+		await creator.submitUserPersonaMessage("hello 1");
+		await creator.close();
+
+		// 删除群聊历史（session 文件）→ {groupId}.decisions.jsonl 同步删除。
+		const agentDir = join(root, "agent");
+		const cwd = join(root, "project");
+		const sessionDir = getGroupChatSessionDirectory(agentDir, cwd);
+		const sidecar = join(sessionDir, `${groupId}.decisions.jsonl`);
+		expect(await exists(sidecar)).toBe(true);
+		const { deleteGroupChatSession } = await import("../../../src/data/group-chat-sessions.js");
+		const sessionFiles = (await readdir(sessionDir)).filter(
+			(name) => name.endsWith(".jsonl") && name.includes(groupId) && !name.endsWith(".decisions.jsonl"),
+		);
+		expect(sessionFiles).toHaveLength(1);
+		await deleteGroupChatSession(join(sessionDir, sessionFiles[0] as string));
+		expect(await exists(sidecar)).toBe(false);
+	});
+
+	it("N2: oversized content is rejected — snapshot cannot poison the chat (G2)", { timeout: 15_000 }, async () => {
+		const { creator } = await startCreator();
+		// 内容上限（与 public_message 64KiB 同规）：超限声明拒绝且不持久化、不崩溃。
+		const big = "x".repeat(70 * 1024);
+		const result = await declareAsUser(creator, { decision_id: "D1", version: 1, content: big });
+		expect(result.accepted).toBe(false);
+		expect(creator.decisionStore.records).toHaveLength(0);
 	});
 });

@@ -99,6 +99,13 @@ describe("#107 validateDeclaration: 校验五项", () => {
 		expect(result.ok).toBe(true);
 	});
 
+	it("G1：supersedes 缺省（undefined）不崩溃——空数组语义（二轮审查 P0-1）", () => {
+		// 合法 wire 客户端可省略 supersedes；校验/应用层防御性归一（?? []）。
+		const decl = { ...aDecl(), supersedes: undefined } as unknown as DecisionDeclaration;
+		const result = validateDeclaration([], decl, 0, 3);
+		expect(result.ok).toBe(true);
+	});
+
 	it("⑤ 权限对等：status=closed 仅提案人本人或 User（他人 → permission_denied）", () => {
 		const records = [aRecord({ decided_by: char("dev") })];
 		// arch 关 dev 的提案 → 拒绝
@@ -121,6 +128,37 @@ describe("#107 validateDeclaration: 校验五项", () => {
 			3,
 		);
 		expect(userOk.ok).toBe(true);
+	});
+
+	it("G5：关闭权限绑定被关闭版本——A(v1) 不能关 B 的 v2（find 首条缺陷）", () => {
+		const v1 = aRecord({ decision_id: "D1", version: 1, decided_by: char("a") });
+		const v2 = aRecord({ decision_id: "D1", version: 2, decided_by: char("b") });
+		const records = [v1, v2];
+		// A 尝试关闭 D1@v3（同 id 最新版本声明者 = B）→ 拒绝（权限绑定最新版本）。
+		const asA = validateDeclaration(
+			records,
+			aDecl({ decision_id: "D1", version: 3, status: "closed", decided_by: char("a") }),
+			0,
+			3,
+		);
+		expect(asA.ok).toBe(false);
+		if (!asA.ok) expect(asA.code).toBe("permission_denied");
+		// B 关闭自己的 D1@v3 → 成功（v3 声明者 = 最新版本声明者）。
+		const asB = validateDeclaration(
+			records,
+			aDecl({ decision_id: "D1", version: 3, status: "closed", decided_by: char("b") }),
+			0,
+			3,
+		);
+		expect(asB.ok).toBe(true);
+		// User 关闭 → 成功（override）。
+		const asUser = validateDeclaration(
+			records,
+			aDecl({ decision_id: "D1", version: 3, status: "closed", decided_by: USER }),
+			0,
+			3,
+		);
+		expect(asUser.ok).toBe(true);
 	});
 
 	it("⑤ 权限对等：替代 closed 目标须 User 关闭的新提案（普通角色 → target_closed_denied）", () => {
@@ -173,6 +211,22 @@ describe("#107 applyDeclaration: 状态链应用", () => {
 		expect(chain).toHaveLength(2);
 		expect(chain[0]?.status).toBe("superseded");
 		expect(chain[1]?.status).toBe("closed");
+	});
+
+	it("G4：同 id 新版本隐式淘汰旧版本（closed v2 无 supersedes 也淘汰 v1）", () => {
+		const v1 = aRecord({ decision_id: "D1", version: 1 }); // D1@v1 proposed
+		const v2 = aRecord({ decision_id: "D1", version: 2, status: "closed", decided_by: USER });
+		const chain = applyDeclaration([v1], v2);
+		expect(chain[0]?.status).toBe("superseded"); // v1 自动淘汰
+		expect(chain[1]?.status).toBe("closed");
+	});
+
+	it("G4：proposed v2 也隐式淘汰 v1（非仅 closed——二轮审查细化）", () => {
+		const v1 = aRecord({ decision_id: "D1", version: 1 });
+		const v2 = aRecord({ decision_id: "D1", version: 2 }); // proposed
+		const chain = applyDeclaration([v1], v2);
+		expect(chain[0]?.status).toBe("superseded");
+		expect(chain[1]?.status).toBe("proposed");
 	});
 
 	it("多目标替代：全部命中目标置 superseded", () => {

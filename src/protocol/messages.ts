@@ -1,5 +1,7 @@
 import { type Static, Type } from "typebox";
 
+import { DECISION_CONTENT_MAX_LENGTH } from "../shared/constants.js";
+
 export const CharacterSummarySchema = Type.Object(
 	{
 		character_id: Type.String(),
@@ -48,6 +50,21 @@ export const DecisionRecordSchema = Type.Object(
 );
 
 export type DecisionRecordWire = Static<typeof DecisionRecordSchema>;
+
+/** #107（G2）：decision_declare 请求（命名导出——命令入口复用同一套运行时校验）。 */
+export const DecisionDeclareRequestSchema = Type.Object(
+	{
+		id: RequestIdSchema,
+		type: Type.Literal("decision_declare"),
+		decision_id: Type.String({ minLength: 1 }),
+		version: Type.Integer({ minimum: 1 }),
+		content: Type.String({ maxLength: DECISION_CONTENT_MAX_LENGTH }),
+		// 缺省 = 无替代（与工具参数 default [] 一致；服务端按空数组校验）。
+		supersedes: Type.Optional(Type.Array(Type.String())),
+		status: Type.Optional(Type.Union([Type.Literal("proposed"), Type.Literal("closed")])),
+	},
+	{ additionalProperties: false },
+);
 
 /** #107：决策状态快照——当前决定（链末端 closed）+ 活跃提案全集（截断在渲染端）。 */
 export const DecisionSnapshotSchema = Type.Object(
@@ -142,19 +159,7 @@ export const ClientMessageSchema = Type.Union([
 	),
 	// #107（ADR-0006）：决策状态声明（唯一入口——文字裁决永不进入状态）。
 	// 全部字段必填；status 缺省 = proposed（closed 仅提案人/User，机械校验）。
-	Type.Object(
-		{
-			id: RequestIdSchema,
-			type: Type.Literal("decision_declare"),
-			decision_id: Type.String(),
-			version: Type.Integer({ minimum: 1 }),
-			content: Type.String(),
-			// 缺省 = 无替代（与工具参数 default [] 一致；服务端按空数组校验）。
-			supersedes: Type.Optional(Type.Array(Type.String())),
-			status: Type.Optional(Type.Union([Type.Literal("proposed"), Type.Literal("closed")])),
-		},
-		{ additionalProperties: false },
-	),
+	DecisionDeclareRequestSchema,
 ]);
 
 export type ClientMessage = Static<typeof ClientMessageSchema>;
@@ -500,6 +505,10 @@ const DecisionDeclareResponseSchema = Type.Union([
 						Type.Literal("version_not_monotonic"),
 						Type.Literal("permission_denied"),
 						Type.Literal("quota_exceeded"),
+						// G2（审查②）：活跃提案超上限（防超大快照毒死群聊）。
+						Type.Literal("active_limit_reached"),
+						// 二轮审查：status 非法 / content 超限（服务端机械校验拒绝）。
+						Type.Literal("invalid_declaration"),
 					]),
 					error_message: Type.String(),
 				},

@@ -27,3 +27,12 @@ export const DECLARE_PER_ROUND_LIMIT = 3;
 
 /** #107：环境文本「当前有效裁决」节注入的活跃提案显示上限（超限截断 + 「+M 更早」标注）。 */
 export const DECISION_INJECTION_LIMIT = 5;
+
+/**
+ * #107（G2，审查②）：活跃提案（非 superseded）总上限——防超大快照
+ * 毒死群聊连接（1 MiB 出站帧预算 / 64 KiB content ≈ 16；决策场景足够）。
+ */
+export const DECISION_ACTIVE_LIMIT = 16;
+
+/** #107（G2，审查②）：决策 content 入站限长 + 快照渲染截断上限（64KiB 与出站帧预算同规）。 */
+export const DECISION_CONTENT_MAX_LENGTH = 64 * 1024;

@@ -86,9 +86,20 @@ export class BroadcastHub {
 	}
 
 	send(socket: WebSocket, message: unknown): void {
+		let encoded: string;
+		try {
+			encoded = encodeMessage(message);
+		} catch (error) {
+			// G2（审查②）：编码失败（如超 1 MiB）= 消息问题，**不是 socket 问题**——
+			// 记录并跳过该连接，绝不触发断连清理（防「一次坏消息毒死全群聊」）。
+			console.error(
+				`[pi-tavern] broadcast encode failed, skipping connection: ${error instanceof Error ? error.message : String(error)}`,
+			);
+			return;
+		}
 		try {
 			if (socket.readyState === WebSocket.OPEN) {
-				socket.send(encodeMessage(message));
+				socket.send(encoded);
 				return;
 			}
 		} catch {

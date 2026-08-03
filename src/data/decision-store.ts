@@ -8,6 +8,7 @@
  */
 
 import type { DecisionRecordWire, DecisionSnapshotWire } from "../protocol/messages.js";
+import { DECISION_ACTIVE_LIMIT, DECISION_CONTENT_MAX_LENGTH } from "../shared/constants.js";
 
 /** 业务拒绝错误码（与 stale/round_limit_reached 同风格——业务拒绝而非协议错误）。 */
 export type DecisionErrorCode =
@@ -16,7 +17,9 @@ export type DecisionErrorCode =
 	| "cycle_rejected"
 	| "version_not_monotonic"
 	| "permission_denied"
-	| "quota_exceeded";
+	| "quota_exceeded"
+	| "active_limit_reached"
+	| "invalid_declaration";
 
 export interface DecisionDeclaration {
 	decision_id: string;
@@ -41,10 +44,30 @@ export function validateDeclaration(
 	declareLimit: number,
 ): DeclarationResult {
 	const status = decl.status ?? "proposed";
+	// N2/N3（二轮审查）：服务端机械校验——status 枚举 + content 限长。
+	// （命令/工具层已按 wire schema 校验；管线本地入口同样拒绝非法输入，
+	// 防任何调用路径把非法状态写进持久化。）
+	if (status !== "proposed" && status !== "closed") {
+		return { ok: false, code: "invalid_declaration", message: "status 必须为 proposed 或 closed" };
+	}
+	if (decl.content.length > DECISION_CONTENT_MAX_LENGTH) {
+		return {
+			ok: false,
+			code: "invalid_declaration",
+			message: `content 超过上限 ${DECISION_CONTENT_MAX_LENGTH} 字节`,
+		};
+	}
+	// P0（审查②）：运行时防御——调用方漏传时按空数组（wire 层 Optional
+	// 后 dispatch/命令已补 ?? []，此处兜底防未来调用方遗漏）。
+	const supersedes = decl.supersedes ?? [];
 	// ⑤ 权限对等：status=closed 声明须由 User Persona 或提案人本人发起
 	// （v1.1：提案人关闭 + User override——谁提谁结、防他人改裁）。
 	if (status === "closed") {
-		const proposer = records.filter((r) => r.decision_id === decl.decision_id).find((r) => r.status !== "superseded");
+		// G5（审查②）：关闭权限绑定**被关闭版本**——同 id 活跃记录中 version
+		// 最大者（将被隐式替代的最新版）的声明者 = 关闭者本人或 User。
+		const proposer = records
+			.filter((r) => r.decision_id === decl.decision_id && r.status !== "superseded")
+			.sort((a, b) => b.version - a.version)[0];
 		const isUser = decl.decided_by.type === "user_persona";
 		const isProposer =
 			!isUser &&
@@ -73,7 +96,7 @@ export function validateDeclaration(
 	// ① 目标存在 + ② 未被活跃替代（superseded 终态不可引用）+ ④ DAG 无环。
 	// 路径压缩查环：沿 supersedes 链向上（目标 → 目标的目标），若链中
 	// 出现被替代记录自己的 id@version 则成环（P2→P1→P2 拒绝）。
-	for (const target of decl.supersedes) {
+	for (const target of supersedes) {
 		const targetRecord = records.find((r) => `${r.decision_id}@v${r.version}` === target);
 		if (!targetRecord) {
 			return { ok: false, code: "target_missing", message: `supersedes 目标不存在：${target}` };
@@ -111,6 +134,17 @@ export function validateDeclaration(
 		}
 	}
 
+	// G2（审查②）：活跃提案总上限——防超大快照毒死群聊连接
+	// （1 MiB 出站帧预算 / 64 KiB content ≈ 16）。
+	const activeCount = records.filter((r) => r.status !== "superseded").length;
+	if (activeCount >= DECISION_ACTIVE_LIMIT) {
+		return {
+			ok: false,
+			code: "active_limit_reached",
+			message: `活跃提案已达上限 ${DECISION_ACTIVE_LIMIT}——先关闭/替代旧提案再声明`,
+		};
+	}
+
 	// 配额：成功才计次（失败不消耗，由调用方在成功后计数）。
 	// User 入口（declareAsUser）传非有限 count = 不检查配额（User 是最终权威，非角色）。
 	if (Number.isFinite(declareCount) && declareCount >= declareLimit) {
@@ -124,7 +158,7 @@ export function validateDeclaration(
 			version: decl.version,
 			content: decl.content,
 			status,
-			supersedes: decl.supersedes,
+			supersedes,
 			decided_by: decl.decided_by,
 			created_at: decl.now,
 			updated_at: decl.now,
@@ -141,11 +175,17 @@ export function applyDeclaration(
 	records: readonly DecisionRecordWire[],
 	record: DecisionRecordWire,
 ): DecisionRecordWire[] {
-	const updated = records.map((r) =>
-		record.supersedes.some((t) => `${r.decision_id}@v${r.version}` === t)
+	const updated = records.map((r) => {
+		const explicitlySuperseded = record.supersedes.some((t) => `${r.decision_id}@v${r.version}` === t);
+		// G4（二轮审查，Arch 终裁）：同 id 版本修订 = 隐式替代——任何新版本
+		// （proposed/closed）声明成功即机械置同 id 低版本活跃记录 superseded；
+		// supersedes 字段专责跨提案替代（R1「旧版本不再被引用」闭环）。
+		const implicitlySuperseded =
+			r.decision_id === record.decision_id && r.version < record.version && r.status !== "superseded";
+		return explicitlySuperseded || implicitlySuperseded
 			? { ...r, status: "superseded" as const, updated_at: record.updated_at }
-			: r,
-	);
+			: r;
+	});
 	return [...updated, record];
 }
 
@@ -154,12 +194,24 @@ export function applyDeclaration(
  * - current = 链末端的 closed 记录（无 closed 时为 null）；
  * - active = 未 superseded 的完整记录集（截断在渲染端）。
  */
+/**
+ * 快照归约（唯一归约点——角色不自行 fold）：
+ * - current = 链末端的 closed 记录（无 closed 时为 null）；
+ * - active = 未 superseded 的完整记录集；
+ * - 快照 content 截断至 DECISION_CONTENT_MAX_LENGTH（Arch 终裁 2②：广播/
+ *   查询 payload 体积守卫——16 条 × 截断后 ≈ KB 级，1 MiB 出站预算永不触顶；
+ *   状态存储保留完整 content）。
+ */
 export function computeSnapshot(records: readonly DecisionRecordWire[]): DecisionSnapshotWire {
 	const active = records.filter((r) => r.status !== "superseded");
 	const closed = active.filter((r) => r.status === "closed");
 	const last = closed[closed.length - 1];
 	const current: DecisionSnapshotWire["current"] = last ?? null;
-	return { current, active };
+	const truncate = (r: DecisionRecordWire): DecisionRecordWire =>
+		r.content.length > DECISION_CONTENT_MAX_LENGTH
+			? { ...r, content: `${r.content.slice(0, DECISION_CONTENT_MAX_LENGTH)}…` }
+			: r;
+	return { current: current ? truncate(current) : null, active: active.map(truncate) };
 }
 
 /** 解析 decision JSONL 行（容忍空行/损坏行跳过——与消息流恢复同语义）。 */

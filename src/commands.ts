@@ -1,6 +1,6 @@
 import { join } from "node:path";
-
 import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { Compile } from "typebox/compile";
 import type { CharacterRuntime } from "./character/character-runtime.js";
 import { DEFAULT_CONFIG_MAX_MESSAGES, loadTavernConfig, type TavernConfig } from "./config/load-config.js";
 import type { TavernController } from "./controller/tavern-controller.js";
@@ -8,6 +8,10 @@ import type { CreatorRuntime } from "./creator/creator-runtime.js";
 import { type ActiveGroupChatDescriptor, getGroupChatCursorDirectory } from "./data/discovery/active-descriptor.js";
 import type { DiscoverGroupChatsOptions } from "./data/discovery/discover-group-chats.js";
 import type { DeleteGroupChatSessionResult, GroupChatSessionSummary } from "./data/group-chat-sessions.js";
+import { DecisionDeclareRequestSchema } from "./protocol/messages.js";
+
+/** G3（二轮审查）：命令入口与 wire 同一套运行时校验（编译一次，Check 复用）。 */
+const checkDecisionDeclare = Compile(DecisionDeclareRequestSchema);
 
 export interface RegisterCommandsOptions {
 	agentDir?: string;
@@ -15,7 +19,7 @@ export interface RegisterCommandsOptions {
 	loadConfig?: (options: { agentDir: string; cwd: string }) => Promise<TavernConfig>;
 	discoverGroupChats?: (options: DiscoverGroupChatsOptions) => Promise<ActiveGroupChatDescriptor[]>;
 	listGroupChatSessions?: (agentDir: string, cwd: string) => Promise<GroupChatSessionSummary[]>;
-	deleteGroupChatSession?: (path: string) => Promise<DeleteGroupChatSessionResult>;
+	deleteGroupChatSession?: (path: string, groupChatId: string) => Promise<DeleteGroupChatSessionResult>;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	triggerDebounceMs?: number;
 }
@@ -242,12 +246,13 @@ export function registerCommands(
 				);
 				return;
 			}
-			if (
-				typeof parsed?.decision_id !== "string" ||
-				typeof parsed.version !== "number" ||
-				typeof parsed.content !== "string"
-			) {
-				ctx.ui.notify("decision_id/version/content 必填", "error");
+			// G3（二轮审查）：命令入口复用 wire schema 同一套运行时校验——
+			// 非法 version/status/supersedes/空 id 一律拒绝，不污染持久化。
+			if (!checkDecisionDeclare.Check(parsed)) {
+				ctx.ui.notify(
+					"非法参数：decision_id 非空 / version ≥1 整数 / content ≤64KiB；status ∈ proposed|closed；supersedes 为字符串数组",
+					"error",
+				);
 				return;
 			}
 			try {
@@ -402,7 +407,7 @@ async function runDeleteGroupChatFlow(
 	select: (title: string, options: string[]) => Promise<string | undefined>,
 	confirm: (title: string, message: string) => Promise<boolean>,
 	notify: (message: string, type?: "info" | "warning" | "error") => void,
-	deleteSession: (path: string) => Promise<DeleteGroupChatSessionResult>,
+	deleteSession: (path: string, groupChatId: string) => Promise<DeleteGroupChatSessionResult>,
 ): Promise<void> {
 	const labels = sessions.map(formatSessionLabel);
 	const choice = await select("Delete group chat history:", labels);
@@ -417,7 +422,7 @@ async function runDeleteGroupChatFlow(
 	if (!confirmed) {
 		return;
 	}
-	const result = await deleteSession(session.path);
+	const result = await deleteSession(session.path, session.groupChatId);
 	if (result.ok) {
 		notify(`Deleted group chat history (${result.method})`, "info");
 	} else {

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
@@ -72,7 +72,10 @@ export interface GroupChatSessionDependencies {
 	readActiveDescriptor: (path: string) => Promise<ActiveGroupChatDescriptor | null>;
 }
 
-export type DeleteGroupChatSessionDependencies = Pick<GroupChatSessionDependencies, "trash" | "exists" | "unlink">;
+export type DeleteGroupChatSessionDependencies = Pick<GroupChatSessionDependencies, "trash" | "exists" | "unlink"> & {
+	/** #107（G6）：读取会话文件 header（推导 groupChatId——sidecar 真实路径）。 */
+	readFile?: (path: string) => string;
+};
 
 /** 非 pi 依赖的默认实现（node 原语 + data/discovery），供调用方与 sessionManager 拼装。 */
 export const defaultGroupChatSessionIoDependencies: Omit<GroupChatSessionDependencies, "sessionManager"> = {
@@ -85,7 +88,10 @@ export const defaultGroupChatSessionIoDependencies: Omit<GroupChatSessionDepende
 	readActiveDescriptor,
 };
 
-const defaultDeleteDependencies: DeleteGroupChatSessionDependencies = defaultGroupChatSessionIoDependencies;
+const defaultDeleteDependencies: DeleteGroupChatSessionDependencies = {
+	...defaultGroupChatSessionIoDependencies,
+	readFile: (path) => readFileSync(path, "utf8"),
+};
 
 /**
  * 列出项目下已持久化的群聊会话，最新在前，并标记当前活跃的（不可
@@ -143,16 +149,20 @@ function firstPublicMessageFrom(
 export async function deleteGroupChatSession(
 	path: string,
 	deps: DeleteGroupChatSessionDependencies = defaultDeleteDependencies,
+	groupChatId?: string,
 ): Promise<DeleteGroupChatSessionResult> {
+	// G6：sidecar 真实路径需 groupChatId——**主文件删除前**先解析
+	// （显式参数优先，回退 header 首行推导；删后读不到 header）。
+	const resolvedGroupChatId = groupChatId ?? readGroupChatIdFromHeader(path, deps);
 	const trashResult = deps.trash(path);
 	if (trashResult.status === 0 || !deps.exists(path)) {
 		// 主文件已删除/入回收站——同步处理决策 sidecar。
-		await deleteDecisionSidecar(path, deps);
+		await deleteDecisionSidecar(path, deps, resolvedGroupChatId);
 		return { ok: true, method: "trash" };
 	}
 	try {
 		await deps.unlink(path);
-		await deleteDecisionSidecar(path, deps);
+		await deleteDecisionSidecar(path, deps, resolvedGroupChatId);
 		return { ok: true, method: "unlink" };
 	} catch (error) {
 		const unlinkError = error instanceof Error ? error.message : String(error);
@@ -166,15 +176,40 @@ export async function deleteGroupChatSession(
 }
 
 /** #107（F8）：决策 sidecar 路径 = 会话文件同目录、同名去扩展名 + .decisions.jsonl。 */
-function decisionSidecarPath(sessionPath: string): string {
+function decisionSidecarPath(sessionPath: string, groupChatId?: string): string {
 	const dir = dirname(sessionPath);
+	// G6（二轮审查）：真实路径 = {groupChatId}.decisions.jsonl（与
+	// creator-factory 同源命名）；groupChatId 未知时回退 basename 推导。
+	if (groupChatId) {
+		return join(dir, `${groupChatId}.decisions.jsonl`);
+	}
 	const base = basename(sessionPath).replace(/\.[^.]+$/, "");
 	return join(dir, `${base}.decisions.jsonl`);
 }
 
+/** 从会话文件 header（首行 JSON）读取 groupChatId（读失败 = undefined）。 */
+function readGroupChatIdFromHeader(sessionPath: string, deps: DeleteGroupChatSessionDependencies): string | undefined {
+	try {
+		const firstLine = deps.readFile?.(sessionPath)?.split("\n")[0];
+		if (!firstLine) {
+			return undefined;
+		}
+		const header = JSON.parse(firstLine) as { id?: unknown };
+		return typeof header.id === "string" ? header.id : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 /** 删除决策 sidecar（best-effort：trash 优先，回退 unlink；缺失 = 忽略）。 */
-async function deleteDecisionSidecar(sessionPath: string, deps: DeleteGroupChatSessionDependencies): Promise<void> {
-	const sidecar = decisionSidecarPath(sessionPath);
+async function deleteDecisionSidecar(
+	sessionPath: string,
+	deps: DeleteGroupChatSessionDependencies,
+	groupChatId?: string,
+): Promise<void> {
+	// G6：无显式 groupChatId 时从会话文件 header 首行推导（真实命名）。
+	const resolvedId = groupChatId ?? readGroupChatIdFromHeader(sessionPath, deps);
+	const sidecar = decisionSidecarPath(sessionPath, resolvedId);
 	if (!deps.exists(sidecar)) {
 		return;
 	}

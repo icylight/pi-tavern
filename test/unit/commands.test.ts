@@ -381,7 +381,7 @@ describe("PiTavern commands", () => {
 			"Delete group chat history?",
 			expect.stringContaining("/isolated-agent/chats/old.jsonl"),
 		);
-		expect(deleteSession).toHaveBeenCalledWith("/isolated-agent/chats/old.jsonl");
+		expect(deleteSession).toHaveBeenCalledWith("/isolated-agent/chats/old.jsonl", "group-old");
 		expect(notify).toHaveBeenCalledWith("Deleted group chat history (trash)", "info");
 	});
 
