@@ -731,6 +731,8 @@ append 成功后，广播、TUI 和历史缓存已经改用原生 `entry.timesta
 **背景：**
 
 - pi-tavern 游标语义：投递入队成功（pi 侧 steer/followUp 同步入队）即推进游标（`sendWithDeliveryAck` 乐观推进），上下文实际到达不可感知（入队成功 ≠ 上下文到达）。
+- 短承诺化机制（Dev，#68 T2）：`sendWithDeliveryAck` 给 `sendMessage` 挂 preflightResult 回调——入队接受（true）即同步 `saveCursor`（L493-494）并 resolve 短承诺；拒绝/抛错不推进（settle 兜底重投）；不 await `sendMessage` 全量完成（pi SDK 在 run 结束后才 resolve，await 会锁死单飞行锁）。结构推论：**游标推进反映「入队接受」，而非「上下文到达」**——盲区由此结构性产生。
+- 兜底复查路径：settle 重投走 do-while 复查读新游标（`loadCursor`，内存权威 + 文件兜底）——游标已过则补拉跳过；游标单调只前进（persistence.md 条款），推进路径无回退。
 - pi interactive 模式：用户 Esc/abort 触发 `restoreQueuedMessagesToEditor` → `clearQueue` 清空已入队未投递 steer（0.82.1 与 0.83.0 同构，三触发点：abortHandler / uiContext abort / Esc 键）。
 - 组合盲区：忙态 run 中 steer 入队（游标已推进）→ 用户 abort → 已入队 steer 被清空 → 消息永丢且 settle 感知不到（游标已过，无兜底重投）。
 
@@ -741,7 +743,7 @@ append 成功后，广播、TUI 和历史缓存已经改用原生 `entry.timesta
 - 0.82.1→0.83.0 共 176 commits，无 abort/queue/steer 相关变更。
 - 结论：版本差异实锤不成立；升级 pi 上游 issue 路径关闭（PM 分叉判定 2026-08-03）。
 
-**影响面：** interactive 模式 + 忙态 run + 用户 abort 三条件同时成立时，入队未达消息可能永丢。窗口极小（abort 发生在入队后、工具间隙投递前）；RPC/headless 模式无此路径。处置 = 接受（与推进路径写失败残余风险同阶，Arch best-effort 裁决精神一致）。
+**影响面：** interactive 模式 + 忙态 run + 用户 abort 三条件同时成立时，入队未达消息可能永丢。窗口极小（abort 发生在入队后、工具间隙投递前）；RPC/headless 模式无此路径。处置 = 接受（与推进路径写失败残余风险同阶，Arch best-effort 裁决精神一致）。后续若 interactive 面可演练（如 pi 暴露 abort 钩子），方向②评审基线（Arch 四点预判：批起点快照回退/回退-入队互斥/do-while 复查幂等复用/空窗口空操作 + Dev 落盘细节）可启用——基线挂起可追溯（Arch 2026-08-03）。
 
 **涉及组件：**
 
