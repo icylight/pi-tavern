@@ -225,6 +225,13 @@ export class CharacterRuntime {
 		this.clearStreamingResetWatchdog();
 		this.streamingResetWatchdog = setTimeout(() => {
 			this.streamingResetWatchdog = null;
+			// #90：isAgentActive 守卫——run 仍活跃（continue 段进行中）时不灭灯；
+			// 误灭窗口 = agent_end 布防后 5s 内无 agent_start/settle，段内 LLM
+			// 调用 >5s 时触发。真悬挂（agent_end 后无任何事件）由 wedged 3min
+			// 兜底强制收敛（#66），显示复位语义不丢失（#14/W2 回归保持）。
+			if (this.isAgentActive) {
+				return;
+			}
 			this.updateStreaming(false);
 		}, delayMs);
 	}

@@ -26,6 +26,10 @@ export function wireAgentLifecycle(pi: ExtensionAPI, ctrl: TavernController): vo
 			// 任何 run（群聊触发/忙态 steer/救援/私有直聊）启动都点亮，
 			// 不区分触发源——「正在发言」指示改为 agent 活跃指示。
 			state.runtime.updateStreaming(true);
+			// #90：agent_start 续命——取消上一次 agent_end 布防的 5s 显示复位
+			// watchdog（continue 段边界：agent_end → 毫秒级 continue → agent_start；
+			// 不清除则定时器在段内 LLM 调用 >5s 时误灭灯，长 run 收尾段最易触发）。
+			state.runtime.clearStreamingResetWatchdog();
 			// #66：agent_start 布防 run wedged watchdog（W 内无 agent_settled →
 			// 强制收敛）；happy path 由 agent_settled 的 settleRun 清除。
 			state.runtime.armRunWedgedWatchdog();
