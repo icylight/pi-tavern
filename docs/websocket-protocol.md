@@ -65,7 +65,7 @@ PiTavern 对协议错误采用 fail-fast：
 - `tavern_speak` 超时时 tool 返回未公开错误，不能假设服务端已经接受消息；
 - 超时不触发自动重连或请求重试。
 
-服务端对已经完成持久化提交的公开消息不因响应发送超时而回滚。Character 如果没有取得成功响应，只能以后从公开广播或历史中观察该消息是否已经提交，首版不自动重试同一 `speak`，避免重复公开。
+服务端对已经完成持久化提交的公开消息不因响应发送超时而撤销。Character 如果没有取得成功响应，只能以后从公开广播或历史中观察该消息是否已经提交，首版不自动重试同一 `speak`，避免重复公开。
 
 ### 消息大小
 
@@ -220,7 +220,7 @@ character_ready
 }
 ```
 
-群聊创建者按照消息到达顺序原子检查并预留 Character。已经预留或已经在线的 Character 不能再次预留。成功响应：
+群聊创建者按照消息到达顺序原子检查并预留 Character（原子：检查与预留作为一个整体一次完成，不出现中间可见态）。已经预留或已经在线的 Character 不能再次预留。成功响应：
 
 ```json
 {
@@ -349,7 +349,7 @@ Character 主动离开请求：
 
 角色 pi 执行会产生或切换到不同 `session_id` 的 pi 原生 session 操作前，先询问用户是否退出群聊并继续。取消确认时阻止原生操作；确认后执行相同的主动离开流程，再允许 `/new`、`/resume`、`/fork` 或 `/clone` 继续。新 session 不继承群成员关系。离开请求因连接故障无法送达时，角色 pi 仍立即完成本地清理，群聊创建者通过 WebSocket 断开执行 `disconnected` 清理。
 
-主动离开完成后不提供事务回滚。后续 pi session 操作失败或取消时，角色 pi 保持 `idle`，不自动重连或恢复 Character。
+主动离开与后续 pi session 操作互不绑定，离开一旦完成即不可撤销。后续 pi session 操作失败或取消时，角色 pi 保持 `idle`，不自动重连或恢复 Character。
 
 成功响应：
 
@@ -383,7 +383,7 @@ Character 主动离开请求：
 
 WebSocket 意外断开时没有离开请求和响应。群聊创建者立即执行同样的移除、释放和广播流程，不保留重连窗口。
 
-角色 pi 在检测到 WebSocket 断开时不等待服务端通知，立即清除当前群聊关联、未提交的环境聚合批次、群聊输入模块、Character system prompt 和 `tavern_speak`。已经提交给 pi session 或原生 follow-up queue 的群聊输入不回滚，当前 Agent run 不打断。用户之后只能通过 `/tavern-join` 重新加入。
+角色 pi 在检测到 WebSocket 断开时不等待服务端通知，立即清除当前群聊关联、未提交的环境聚合批次、群聊输入模块、Character system prompt 和 `tavern_speak`。已经提交给 pi session 或原生 follow-up queue 的群聊输入不撤销，当前 Agent run 不打断。用户之后只能通过 `/tavern-join` 重新加入。
 
 `character_left`：
 
@@ -882,4 +882,4 @@ User Persona 消息：
 
 Character 发言成功时，群聊创建者原子分配 `sequence`、更新 Round 次数并通过 `SessionManager` 写入 `custom_message`，使用返回的 entry `id` 作为 `event_id`，然后先广播 `group_chat_update`，再返回对应的 `speak` 成功响应。
 
-session append 成功是公开消息成立的提交点。append 失败时，不递增 `sequence`、不消耗 Round 额度、不广播，并返回 `success: false`。append 成功后，即使某个 WebSocket 发送失败，公开消息也不回滚；对应连接进入断线处理。
+session append 成功是公开消息的成立点。append 失败时，不递增 `sequence`、不消耗 Round 额度、不广播，并返回 `success: false`。append 成功后，即使某个 WebSocket 发送失败，公开消息也不撤销；对应连接进入断线处理。
