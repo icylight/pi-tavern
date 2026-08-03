@@ -12,7 +12,9 @@ import {
 const STEP_TIMEOUT_MS = 30_000;
 
 export const REPO_ROOT = resolve(import.meta.dirname, "..", "..");
-const PI_TEST_SH = resolve(REPO_ROOT, "references", "pi", "pi-test.sh");
+// #83 版本缺口补跑：默认门禁锚定 references/pi（0.82.1 子模块）；PI_TEST_SH 环境
+// 覆盖用于一次性 0.83.0 验证（tmp/pi-test-083.sh，不入库）。默认路径零变化。
+const PI_TEST_SH = process.env.PI_TEST_SH ?? resolve(REPO_ROOT, "references", "pi", "pi-test.sh");
 
 export interface SpawnPiOptions {
 	label: string;
