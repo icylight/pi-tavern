@@ -143,8 +143,8 @@ with two: the message stream turns from a monologue-with-log into a
 back-and-forth conversation. The Producer publishes work into the shared
 public message stream; the Reviewer, following its own `run` rhythm, pulls
 the message and judges it independently. If the review does not pass, the
-objection or revision request
-flows back through the same stream, and the Producer iterates. The two are
+objection or revision request flows back through the same stream, and the
+Producer iterates. The two are
 **peers without a leader** — the Reviewer is not a supervisor, just an
 independent perspective; collaboration conventions (e.g. “verify
 independently before responding”) live in the Character Cards and are
