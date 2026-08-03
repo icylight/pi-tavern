@@ -45,6 +45,8 @@ export interface CreatorReloadHandoff {
 	decisionRecords: DecisionRecordWire[];
 	/** #107（F4）：决策声明配额计数（reload 不恢复额度——原样传递，防绕过）。 */
 	declareCounts: Map<string, number>;
+	/** 已协商 decision_state_v1 的在线 session；旧 handoff 缺省为空。 */
+	decisionStateSessionIds?: Set<string>;
 
 	bufferedFrames: Map<string, BufferedFrame[]>;
 	bufferingHandlers: Map<string, { message: (data: WebSocket.RawData) => void; close: () => void }>;

@@ -82,9 +82,11 @@ export async function detachForReload(host: ReloadFlowHost, piSessionId: string)
 	const bufferedFrames = new Map<string, BufferedFrame[]>();
 	const bufferingHandlers = new Map<string, { message: (data: WebSocket.RawData) => void; close: () => void }>();
 	const closedSessionIds = new Set<string>();
+	const decisionStateSessionIds = new Set<string>();
 	for (const [sessionId, socket] of host.connections) {
 		const connection = host.connectionManager.getConnection(socket);
 		if (connection) {
+			if (connection.decisionStateCapable) decisionStateSessionIds.add(sessionId);
 			host.connectionManager.detachSocketHandlers(socket, connection);
 		}
 		const handlers = {
@@ -119,6 +121,7 @@ export async function detachForReload(host: ReloadFlowHost, piSessionId: string)
 		persistedCount: host.persistedCount,
 		decisionRecords: [...host.decisionStore.records],
 		declareCounts: new Map(host.decisionStore.declareCounts),
+		decisionStateSessionIds,
 		bufferedFrames,
 		bufferingHandlers,
 		closedSessionIds,
@@ -166,6 +169,7 @@ export async function takeHandoff(
 			sessionId,
 			reservedCharacterId: null,
 			online: true,
+			decisionStateCapable: handoff.decisionStateSessionIds?.has(sessionId) ?? false,
 			readyTimer: null,
 			handlers: null,
 		};

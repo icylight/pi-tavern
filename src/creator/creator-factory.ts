@@ -8,7 +8,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG_MAX_MESSAGES, loadTavernConfig } from "../config/load-config.js";
 import type { CreatorReloadHandoff } from "../controller/reload-handoff-registry.js";
 import { countPersistedEntries } from "../data/cursor-store.js";
-import { parseDecisionLine } from "../data/decision-store.js";
+import { computeDeclareCountsForRound, parseDecisionLine } from "../data/decision-store.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
 import {
 	getActiveDescriptorPath,
@@ -244,6 +244,12 @@ export async function resumeRuntime(
 	state.groupChat.name = name;
 	state.round = round;
 	state.nextSequence = nextSequence;
+	const roundStartedAt = round
+		? ([...publicMessages].reverse().find((message) => message.sender.type === "user_persona")?.timestamp ?? null)
+		: null;
+	const declareCounts = round
+		? computeDeclareCountsForRound(decisionRecords, roundStartedAt)
+		: new Map<string, number>();
 
 	// 全新运行时身份：新 instance_id 与新端口；无成员连接。
 	const instanceId = dependencies.createId();
@@ -270,7 +276,7 @@ export async function resumeRuntime(
 		options.characters ?? [],
 		runtimeDeps.readyTimeoutMs,
 		runtimeDeps,
-		{ publicMessages, persistedCount, decisionRecords },
+		{ publicMessages, persistedCount, decisionRecords, declareCounts },
 		decisionFilePath,
 	);
 

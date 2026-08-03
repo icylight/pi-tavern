@@ -71,7 +71,7 @@ export class DecisionPipeline {
 			decision_id: string;
 			content: string;
 			version: number;
-			supersedes: string[];
+			supersedes?: string[];
 			status?: "proposed" | "closed";
 		},
 	): Promise<void> {
@@ -95,7 +95,7 @@ export class DecisionPipeline {
 					decision_id: message.decision_id,
 					version: message.version,
 					content: message.content,
-					supersedes: message.supersedes,
+					supersedes: message.supersedes ?? [],
 					status: message.status ?? "proposed",
 					decided_by: sender,
 					now: this.deps.now().toISOString(),

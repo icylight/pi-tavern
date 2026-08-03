@@ -34,5 +34,16 @@ export const DECISION_INJECTION_LIMIT = 5;
  */
 export const DECISION_ACTIVE_LIMIT = 16;
 
-/** #107（G2，审查②）：决策 content 入站限长 + 快照渲染截断上限（64KiB 与出站帧预算同规）。 */
+/** #107：决策 content 入站 UTF-8 字节上限（与 public_message 同规）。 */
 export const DECISION_CONTENT_MAX_LENGTH = 64 * 1024;
+
+/** 决策 id 与单个 supersedes 锚点的长度边界，避免元数据绕过快照体积预算。 */
+export const DECISION_ID_MAX_LENGTH = 128;
+export const DECISION_TARGET_MAX_LENGTH = 160;
+export const DECISION_SUPERSEDES_MAX_ITEMS = 16;
+
+/** wire 快照中单条 content 的 UTF-8 字节上限；完整内容只保留在持久化链。 */
+export const DECISION_SNAPSHOT_CONTENT_MAX_BYTES = 8 * 1024;
+
+/** 决策快照自身预算，给 group_chat_update 预览和协议信封保留充足空间。 */
+export const DECISION_SNAPSHOT_MAX_BYTES = 256 * 1024;

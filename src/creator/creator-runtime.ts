@@ -190,6 +190,7 @@ export class CreatorRuntime {
 					visit(socket);
 				}
 			},
+			supportsDecisionState: (socket) => this.connectionManager?.getConnection(socket)?.decisionStateCapable ?? false,
 			isActive: () => this.lifecycle === "active",
 			onSendFailure: (socket) => this.handleSendFailure(socket),
 			toCharacterSummaryMessage,
@@ -234,6 +235,20 @@ export class CreatorRuntime {
 			append: async (records) => {
 				if (!this.decisionFilePath) {
 					return;
+				}
+				// 决策也属于可恢复群聊状态。首条公开消息尚未出现时先原子落一个
+				// 规范 session header，使 /tavern-resume 能发现 decision-only 群聊；
+				// 后续首条 User Persona 消息仍按既有 first-persist 流程覆盖并追加设置。
+				if (this.persistedCount === 0) {
+					const sessionPath = this.sessionStore.getSessionFilePath();
+					const header = this.sessionStore.getHeader();
+					if (!header) throw new Error("Group chat session has no header");
+					const seedPath = `${sessionPath}.decision-seed.tmp`;
+					await this.deps.writeFile(
+						seedPath,
+						`${JSON.stringify({ ...header, timestamp: this.state.groupChat.createdAt })}\n`,
+					);
+					await this.deps.rename(seedPath, sessionPath);
 				}
 				const lines = records.map((r) => JSON.stringify(r));
 				const content = `${lines.join("\n")}\n`;

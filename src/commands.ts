@@ -248,7 +248,8 @@ export function registerCommands(
 			}
 			// G3（二轮审查）：命令入口复用 wire schema 同一套运行时校验——
 			// 非法 version/status/supersedes/空 id 一律拒绝，不污染持久化。
-			if (!checkDecisionDeclare.Check(parsed)) {
+			const request = { ...parsed, type: "decision_declare" as const };
+			if (!checkDecisionDeclare.Check(request)) {
 				ctx.ui.notify(
 					"非法参数：decision_id 非空 / version ≥1 整数 / content ≤64KiB；status ∈ proposed|closed；supersedes 为字符串数组",
 					"error",

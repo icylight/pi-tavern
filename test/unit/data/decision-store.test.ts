@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	applyDeclaration,
+	computeDeclareCountsForRound,
 	computeSnapshot,
 	type DecisionDeclaration,
 	parseDecisionLine,
@@ -175,6 +176,34 @@ describe("#107 validateDeclaration: 校验五项", () => {
 		expect(asUser.ok).toBe(true);
 	});
 
+	it("同 id 隐式替代 closed 也必须由 User 以 closed 新版本执行", () => {
+		const records = [aRecord({ status: "closed", decided_by: USER })];
+		const bypass = validateDeclaration(
+			records,
+			aDecl({ decision_id: "D1", version: 2, status: "proposed", decided_by: char("dev") }),
+			0,
+			3,
+		);
+		expect(bypass.ok).toBe(false);
+		if (!bypass.ok) expect(bypass.code).toBe("target_closed_denied");
+	});
+
+	it("活跃数到上限时仍允许等量替代，但拒绝新增第 17 条", () => {
+		const records = Array.from({ length: 16 }, (_, index) => aRecord({ decision_id: `D${index + 1}`, version: 1 }));
+		expect(
+			validateDeclaration(records, aDecl({ decision_id: "D1", version: 2, decided_by: char("dev") }), 0, 3).ok,
+		).toBe(true);
+		const extra = validateDeclaration(records, aDecl({ decision_id: "D17" }), 0, 3);
+		expect(extra.ok).toBe(false);
+		if (!extra.ok) expect(extra.code).toBe("active_limit_reached");
+	});
+
+	it("content 上限按 UTF-8 字节而非 UTF-16 字符计数", () => {
+		const result = validateDeclaration([], aDecl({ content: "你".repeat(30_000) }), 0, 3);
+		expect(result.ok).toBe(false);
+		if (!result.ok) expect(result.code).toBe("invalid_declaration");
+	});
+
 	it("配额：declareCount ≥ limit → quota_exceeded；未达 → 通过（成功才计次）", () => {
 		expect(validateDeclaration([], aDecl(), 3, 3).ok).toBe(false);
 		if (!validateDeclaration([], aDecl(), 3, 3).ok) {
@@ -264,6 +293,22 @@ describe("#107 computeSnapshot: 快照归约（唯一归约点）", () => {
 		];
 		const snap = computeSnapshot(records);
 		expect(snap.active.some((r) => r.status === "superseded")).toBe(false);
+	});
+});
+
+describe("#107 resume quota projection", () => {
+	it("只统计当前讨论轮次内各 Character 的成功声明", () => {
+		const records = [
+			aRecord({ created_at: "2026-08-01T00:00:00.000Z", decided_by: char("dev") }),
+			aRecord({ decision_id: "D2", created_at: "2026-08-02T00:00:00.000Z", decided_by: char("dev") }),
+			aRecord({ decision_id: "D3", created_at: "2026-08-02T01:00:00.000Z", decided_by: char("qa") }),
+			aRecord({ decision_id: "D4", created_at: "2026-08-02T02:00:00.000Z", decided_by: USER }),
+		];
+		const counts = computeDeclareCountsForRound(records, "2026-08-02T00:00:00.000Z");
+		expect([...counts]).toEqual([
+			["dev", 1],
+			["qa", 1],
+		]);
 	});
 });
 

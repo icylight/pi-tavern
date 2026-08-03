@@ -120,6 +120,7 @@ export class JoinAttempt {
 			const response = await attempt.request({
 				type: "join_group_chat",
 				session_id: sessionId,
+				capabilities: ["decision_state_v1"],
 			});
 			if (response.type !== "response" || response.command !== "join_group_chat") {
 				throw new Error("Unexpected PiTavern join response");

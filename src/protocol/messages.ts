@@ -1,6 +1,11 @@
 import { type Static, Type } from "typebox";
 
-import { DECISION_CONTENT_MAX_LENGTH } from "../shared/constants.js";
+import {
+	DECISION_CONTENT_MAX_LENGTH,
+	DECISION_ID_MAX_LENGTH,
+	DECISION_SUPERSEDES_MAX_ITEMS,
+	DECISION_TARGET_MAX_LENGTH,
+} from "../shared/constants.js";
 
 export const CharacterSummarySchema = Type.Object(
 	{
@@ -31,11 +36,13 @@ const RequestIdSchema = Type.Optional(Type.String());
 // 零耦合）。状态链由 Creator 机械归约，角色不自行 fold。
 export const DecisionRecordSchema = Type.Object(
 	{
-		decision_id: Type.String(),
+		decision_id: Type.String({ minLength: 1, maxLength: DECISION_ID_MAX_LENGTH }),
 		version: Type.Integer({ minimum: 1 }),
 		content: Type.String(),
 		status: Type.Union([Type.Literal("proposed"), Type.Literal("superseded"), Type.Literal("closed")]),
-		supersedes: Type.Array(Type.String()),
+		supersedes: Type.Array(Type.String({ minLength: 1, maxLength: DECISION_TARGET_MAX_LENGTH }), {
+			maxItems: DECISION_SUPERSEDES_MAX_ITEMS,
+		}),
 		decided_by: Type.Union([
 			Type.Object({ type: Type.Literal("user_persona") }, { additionalProperties: false }),
 			Type.Object(
@@ -56,11 +63,15 @@ export const DecisionDeclareRequestSchema = Type.Object(
 	{
 		id: RequestIdSchema,
 		type: Type.Literal("decision_declare"),
-		decision_id: Type.String({ minLength: 1 }),
-		version: Type.Integer({ minimum: 1 }),
+		decision_id: Type.String({ minLength: 1, maxLength: DECISION_ID_MAX_LENGTH }),
+		version: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
 		content: Type.String({ maxLength: DECISION_CONTENT_MAX_LENGTH }),
 		// 缺省 = 无替代（与工具参数 default [] 一致；服务端按空数组校验）。
-		supersedes: Type.Optional(Type.Array(Type.String())),
+		supersedes: Type.Optional(
+			Type.Array(Type.String({ minLength: 1, maxLength: DECISION_TARGET_MAX_LENGTH }), {
+				maxItems: DECISION_SUPERSEDES_MAX_ITEMS,
+			}),
+		),
 		status: Type.Optional(Type.Union([Type.Literal("proposed"), Type.Literal("closed")])),
 	},
 	{ additionalProperties: false },
@@ -83,6 +94,7 @@ export const ClientMessageSchema = Type.Union([
 			id: RequestIdSchema,
 			type: Type.Literal("join_group_chat"),
 			session_id: Type.String(),
+			capabilities: Type.Optional(Type.Array(Type.Literal("decision_state_v1"), { maxItems: 1 })),
 		},
 		{ additionalProperties: false },
 	),

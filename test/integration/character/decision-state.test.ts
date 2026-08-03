@@ -532,4 +532,63 @@ describe("#107 decision state (QA integration)", () => {
 		expect(result.accepted).toBe(false);
 		expect(creator.decisionStore.records).toHaveLength(0);
 	});
+
+	it("T17: decision-only group chat is discoverable and resumable", { timeout: 15_000 }, async () => {
+		const { creator, character, root } = await startCreator();
+		const groupId = creator.state.groupChat.groupChatId;
+		await declareAsUser(creator, { decision_id: "D1", version: 1, content: "仅有决定、没有公开消息" });
+
+		const agentDir = join(root, "agent");
+		const cwd = join(root, "project");
+		const sessionDir = getGroupChatSessionDirectory(agentDir, cwd);
+		const sessionFiles = (await readdir(sessionDir)).filter(
+			(name) => name.endsWith(".jsonl") && name.includes(groupId) && !name.endsWith(".decisions.jsonl"),
+		);
+		expect(sessionFiles).toHaveLength(1);
+		await creator.close();
+
+		const resumed = await CreatorRuntime.resume({
+			cwd,
+			agentDir,
+			sessionPath: join(sessionDir, sessionFiles[0] as string),
+			characters: [character],
+		});
+		expect(resumed.decisionStore.records).toMatchObject([{ decision_id: "D1", content: "仅有决定、没有公开消息" }]);
+		await resumed.close();
+	});
+
+	it("T19: resume preserves the current-round Character declaration quota", { timeout: 20_000 }, async () => {
+		const { creator, character, root } = await startCreator();
+		const groupId = creator.state.groupChat.groupChatId;
+		await creator.submitUserPersonaMessage("开始讨论轮次");
+		const { runtime, pi } = await joinCharacter(creator, character, "session-t19-a");
+		await settleJoin(pi);
+		for (let version = 1; version <= 3; version++) {
+			expect((await runtime.declareDecision({ decision_id: "D1", version, content: `v${version}` })).accepted).toBe(
+				true,
+			);
+		}
+
+		const agentDir = join(root, "agent");
+		const cwd = join(root, "project");
+		const sessionDir = getGroupChatSessionDirectory(agentDir, cwd);
+		const sessionFile = (await readdir(sessionDir)).find(
+			(name) => name.endsWith(".jsonl") && name.includes(groupId) && !name.endsWith(".decisions.jsonl"),
+		);
+		expect(sessionFile).toBeDefined();
+		await creator.close();
+
+		const resumed = await CreatorRuntime.resume({
+			cwd,
+			agentDir,
+			sessionPath: join(sessionDir, sessionFile as string),
+			characters: [character],
+		});
+		creatorRuntimes.push(resumed);
+		const { runtime: rejoined, pi: rejoinedPi } = await joinCharacter(resumed, character, "session-t19-b");
+		await settleJoin(rejoinedPi);
+		const rejected = await rejoined.declareDecision({ decision_id: "D1", version: 4, content: "v4" });
+		expect(rejected.accepted).toBe(false);
+		expect(rejected.error_code).toBe("quota_exceeded");
+	});
 });

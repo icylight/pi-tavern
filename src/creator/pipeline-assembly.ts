@@ -136,7 +136,8 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 			publicMessages: host.publicMessages,
 			sessionStore: host.sessionStore,
 			getPersistedCount: () => host.persistedCount.get(),
-			getGroupChatStateMessage: (requestingSessionId) => broadcastHub.getGroupChatStateMessage(requestingSessionId),
+			getGroupChatStateMessage: (requestingSessionId, includeDecisionSnapshot) =>
+				broadcastHub.getGroupChatStateMessage(requestingSessionId, includeDecisionSnapshot),
 			send: (socket, message) => broadcastHub.send(socket, message),
 			sendFailure: (socket, id, command, reason) => broadcastHub.sendFailure(socket, id, command, reason),
 			broadcastGroupChatUpdate: () => broadcastHub.broadcastGroupChatUpdate(),

@@ -27,6 +27,23 @@ describe("PiTavern protocol codec", () => {
 		});
 	});
 
+	it("keeps legacy join compatible while accepting decision-state capability negotiation", () => {
+		const legacy = {
+			id: "legacy-join",
+			type: "join_group_chat",
+			session_id: "legacy-session",
+		};
+		expect(decodeClientMessage(Buffer.from(JSON.stringify(legacy)))).toEqual(legacy);
+
+		const capable = {
+			id: "capable-join",
+			type: "join_group_chat",
+			session_id: "capable-session",
+			capabilities: ["decision_state_v1"],
+		};
+		expect(decodeClientMessage(Buffer.from(JSON.stringify(capable)))).toEqual(capable);
+	});
+
 	it("rejects malformed JSON, unknown types, and extra fields", () => {
 		expect(() => decodeClientMessage(Buffer.from("{broken"))).toThrow(ProtocolError);
 		expect(() => decodeClientMessage(Buffer.from(JSON.stringify({ type: "unknown" })))).toThrow(ProtocolError);

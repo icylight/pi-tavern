@@ -50,6 +50,7 @@ function createRuntime(): CreatorRuntime {
 		setMaxMessages: vi.fn(async (maxMessages: number) => {
 			state.groupChat.groupMaxMessages = maxMessages;
 		}),
+		declareDecisionAsUser: vi.fn(async () => ({ accepted: true })),
 		close: vi.fn(async () => undefined),
 	} as unknown as CreatorRuntime;
 }
@@ -134,6 +135,27 @@ describe("PiTavern commands", () => {
 		});
 		expect(controller.getState()).toEqual({ type: "creator", runtime });
 		expect(notify).toHaveBeenCalledWith(expect.stringContaining("group-1"), "info");
+	});
+
+	it("declares a User Persona decision with the documented JSON command shape", async () => {
+		const runtime = createRuntime();
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+		const commands = register(controller);
+		const { context, notify } = createContext();
+
+		await commands
+			.get("tavern-decision")
+			?.handler('{"decision_id":"D1","version":1,"content":"方向 A","status":"closed"}', context);
+
+		expect(runtime.declareDecisionAsUser).toHaveBeenCalledWith({
+			decision_id: "D1",
+			version: 1,
+			content: "方向 A",
+			supersedes: [],
+			status: "closed",
+		});
+		expect(notify).toHaveBeenCalledWith("Decision D1@v1 declared", "info");
 	});
 
 	it("loads the merged config snapshot when creating a group chat", async () => {
