@@ -97,7 +97,7 @@ describe("acceptance: #90 W1-c 端到端点亮点亮", () => {
 			(e) =>
 				e.type === "extension_ui_request" &&
 				e.method === "setWidget" &&
-				(e.widgetLines as string[] | undefined)?.some((line) => line.startsWith("正在工作：")),
+				(e.widgetLines as string[] | undefined)?.some((line) => line.startsWith("正在工作：")) ?? false,
 			90_000,
 		).catch(() => undefined);
 		expect(seen).toBeDefined();
