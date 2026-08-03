@@ -69,14 +69,15 @@
 
 ## [未发布]
 
+### 新增
+
+- 环境文本加时间（#104）：群聊输入消息带发言时间 + 距当前间隔（x 分钟前）+ 头部当前时间——帮助 agent 感知时间流逝（纯消费端展示，协议零改动）。
+- 断连后停止流式状态上报竞态（#14/#82）：updateStreaming 在连接未建立/已关闭时静默跳过（display-only 语义，绝不 throw），finishDisconnected 同步拆除 streaming reset 与 run wedged watchdog——消除定时器路径 uncaughtException 导致整个 pi 进程崩溃的问题。
+
 ### 文档
 
 - 历史文档语言审计（#57）：docs/ 全量扫描去后端术语风——事务/Outbox/回滚/提交点等改项目白话或保留+首现解释（契约文档保语义优先），注入/幂等/快照等既有术语保留；12 份文档独立 commit 便于回退。
-
-### 新增
-
-（暂无）
-- 断连后停止流式状态上报竞态（#14/#82）：updateStreaming 在连接未建立/已关闭时静默跳过（display-only 语义，绝不 throw），finishDisconnected 同步拆除 streaming reset 与 run wedged watchdog——消除定时器路径 uncaughtException 导致整个 pi 进程崩溃的问题。
+- 全仓注释中文化（#103）：src/test 英文注释改中文——叙述白话化、标识符/issue 引用保留，纯注释零逻辑变更。
 
 ### 安全
 

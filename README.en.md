@@ -116,11 +116,49 @@ model is different in kind:
 
 The shared group chat is the communication substrate common to all scenarios;
 different teams form different collaboration topologies, message flows, and
-task progression styles. The five examples below show how the same mechanisms
+task progression styles. The six examples below show how the same mechanisms
 (independent Sessions, Character identity, public message sync) form different
 workflows through **Character Cards and collaboration conventions**.
+Example 1 is the minimal two-Character collaboration shape — suitable for
+small teams, and a good place to understand the mechanics before reading the
+larger scenarios. The number of Characters is flexible: a single one is
+technically complete, and there is no upper limit.
 
-### 1. Software Development: Iterative Closed Loop
+### 1. Small Teams: Producer and Independent Reviewer
+
+**Roles**: Producer, Reviewer
+
+```mermaid
+flowchart TD
+    P["Producer"] -->|"publish to the public message stream"| GC["Group Chat"]
+    GC -->|"independent review at own run boundary"| R["Reviewer"]
+    R -->|"conclusion or objection"| GC
+    GC -->|"feedback"| P
+    P -.->|"revised version"| GC
+```
+
+A single Character is fully usable (publication, unread pulls, cursor
+advancement, and public replies all work) — but collaboration value starts
+with two: the message stream turns from a monologue-with-log into a
+back-and-forth conversation. The Producer publishes work into the shared
+public message stream; the Reviewer, following its own `run` rhythm, pulls
+the message and judges it independently. If the review does not pass, the
+objection or revision request flows back through the same stream, and the
+Producer iterates. The two are
+**peers without a leader** — the Reviewer is not a supervisor, just an
+independent perspective; collaboration conventions (e.g. “verify
+independently before responding”) live in the Character Cards and are
+**not enforced by the extension**.
+
+The same abstract shape covers many pairings: **developer + tester**
+(cross-checking), **author + editor** (multi-round revision), **researcher +
+devil's advocate** (independent challenge). Two Characters are the smallest
+collaboration size; there is no upper limit on scale — the same mechanisms
+serve teams from 2 to 20. The extra hop of group-chat sync,
+context injection, and delivery latency buys nothing when there is only one
+voice in the stream.
+
+### 2. Software Development: Iterative Closed Loop
 
 **Roles**: User (or project owner), Product Manager, Architect, Developer, Test Engineer, Code Reviewer
 
@@ -140,7 +178,7 @@ The user raises a requirement in the group chat → the Product Manager clarifie
 
 > PiTavern itself is developed through this kind of multi-role collaboration.
 
-### 2. Incident Response: Parallel Investigation Converging on a Lead
+### 3. Incident Response: Parallel Investigation Converging on a Lead
 
 **Roles**: Incident Commander, Application Engineer, System Engineer, Network Engineer, Database Engineer
 
@@ -158,7 +196,7 @@ flowchart TD
 
 The Incident Commander posts the incident symptoms and investigation goals → multiple engineers investigate different systems **at the same time, in parallel** → every role keeps syncing findings to the shared group chat, and a new finding from one role can steer others to adjust their direction → findings converge back to the Commander → the Commander consolidates root cause, remediation plan, and recovery status. The point is **parallel investigation, continuous sync, centralized convergence** — not one role finishing before the next starts.
 
-### 3. Security Review: Adversarial Fix-and-Reverify Loop
+### 4. Security Review: Adversarial Fix-and-Reverify Loop
 
 **Roles**: Security Auditor, Developer, Security Test Engineer, Architect, Compliance Reviewer
 
@@ -177,7 +215,7 @@ flowchart TD
 
 The Security Auditor and the Security Test Engineer **independently** discover risks → the Developer proposes and implements fixes → the Architect judges whether a fix introduces new design problems → after the fix, the work **must return to the Security Test Engineer for independent re-verification** → the Compliance Reviewer checks whether the final result satisfies requirements. Failures re-enter the fix loop. The point is **challenge, checks and balances, and re-verification** between roles — not every Agent nodding to the same conclusion.
 
-### 4. Documentation: Serial Pipeline with Multiple Revision Rounds
+### 5. Documentation: Serial Pipeline with Multiple Revision Rounds
 
 **Roles**: User, Research Associate, Writer, Fact-Checker, Reviewer, Editor-in-Chief
 
@@ -197,7 +235,7 @@ flowchart TD
 
 The user provides goals, requirements, and local materials → the Research Associate organizes the information → the Writer produces a first draft → the Fact-Checker verifies key facts and citations → the Reviewer checks structure, language, and consistency → issues return to the Writer for revision → the Editor-in-Chief consolidates feedback into the final version. The user can add requirements or change direction at any stage through the group chat. The main line is **research → drafting → fact-checking → review → revision → finalization**, with multiple revision rounds as the norm. Suitable for **technical documentation, internal proposals, research notes, organizing private materials**, and **local documents you do not want to upload to external services** — use it with local models and local tools; PiTavern itself does not provide a document editor, nor does it make privacy promises.
 
-### 5. Group Brainstorming: Free-Flowing Discussion, Dynamic Convergence
+### 6. Group Brainstorming: Free-Flowing Discussion, Dynamic Convergence
 
 **Roles**: User, Facilitator, Product Manager, Tech Lead, User Researcher, Devil's Advocate
 
@@ -224,7 +262,78 @@ sequenceDiagram
 
 The user poses an open question in the group chat → roles speak **freely, with no fixed order**; Agents can directly respond to, cite, build on, or challenge other Agents' points → the user can interject, question a specific role, or change direction at any time → the discussion may branch in many directions → the Facilitator finally consolidates consensus, disagreements, and next steps.
 
-These examples are user-configurable arrangements only — they are not built-in PiTavern templates, nor a state machine enforced by the extension. The extension provides only independent Sessions, Character identity, and public message sync — **it does not prescribe an organizational structure**; the only built-in conversation constraint is a configurable per-round cap on total public messages (it bounds discussion cost and length, does not decide workflow topology, and does not guarantee equal speaking opportunities).
+These examples are user-configurable arrangements only — they are not
+built-in PiTavern templates, nor a state machine enforced by the extension.
+The extension provides only independent Sessions, Character identity, and
+public message sync — **it does not prescribe an organizational structure**;
+the only built-in conversation constraint is a configurable per-round cap on
+total public messages (it bounds discussion cost and length, does not decide
+workflow topology, and does not guarantee equal speaking opportunities).
+
+### External Advisor: An Out-of-Band Perspective Outside the Team
+
+Beyond the in-chat compositions above, users can optionally adopt an
+**external advisor** workflow practice: invite an external AI that does not
+participate in the current execution to provide retrospective and management
+advice from outside the team.
+
+The external advisor is **not**: a PiTavern built-in feature; a new
+Character; a group chat member; a main Agent or dispatcher; an automated
+monitoring service; a project arbiter.
+
+Boundaries of the external advisor:
+
+- Does not join the group chat and does not consume public speaking quota;
+- Does not modify code or execute team tasks;
+- Does not directly direct PM, Arch, Dev, or QA;
+- Does not make final decisions on behalf of the User;
+- Only reads group chat records, project documents, and necessary code state;
+- Returns observations and suggestions to the User privately;
+- The User decides whether to feed additional constraints, narrow scope, or
+  adjust direction back to the execution team;
+- Disabled by default; triggered on demand by the User.
+
+Suitable use cases:
+
+- Discussion messages grow fast and the User struggles to tell whether the
+  goal has drifted;
+- Multiple roles disagree on what the current conclusion or project state is;
+- An early exploration expands prematurely into a full architecture design;
+- The User is unfamiliar with the codebase and needs an independent reading
+  of the team's proposals and evidence;
+- Before kickoff, merge, or phase close-out, a review of scope and outcomes
+  from outside the execution team is needed.
+
+```mermaid
+flowchart LR
+    TEAM["PiTavern execution team"] -->|produce public chat records & project artifacts| ARTIFACTS["Chat records · Project docs"]
+    ARTIFACTS -.read-only observation.-> ADVISOR["External advisor"]
+    ADVISOR -->|private advice| USER["User"]
+    USER -.course correction when needed.-> TEAM
+```
+
+The out-of-band relationship: PiTavern execution team → produces public chat
+records and project artifacts → external advisor observes read-only → gives
+private advice to the User → the User corrects course toward the execution
+team when necessary. There is no loop back from the advisor to the chat: it
+does not speak, participate, or direct.
+
+**Real-world practice**: during an early exploration of "does PiTavern need a
+single-machine voting mechanism", a broad discussion was quickly expanded by
+the four-role team into a full state machine design covering version chains,
+close authority, supersede permissions, protocol, persistence, reload, and a
+test matrix. The external advisor pointed out, from outside the execution
+team, that the question was still at the "is it worth productizing"
+exploration stage — choose a direction first, then authorize the team to enter
+detailed design. This shows how an advisor mechanism can both help restore
+context to a discussion and check whether team effort matches the value of
+the problem and the current stage.
+
+Consistent with the examples above, the external advisor is a **workflow
+practice users can adopt on their own — not a capability PiTavern provides or
+enforces**. It does not change the product boundary of "the extension does not
+prescribe an organizational structure", nor does it consume any group chat
+resources.
 
 ## Current Boundaries
 
@@ -268,7 +377,8 @@ pi install git:github.com/icylight/pi-tavern
    terminal becomes the creator (User Persona).
 2. **Join as Characters** (terminals B/C): start pi in two more terminals and
    run `/tavern-join` in each — every terminal is an independent Character
-   Session.
+   Session. One terminal is enough to verify message publication and pulls;
+   two Characters form the smallest collaboration loop.
 3. **Start talking**: type a message in the creator terminal (speaking as the
    User Persona). The Characters get notified, receive the full new context at
    their own run boundary, and decide on their own whether to reply publicly
