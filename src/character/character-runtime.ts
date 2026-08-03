@@ -405,7 +405,18 @@ export class CharacterRuntime {
 		};
 	}
 
+	/**
+	 * 展示态上报，尽力而为（同 refreshGroupChatState 的 display-only 语义）：
+	 * 连接已关闭/未建立时静默跳过，绝不 throw。调用面全是 fire-and-forget——
+	 * agent_settled→settleRun（agent-lifecycle 接线）与两个 watchdog 定时器在
+	 * 连接先断（pi 退出竞态/心跳超时）后仍可能触发，此处 throw 会把异常炸进
+	 * ExtensionRunner.emit（settle 路径）或成为 uncaughtException 杀死整个 pi
+	 * 进程（定时器路径，见线上两例崩溃堆栈）。展示状态随连接消失失去意义。
+	 */
 	updateStreaming(isStreaming: boolean): void {
+		if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+			return;
+		}
 		this.send({
 			type: "update_character_state",
 			is_streaming: isStreaming,
@@ -807,6 +818,11 @@ export class CharacterRuntime {
 			return;
 		}
 		this.disconnected = true;
+		// 死连接上的 watchdog 定时器必须一并拆除：否则 agent_end 布防的 5s
+		// 流式复位定时器（或 run wedged 定时器）会在 socket 置空后点火，
+		// 定时器上下文内 throw = uncaughtException = 杀死整个 pi 进程。
+		this.clearStreamingResetWatchdog();
+		this.clearRunWedgedWatchdog();
 		this.stopHeartbeat();
 		this.groupChatInput?.stop();
 		this.groupChatInput = undefined;
