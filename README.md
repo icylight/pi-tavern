@@ -184,7 +184,7 @@ sequenceDiagram
 
 ## 安装（开发版本）
 
-PiTavern 尚未发布正式版本（version 0.0.0）。要从当前 Git 仓库安装开发版：
+PiTavern 已发布 0.1.0 正式版（2026-08-03）。要从当前 Git 仓库安装开发版：
 
 ```bash
 # 通过 pi package 机制从 Git 安装（pi 将自动加载 src/index.ts 扩展）
@@ -204,7 +204,7 @@ pi install git:github.com/icylight/pi-tavern
 
 ## 项目状态
 
-开发中（version 0.0.0，尚未发布正式版本）。核心机制——公共持久消息流、生命周期感知投递、每 Session 独立游标——已实现并通过自动化验收；设计细节见 `docs/`（中文）。
+已发布 0.1.0（2026-08-03）。核心机制——公共持久消息流、生命周期感知投递、每 Session 独立游标——已实现并通过自动化验收；设计细节见 `docs/`（中文）。
 
 ## 开发设置
 
@@ -237,6 +237,7 @@ npm run test:unit -- commands.test.ts   # 单文件（unit / integration / accep
 npm run test:unit -- --all              # 层内全量
 npm run test:full                       # 三层串行全量（收口验收证据）
 npm run check
+npm run health                          # 仓库健康度体检：依赖漏洞 / 密钥扫描 / 卫生自查
 ```
 
 ## 许可证
