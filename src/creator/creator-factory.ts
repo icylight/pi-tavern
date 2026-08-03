@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
 
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { DEFAULT_CONFIG_MAX_MESSAGES } from "../config/load-config.js";
+import { DEFAULT_CONFIG_MAX_MESSAGES, loadTavernConfig } from "../config/load-config.js";
 import type { CreatorReloadHandoff } from "../controller/reload-handoff-registry.js";
 import { countPersistedEntries } from "../data/cursor-store.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
@@ -52,9 +52,19 @@ export async function createNewRuntime(
 	options: StartNewCreatorRuntimeOptions,
 	dependencies: CreatorRuntimeDependencies,
 ): Promise<CreatorRuntime> {
-	const groupChatId = dependencies.createId();
-	const instanceId = dependencies.createId();
-	const createdAt = dependencies.now().toISOString();
+	// #25：懒刷新默认装配——优先 options 注入，其次 dependencies 覆盖，
+	// 兜底真实磁盘重扫（组合根语义）。失败/空结果由
+	// CreatorRuntime.refreshCharacters 内部回退旧快照。
+	const runtimeDeps: CreatorRuntimeDependencies = {
+		...dependencies,
+		loadCharacters:
+			options.loadCharacters ??
+			dependencies.loadCharacters ??
+			(() => loadTavernConfig({ agentDir: options.agentDir, cwd: options.cwd }).then((config) => config.characters)),
+	};
+	const groupChatId = runtimeDeps.createId();
+	const instanceId = runtimeDeps.createId();
+	const createdAt = runtimeDeps.now().toISOString();
 	const cwd = resolve(options.cwd);
 	const configMaxMessages = options.configMaxMessages ?? DEFAULT_CONFIG_MAX_MESSAGES;
 	const state = createGroupChatState({
@@ -90,8 +100,8 @@ export async function createNewRuntime(
 		activeDescriptorPath,
 		configMaxMessages,
 		options.characters ?? [],
-		dependencies.readyTimeoutMs,
-		dependencies,
+		runtimeDeps.readyTimeoutMs,
+		runtimeDeps,
 	);
 
 	try {
@@ -115,6 +125,14 @@ export async function resumeRuntime(
 	options: ResumeCreatorRuntimeOptions,
 	dependencies: CreatorRuntimeDependencies,
 ): Promise<CreatorRuntime> {
+	// #25：同 createNewRuntime——懒刷新默认装配（options 注入优先，兜底磁盘重扫）。
+	const runtimeDeps: CreatorRuntimeDependencies = {
+		...dependencies,
+		loadCharacters:
+			options.loadCharacters ??
+			dependencies.loadCharacters ??
+			(() => loadTavernConfig({ agentDir: options.agentDir, cwd: options.cwd }).then((config) => config.characters)),
+	};
 	const cwd = resolve(options.cwd);
 	const configMaxMessages = options.configMaxMessages ?? DEFAULT_CONFIG_MAX_MESSAGES;
 	// 前置拒绝缺失/空文件：SessionManager.open() 在文件不存在或为空时静默
@@ -223,8 +241,8 @@ export async function resumeRuntime(
 		activeDescriptorPath,
 		configMaxMessages,
 		options.characters ?? [],
-		dependencies.readyTimeoutMs,
-		dependencies,
+		runtimeDeps.readyTimeoutMs,
+		runtimeDeps,
 		{ publicMessages, persistedCount },
 	);
 
