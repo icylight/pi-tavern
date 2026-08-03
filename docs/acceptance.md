@@ -150,3 +150,13 @@ cd references/pi && npm ci && npm run generate-models --workspace packages/ai
 6. 确认 macOS 上 descriptor 文件路径（`<agent-dir>/tavern/--<project-key>--/active/`）与 Linux 一致，项目键的路径规范化对 macOS 路径同样有效。
 
 如条件允许，将 `npm run test:acceptance -- --all` 原样在 macOS 上运行即为平台一致性自动化验证。
+
+## 0.1.0 发布定型（#88，2026-08-03 PM 布置，分支 docs/release-0.1.0）
+
+发布前收尾（M0-M7 全完成 + 五层重构 Phase 5 收口 #75；version 0.0.0 → 0.1.0）：
+
+1. **R1 基线合成**：新验收基线文件 docs/acceptance-baseline-0.1.0.md 存在，含三层全量数据（unit 20/20·209 用例·5.73s + integration 13/13·110 用例·8.37s + acceptance 11/11·19 用例·88.76s，合计 ≈102.9s）+ 演进口径表（34/45/83.6s/102.9s）+ J2 双绿注记；旧 34/45 两份标注废弃（不删除，留档）；
+2. **R2 版本与 CHANGELOG**：package.json + package-lock.json version=0.1.0（两处同步）；CHANGELOG 0.1.0 节含全部历史条目（[未发布] 汇入）+ 新增 #91/#93/#94/#95 条目；README/README.en 版本引用 0.1.0 一致（安装/项目状态各两处 + health 命令补充）；
+3. **R3 归档**：refactor-plan.md 状态行更新为「已完成（Phase 1–5 收口归档）」与 ADR-0005 Accepted 一致；creator-runtime 518 行口径注记（427 → 518 = +92 功能回填 #79/#83，结构未变）；
+4. **R4 门禁留痕**：发布前全量门禁 + check 全绿 V0 留痕（命令 | 结果 | hash@层，见 #88 评论区）；
+5. **R5 检查单**：README/README.en 与现状核对完成（架构/命令/场景章节一致；差异 = 版本引用已修正 + health 命令补充）。

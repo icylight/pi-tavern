@@ -248,7 +248,7 @@ These examples are user-configurable arrangements only — they are not built-in
 
 ## Installation (development build)
 
-PiTavern has no formal release yet (version 0.0.0). To install the current
+PiTavern has released 0.1.0 (2026-08-03). To install the current
 development build from the Git repository:
 
 ```bash
@@ -276,7 +276,7 @@ pi install git:github.com/icylight/pi-tavern
 
 ## Project Status
 
-Under active development (version 0.0.0, no formal release yet). The core
+Released 0.1.0 (2026-08-03). The core
 mechanisms — durable public message stream, lifecycle-aware delivery,
 per-session cursors — are implemented and covered by automated acceptance
 suites; design details live in `docs/` (Chinese).
