@@ -1,12 +1,13 @@
 # ADR-0005：五层架构——IO 管线范式（adapter / application / skills / runtime / shared）
 
-- 状态：**Draft**（待四方评审收敛 + User 批准 + 立项；本 ADR 规划于 `feat/arch-refactor-planning` 分支，不进入实施）
+- 状态：**Accepted**（2026-08-02 Phase 5 收口，四方确认 + User 批准开工后转正；实施后差异核对见文末「实施后差异核注」段，配套依赖图 = docs/architecture.md）
 - 决策者：User（层模型、IO 管线范式与 skill/mcp 概念映射）、Arch（落地映射与迁移）、Dev/QA（实施与验收）
 - 关联：User 2026-08-02 重构指示；动机 = 可维护 / 可读 / 规范
 
 ## 背景
 
 > 状态注记（2026-08-02，Phase 3 达成后补）：正文为决策记录时的基线（1881 行单体）；Phase 3 已达成目标结构（creator-runtime 1193→429 行骨架，ADR 目标结构映射见下，与现状一致）。
+> 状态注记（2026-08-02，Phase 5 收口补）：五阶段实施完成；creator-runtime 现 427 行骨架（QA 收口核对③）。「目标结构」段中 character-pipelines/ 与 character-runtime 瘦身为**挂起后续项**（本期范围 = creator 侧），差异与豁免面明细见文末核注段 + docs/architecture.md。
 
 `src/creator/creator-runtime.ts`（1881 行）单体：WS 传输（handleConnection/心跳）、业务编排（submitUserPersonaMessage/join/claim/ready/leave）、持久化（游标/FIRST_PERSIST_*/session 文件恢复）全部混在一个类；依赖方向靠约定不靠结构；目录与命名无统一规范（22 文件 6415 行，按既有目录分布）。
 
@@ -79,7 +80,7 @@ shared:       protocol/(messages·codec) / config/(character-card·load-config) 
 
 拆解重心：
 
-> 达成注记（2026-08-02）：creator-runtime 已达成 ~400 行骨架（现 429 行：构造/依赖/公开 API 门面/生命周期），WS 连接域、心跳域、装配域、reload 域、成员簿记已拆出；character-runtime 拆分与下两行目标同为目标结构（ADR 映射表为准）。
+> 达成注记（2026-08-02）：creator-runtime 已达成 ~400 行骨架（现 427 行：构造/依赖/公开 API 门面/生命周期），WS 连接域、心跳域、装配域、reload 域、成员簿记已拆出；character-runtime 拆分与下两行目标同为目标结构（ADR 映射表为准，**挂起后续项**，见文末核注段）。
 
 - `creator-runtime.ts` 1881 行 → 骨架（~400 行：WS/心跳/连接表/装配）+ 管线（join/claim/ready/speak/leave/查询 各 ~80-200 行）+ skills（session/cursor/persist ~250 行）
 - `character-runtime.ts` 768 行同理拆分
@@ -95,6 +96,39 @@ shared:       protocol/(messages·codec) / config/(character-card·load-config) 
 | Phase 3 | **runtime 瘦身 + 组合根**：骨架收敛、index.ts 装配 | 全链门禁（里程碑） |
 | Phase 4 | **规范统一**：目录/命名/依赖 lint；schema 拆分可选 | unit + 定向 |
 | Phase 5 | **收口**：全链门禁 + 五层依赖图 + 本 ADR 转 Accepted | 全链门禁 |
+
+## 实施后差异核注（Phase 5 收口，2026-08-02 Arch 产出，四方确认口径）
+
+转 Accepted 口径（PM 裁决）：**五层语义层 Accepted + 已落地映射如实核注 + 挂起项如实标注**——不把未拆结构写成已完成（契约零漂移）。
+
+### 收口验证引用（QA 全链门禁，2026-08-02，预跑 V0-① 参考级，锚 b71af53 = main 头）
+
+- unit 18 文件 204 用例全绿（12.19s）| integration 9 文件 96 用例全绿（7.33s）| acceptance 10 文件 18 用例全绿（101.95s）
+- 环境：references/pi@5bc1c2c0 + node v26.4.0；src/test 树零改动（docs 在途不进入该树），PM 落盘后权威锚以 src/test 树不变为准
+
+### 已落地（与目标结构一致）
+
+- creator-runtime：1881 → **427 行骨架**（≈400 目标达成）；WS 连接域/心跳域/装配域/reload 域/成员簿记已拆出（creator/ 域模块 10 个）
+- creator-pipelines：6 管线（submit-message/join/claim/ready/leave/query）+ dispatch 桥齐备（收口核对②）
+- skills：data/ 8 文件全迁入、无 pi 依赖可单测；discovery 整体 skills（QA 评审定案）
+- 组合根 = src/index.ts（决策 4 达成）；依赖方向由 lint:layers 强制（决策 2 达成，规则矩阵见 docs/architecture.md §3）
+- 契约零改动达成：protocol wire schema 五阶段零 diff（收口核对）
+
+### 挂起项（如实标注）
+
+| 项 | 目标 | 现状 | 状态 |
+| --- | --- | --- | --- |
+| character-pipelines/（发言策略 + steer 策略，自 group-chat-input.ts 拆出，#38 契约面） | application 层 | 无此目录；group-chat-input.ts 612 行，steer 实现在内 | **挂起后续项**（#58 关闭时注明，User 知悉） |
+| character-runtime 瘦身 | 768 行同理拆分 | 852 行未拆 | **挂起后续项** |
+
+### 位置收敛差异（归属一致，仅落位不同）
+
+- 目标结构 skills 行写 `creator/group-chat-sessions.ts` + `creator/group-chat-state.ts` → 实际统一收敛于 `data/` 目录；skills 层归属不变
+- reload-handoff-registry 按目标结构归 runtime（进程级 reload 交接，#14）
+
+### 豁免面（IO 审计口径，QA 预核 + Dev grep 歧义排除）
+
+非 skills 层文件 IO 调用点 = 3 处，全部有裁决依据（非字面「0 调用点」）：config×2（Phase 3 裁决①组合根配置豁免）、creator-factory×1（lint-layers 白名单，组合根装配语义）；grep `writeFile` 另 2 处假命中（creator-runtime.ts:88 / reload-flow.ts:39 为注入接口类型签名）。明细见 docs/architecture.md §5。
 
 ## 否决的替代方案
 
