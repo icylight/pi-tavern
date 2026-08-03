@@ -96,7 +96,7 @@ WebSocket 断开即退出群聊，不进入等待重连的状态。群聊是否�
 | `creator` | pi 正常退出 | `idle` 后退出 |
 | `creator` | `/tavern-leave` | `idle` |
 
-`/new`、`/resume`、`/fork` 和 `/clone` 在非 `idle` 状态下先请求用户确认。取消时状态不变并阻止原生操作；确认时先退出群聊再允许原生操作。退出后不因原生操作失败或取消而回滚状态。
+`/new`、`/resume`、`/fork` 和 `/clone` 在非 `idle` 状态下先请求用户确认。取消时状态不变并阻止原生操作；确认时先退出群聊再允许原生操作。退出后不因原生操作失败或取消而撤销状态。
 
 `/reload` 不创建或切换 pi session。`creator` 和 `character` 通过一次性 `ReloadHandoff` 把运行资源交给新 Extension Runtime，交接成功后保持原状态，不产生离开、关闭、重连或重新加入事件。`joining` 不参与交接；旧 Runtime 关闭连接并释放预留，新 Runtime 从 `idle` 开始。
 
