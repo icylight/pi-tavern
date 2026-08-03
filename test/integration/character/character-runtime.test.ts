@@ -182,14 +182,20 @@ describe("M7 message fetch (ISSUE-012)", () => {
 
 		const root = await createTemporaryDirectory();
 		const cursorDir = join(root, "cursors", "group-iso");
+		// #100：解构 + 一次守卫（fixture 契约：startCreator(2) 恒 2 成员）——
+		// 替代 `!` 断言（noNonNullAssertion 警告消除，风格同 src 契约守卫）。
+		const [characterA, characterB] = characters;
+		if (!characterA || !characterB) {
+			throw new Error("startCreator(2) 应返回 2 个角色（fixture 契约）");
+		}
 		const attemptA = await JoinAttempt.connect(creator.activeDescriptor, "session-iso-a", {
 			cursorStorePath: join(cursorDir, "session-iso-a.json"),
 		});
-		const runtimeA = await attemptA.claimCharacter(characters[0]!.characterId);
+		const runtimeA = await attemptA.claimCharacter(characterA.characterId);
 		const attemptB = await JoinAttempt.connect(creator.activeDescriptor, "session-iso-b", {
 			cursorStorePath: join(cursorDir, "session-iso-b.json"),
 		});
-		const runtimeB = await attemptB.claimCharacter(characters[1]!.characterId);
+		const runtimeB = await attemptB.claimCharacter(characterB.characterId);
 
 		// A delivered up to 3; B has delivered only seq 1.
 		runtimeA.saveCursor(3);
@@ -243,14 +249,19 @@ describe("M7 message fetch (ISSUE-012)", () => {
 		const { creator, characters } = await startCreator(2);
 		const root = await createTemporaryDirectory();
 		const cursorDir = join(root, "cursors", "group-conc");
+		// #100：解构 + 守卫（同 group-iso，fixture 契约）。
+		const [characterA, characterB] = characters;
+		if (!characterA || !characterB) {
+			throw new Error("startCreator(2) 应返回 2 个角色（fixture 契约）");
+		}
 		const attemptA = await JoinAttempt.connect(creator.activeDescriptor, "session-conc-a", {
 			cursorStorePath: join(cursorDir, "session-conc-a.json"),
 		});
-		const runtimeA = await attemptA.claimCharacter(characters[0]!.characterId);
+		const runtimeA = await attemptA.claimCharacter(characterA.characterId);
 		const attemptB = await JoinAttempt.connect(creator.activeDescriptor, "session-conc-b", {
 			cursorStorePath: join(cursorDir, "session-conc-b.json"),
 		});
-		const runtimeB = await attemptB.claimCharacter(characters[1]!.characterId);
+		const runtimeB = await attemptB.claimCharacter(characterB.characterId);
 
 		// Interleaved saves across sessions: per-session files mean no shared
 		// tmp name and no last-write-wins clash between sessions.
