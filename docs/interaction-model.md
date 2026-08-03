@@ -58,7 +58,7 @@ Repository
 - 当前处于 `joining`、`creator` 或 `character` 时，执行 `/new`、`/resume`、`/fork`、`/clone` 等会创建或切换 pi session 的原生命令，PiTavern 先询问是否退出当前群聊并继续。
 - 用户取消确认时阻止原生 session 操作并保持当前状态；用户确认时先完成退出，再允许 pi 执行原生操作。
 - Creator 的退出会关闭整个群聊；Character 的退出执行正常离开；`joining` 的退出关闭连接并释放可能存在的 Character 预留。
-- 退出一旦完成便不回滚。后续 `/new`、`/resume`、`/fork` 或 `/clone` 即使失败、取消或没有实际完成，PiTavern 也保持 `idle`，不自动恢复或重新加入群聊。
+- 退出一旦完成便不撤销。后续 `/new`、`/resume`、`/fork` 或 `/clone` 即使失败、取消或没有实际完成，PiTavern 也保持 `idle`，不自动恢复或重新加入群聊。
 - `/reload` 不属于上述退出流程。当前 pi session 不变时，Creator 或 Character 通过 reload 专用的一次性运行资源交接保持原群聊身份和 WebSocket，不关闭群聊、不离开、不重新连接。
 - `joining` 不参与 reload 资源交接；reload 时关闭加入连接、释放 Character 预留，新 Extension Runtime 从 `idle` 开始。
 - Creator reload 只交接已经正式在线的 Character；创建者侧尚未完成 `character_ready` 的连接释放预留并关闭，reload 窗口内的新连接也直接关闭。
@@ -179,7 +179,7 @@ sequenceDiagram
 - 当前 pi Agent 正在生成回复时，PiTavern 使用该 pi-coding-agent session 的原生 follow-up queue 接收新的合并群聊输入，不打断正在进行的生成。
 - Character pi 执行 `/tavern-leave` 时，群聊创建者先移除成员并立即释放角色卡，再向剩余在线 Character 广播 `character_left`；其他 pi 随后可以重新领取。
 - WebSocket 意外断开后，角色 pi 立即退出当前群聊，停用 `tavern_speak` 和群聊输入模块，并移除 Character system prompt。
-- 尚未提交的防抖批次立即丢弃；已经写入当前 pi session 或进入原生 follow-up queue 的群聊输入不回滚、不移除。
+- 尚未提交的防抖批次立即丢弃；已经写入当前 pi session 或进入原生 follow-up queue 的群聊输入不撤销、不移除。
 - 当前正在进行的 Agent run 不打断；断线后 `tavern_speak` 已停用，后续普通输出只能保留在当前 pi session。
 - 角色 pi 使用当前 pi session 的 `sessionId` 作为群成员连接身份；PiTavern 不创建另一个 Agent session ID。
 - 群聊创建者在连接断开时立即移除成员并释放角色卡，再以 `disconnected` 原因向剩余在线 Character 广播 `character_left`。
@@ -188,7 +188,7 @@ sequenceDiagram
 - 群成员关系绑定角色 pi 加入时的当前 `sessionId`。
 - `/new`、`/resume`、`/fork`、`/clone` 等操作产生或切换到不同 `sessionId` 前，PiTavern 先取得用户确认，再执行正常离开流程并允许 pi 完成原生 session 切换。
 - session 切换不继承群成员关系、Character system prompt、群聊输入模块或 `tavern_speak`；切换完成后由用户手动重新加入。
-- 退出完成后，后续 session 操作失败或取消也不回滚群聊退出，不自动重连。
+- 退出完成后，后续 session 操作失败或取消也不撤销群聊退出，不自动重连。
 - 不改变 `sessionId` 的同 session 操作不退出群聊。
 
 ## WebSocket 连接
@@ -203,7 +203,7 @@ PiTavern 扩展之间使用 WebSocket 传递实时消息和成员状态：
 - `groupChatId` 是持久群聊身份；`instanceId` 是每次新建或恢复时重新生成的运行实例身份，不写入群聊 session。
 - WebSocket URL 路径同时携带 `groupChatId` 和 `instanceId`，创建者在 upgrade 阶段校验后才接受连接。
 - 同一个历史群聊同时只能有一个活动创建者；`/tavern-resume` 标记并禁止选择已经活动的群聊。
-- 恢复时通过排他创建活动描述完成最终原子占用；并发恢复只有一个 pi 可以成功。
+- 恢复时通过排他创建活动描述完成最终一次性占用；并发恢复只有一个 pi 可以成功。
 - 一个加入方 WebSocket 连接对应一个群成员。
 - 首版运行在同一台机器和代码仓库中，不使用证书或 token。
 - 群聊创建者每 30 秒发送标准 WebSocket `ping`；任一方连续 120 秒没有收到对应心跳时终止连接。
@@ -379,7 +379,7 @@ roundMaxMessages
 - 各个角色 pi 收到广播后独立决定回复或保持沉默。
 - Character 只有调用 `tavern_speak` Agent tool 才会尝试发送公共回复；不调用工具即保持沉默。
 - 普通 assistant 文本、工具调用和命令输出始终留在私有 pi session，不自动进入群聊。
-- Tavern 按收到 WebSocket 消息的先后顺序原子处理并分配群聊消息序号。
+- Tavern 按收到 WebSocket 消息的先后顺序原子处理并分配群聊消息序号（原子：处理与分配作为一个整体一次完成，不出现中间可见态）。
 - `usedMessages < roundMaxMessages` 时接受回复、增加次数，并向所有角色 pi 广播消息和最新次数。
 - 达到上限后收到的回复不进入群聊，完整内容保留在发送方私有 pi 中，并将该成员标记为举手。
 - 同一 Character 可以在一个 Round 中发言多次，不要求角色之间平均分配消息。
