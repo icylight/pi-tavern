@@ -85,7 +85,7 @@ export class BufferedWsClient {
 	}
 }
 
-/** Connect a raw WebSocket client and complete the join flow. */
+/** 连接裸 WebSocket 客户端并完成加入流程。 */
 export async function joinCharacterWs(
 	descriptor: ActiveGroupChatDescriptor,
 	sessionId: string,

@@ -18,7 +18,7 @@ export interface GroupChatSessionSummary {
 	/** 首条公共消息文本，用于展示未命名群聊。 */
 	firstMessage: string;
 	created: Date;
-	/** True when an active instance descriptor exists for this group chat. */
+	/** 存在该群聊的活跃实例描述符时为 true。 */
 	active: boolean;
 }
 

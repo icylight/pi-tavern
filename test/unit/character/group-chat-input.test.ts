@@ -197,7 +197,7 @@ describe("GroupChatInput", () => {
 		handler(aCharacterPublicMessage("dev", { content: "My own" }));
 		// 他人的消息
 		handler(aCharacterPublicMessage("other", { content: "Other's message" }));
-		// User persona
+		// User Persona 消息
 		handler(aPublicMessage("user_persona", { content: "User says" }));
 
 		await vi.advanceTimersByTimeAsync(1000);
