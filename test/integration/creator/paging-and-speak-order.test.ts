@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 
+import type { CharacterCard } from "../../../src/config/character-card.js";
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 import { decodeServerMessage, encodeMessage } from "../../../src/protocol/codec.js";
 
@@ -22,7 +23,7 @@ const temporaryDirectories: string[] = [];
 const runtimes: CreatorRuntime[] = [];
 const sockets: WebSocket[] = [];
 
-const characters = [
+const characters: [CharacterCard, CharacterCard] = [
 	{
 		characterId: "characters/architect.md",
 		name: "Architect",
@@ -187,7 +188,7 @@ describe("ISSUE-008 join snapshot paging contract (integration)", () => {
 			await runtime.submitUserPersonaMessage(`message ${i}`);
 		}
 
-		const peer = await joinAndReady(runtime, "session-paging", characters[0]!.characterId);
+		const peer = await joinAndReady(runtime, "session-paging", characters[0].characterId);
 		const history = await peer.waitFor((m) => m.type === "message_history");
 
 		const messages = history.messages as Record<string, unknown>[];
@@ -205,7 +206,7 @@ describe("ISSUE-008 join snapshot paging contract (integration)", () => {
 		await runtime.submitUserPersonaMessage("hello 1");
 		await runtime.submitUserPersonaMessage("hello 2");
 
-		const peer = await joinAndReady(runtime, "session-paging2", characters[0]!.characterId);
+		const peer = await joinAndReady(runtime, "session-paging2", characters[0].characterId);
 		const history = await peer.waitFor((m) => m.type === "message_history");
 
 		const messages = history.messages as Record<string, unknown>[];
@@ -222,8 +223,8 @@ describe("concurrent speaks keep creator order + round quota (integration)", () 
 		await runtime.setMaxMessages(3); // 首个 round 前设置（setMaxMessages 作用于 next round）
 		await runtime.submitUserPersonaMessage("Hello from the creator");
 
-		const memberA = await joinAndReady(runtime, "session-spk-a", characters[0]!.characterId);
-		const memberB = await joinAndReady(runtime, "session-spk-b", characters[1]!.characterId);
+		const memberA = await joinAndReady(runtime, "session-spk-a", characters[0].characterId);
+		const memberB = await joinAndReady(runtime, "session-spk-b", characters[1].characterId);
 		// 跳过 join 期帧（message_history/character_joined/seq1 广播）。
 		const baselineA = memberA.allFrames().length;
 		const baselineB = memberB.allFrames().length;
