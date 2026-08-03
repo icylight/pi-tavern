@@ -102,5 +102,11 @@ describe("acceptance: #85 J2 降级——RPC abort 不清已入队 steer", () =>
 		// ③ 不丢：abort 后队列保留（若 pi 升级引入 abort 清队列，此处归零 = 本钉红）。
 		const after = await scanLatestState(creator);
 		expect(after.pendingMessageCount).toBe(1);
+
+		// ④ 不阻塞：abort 后队列仍可继续入队（第二条 steer → 2，若 pi 升级引入
+		// abort 后队列锁死，此处不达 2 = 本钉红）。
+		await rpc(creator, { type: "steer", message: "J2-abort-no-loss-2" });
+		const afterSecond = await scanLatestState(creator);
+		expect(afterSecond.pendingMessageCount).toBe(2);
 	});
 });
