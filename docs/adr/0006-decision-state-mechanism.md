@@ -57,6 +57,18 @@
 
 **修订 6：截断方向（F7）**——活跃提案按最新优先取前 N（DECISION_INJECTION_LIMIT），「+M 个更早活跃提案」标注与方向一致。
 
+**修订 7（G1）**：supersedes 为协议可选字段（缺省 = 空数组）；管线/命令入口归一 `?? []`，校验层兜底防御——省略字段的合法声明不崩溃、按无替代处理。
+
+**修订 8（G2）**：体积三层防御——① 入站 content ≤ 64 KiB（与 public_message 同源上限，超限拒绝）；② 活跃提案总上限 16（active_limit_reached）；③ 广播/查询快照 content 渲染截断（存储保留完整）——1 MiB 出站预算永不触顶；BroadcastHub.send 区分编码失败与 socket 失败（编码失败记录并跳过，绝不清理成员）。
+
+**修订 9（G3）**：/tavern-decision 命令入口复用 wire schema 运行时校验（Compile+Check），与管线同一校验语义——非法 status/version/supersedes/空 id 拒绝且不持久化。
+
+**修订 10（G4，契约语义修正）**：**同 id 版本修订 = 隐式替代**——任何新版本声明成功（proposed 或 closed）即机械置同 id 低版本 superseded（同 id 仅一个活跃版本）；supersedes 字段专责跨提案替代（D2 替代 D1）。原「仅显式 supersedes 淘汰」语义废止（T14 断言随修）。
+
+**修订 11（G5）**：关闭权限绑定**被关闭版本**——closed 声明校验 = 同 id 活跃记录中 version 最大者（将被隐式替代的最新版）的声明者或 User；禁止 find 首条活跃。
+
+**修订 12（G6）**：删除群聊历史同步删除 decisions sidecar，路径 = 真实 {groupId}.decisions.jsonl（显式参数优先，主文件删除前读 header 推导兜底）。
+
 ## 验收（QA 矩阵锚点）
 
 T1-T8（工具层机械校验）/ T9-T13（注入层格式与乱序）/ T14-T17（状态层恢复可追溯）/ T18-T20（工作流融合层 F 类）——覆盖 R1-R5 + C1-C10 + M1/M2/F1-F3 全锚点；兼容性回归（未注册工具时旧行为不变）。
