@@ -64,6 +64,12 @@ export interface StartNewCreatorRuntimeOptions {
 	agentDir: string;
 	configMaxMessages?: number;
 	characters?: CharacterCard[];
+	/**
+	 * #25：角色清单按需刷新（懒刷新）——join/claim/query 前重扫磁盘。
+	 * 注入磁盘重扫实现（组合根提供，默认 = 重新 loadTavernConfig）；
+	 * 未注入 = 启动快照行为（零变化）。刷新失败/空结果回退旧快照。
+	 */
+	loadCharacters?: () => Promise<CharacterCard[]>;
 }
 
 export interface ResumeCreatorRuntimeOptions {
@@ -72,6 +78,8 @@ export interface ResumeCreatorRuntimeOptions {
 	sessionPath: string;
 	configMaxMessages?: number;
 	characters?: CharacterCard[];
+	/** #25：同 StartNewCreatorRuntimeOptions.loadCharacters。 */
+	loadCharacters?: () => Promise<CharacterCard[]>;
 }
 
 interface PersistedRuntimeState {
@@ -93,6 +101,11 @@ export interface CreatorRuntimeDependencies {
 	heartbeatTimeoutMs: number;
 	/** close()/detachForReload() 等待运行时队列排空的最长时间。 */
 	drainTimeoutMs: number;
+	/**
+	 * #25：角色清单磁盘重扫（懒刷新）。未注入 = 不刷新（启动快照语义）。
+	 * 由组合根注入（creator-factory 默认装配 = loadTavernConfig 重读）。
+	 */
+	loadCharacters?: () => Promise<CharacterCard[]>;
 }
 
 export class CreatorRuntime {
@@ -362,12 +375,46 @@ export class CreatorRuntime {
 		return this.runtimeLifecycle.drainRuntimeQueue(timeoutMs);
 	}
 
+	/**
+	 * #25：角色清单懒刷新——join/claim/query 前重扫磁盘。
+	 * 成功且非空 = 原地更新 characters Map（保持实例引用，member-bookkeeping
+	 * 与各 pipeline 持有的同一引用自动可见）；失败/空结果 = 回退旧快照（不动 Map）。
+	 * 未注入 loadCharacters = 启动快照语义（行为零变化）。
+	 */
+	private async refreshCharacters(): Promise<void> {
+		const load = this.deps.loadCharacters;
+		if (!load) {
+			return;
+		}
+		try {
+			const fresh = await load();
+			if (fresh.length === 0) {
+				return;
+			}
+			this.characters.clear();
+			for (const character of fresh) {
+				this.characters.set(character.characterId, character);
+			}
+		} catch {
+			// 失败回退旧快照：保持现有 Map 内容不变。
+		}
+	}
+
 	/** 客户端消息分发（PR-B：流程移至 creator-pipelines/dispatch）。 */
-	private dispatchClientMessage(
+	private async dispatchClientMessage(
 		socket: WebSocket,
 		connection: ConnectionContext,
 		message: ClientMessage,
 	): Promise<void> {
+		// #25：角色清单入口（join 的 available_characters / claim 的摘要 /
+		// query 的群聊状态）前懒刷新，失败由 refreshCharacters 内部回退旧快照。
+		if (
+			message.type === "join_group_chat" ||
+			message.type === "claim_character" ||
+			message.type === "get_group_chat_state"
+		) {
+			await this.refreshCharacters();
+		}
 		return dispatchClientMessageFlow(
 			{
 				joinPipeline: this.joinPipeline,
