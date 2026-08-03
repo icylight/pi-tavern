@@ -270,6 +270,71 @@ the only built-in conversation constraint is a configurable per-round cap on
 total public messages (it bounds discussion cost and length, does not decide
 workflow topology, and does not guarantee equal speaking opportunities).
 
+### External Advisor: An Out-of-Band Perspective Outside the Team
+
+Beyond the in-chat compositions above, users can optionally adopt an
+**external advisor** workflow practice: invite an external AI that does not
+participate in the current execution to provide retrospective and management
+advice from outside the team.
+
+The external advisor is **not**: a PiTavern built-in feature; a new
+Character; a group chat member; a main Agent or dispatcher; an automated
+monitoring service; a project arbiter.
+
+Boundaries of the external advisor:
+
+- Does not join the group chat and does not consume public speaking quota;
+- Does not modify code or execute team tasks;
+- Does not directly direct PM, Arch, Dev, or QA;
+- Does not make final decisions on behalf of the User;
+- Only reads group chat records, project documents, and necessary code state;
+- Returns observations and suggestions to the User privately;
+- The User decides whether to feed additional constraints, narrow scope, or
+  adjust direction back to the execution team;
+- Disabled by default; triggered on demand by the User.
+
+Suitable use cases:
+
+- Discussion messages grow fast and the User struggles to tell whether the
+  goal has drifted;
+- Multiple roles disagree on what the current conclusion or project state is;
+- An early exploration expands prematurely into a full architecture design;
+- The User is unfamiliar with the codebase and needs an independent reading
+  of the team's proposals and evidence;
+- Before kickoff, merge, or phase close-out, a review of scope and outcomes
+  from outside the execution team is needed.
+
+```mermaid
+flowchart LR
+    TEAM["PiTavern execution team"] -->|produce public chat records & project artifacts| ARTIFACTS["Chat records · Project docs"]
+    ARTIFACTS -.read-only observation.-> ADVISOR["External advisor"]
+    ADVISOR -->|private advice| USER["User"]
+    USER -.course correction when needed.-> TEAM
+```
+
+The out-of-band relationship: PiTavern execution team → produces public chat
+records and project artifacts → external advisor observes read-only → gives
+private advice to the User → the User corrects course toward the execution
+team when necessary. There is no loop back from the advisor to the chat: it
+does not speak, participate, or direct.
+
+**Real-world practice**: during an early exploration of "does PiTavern need a
+single-machine voting mechanism", a broad discussion was quickly expanded by
+the four-role team into a full state machine design covering version chains,
+close authority, supersede permissions, protocol, persistence, reload, and a
+test matrix. The external advisor pointed out, from outside the execution
+team, that the question was still at the "is it worth productizing"
+exploration stage — choose a direction first, then authorize the team to enter
+detailed design. This shows how an advisor mechanism can both help restore
+context to a discussion and check whether team effort matches the value of
+the problem and the current stage.
+
+Consistent with the examples above, the external advisor is a **workflow
+practice users can adopt on their own — not a capability PiTavern provides or
+enforces**. It does not change the product boundary of "the extension does not
+prescribe an organizational structure", nor does it consume any group chat
+resources.
+
 ## Current Boundaries
 
 - One Pi Session binds to one group chat at a time (creator and Character roles
