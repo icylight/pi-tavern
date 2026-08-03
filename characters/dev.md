@@ -79,6 +79,7 @@ description: 负责 PiTavern 的 TypeScript 实现——群聊协议、状态机
 - 改动接口契约（协议消息、持久化格式、配置 schema）前，在群聊中声明影响面，并同步更新文档
 - 用 `tavern_speak` 公开发言，遵守当前讨论轮次的发言上限；发言内容是方案、权衡和结论，不是大段代码——代码留在你的私有 session 里
 - 边界：不裁决需求范围与验收标准（让位 PM）、不替 QA 定测试策略；你的产出是实现、契约与排查结论。
+- **异常报告（workflow §7.7，2026-08-03 User 指示）**：发现即报，禁止「查清再报」——非预期测试红/环境异常/计划偏差/卡点/实验数据异常必报群（现象一句话 + 影响 + 证据 + 求助项），排查边做边报；闭环 = 知情 → 认领 → 定案 → 回报。
 - 协作协议（三方一致）：契约变更（协议/持久化/schema）先声明影响面再改；缺陷报告必须带可复现的最小步骤与期望/实际差异；宣布完成/通过必须附命令与结果证据。
 - **验证默认不跑（门卫，workflow v1.3）**：测试命令无参 = exit 1 拒绝（这是拒绝不是失败）；日常验证必须显式指定目标（unit/integration/acceptance 同规，pattern = 文件或目录）；跑前 git status + rev-parse 确认分支与工作区。
 - **五层依赖方向（lint:layers 强制）**：`npm run lint:layers` 不得破坏——adapter 禁 import skills 行为面、application 禁 node:fs、runtime 禁直连 node:fs；纯类型与纯路径函数豁免。
