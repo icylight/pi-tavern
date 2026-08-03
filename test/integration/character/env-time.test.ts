@@ -1,11 +1,9 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { afterEach, describe, expect, it, vi } from "vitest";
-
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { CharacterRuntime } from "../../../src/character/character-runtime.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { CharacterRuntime } from "../../../src/character/character-runtime.js";
 import { JoinAttempt } from "../../../src/character/join-attempt.js";
 import { type CharacterCard, loadCharacterCard } from "../../../src/config/character-card.js";
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
@@ -37,10 +35,7 @@ async function startCreator(): Promise<{ creator: CreatorRuntime; character: Cha
 	const root = await createTemporaryDirectory();
 	const configPath = join(root, "tavern.json");
 	await mkdir(join(root, "characters"), { recursive: true });
-	await writeFile(
-		join(root, "characters", "qa.md"),
-		"---\nname: QA\ndescription: QA\n---\nQA prompt",
-	);
+	await writeFile(join(root, "characters", "qa.md"), "---\nname: QA\ndescription: QA\n---\nQA prompt");
 	const character = await loadCharacterCard(join(root, "characters", "qa.md"), configPath);
 	const creator = await CreatorRuntime.startNew(
 		{
@@ -92,7 +87,7 @@ describe("#104 env time", () => {
 	it("T1: 头部含当前时间（格式 + 与注入时点同一分钟级窗口）", { timeout: 15_000 }, async () => {
 		const { creator, character } = await startCreator();
 		await creator.submitUserPersonaMessage("hello 1");
-		const { runtime, pi } = await joinCharacter(creator, character, "env-time-t1");
+		const { pi } = await joinCharacter(creator, character, "env-time-t1");
 		const sendMessage = pi.sendMessage as ReturnType<typeof vi.fn>;
 		await waitFor(() => sendMessage.mock.calls.length > 0, 5_000);
 		const content = sendMessage.mock.calls[0]?.[0]?.content as string;
@@ -101,8 +96,8 @@ describe("#104 env time", () => {
 		// A3：头部当前时间，格式 YYYY-MM-DD HH:MM:SS
 		const headerTime = /当前时间：(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/.exec(content);
 		expect(headerTime).not.toBeNull();
-		if (headerTime) {
-			const injected = new Date(headerTime[1]!.replace(" ", "T"));
+		if (headerTime?.[1]) {
+			const injected = new Date(headerTime[1].replace(" ", "T"));
 			const now = new Date();
 			// 分钟级窗口：注入时点与断言时点差值 < 2 分钟（防测试执行开销误判）
 			expect(Math.abs(now.getTime() - injected.getTime())).toBeLessThan(120_000);
@@ -115,7 +110,7 @@ describe("#104 env time", () => {
 	it("T2: 消息行含发言时间 + 距当前间隔", { timeout: 15_000 }, async () => {
 		const { creator, character } = await startCreator();
 		await creator.submitUserPersonaMessage("hello 1");
-		const { runtime, pi } = await joinCharacter(creator, character, "env-time-t2");
+		const { pi } = await joinCharacter(creator, character, "env-time-t2");
 		const sendMessage = pi.sendMessage as ReturnType<typeof vi.fn>;
 		await waitFor(() => sendMessage.mock.calls.length > 0, 5_000);
 		const content = sendMessage.mock.calls[0]?.[0]?.content as string;
