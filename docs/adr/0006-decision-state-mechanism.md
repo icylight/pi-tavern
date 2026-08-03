@@ -43,6 +43,20 @@
 - character 层：buildContent「当前有效裁决」注入节（消费端渲染）；
 - extension 层：tavern_decision_declare 工具注册（tavern-tools.ts 同模式）。
 
+## 契约修订记录（2026-08-03，User 静态审查后，实现闭环并入）
+
+**修订 1：User 入口 = 独立命令（F2）**——declareAsUser 的真实调用路径 = 独立命令入口（`/tavern-decision '<json>'`，headless/命令层，User 在终端执行，decided_by=user_persona 由命令层固定注入）；tavern_decision_declare 工具维持 character 态守卫不变；「文字裁决永不进状态」唯一入口原则保持（命令 = 机械执行，非解析文字）。
+
+**修订 2：决策变化 = 输入事件（F3）**——广播 group_chat_update 携带 decision_snapshot（与 getGroupChatStateMessage 同源装配）；角色侧快照变化（结构不等）即触发 deliver（零公开消息也注入），投递并入既有通道，零新推送类型。
+
+**修订 3：持久化顺序与原子性（F1/F6）**——状态写入顺序 = 校验 → applyDeclaration（内存）→ 写盘（含替代结果的完整链，temp+rename 原子替换）；磁盘始终为「已应用替代关系」的完整快照，重启恢复不重放。
+
+**修订 4：配额语义（F4）**——declare 计数按 character_id（非 sessionId）；新讨论轮次重置；reload handoff 传递计数（不恢复额度）。
+
+**修订 5：注入含 content（F5）**——注入节渲染含决策内容（限长 120 截断 + 省略号），「当前有效裁决」= 内容 + 状态 + 替代链（转述失真根治闭环）。
+
+**修订 6：截断方向（F7）**——活跃提案按最新优先取前 N（DECISION_INJECTION_LIMIT），「+M 个更早活跃提案」标注与方向一致。
+
 ## 验收（QA 矩阵锚点）
 
 T1-T8（工具层机械校验）/ T9-T13（注入层格式与乱序）/ T14-T17（状态层恢复可追溯）/ T18-T20（工作流融合层 F 类）——覆盖 R1-R5 + C1-C10 + M1/M2/F1-F3 全锚点；兼容性回归（未注册工具时旧行为不变）。
