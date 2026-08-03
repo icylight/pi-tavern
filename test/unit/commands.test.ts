@@ -108,6 +108,7 @@ describe("PiTavern commands", () => {
 				"tavern-join",
 				"tavern-status",
 				"tavern-name",
+				"tavern-decision",
 				"tavern-set-max",
 				"tavern-leave",
 			]);

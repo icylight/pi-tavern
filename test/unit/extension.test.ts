@@ -234,9 +234,10 @@ describe("PiTavern extension", () => {
 		const { tools, api } = captureTools();
 		piTavern(api as unknown as ExtensionAPI);
 
-		expect(tools).toHaveLength(2);
+		expect(tools).toHaveLength(3);
 		expect(tools[0]?.name).toBe("tavern_speak");
-		expect(tools[1]?.name).toBe("tavern_whoami");
+		expect(tools[1]?.name).toBe("tavern_decision_declare");
+		expect(tools[2]?.name).toBe("tavern_whoami");
 
 		const tool = tools[0];
 		if (!tool) throw new Error("no tool");
@@ -253,7 +254,7 @@ describe("PiTavern extension", () => {
 		const { tools, api } = captureTools();
 		piTavern(api as unknown as ExtensionAPI, controller);
 
-		const tool = tools[1];
+		const tool = tools[2];
 		if (!tool) throw new Error("no whoami tool");
 		expect(tool).toBeDefined();
 		const result = await tool.execute("call-1", {});
@@ -273,7 +274,7 @@ describe("PiTavern extension", () => {
 		const { tools, api } = captureTools();
 		piTavern(api as unknown as ExtensionAPI);
 
-		const tool = tools[1];
+		const tool = tools[2];
 		if (!tool) throw new Error("no whoami tool");
 		const result = await tool.execute("call-1", {});
 		expect(result.isError).toBe(true);
