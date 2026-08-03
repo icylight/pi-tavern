@@ -1,10 +1,10 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-import { JoinAttempt } from "../../../src/character/join-attempt.js";
 import { CharacterRuntime } from "../../../src/character/character-runtime.js";
+import { JoinAttempt } from "../../../src/character/join-attempt.js";
 import { type CharacterCard, loadCharacterCard } from "../../../src/config/character-card.js";
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 
@@ -23,11 +23,18 @@ async function startCreator(
 	const root = await createTemporaryDirectory();
 	const configPath = join(root, "tavern.json");
 	await mkdir(join(root, "characters"), { recursive: true });
-	const cards = ["Architect", "Developer", "QA", "PM"].slice(0, characterCount).map((name) => ({ name, description: name }));
+	const cards = ["Architect", "Developer", "QA", "PM"]
+		.slice(0, characterCount)
+		.map((name) => ({ name, description: name }));
 	for (const card of cards) {
-		await writeFile(join(root, "characters", `${card.name.toLowerCase()}.md`), `---\nname: ${card.name}\ndescription: ${card.description}\n---\n${card.name} prompt`);
+		await writeFile(
+			join(root, "characters", `${card.name.toLowerCase()}.md`),
+			`---\nname: ${card.name}\ndescription: ${card.description}\n---\n${card.name} prompt`,
+		);
 	}
-	const characters = await Promise.all(cards.map((card) => loadCharacterCard(join(root, "characters", `${card.name.toLowerCase()}.md`), configPath)));
+	const characters = await Promise.all(
+		cards.map((card) => loadCharacterCard(join(root, "characters", `${card.name.toLowerCase()}.md`), configPath)),
+	);
 	const creator = await CreatorRuntime.startNew(
 		{
 			cwd: join(root, "project"),
@@ -37,7 +44,11 @@ async function startCreator(
 		{},
 	);
 	creatorRuntimes.push(creator);
-	return { creator, character: characters[0]!, characters };
+	const character = characters[0];
+	if (!character) {
+		throw new Error("startCreator requires at least one character");
+	}
+	return { creator, character, characters };
 }
 
 afterEach(async () => {
