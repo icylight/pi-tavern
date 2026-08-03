@@ -28,6 +28,7 @@
 - run wedged watchdog（#66）：角色 run 卡死超时（默认 180s，可注入）自动强制收敛——排队消息不再无限滞留，迟到真实 settle 不会双重冲刷。
 - 五层架构重构（ADR-0005）Phase 2+3 完成：application 层六管线门面化 + runtime 瘦身（creator-runtime 1881→429 行骨架，拆出十模块）+ index.ts 唯一装配点（#58/#69/#72）。
 - AGENTS.md：面向 AI agent 的项目指令（核心原则 + 必须加载的上下文索引）。
+- 角色卡清单按需刷新（#25/#79）：join/claim/query 前懒重扫角色清单，扫描失败回退旧快照——新角色与 name/description 变更无需重建群聊。
 
 ### 变更
 
@@ -45,6 +46,7 @@
 - 忙态消息投递恢复工具间隙可见（#68，User 拍板）：run 活跃期间新消息经 steer 通道在工具调用间隙到达（秒级可见），不再等 run 结束才批量进入；绝不打断进行中的 run；游标在投递入队成功时推进，失败由 settle 兜底重投（不丢不重）。
 - 闲态触发窗口可注入：`PITAVERN_TRIGGER_DEBOUNCE_MS`（默认 1000ms 行为不变），需要更快感知的环境可设短值（idle 感知延迟降 ~750ms）。
 - 依赖方向由 lint 强制：`npm run lint:layers`（adapter 禁 skills 行为面 / application 与 runtime 禁直连 node:fs，组合根与工厂豁免），与 biome 同入 CI 门禁。
+- TUI 状态语义「正在发言」→「正在工作」（#77/#81）：run 活跃即亮（agent_start 无条件点亮），标记机制删除、复位三件套保留（agent_end / 5s watchdog / wedged 3min）——长 run 常亮为预期行为。
 
 ### 修复
 
@@ -56,6 +58,7 @@
 - 验收游标断言修复：headless/live-delivery 改读 Session 隔离路径（共享 cursor-helper，断耦实现路径）。
 - 验收卡死修复：孤儿 pi 进程自动清理（10 个孤儿曾致全量 >600s 未完成）。
 - 忙态游标推进竞态修复（#68 T2）：投递确认短承诺化（入队接受即推进游标），消除并发拉取下同一窗口重复投递。
+- 断连后停止流式状态上报竞态（#14/#82）：updateStreaming 在连接未建立/已关闭时静默跳过（display-only 语义，绝不 throw），finishDisconnected 同步拆除 streaming reset 与 run wedged watchdog——消除定时器路径 uncaughtException 导致整个 pi 进程崩溃的问题。
 
 ### 安全
 
