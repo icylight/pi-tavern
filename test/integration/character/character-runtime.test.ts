@@ -66,19 +66,19 @@ describe("M7 message fetch (ISSUE-012)", () => {
 		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-m7-fetch", {});
 		const runtime = await attempt.claimCharacter(character.characterId);
 
-		// Increment since the cursor: only newer messages, in order.
+		// 从游标之后增量拉取：仅更新的消息，按序。
 		const pulled = await runtime.fetchMessagesSince(1);
 		expect(pulled).not.toBeNull();
 		expect(pulled?.messages.map((m) => (m as { sequence?: number }).sequence)).toEqual([2, 3]);
 		expect(pulled?.latestSequence).toBe(3);
 		expect(pulled?.totalMessages).toBe(3);
 
-		// Gap healing: a cursor that skipped a message still returns every
-		// message after it (the server filters by sequence, no window).
+		// 缺口修复：跳过某条消息的游标仍会返回其后的
+		// 每一条消息（服务端按序号过滤，无窗口限制）。
 		const gapHealed = await runtime.fetchMessagesSince(0);
 		expect(gapHealed?.messages.map((m) => (m as { sequence?: number }).sequence)).toEqual([1, 2, 3]);
 
-		// Nothing new after the latest message.
+		// 最新消息之后没有新内容。
 		const empty = await runtime.fetchMessagesSince(3);
 		expect(empty?.messages).toEqual([]);
 	});
@@ -106,10 +106,10 @@ describe("M7 message fetch (ISSUE-012)", () => {
 		});
 		const runtime = await attempt.claimCharacter(character.characterId);
 
-		// No cursor yet: first join falls back to the full-history path.
+		// 尚无游标：首次加入回退到完整历史路径。
 		expect(runtime.loadCursor()).toBeNull();
 
-		// After a successful delivery, the cursor persists and reloads.
+		// 成功投递后，游标持久化并可重载。
 		runtime.saveCursor(7);
 		expect(runtime.loadCursor()).toBe(7);
 		const stored = JSON.parse(await readFile(cursorPath, "utf8")) as { last_sequence?: number };
@@ -139,8 +139,8 @@ describe("M7 message fetch (ISSUE-012)", () => {
 	it("swallows a cursor write failure while advancing the in-memory position (best-effort)", async () => {
 		const { creator, character } = await startCreator();
 		const root = await createTemporaryDirectory();
-		// A file in the parent path forces mkdirSync(recursive) to fail with
-		// ENOTDIR: the write can never land, but the in-memory cursor advances.
+		// 父路径中的同名文件迫使 mkdirSync(recursive) 以
+		// ENOTDIR 失败：写入永远无法落地，但内存游标会推进。
 		const blocker = join(root, "blocker");
 		await writeFile(blocker, "not a directory");
 		const cursorPath = join(blocker, "sub", "cursor.json");
@@ -152,17 +152,17 @@ describe("M7 message fetch (ISSUE-012)", () => {
 
 		expect(runtime.loadCursor()).toBeNull();
 		expect(() => runtime.saveCursor(9)).not.toThrow();
-		// Memory advanced despite the failed write...
+		// 尽管写入失败，内存游标仍推进……
 		expect(runtime.loadCursor()).toBe(9);
-		// ...and nothing was written to disk.
+		// ……且磁盘上没有任何写入。
 		await expect(readFile(cursorPath, "utf8")).rejects.toThrow();
 	});
 
 	it("treats an EISDIR cursor path as no cursor (runtime swallows the primitive's throw)", async () => {
 		const { creator, character } = await startCreator();
 		const root = await createTemporaryDirectory();
-		// The primitive throws on EISDIR (IO failure); the runtime's best-effort
-		// orchestration swallows it and reports no cursor, per decision 7.
+		// 原语在 EISDIR（IO 失败）时抛错；运行时的尽力而为
+		// 编排吞掉该错误并报告无游标，依决策 7。
 		const eisdirPath = join(root, "cursors", "group-1.json");
 		await mkdir(eisdirPath, { recursive: true });
 
@@ -197,17 +197,17 @@ describe("M7 message fetch (ISSUE-012)", () => {
 		});
 		const runtimeB = await attemptB.claimCharacter(characterB.characterId);
 
-		// A delivered up to 3; B has delivered only seq 1.
+		// A 已投递到序号 3；B 仅投递了序号 1。
 		runtimeA.saveCursor(3);
 		runtimeB.saveCursor(1);
 
-		// Distinct files, no cross-advance, no shared tmp clash.
+		// 各自独立文件：互不推进、无共享临时文件冲突。
 		expect(JSON.parse(await readFile(join(cursorDir, "session-iso-a.json"), "utf8")).last_sequence).toBe(3);
 		expect(JSON.parse(await readFile(join(cursorDir, "session-iso-b.json"), "utf8")).last_sequence).toBe(1);
 		expect(runtimeA.loadCursor()).toBe(3);
 		expect(runtimeB.loadCursor()).toBe(1);
 
-		// B pulls from its own cursor: nothing skipped, nothing re-delivered.
+		// B 从自己的游标拉取：无跳过、无重复投递。
 		const pulled = await runtimeB.fetchMessagesSince(1);
 		expect(pulled?.messages.map((m) => (m as { sequence?: number }).sequence)).toEqual([2, 3]);
 	});
@@ -220,8 +220,8 @@ describe("M7 message fetch (ISSUE-012)", () => {
 
 		const root = await createTemporaryDirectory();
 		const groupId = "group-legacy";
-		// A v1 shared cursor advanced by another session (e.g. 120) carries no
-		// session identity: adopting it could skip 91-120 for this session.
+		// v1 共享游标被其他会话推进（如 120）时不携带
+		// 会话身份：采纳它可能导致本会话跳过 91-120。
 		const legacyPath = join(root, "cursors", `${groupId}.json`);
 		await mkdir(join(root, "cursors"), { recursive: true });
 		await writeFile(legacyPath, JSON.stringify({ last_sequence: 120, updated_at: "2026-01-01T00:00:00.000Z" }));
@@ -231,14 +231,14 @@ describe("M7 message fetch (ISSUE-012)", () => {
 		});
 		const runtime = await attempt.claimCharacter(character.characterId);
 
-		// The legacy file is never adopted: no session cursor means no cursor.
+		// 旧版文件永不被采纳：无会话游标即无游标。
 		expect(runtime.loadCursor()).toBeNull();
 
-		// Full history from 0: nothing skipped, duplicates are acceptable.
+		// 从 0 拉取完整历史：无跳过，重复可接受。
 		const pulled = await runtime.fetchMessagesSince(0);
 		expect(pulled?.messages.map((m) => (m as { sequence?: number }).sequence)).toEqual([1, 2, 3]);
 
-		// Saves go to the session file only; the legacy file stays untouched.
+		// 保存仅写入会话文件；旧版文件保持不动。
 		runtime.saveCursor(3);
 		const sessionFile = join(root, "cursors", groupId, "session-legacy.json");
 		expect(JSON.parse(await readFile(sessionFile, "utf8")).last_sequence).toBe(3);
@@ -263,15 +263,15 @@ describe("M7 message fetch (ISSUE-012)", () => {
 		});
 		const runtimeB = await attemptB.claimCharacter(characterB.characterId);
 
-		// Interleaved saves across sessions: per-session files mean no shared
-		// tmp name and no last-write-wins clash between sessions.
+		// 跨会话交错保存：按会话分文件意味着无共享
+		// 临时文件名，也无会话间后写覆盖冲突。
 		runtimeA.saveCursor(5);
 		runtimeB.saveCursor(9);
 		runtimeA.saveCursor(6);
 
 		expect(JSON.parse(await readFile(join(cursorDir, "session-conc-a.json"), "utf8")).last_sequence).toBe(6);
 		expect(JSON.parse(await readFile(join(cursorDir, "session-conc-b.json"), "utf8")).last_sequence).toBe(9);
-		// No leftover tmp files in the shared directory.
+		// 共享目录中无残留临时文件。
 		const leftovers = (await readdir(cursorDir)).filter((name) => name.endsWith(".tmp"));
 		expect(leftovers).toEqual([]);
 	});
@@ -287,8 +287,8 @@ describe("M7 message fetch (ISSUE-012)", () => {
 		const runtime = await attempt.claimCharacter(character.characterId);
 		runtime.saveCursor(7);
 
-		// Reload handoff carries cursorStorePath; the fresh runtime resumes
-		// from the same session cursor without re-delivery.
+		// 重载交接携带 cursorStorePath；新运行时从
+		// 同一会话游标恢复，无重复投递。
 		const handoff = await runtime.detachForReload("session-reload");
 		const resumed = await CharacterRuntime.takeHandoff(handoff);
 		expect(resumed.loadCursor()).toBe(7);
@@ -302,7 +302,7 @@ describe("M7 message fetch (ISSUE-012)", () => {
 describe("ISSUE-013 B: speak staleness client side", () => {
 	it("B1: a stale speak is rejected with the missing range; quota untouched", async () => {
 		const { creator, character } = await startCreator();
-		// Latest sequence is 2; the character has seen nothing yet.
+		// 最新序号为 2；角色尚未看到任何消息。
 		await creator.submitUserPersonaMessage("one");
 		await creator.submitUserPersonaMessage("two");
 
@@ -315,7 +315,7 @@ describe("ISSUE-013 B: speak staleness client side", () => {
 		expect(result.missingFrom).toBe(1);
 		expect(result.missingTo).toBe(2);
 		expect(result.autoRecover).toBe(true);
-		// B4: the rejected speak consumed no quota and raised no hand.
+		// B4：被拒绝的发言未消耗配额也未触发手举。
 		expect(creator.state.round?.usedMessages).toBe(0);
 		expect(creator.state.onlineCharacters.get("session-b1")?.handRaised).toBe(false);
 	});
@@ -330,15 +330,15 @@ describe("ISSUE-013 B: speak staleness client side", () => {
 			cursorStorePath: cursorPath,
 		});
 		const runtime = await attempt.claimCharacter(character.characterId);
-		// Simulate the delivery pipeline having delivered seq 1 (join history).
+		// 模拟投递管线已投递序号 1（加入历史）。
 		runtime.saveCursor(1);
 
 		const first = await runtime.speak("one");
 		expect(first.published).toBe(true);
 		expect(first.sequence).toBe(2);
 
-		// Without B6 the seen sequence would still be 1 and this second speak
-		// would be judged stale against the character's own message.
+		// 若无 B6，已见序号仍为 1，这第二条发言
+		// 会相对角色自己的消息被判为过期。
 		const second = await runtime.speak("two");
 		expect(second.published).toBe(true);
 		expect(second.sequence).toBe(3);
@@ -356,7 +356,7 @@ describe("ISSUE-013 B: speak staleness client side", () => {
 		expect(first.autoRecover).toBe(true);
 		const second = await runtime.speak("r2");
 		expect(second.autoRecover).toBe(true);
-		// Budget exhausted: the third refusal must not auto-pull.
+		// 预算耗尽：第三次拒绝不得自动拉取。
 		const third = await runtime.speak("r3");
 		expect(third.autoRecover).toBe(false);
 		expect(third.reason).toBe("stale");
@@ -374,17 +374,17 @@ describe("ISSUE-013 B: speak staleness client side", () => {
 		const runtime = await attempt.claimCharacter(character.characterId);
 		runtime.saveCursor(1);
 
-		// Two stale speaks in round state 10:0.
+		// 轮次状态 10:0 下的两次过期发言。
 		await creator.submitUserPersonaMessage("two"); // latest 2 > seen 1
 		expect((await runtime.speak("r1")).autoRecover).toBe(true);
 		expect((await runtime.speak("r2")).autoRecover).toBe(true);
 
-		// A published speak changes the round snapshot (10:0 → 10:1).
+		// 已发布的发言改变轮次快照（10:0 → 10:1）。
 		runtime.saveCursor(2);
 		const published = await runtime.speak("fresh");
 		expect(published.published).toBe(true);
 
-		// Stale again: the budget reset with the round snapshot.
+		// 再次过期：预算随轮次快照重置。
 		await creator.submitUserPersonaMessage("three"); // latest 4 > seen 3
 		const afterReset = await runtime.speak("r3");
 		expect(afterReset.autoRecover).toBe(true);

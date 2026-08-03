@@ -101,18 +101,18 @@ describe("acceptance family: message sync + fetch + history paging (shared creat
 	});
 
 	it("A2/A6: cursor persistence and injection are unit-covered (RPC limitation)", () => {
-		// RPC-mode pi quits the session right after the join turn completes,
-		// so a real character process cannot observe messages that arrive
-		// after join (verified empirically; identity-consistency relies on
-		// the join-batch flush for the same reason). A2 (cursor file write /
-		// read / restart survival) and A6 (injection == notification source)
-		// are therefore covered at the unit layer:
+		// RPC 模式 pi 在加入回合完成后立即退出会话，
+		// 因此真实角色进程无法观察到加入之后
+		// 到达的消息（已实证验证；identity-consistency 依赖
+		// 加入批次刷出，原因相同）。A2（游标文件写入/
+		// 读取/重启存活）与 A6（注入 == 通知来源）
+		// 因此在单元层覆盖：
 		//
-		// - CharacterRuntime cursor round-trip + JoinAttempt cursorStorePath
-		//   propagation (test/character/join-attempt.test.ts)
-		// - GroupChatInput pullIncrement: immediate pull (A1), gap fill
-		//   (A4), single-flight (A7), settle-queueing (A5), injection notify
-		//   (A6) — test/character/group-chat-input.test.ts M7 cases
+		// - CharacterRuntime 游标往返 + JoinAttempt cursorStorePath
+		//   传播（test/character/join-attempt.test.ts）
+		// - GroupChatInput pullIncrement：立即拉取（A1）、缺口补拉
+		//  （A4）、单飞行（A7）、收敛排队（A5）、注入通知
+		//  （A6）——test/character/group-chat-input.test.ts M7 用例
 		expect(true).toBe(true);
 	});
 

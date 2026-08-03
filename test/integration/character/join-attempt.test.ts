@@ -131,7 +131,7 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		const runtime = await attempt.claimCharacter(character.characterId);
 		const messageCountAfterJoin = runtime.receivedMessages.length;
 
-		// Several ping/pong cycles happen without any new environment message.
+		// 若干次 ping/pong 周期内无任何新的环境消息。
 		await new Promise((resolve) => setTimeout(resolve, 250));
 
 		expect(runtime.receivedMessages.length).toBe(messageCountAfterJoin);
@@ -139,7 +139,7 @@ describe("JoinAttempt and CharacterRuntime", () => {
 
 	it("terminates the connection when the creator stops sending heartbeats", async () => {
 		const { creator, character } = await startCreator({
-			// Creator never pings within the test window.
+			// creator 在测试窗口内从不 ping。
 			heartbeatIntervalMs: 60_000,
 			heartbeatTimeoutMs: 60_000,
 		});
@@ -151,7 +151,7 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		});
 		await attempt.claimCharacter(character.characterId);
 
-		// The Character actively terminates the half-open connection.
+		// 角色主动终止半开连接。
 		await vi.waitFor(() => expect(disconnected).toHaveBeenCalledTimes(1), { timeout: 2000 });
 		expect(creator.state.onlineCharacters.has("session-1")).toBe(false);
 	});
@@ -165,13 +165,13 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		expect(handoff.kind).toBe("character");
 		expect(handoff.groupChatId).toBe(creator.state.groupChat.groupChatId);
 
-		// The same connection stays alive across the reload window.
+		// 同一连接在 reload 窗口内保持存活。
 		expect(handoff.socket.readyState).toBe(WebSocket.OPEN);
 
-		// The creator still considers the member online.
+		// creator 仍认为该成员在线。
 		expect(creator.state.onlineCharacters.has("session-1")).toBe(true);
 
-		// A reload-window frame (creator broadcast) is buffered.
+		// reload 窗口内的帧（creator 广播）被缓冲。
 		await creator.submitUserPersonaMessage("Hello during reload");
 		await new Promise((resolve) => setTimeout(resolve, 80));
 		expect(handoff.bufferedFrames.length).toBeGreaterThan(0);
@@ -180,7 +180,7 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		expect(taken.groupChatId).toBe(runtime.groupChatId);
 		expect(taken.character.characterId).toBe(character.characterId);
 
-		// The buffered broadcast was replayed into the new runtime.
+		// 缓冲的广播被重放到新运行时。
 		expect(
 			taken.receivedMessages.some(
 				(m) =>
@@ -189,7 +189,7 @@ describe("JoinAttempt and CharacterRuntime", () => {
 			),
 		).toBe(true);
 
-		// The new runtime serves the same live connection: further broadcasts arrive.
+		// 新运行时服务同一活动连接：后续广播继续到达。
 		await creator.submitUserPersonaMessage("Hello after reload");
 		await vi.waitFor(() =>
 			expect(
@@ -209,7 +209,7 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-1");
 		const runtime = await attempt.claimCharacter(character.characterId);
 
-		// Edit the card file while joined: the persona must refresh on reload.
+		// 已加入时编辑角色卡文件：persona 必须在 reload 时刷新。
 		await writeFile(character.path, "---\nname: Architect\ndescription: Architecture v2\n---\nArchitect prompt v2");
 
 		const handoff = await runtime.detachForReload("session-1");
@@ -218,8 +218,8 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		expect(taken.character.description).toBe("Architecture v2");
 		expect(taken.character.prompt).toBe("Architect prompt v2");
 
-		// Fallback: corrupt the card so reload fails — old card must be kept
-		// and a warning reported, without crashing.
+		// 回退：损坏角色卡使 reload 失败——旧卡必须保留
+		// 并报告警告，且不崩溃。
 		await writeFile(character.path, "not: valid frontmatter?");
 		const notify = vi.fn();
 		const handoff2 = await taken.detachForReload("session-1");
