@@ -102,6 +102,14 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 2. **H2 输出留痕稳定**：三项检查输出为可断言文本格式（固定前缀 + 汇总行），重复运行输出结构稳定（供对比留痕）；
 3. **H3 凭据检出**：人造测试密钥样本（gitleaks 规则可识别格式）→ 检出且退出码非 0；真实仓库扫描复核无真实凭据（Arch 2026-08-02 审查结论）；
 4. **H4 卫生检出**：人造样本（未提交改动 / 超大文件）→ 卫生脚本列出检出项。
+### TUI 工作状态指示（#90，2026-08-03 PM 布置，分支 fix/issue-90-working-indicator）
+
+根因：5s 显示 watchdog 与 #81「run 活跃即亮」语义冲突——agent_end 布防后毫秒级 continue → agent_start 再亮但不清除定时器，5s 到强制 updateStreaming(false) 误灭灯。修复：① agent_start 时 clearStreamingResetWatchdog（续命）② watchdog 回调加 isAgentActive 守卫（双保险）。
+
+1. **W1 长 run 续命**：agent_end → continue → agent_start 后，注入定时器加速 5s 窗口——run 活跃期间 watchdog 不灭灯（updateStreaming(false) 不被触发）；
+2. **W2 真悬挂复位保留**：agent_end 后无 agent_start、无 settle → 5s 后仍灭灯（#14 防悬挂语义回归）；
+3. **W3 正常单轮回归**：单轮 run settle 正常到达 → 灯亮至收敛后灭（既有 streaming 测试回归）；
+4. **W4 空闲不误亮**：无 run 时灯不亮（初值 false；重连/心跳路径不回归）。
 
 ### 测试门控命令
 
