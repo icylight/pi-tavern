@@ -649,7 +649,6 @@ function formatMessageTime(timestamp: string | undefined, now: Date): string | n
 		`${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
 	const elapsedMs = now.getTime() - parsed.getTime();
 	const elapsedSec = Math.max(0, Math.floor(elapsedMs / 1000));
-	const ago =
-		elapsedSec < 60 ? `${elapsedSec} 秒前` : `${Math.floor(elapsedSec / 60)} 分钟前`;
+	const ago = elapsedSec < 60 ? `${elapsedSec} 秒前` : `${Math.floor(elapsedSec / 60)} 分钟前`;
 	return `${at}（${ago}）`;
 }
