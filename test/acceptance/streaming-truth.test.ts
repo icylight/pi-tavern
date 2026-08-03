@@ -42,8 +42,8 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 		groupChatId: string;
 		instanceId: string;
 	}> {
-		// Per-test isolation: each pair gets its own agent dir so descriptor
-		// files / group chat state never collide across tests.
+		// 逐测试隔离：每组使用独立 agent 目录，使描述符
+		// 文件与群聊状态在测试间互不冲突。
 		const root = await mkdtemp(join(tmpdir(), `pi-tavern-acc-streaming-${pairIndex}-`));
 		pairIndex += 1;
 		roots.push(root);
@@ -112,20 +112,20 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 	it.concurrent("A1: group-chat-triggered turn lights is_streaming, settled extinguishes it", async () => {
 		const { creator } = await startPair();
 
-		// Group-chat input (User Persona message) triggers the character turn.
+		// 群聊输入（用户 Persona 消息）触发角色回合。
 		await creator.runCommand("/tavern-test-message A1 hello");
 		await creator.waitFor(
 			(e) =>
 				e.type === "extension_ui_request" && e.method === "notify" && e.message === "User Persona message published",
 		);
 
-		// The turn lights up: creator widget shows "正在工作：Architect".
+		// 回合点亮：creator widget 显示「正在工作：Architect」。
 		await creator.waitFor(
 			(e) => widgetHasStreaming(e) && (e.widgetLines as string[]).some((line) => line.includes("Architect")),
 			60_000,
 		);
 
-		// Settled extinguishes: widget back to members-only.
+		// 收敛后熄灭：widget 回到仅成员状态。
 		await creator.waitFor(
 			(e) => e.type === "extension_ui_request" && e.method === "setWidget" && !widgetHasStreaming(e),
 			60_000,
@@ -149,7 +149,7 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 			);
 			const baseline = creator.countEvents();
 
-			// Direct RPC prompt = a user-direct turn, NOT group-chat input.
+			// 直接 RPC 提示 = 用户直聊回合，而非群聊输入。
 			// #77：点亮由 agent_start 驱动（run 活跃即亮）——但 headless RPC 模式
 			// 不触发 agent_start 生命周期事件（index.ts：RPC 不触发
 			// session_start/resources_discover；agent_start 同理），扩展无点亮时机，
@@ -157,14 +157,14 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 			await headless.runCommand("A2 direct question, not a group chat message");
 			await headless.waitFor((e) => e.type === "response" && e.command === "prompt", 60_000);
 
-			// Let the agent run settle; then scan the window: no widget event
+			// 让 agent 运行至收敛；然后扫描窗口：无 widget 事件
 			// may ever show "正在工作" (RPC turn has no agent_start).
 			await new Promise((resolveWait) => setTimeout(resolveWait, 1_500));
 			const windowEvents = creator.dumpEvents().slice(baseline);
 			const streamingWidgets = windowEvents.filter(widgetHasStreaming);
 			expect(streamingWidgets).toEqual([]);
 
-			// The character stays online with 2 members throughout: no
+			// 角色全程保持 2 名成员在线：无
 			// member-count drop (1/0 人在线) event may appear in the window.
 			const memberDrop = windowEvents.filter(
 				(e) =>
@@ -180,8 +180,8 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 	it.concurrent("A4: all observers converge on the same streaming truth (multi-connection consistency)", async () => {
 		const { creator, headless, port, groupChatId, instanceId } = await startPair();
 
-		// Second observer: a raw WS client that completes the join flow as
-		// the developer Character (only online members may read state).
+		// 第二观察者：以 Developer 角色完成加入流程的裸 WS 客户端
+		//（仅在线成员可读取状态）。
 		const ws = new WebSocket(
 			`ws://127.0.0.1:${port}/${encodeURIComponent(groupChatId)}/${encodeURIComponent(instanceId)}`,
 		);
@@ -204,22 +204,22 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 		);
 		expect((before.data as { online_characters: unknown[] }).online_characters).toHaveLength(2); // Architect (headless) + Developer (observer)
 
-		// Group-chat turn: streaming flips true (widget).
+		// 群聊回合：streaming 翻转为 true（widget）。
 		await creator.runCommand("/tavern-test-message A4 hello");
 		await creator.waitFor(
 			(e) => widgetHasStreaming(e) && (e.widgetLines as string[]).some((line) => line.includes("Architect")),
 			60_000,
 		);
 
-		// The plan-A broadcast reached the observer during the window.
+		// 方案 A 广播在窗口期内到达观察者。
 		const updateFrames = observer.allFrames().filter((m) => m.type === "group_chat_update");
 		expect(updateFrames.length).toBeGreaterThan(0);
 
-		// Deterministic settle signal: the headless agent run finished.
+		// 确定性收敛信号：无头 agent 运行完成。
 		await headless.waitFor((e) => e.type === "agent_settled", 90_000);
 
-		// Converge: after settled (+ watchdog margin), the observer snapshot
-		// must agree with the creator widget (streaming off).
+		// 收敛：收敛后（+ 看门狗余量），观察者快照
+		// 必须与 creator widget 一致（streaming 关闭）。
 		await new Promise((resolveWait) => setTimeout(resolveWait, 1_500));
 		ws.send(JSON.stringify({ id: "final", type: "get_group_chat_state" }));
 		const finalSnapshot = await observer.waitFor(

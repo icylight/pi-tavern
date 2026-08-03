@@ -75,8 +75,8 @@ describe("A6: join-time active state refresh (#21 成员数未知窗口)", () =>
 			is_self: true,
 			hand_raised: false,
 		});
-		// Round stays null: no User Persona message yet — only the member
-		// snapshot must be visible.
+		// 轮次保持为空：尚无用户 Persona 消息——只有成员
+		// 快照应可见。
 		expect(runtime.lastGroupChatState?.round).toBeNull();
 
 		await runtime.close();
@@ -92,7 +92,7 @@ describe("A6: join-time active state refresh (#21 成员数未知窗口)", () =>
 		await vi.waitFor(() => expect(runtime.lastGroupChatState).not.toBeNull(), { timeout: 2000 });
 		const messagesBefore = runtime.receivedMessages.length;
 
-		// A second member joins via the real WS flow: creator broadcasts
+		// 第二个成员经真实 WS 流程加入：creator 广播
 		// character_joined + group_chat_update (方案 A) to every member.
 		const second = new WebSocket(
 			`ws://127.0.0.1:${creator.activeDescriptor.port}/${encodeURIComponent(creator.state.groupChat.groupChatId)}/${encodeURIComponent(creator.activeDescriptor.instanceId)}`,
@@ -105,8 +105,8 @@ describe("A6: join-time active state refresh (#21 成员数未知窗口)", () =>
 		second.send(JSON.stringify({ id: "2", type: "claim_character", character_id: "characters/developer.md" }));
 		second.send(JSON.stringify({ id: "3", type: "character_ready" }));
 
-		// Broadcast arrives on the existing character connection: the
-		// member-change notification channel works without any message.
+		// 广播到达既有角色连接：
+		// 成员变化通知通道在无消息时也能工作。
 		await vi.waitFor(
 			() =>
 				expect(
@@ -117,10 +117,10 @@ describe("A6: join-time active state refresh (#21 成员数未知窗口)", () =>
 			{ timeout: 2000 },
 		);
 
-		// Note: the refresh-on-broadcast link (GroupChatInput handler →
-		// refreshGroupChatState → widget member count) needs the real pi
-		// context (groupChatInput only attaches when pi is present) — that
-		// full chain is covered at the acceptance layer (A4 plan-A refresh).
+		// 注：广播触发刷新链路（GroupChatInput 处理器 →
+		// refreshGroupChatState → widget 成员数）需要真实 pi
+		// 上下文（groupChatInput 仅在 pi 存在时挂载）——该
+		// 全链路在验收层覆盖（A4 方案 A 刷新）。
 		second.terminate();
 		await runtime.close();
 	});

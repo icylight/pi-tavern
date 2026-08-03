@@ -118,7 +118,7 @@ afterEach(async () => {
 describe("#68 self-echo", () => {
 	it("E1: idle echo broadcast → zero delivery, no new run", { timeout: 15_000 }, async () => {
 		const { creator, character } = await startCreator();
-		await creator.submitUserPersonaMessage("hello 1"); // seq 1, round created
+		await creator.submitUserPersonaMessage("hello 1"); // 序号 1，轮次已创建
 		const { runtime, pi } = await joinCharacter(creator, character, "session-e1");
 		await settleJoin(runtime, pi);
 		const sendMessage = pi.sendMessage as ReturnType<typeof vi.fn>;

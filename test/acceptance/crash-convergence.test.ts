@@ -57,10 +57,10 @@ describe("acceptance: abnormal termination converges without manual intervention
 				(e.widgetLines as string[])?.[0] === "2 人在线",
 		);
 
-		// Kill -9: no WebSocket close frame, no leave message.
+		// kill -9：无 WebSocket 关闭帧、无离开消息。
 		await character.kill("SIGKILL");
 
-		// The creator converges via socket close / heartbeat and drops the member.
+		// creator 经 socket 关闭/心跳收敛并移除该成员。
 		await creator.waitFor(
 			(e) =>
 				e.type === "extension_ui_request" &&
@@ -68,11 +68,11 @@ describe("acceptance: abnormal termination converges without manual intervention
 				(e.widgetLines as string[])?.[0] === "1 人在线",
 			60_000,
 		);
-		// The creator is still serving.
+		// creator 仍在服务。
 		expect(creator.exited).toBe(false);
 
-		// The freed slot is reusable: a fresh character can join the same
-		// group chat without a restart.
+		// 释放的槽位可复用：新角色可加入同一
+		// 群聊而无需重启。
 		const replacement = PiProcess.spawn({
 			label: "replacement",
 			agentDir,
@@ -117,11 +117,11 @@ describe("acceptance: abnormal termination converges without manual intervention
 				e.statusText.includes("Tavern Character · Architect"),
 		);
 
-		// Kill the creator with no chance to broadcast group_chat_closed.
+		// 杀死 creator，使其来不及广播 group_chat_closed。
 		await creator.kill("SIGKILL");
 
-		// The character detects the dead connection and returns to idle (its
-		// pi-tavern status is cleared), without hanging.
+		// 角色检测到死连接并回到空闲（其
+		// pi-tavern 状态被清除），且不挂起。
 		await character.waitFor(
 			(e) =>
 				e.type === "extension_ui_request" &&
@@ -132,8 +132,8 @@ describe("acceptance: abnormal termination converges without manual intervention
 		);
 		expect(character.exited).toBe(false);
 
-		// The stale descriptor is cleaned up by the discovery flow on the next
-		// run: a fresh pi that joins finds nothing and reports no candidates.
+		// 过期描述符在下次运行时由发现流程清理：
+		// 新 pi 加入时一无所获并报告无候选。
 		const fresh = PiProcess.spawn({
 			label: "fresh",
 			agentDir,
@@ -143,8 +143,8 @@ describe("acceptance: abnormal termination converges without manual intervention
 		processes.push(fresh);
 		await fresh.waitForTavernReady();
 		await fresh.runCommand("/tavern-join");
-		// With no candidates the join flow shows no select dialog; a notify
-		// explains there is nothing to join.
+		// 无候选时加入流程不显示选择对话框；以 notify
+		// 说明没有可加入的群聊。
 		await fresh.waitFor(
 			(e) =>
 				e.type === "extension_ui_request" &&
@@ -153,7 +153,7 @@ describe("acceptance: abnormal termination converges without manual intervention
 				e.message.includes("No active group chat found for this project"),
 			60_000,
 		);
-		// The stale descriptor file was removed by the discovery flow.
+		// 过期描述符文件已被发现流程移除。
 		const { readdir } = await import("node:fs/promises");
 		const { getGroupChatProjectDirectory } = await import("../../src/data/discovery/active-descriptor.js");
 		const activeDir = join(getGroupChatProjectDirectory(agentDir, projectDir), "active");

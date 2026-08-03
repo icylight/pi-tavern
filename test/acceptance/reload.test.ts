@@ -49,7 +49,7 @@ describe("acceptance: reload keeps confirmed connections and identity", () => {
 		});
 		processes.push(creator);
 		const descriptor = await creator.startGroupChat(projectDir, agentDir);
-		// Remember the listening port: reload must keep the same server.
+		// 记住监听端口：reload 必须保持同一服务器。
 		const originalPort = descriptor.port;
 
 		const character = PiProcess.spawn({
@@ -67,12 +67,12 @@ describe("acceptance: reload keeps confirmed connections and identity", () => {
 				(e.widgetLines as string[])?.[0] === "2 人在线",
 		);
 
-		// A raw WebSocket member holds a confirmed connection across the
-		// reload: its socket stays open and keeps receiving broadcasts.
+		// 一个裸 WebSocket 成员在 reload 期间保持已确认连接：
+		// 其 socket 保持打开并持续接收广播。
 		const member = await joinCharacterWs(descriptor, "ws-session-reload", "characters/reviewer.md");
 		// ISSUE-014/#14 (方案 A): the join itself broadcasts a
-		// group_chat_update — the predicate below matches the post-reload
-		// notification by content, not the join-time one.
+		// group_chat_update——下方谓词按内容匹配 reload 后的
+		// 通知，而非加入时的通知。
 		await creator.waitFor(
 			(e) =>
 				e.type === "extension_ui_request" &&
@@ -80,12 +80,12 @@ describe("acceptance: reload keeps confirmed connections and identity", () => {
 				(e.widgetLines as string[])?.[0] === "3 人在线",
 		);
 
-		// Trigger a real pi reload on the creator via the test-only command
-		// (RPC mode exposes ctx.reload() through commandContextActions).
+		// 经仅测试可用的命令在 creator 上触发真实 pi reload
+		//（RPC 模式经 commandContextActions 暴露 ctx.reload()）。
 		await creator.runCommand("/tavern-test-reload");
 
-		// The same pi process survives the reload and re-takes the handoff:
-		// the widget still shows both members, and the port is unchanged.
+		// 同一 pi 进程在 reload 后存活并重新接管交接：
+		// widget 仍显示两个成员，且端口不变。
 		await creator.waitFor(
 			(e) =>
 				e.type === "extension_ui_request" &&
@@ -96,17 +96,17 @@ describe("acceptance: reload keeps confirmed connections and identity", () => {
 		expect(creator.exited).toBe(false);
 		expect(descriptor.port).toBe(originalPort);
 
-		// The character was never told to leave: no character_left was emitted.
-		// A fresh message still reaches the members after the reload.
+		// 角色从未被告知离开：未发出 character_left。
+		// reload 后新消息仍能到达成员。
 		await creator.runCommand("/tavern-test-message Hello after reload");
 		await creator.waitFor(
 			(e) =>
 				e.type === "extension_ui_request" && e.method === "notify" && e.message === "User Persona message published",
 		);
-		// The raw member received the post-reload broadcast on its original
-		// connection: the reloaded creator serves the same sockets. M7
-		// (ISSUE-012): broadcasts are group_chat_update notifications; the
-		// preview carries the new message.
+		// 裸成员在其原始连接上收到 reload 后的广播：
+		// reload 后的 creator 服务同一批 socket。M7
+		//（ISSUE-012）：广播即 group_chat_update 通知；
+		// 预览携带新消息。
 		const delivered = await member.waitFor(
 			(m) =>
 				m.type === "group_chat_update" &&
@@ -157,7 +157,7 @@ describe("acceptance: reload keeps confirmed connections and identity", () => {
 				(e.widgetLines as string[])?.[0] === "2 人在线",
 		);
 
-		// Baseline identity from the original card.
+		// 原始角色卡的基线身份。
 		await character.runCommand("/tavern-test-whoami");
 		const before = await character.waitFor(
 			(e) =>
@@ -168,16 +168,16 @@ describe("acceptance: reload keeps confirmed connections and identity", () => {
 		);
 		expect(String(before.message)).toContain("description=Architecture");
 
-		// Edit the card while the character is joined, then reload the
-		// character process: the persona must refresh from disk.
+		// 在角色已加入时编辑角色卡，然后 reload
+		// 角色进程：persona 必须从磁盘刷新。
 		await writeFile(
 			join(agentDir, "characters", "architect.md"),
 			"---\nname: Architect\ndescription: Architecture v2\n---\nArchitect prompt v2",
 		);
 		await character.runCommand("/tavern-test-reload");
 
-		// The reload is async and waitFor replays past events, so poll the
-		// observation channel until the post-reload identity (v2) shows up.
+		// reload 是异步的且 waitFor 会重放历史事件，因此轮询
+		// 观察通道直到 reload 后的身份（v2）出现。
 		const deadline = Date.now() + 60_000;
 		let after: RpcEvent | null = null;
 		while (Date.now() < deadline) {
@@ -194,7 +194,7 @@ describe("acceptance: reload keeps confirmed connections and identity", () => {
 				);
 				break;
 			} catch {
-				// reload not finished yet; try again
+				// reload 尚未完成；重试
 			}
 		}
 		expect(after).not.toBeNull();

@@ -66,7 +66,7 @@ export function setGroupMaxMessages(state: GroupChatState, maxMessages: number):
 }
 
 export function startNewRound(state: GroupChatState): RoundState {
-	// Clear hand-raised flags from the previous round
+	// 清空上一轮的举手标记
 	for (const character of state.onlineCharacters.values()) {
 		character.handRaised = false;
 	}

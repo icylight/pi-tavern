@@ -145,10 +145,9 @@ export class TavernController {
 	}
 
 	/**
-	 * Confirmation gate for /new, /resume, /fork and /clone while bound to a
-	 * group chat. Idle passes through immediately. A cancelled confirmation
-	 * keeps the current runtime; a confirmed one exits first (never rolled
-	 * back) and then lets the native pi session operation continue.
+	 * 绑定群聊时 /new、/resume、/fork、/clone 的确认门。idle 直接放行。
+	 * 取消确认 = 保留当前 runtime；确认 = 先退出（绝不回退）再让原生 pi
+	 * 会话操作继续。
 	 */
 	async prepareForSessionOperation(confirm: () => Promise<boolean>): Promise<{ cancel: boolean }> {
 		if (this.state.type === "idle") {
@@ -163,9 +162,8 @@ export class TavernController {
 	}
 
 	/**
-	 * session_shutdown: reload detaches and publishes a handoff (joining is
-	 * closed and restarts idle); every other reason performs the unified
-	 * permanent cleanup before pi continues to exit.
+	 * session_shutdown：reload 会拆离并发布交接（joining 被关闭并重启回
+	 * idle）；其余原因在 pi 继续退出前执行统一的永久清理。
 	 */
 	async handleSessionShutdown(reason: string, piSessionId: string): Promise<void> {
 		if (reason === "reload") {
@@ -176,8 +174,8 @@ export class TavernController {
 	}
 
 	/**
-	 * Take a reload handoff published by the previous Extension Runtime of the
-	 * same pi session and rebuild the controller state from it.
+	 * 接管同一 pi session 的旧 Extension Runtime 发布的 reload 交接，
+	 * 并据此重建 controller 状态。
 	 */
 	async takeReloadHandoff(
 		piSessionId: string,
@@ -202,8 +200,8 @@ export class TavernController {
 	private async detachForReload(piSessionId: string): Promise<void> {
 		const state = this.state;
 		if (state.type === "joining") {
-			// joining does not participate in reload handoff: close the join
-			// connection, release any Character reservation, restart idle.
+			// joining 不参与 reload 交接：关闭 join 连接、
+			// 释放角色预留、重启回 idle。
 			await state.attempt.close();
 			this.connectionToken = null;
 			this.setState({ type: "idle" });

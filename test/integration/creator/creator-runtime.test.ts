@@ -58,7 +58,7 @@ describe("CreatorRuntime", () => {
 		expect((await readActiveDescriptor(runtime.activeDescriptorPath))?.name).toBe("Architecture Review");
 		expect(await jsonlFilesUnder(join(root, "agent"))).toEqual([]);
 
-		// First message inherits latest groupMaxMessages (18), not configMaxMessages (12)
+		// 首条消息继承最新的群聊最大消息数（18），而非配置值（12）
 		await runtime.submitUserPersonaMessage("Hello");
 		expect(runtime.state.round?.roundMaxMessages).toBe(18);
 
@@ -114,13 +114,13 @@ describe("CreatorRuntime", () => {
 
 		await runtime.submitUserPersonaMessage("Hello from user persona");
 
-		// Round created, inheriting groupMaxMessages
+		// 轮次创建，继承群聊最大消息数
 		expect(runtime.state.round).toEqual({
 			roundMaxMessages: 20,
 			usedMessages: 0,
 		});
 
-		// Message persisted to group chat JSONL
+		// 消息已持久化到群聊 JSONL 文件
 		const jsonlFiles = await jsonlFilesUnder(join(root, "agent"));
 		expect(jsonlFiles).toHaveLength(1);
 
@@ -130,7 +130,7 @@ describe("CreatorRuntime", () => {
 		const lines = (await readFile(sessionPath, "utf8")).trim().split("\n");
 		expect(lines.length).toBeGreaterThanOrEqual(1);
 
-		// First line is the session header
+		// 首行为会话头
 		const firstLine = lines[0];
 		expect(firstLine).toBeDefined();
 		const header = JSON.parse(firstLine as string);
@@ -141,14 +141,14 @@ describe("CreatorRuntime", () => {
 		expect(header.version).toBe(3);
 		expect(header.cwd).toBe(runtime.activeDescriptor.cwd);
 
-		// Parse all entries for indexed lookup
+		// 解析全部条目以便按索引查找
 		const allEntries = lines.map((l) => JSON.parse(l)) as Record<string, unknown>[];
 
-		// Verify session_info entry (written when group has a name at first persist)
+		// 校验 session_info 条目（群聊首次持久化时已有名称才会写入）
 		const sessionInfoEntry = allEntries.find((e) => e.type === "session_info");
-		expect(sessionInfoEntry).toBeUndefined(); // No name set, so no session_info
+		expect(sessionInfoEntry).toBeUndefined(); // 未设置名称，故无 session_info
 
-		// Verify group-settings entry
+		// 校验 group-settings 条目
 		const settingsEntry = allEntries.find((e) => e.type === "custom" && e.customType === "pi-tavern.group-settings");
 		expect(settingsEntry).toBeDefined();
 		if (!settingsEntry) return;
@@ -158,7 +158,7 @@ describe("CreatorRuntime", () => {
 		expect(typeof settingsEntry.timestamp).toBe("string");
 		expect(settingsEntry.data).toEqual({ group_max_messages: 20 });
 
-		// Verify the public message entry
+		// 校验公开消息条目
 		const publicEntry = allEntries.find((e) => e.type === "custom_message");
 		expect(publicEntry).toBeDefined();
 		if (!publicEntry) return;
@@ -166,16 +166,16 @@ describe("CreatorRuntime", () => {
 		expect(publicEntry.display).toBe(true);
 		expect(typeof publicEntry.id).toBe("string");
 		expect(typeof publicEntry.timestamp).toBe("string");
-		// parentId chains to settings entry
+		// parentId 链到 settings 条目
 		expect(publicEntry.parentId).toBe(settingsEntry.id);
-		// Content follows formatEntryContent pattern
+		// 内容遵循 formatEntryContent 格式
 		expect(publicEntry.content).toBe("User Persona:\nHello from user persona\n");
-		// Details
+		// 详情
 		const details = publicEntry.details as Record<string, unknown>;
 		expect(details.sender).toEqual({ type: "user_persona" });
 		expect(details.content).toBe("Hello from user persona");
 		expect(details.sequence).toBe(1);
-		// details must NOT carry a second timestamp — entry envelope is the single source of time (BC-19)
+		// details 不得再携带时间戳——条目信封是时间的唯一来源（BC-19）
 		expect(details.timestamp).toBeUndefined();
 		expect(typeof publicEntry.timestamp).toBe("string");
 		expect(details.round).toEqual({
@@ -194,7 +194,7 @@ describe("CreatorRuntime", () => {
 			agentDir: join(root, "agent"),
 		});
 
-		// Set name before first message
+		// 在首条消息前设置群聊名称
 		await runtime.setName("My Tavern");
 
 		await runtime.submitUserPersonaMessage("Hello");
@@ -205,7 +205,7 @@ describe("CreatorRuntime", () => {
 		const lines = (await readFile(sessionPath, "utf8")).trim().split("\n");
 		const allEntries = lines.map((l) => JSON.parse(l)) as Record<string, unknown>[];
 
-		// session_info entry is present
+		// session_info 条目存在
 		const sessionInfoEntry = allEntries.find((e) => e.type === "session_info");
 		expect(sessionInfoEntry).toBeDefined();
 		if (!sessionInfoEntry) return;
@@ -214,7 +214,7 @@ describe("CreatorRuntime", () => {
 		expect(typeof sessionInfoEntry.id).toBe("string");
 		expect(typeof sessionInfoEntry.timestamp).toBe("string");
 
-		// settings entry parentId chains from session_info
+		// settings 条目的 parentId 链自 session_info
 		const settingsEntry = allEntries.find((e) => e.type === "custom" && e.customType === "pi-tavern.group-settings");
 		expect(settingsEntry).toBeDefined();
 		if (!settingsEntry) return;
@@ -230,10 +230,10 @@ describe("CreatorRuntime", () => {
 			agentDir: join(root, "agent"),
 		});
 
-		// First message starts the group, persisting header + entries
+		// 首条消息创建群聊，持久化文件头与条目
 		await runtime.submitUserPersonaMessage("First");
 
-		// Change name after first persist → appended via SessionManager.appendSessionInfo
+		// 首次持久化后改名称 → 经 SessionManager.appendSessionInfo 追加
 		await runtime.setName("Renamed Tavern");
 
 		const jsonlFiles = await jsonlFilesUnder(join(root, "agent"));
@@ -242,7 +242,7 @@ describe("CreatorRuntime", () => {
 		const lines = (await readFile(sessionPath, "utf8")).trim().split("\n");
 		const allEntries = lines.map((l) => JSON.parse(l)) as Record<string, unknown>[];
 
-		// Last entry should be the new session_info
+		// 最后一条应为新的 session_info
 		const lastEntry = allEntries[allEntries.length - 1];
 		expect(lastEntry).toBeDefined();
 		if (!lastEntry) return;
@@ -261,10 +261,10 @@ describe("CreatorRuntime", () => {
 			agentDir: join(root, "agent"),
 		});
 
-		// First message starts the group, persisting header + entries
+		// 首条消息创建群聊，持久化文件头与条目
 		await runtime.submitUserPersonaMessage("First");
 
-		// Change maxMessages after first persist → appended via SessionManager.appendCustomEntry
+		// 首次持久化后改最大消息数 → 经 SessionManager.appendCustomEntry 追加
 		await runtime.setMaxMessages(5);
 
 		const jsonlFiles = await jsonlFilesUnder(join(root, "agent"));
@@ -273,7 +273,7 @@ describe("CreatorRuntime", () => {
 		const lines = (await readFile(sessionPath, "utf8")).trim().split("\n");
 		const allEntries = lines.map((l) => JSON.parse(l)) as Record<string, unknown>[];
 
-		// Last entry should be the new group-settings
+		// 最后一条应为新的 group-settings
 		const lastEntry = allEntries[allEntries.length - 1];
 		expect(lastEntry).toBeDefined();
 		if (!lastEntry) return;
@@ -302,12 +302,12 @@ describe("CreatorRuntime", () => {
 			],
 		});
 
-		// First message creates the initial round
+		// 首条消息创建初始轮次
 		await runtime.submitUserPersonaMessage("First");
 		expect(runtime.state.round?.roundMaxMessages).toBe(20);
 		expect(runtime.state.round?.usedMessages).toBe(0);
 
-		// Join a character and set handRaised
+		// 加入角色并设置手举标志
 		const client = new WebSocket(
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
@@ -319,14 +319,14 @@ describe("CreatorRuntime", () => {
 		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
 		await waitForMessage(client, "response");
 
-		// Simulate used messages and hand raised from previous round
+		// 模拟上一轮已用消息数与手举标志
 		expect(runtime.state.round).toBeDefined();
 		if (runtime.state.round) runtime.state.round.usedMessages = 3;
 		for (const c of runtime.state.onlineCharacters.values()) {
 			c.handRaised = true;
 		}
 
-		// Second message creates a fresh round, resetting usedMessages AND clearing handRaised
+		// 第二条消息开启新轮次，重置 usedMessages 并清除手举标志
 		await runtime.submitUserPersonaMessage("Second");
 		expect(runtime.state.round?.roundMaxMessages).toBe(20);
 		expect(runtime.state.round?.usedMessages).toBe(0);
@@ -345,13 +345,13 @@ describe("CreatorRuntime", () => {
 			agentDir: join(root, "agent"),
 		});
 
-		// Create first round with default groupMaxMessages=10
+		// 用默认群聊最大消息数 10 创建首个轮次
 		await runtime.submitUserPersonaMessage("First");
 		expect(runtime.state.round?.roundMaxMessages).toBe(20);
 
-		// Change the limit and create a new round
+		// 修改上限并创建新轮次
 		await runtime.setMaxMessages(5);
-		// Current round is unaffected by setMaxMessages
+		// 当前轮次不受 setMaxMessages 影响
 		expect(runtime.state.round?.roundMaxMessages).toBe(20);
 
 		await runtime.submitUserPersonaMessage("Second");
@@ -368,7 +368,7 @@ describe("CreatorRuntime", () => {
 			agentDir: join(root, "agent"),
 		});
 
-		// First message establishes the file and a round
+		// 首条消息建立会话文件与轮次
 		await runtime.submitUserPersonaMessage("First");
 		expect(runtime.state.round?.roundMaxMessages).toBe(20);
 		const [sessionFile] = await jsonlFilesUnder(join(root, "agent"));
@@ -378,18 +378,18 @@ describe("CreatorRuntime", () => {
 		const linesBefore = (await readFile(sessionPath, "utf8")).trim().split("\n");
 		const persistedCountBefore = (runtime as unknown as { persistedCount: number }).persistedCount;
 
-		// Invalid values must be rejected BEFORE any persistence or state mutation
+		// 非法值必须在任何持久化或状态变更之前被拒绝
 		for (const invalid of [-1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) {
 			await expect(runtime.setMaxMessages(invalid)).rejects.toThrow("non-negative safe integer");
 		}
 
-		// No entry was appended, persistedCount unchanged, state unchanged
+		// 未追加任何条目，持久化计数与状态均不变
 		const linesAfter = (await readFile(sessionPath, "utf8")).trim().split("\n");
 		expect(linesAfter).toEqual(linesBefore);
 		expect((runtime as unknown as { persistedCount: number }).persistedCount).toBe(persistedCountBefore);
 		expect(runtime.state.groupChat.groupMaxMessages).toBe(20);
 
-		// A subsequent legal operation still succeeds
+		// 后续合法操作仍然成功
 		await runtime.setMaxMessages(5);
 		expect(runtime.state.groupChat.groupMaxMessages).toBe(5);
 
@@ -410,7 +410,7 @@ describe("CreatorRuntime", () => {
 
 		await expect(runtime.submitUserPersonaMessage("Hello")).rejects.toThrow("disk full");
 
-		// State must not be committed after a failed persist
+		// 持久化失败后不得提交状态
 		expect(runtime.state.round).toBeNull();
 
 		await runtime.close();
@@ -423,7 +423,7 @@ describe("CreatorRuntime", () => {
 			agentDir: join(root, "agent"),
 		});
 
-		// Simulate failure on the first appendCustomMessageEntry
+		// 模拟首个 appendCustomMessageEntry 失败
 		const sm = (runtime as unknown as { groupSessionManager: { appendCustomMessageEntry: typeof vi.fn } })
 			.groupSessionManager;
 		const spy = vi.spyOn(sm, "appendCustomMessageEntry");
@@ -431,20 +431,20 @@ describe("CreatorRuntime", () => {
 			throw new Error("disk full during message append");
 		});
 
-		// First attempt fails
+		// 首次尝试失败
 		await expect(runtime.submitUserPersonaMessage("First")).rejects.toThrow("disk full during message append");
 
 		expect(runtime.state.round).toBeNull();
 		expect((runtime as unknown as { persistedCount: number }).persistedCount).toBe(0);
 
-		// Verify no JSONL file remains after rollback
+		// 校验回滚后不残留 JSONL 文件
 		expect(await jsonlFilesUnder(join(root, "agent"))).toEqual([]);
 
-		// Restore real append and retry
+		// 恢复真实追加逻辑并重试
 		spy.mockRestore();
 		await runtime.submitUserPersonaMessage("First");
 
-		// Second attempt succeeds
+		// 第二次尝试成功
 		expect(runtime.state.round).toEqual({ roundMaxMessages: 20, usedMessages: 0 });
 		expect(await jsonlFilesUnder(join(root, "agent"))).toHaveLength(1);
 
@@ -463,19 +463,19 @@ describe("CreatorRuntime", () => {
 			},
 		);
 
-		// Simulate failure on the first public message append → rollback tries to rm the half-initialized file
+		// 模拟首条公开消息追加失败 → 回滚尝试删除半初始化文件
 		const sm = (runtime as unknown as { groupSessionManager: { appendCustomMessageEntry: typeof vi.fn } })
 			.groupSessionManager;
 		vi.spyOn(sm, "appendCustomMessageEntry").mockImplementationOnce(() => {
 			throw new Error("disk full during message append");
 		});
 
-		// rm fails → rollback reports the deletion failure
+		// rm 失败 → 回滚报告删除失败
 		await expect(runtime.submitUserPersonaMessage("First")).rejects.toThrow(
 			/Failed to delete half-initialized session file/,
 		);
 
-		// Runtime is persistence-fatal: all subsequent writes are rejected
+		// 运行时进入持久化致命态：后续所有写入都被拒绝
 		await expect(runtime.submitUserPersonaMessage("Second")).rejects.toThrow(/persistence is broken/i);
 
 		await runtime.close();
@@ -494,11 +494,11 @@ describe("CreatorRuntime", () => {
 			throw new Error("disk full during message append");
 		});
 
-		// First persist fails and rolls back cleanly
+		// 首次持久化失败并干净回滚
 		await expect(runtime.submitUserPersonaMessage("First")).rejects.toThrow("disk full during message append");
 		expect(await jsonlFilesUnder(join(root, "agent"))).toEqual([]);
 
-		// Closing right after the failed persist must not resurrect a partial file
+		// 失败持久化后立即关闭不得复活半成品文件
 		await runtime.close();
 		expect(await jsonlFilesUnder(join(root, "agent"))).toEqual([]);
 	});
@@ -519,24 +519,24 @@ describe("CreatorRuntime", () => {
 			],
 		});
 
-		// Connect a WebSocket client and complete the join flow
+		// 连接 WebSocket 客户端并完成加入流程
 		const client = new WebSocket(
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
 		await waitForOpen(client);
 
-		// join_group_chat
+		// join_group_chat（加入群聊）
 		client.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: "session-1" }));
 		await waitForMessage(client, "response");
-		// claim_character
+		// claim_character（认领角色）
 		client.send(JSON.stringify({ id: "2", type: "claim_character", character_id: "dev" }));
 		await waitForMessage(client, "response");
-		// character_ready
+		// character_ready（角色就绪）
 		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
 		const readyResponse = await waitForMessage(client, "response");
 		expect(readyResponse.success).toBe(true);
 
-		// Submit user persona message and wait for the broadcast event
+		// 提交用户 persona 消息并等待广播事件
 		interface PublicMessage {
 			type: string;
 			content: string;
@@ -564,8 +564,8 @@ describe("CreatorRuntime", () => {
 
 		const publicMessage = await broadcastPromise;
 
-		// M7 (ISSUE-012): broadcasts are group_chat_update notifications; the
-		// preview carries the message content.
+		// M7（ISSUE-012）：广播即 group_chat_update 通知；
+		// 预览携带消息内容。
 		const preview = publicMessage.preview_messages as PublicMessage[];
 		expect(preview.at(-1)?.content).toBe("Hello everyone");
 		expect(preview.at(-1)?.sender).toEqual({ type: "user_persona" });
@@ -576,7 +576,7 @@ describe("CreatorRuntime", () => {
 		expect(publicMessage.latest_sequence).toBeGreaterThan(0);
 		expect(publicMessage.total_messages).toBeGreaterThan(0);
 
-		// BC-3: broadcast timestamp must exactly match the JSONL entry envelope timestamp
+		// BC-3：广播时间戳必须与 JSONL 条目信封时间戳完全一致
 		const [sessionFile] = await jsonlFilesUnder(join(root, "agent"));
 		expect(sessionFile).toBeDefined();
 		if (sessionFile) {
@@ -615,12 +615,12 @@ describe("CreatorRuntime", () => {
 		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
 		await waitForMessage(client, "response");
 
-		// Set a throwing onPublicMessage handler
+		// 设置一个会抛错的 onPublicMessage 处理器
 		runtime.onPublicMessage = () => {
 			throw new Error("TUI broken");
 		};
 
-		// Wait for broadcast
+		// 等待广播
 		const broadcastPromise = new Promise<boolean>((resolve) => {
 			const onMsg = (data: WebSocket.RawData) => {
 				const msg = JSON.parse(data.toString()) as { type: string };
@@ -632,10 +632,10 @@ describe("CreatorRuntime", () => {
 			client.on("message", onMsg);
 		});
 
-		// Should not throw — the onPublicMessage error is caught internally
+		// 不应抛错——onPublicMessage 的错误在内部被捕获
 		await runtime.submitUserPersonaMessage("Hello");
 
-		// Broadcast still delivered despite onPublicMessage throwing
+		// 尽管 onPublicMessage 抛错，广播仍然送达
 		await expect(broadcastPromise).resolves.toBe(true);
 
 		client.close();
@@ -654,7 +654,7 @@ describe("CreatorRuntime", () => {
 			tuiMessage = msg;
 		};
 
-		// No connected clients → broadcast iteration is a no-op
+		// 无连接客户端 → 广播迭代为空操作
 		await runtime.submitUserPersonaMessage("Solo message");
 
 		expect(tuiMessage).not.toBeNull();
@@ -704,7 +704,7 @@ describe("CreatorRuntime", () => {
 			],
 		});
 
-		// Join a character
+		// 加入一个角色
 		const client = new WebSocket(
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
@@ -716,10 +716,10 @@ describe("CreatorRuntime", () => {
 		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
 		await waitForMessage(client, "response");
 
-		// Create a round first
+		// 先创建一个轮次
 		await runtime.submitUserPersonaMessage("Start the round");
 
-		// Send message exceeding 64 KiB
+		// 发送超过 64 KiB 的消息
 		const bigMessage = "x".repeat(64 * 1024 + 1);
 		client.send(JSON.stringify({ id: "4", type: "speak", content: bigMessage }));
 		const speakResponse = await waitForMessage(client, "response");
@@ -748,7 +748,7 @@ describe("CreatorRuntime", () => {
 			],
 		});
 
-		// Join a character
+		// 加入一个角色
 		const client = new WebSocket(
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
@@ -760,28 +760,28 @@ describe("CreatorRuntime", () => {
 		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
 		await waitForMessage(client, "response");
 
-		// Create a round first
+		// 先创建一个轮次
 		await runtime.submitUserPersonaMessage("Start the round");
 		expect(runtime.state.round?.usedMessages).toBe(0);
 
-		// Simulate hand raised from a previous quota-exhausted speak
+		// 模拟上一轮配额耗尽的发言留下的手举标志
 		for (const c of runtime.state.onlineCharacters.values()) {
 			c.handRaised = true;
 		}
 
-		// Capture all incoming messages on the sender's socket
+		// 捕获发送者 socket 上的所有入站消息
 		const receivedMessages: Record<string, unknown>[] = [];
 		client.on("message", (data) => {
 			receivedMessages.push(JSON.parse(data.toString()) as Record<string, unknown>);
 		});
 
-		// Send a speak message; also verify sender receives their own broadcast
+		// 发送发言消息；同时验证发送者收到自己的广播
 		client.send(JSON.stringify({ id: "4", type: "speak", content: "My public reply" }));
 
 		const speakResponse = await waitForMessage(client, "response");
 
-		// Sender also receives the group_chat_update notification (broadcast
-		// includes all online members; M7 preview carries the new message).
+		// 发送者也收到 group_chat_update 通知（广播
+		// 包含所有在线成员；M7 预览携带新消息）。
 		const senderEcho = receivedMessages.find(
 			(m) =>
 				m.type === "group_chat_update" &&
@@ -795,20 +795,20 @@ describe("CreatorRuntime", () => {
 			published: true,
 			event_id: expect.any(String) as string,
 			sequence: expect.any(Number) as number,
-			// ISSUE-013 B6: success carries latest_sequence (== published seq
-			// on success) so the client advances past its own message.
+			// ISSUE-013 B6：成功响应携带 latest_sequence（== 已发布序号
+			// 成功时）以便客户端越过自己的消息推进游标。
 			latest_sequence: expect.any(Number) as number,
 			round: { round_max_messages: 20, used_messages: 1, remaining_messages: 19 },
 		});
 
-		// Round usage incremented
+		// 轮次已用数递增
 		expect(runtime.state.round?.usedMessages).toBe(1);
-		// Own handRaised is cleared after successful speak
+		// 成功发言后自己的手举标志被清除
 		for (const c of runtime.state.onlineCharacters.values()) {
 			expect(c.handRaised).toBe(false);
 		}
 
-		// Message persisted to JSONL
+		// 消息已持久化到 JSONL
 		const jsonlFiles = await jsonlFilesUnder(join(root, "agent"));
 		expect(jsonlFiles).toHaveLength(1);
 
@@ -817,7 +817,7 @@ describe("CreatorRuntime", () => {
 		const sessionPath = join(root, "agent", firstFile as string);
 		const lines = (await readFile(sessionPath, "utf8")).trim().split("\n");
 
-		// Verify the character public message entry is present
+		// 校验角色公开消息条目存在
 		const publicEntry = lines
 			.map((l) => JSON.parse(l))
 			.find(
@@ -836,13 +836,13 @@ describe("CreatorRuntime", () => {
 			name: "Developer",
 		});
 
-		// Broadcast timestamp matches the persisted entry timestamp (M7: the
-		// preview carries the persisted message fields).
+		// 广播时间戳与持久化条目时间戳一致（M7：
+		// 预览携带持久化后的消息字段）。
 		const echoPreview = (senderEcho as Record<string, unknown>).preview_messages as Record<string, unknown>[];
 		expect(echoPreview.at(-1)?.timestamp).toBe(publicEntry.timestamp);
 		expect(publicEntry.details.round).toEqual({ round_max_messages: 20, used_messages: 1, remaining_messages: 19 });
 		expect(typeof publicEntry.details.sequence).toBe("number");
-		// details must NOT carry a second timestamp (BC-19)
+		// details 不得再携带时间戳（BC-19）
 		expect(publicEntry.details.timestamp).toBeUndefined();
 		expect(publicEntry.details.content).toBe("My public reply");
 
@@ -866,7 +866,7 @@ describe("CreatorRuntime", () => {
 			],
 		});
 
-		// Join a character
+		// 加入一个角色
 		const client = new WebSocket(
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
@@ -878,7 +878,7 @@ describe("CreatorRuntime", () => {
 		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
 		await waitForMessage(client, "response");
 
-		// Create a round first
+		// 先创建一个轮次
 		await runtime.submitUserPersonaMessage("Start the round");
 
 		const roundBefore = { ...runtime.state.round };
@@ -887,7 +887,7 @@ describe("CreatorRuntime", () => {
 			return undefined;
 		})();
 
-		// Spy on SessionManager to simulate persist failure
+		// 监视 SessionManager 以模拟持久化失败
 		const sessionManager = (runtime as unknown as { groupSessionManager: { appendCustomMessageEntry: typeof vi.fn } })
 			.groupSessionManager;
 		vi.spyOn(sessionManager, "appendCustomMessageEntry").mockImplementationOnce(() => {
@@ -897,15 +897,15 @@ describe("CreatorRuntime", () => {
 		client.send(JSON.stringify({ id: "4", type: "speak", content: "This should fail" }));
 		const speakResponse = await waitForMessage(client, "response");
 
-		// Response indicates failure
+		// 响应表明失败
 		expect(speakResponse.command).toBe("speak");
 		expect(speakResponse.success).toBe(false);
 		expect(speakResponse.error).toContain("disk full");
 
-		// State must NOT be mutated after a failed persist
+		// 持久化失败后状态不得变更
 		expect(runtime.state.round?.usedMessages).toBe(roundBefore?.usedMessages ?? 0);
 
-		// handRaised unchanged
+		// 手举标志不变
 		for (const c of runtime.state.onlineCharacters.values()) {
 			expect(c.handRaised).toBe(handRaisedBefore ?? false);
 		}
@@ -922,10 +922,10 @@ describe("CreatorRuntime", () => {
 			characters: [{ characterId: "dev", name: "Dev", description: "", path: "/x.md", prompt: "" }],
 		});
 
-		// First message establishes the file
+		// 首条消息建立会话文件
 		await runtime.submitUserPersonaMessage("First");
 
-		// Join a character for speak
+		// 加入角色用于发言
 		const client = new WebSocket(
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
@@ -937,10 +937,10 @@ describe("CreatorRuntime", () => {
 		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
 		await waitForMessage(client, "response");
 
-		// Simulate append failure. The spy throws before SessionManager's
-		// _appendEntry mutates in-memory state, so leaf is NOT truly polluted.
-		// However the recovery code path (setSessionFile reload) is exercised
-		// identically, and the parentId assertion below validates correctness.
+		// 模拟追加失败。监视器在 SessionManager 的
+		// _appendEntry 变更内存状态之前抛错，因此叶子并未真正被污染。
+		// 但恢复代码路径（setSessionFile 重载）仍被
+		// 等价地执行，且下方 parentId 断言验证其正确性。
 		const sm = (runtime as unknown as { groupSessionManager: { appendCustomMessageEntry: typeof vi.fn } })
 			.groupSessionManager;
 		vi.spyOn(sm, "appendCustomMessageEntry").mockImplementationOnce(() => {
@@ -951,25 +951,25 @@ describe("CreatorRuntime", () => {
 		const failResponse = await waitForMessage(client, "response");
 		expect(failResponse.success).toBe(false);
 
-		// Recovery: setSessionFile was called, leaf is clean.
-		// A subsequent successful speak should chain parentId to the disk's real leaf,
-		// not the failed (never-persisted) entry.
+		// 恢复：setSessionFile 已被调用，叶子干净。
+		// 后续成功的发言应把 parentId 链到磁盘上的真实叶子，
+		// 而非失败的（从未持久化的）条目。
 		client.send(JSON.stringify({ id: "5", type: "speak", content: "Recovered speak" }));
 		const okResponse = await waitForMessage(client, "response");
 		expect(okResponse.success).toBe(true);
 
-		// Verify the successful message was persisted with correct parentId chain
+		// 校验成功的消息以正确的 parentId 链持久化
 		const jsonlFiles = await jsonlFilesUnder(join(root, "agent"));
 		expect(jsonlFiles).toHaveLength(1);
 		const sessionPath = join(root, "agent", jsonlFiles[0] as string);
 		const lines = (await readFile(sessionPath, "utf8")).trim().split("\n");
 		const entries = lines.map((l) => JSON.parse(l)) as Record<string, unknown>[];
 
-		// Last entry should be the recovered speak
+		// 最后一条应为恢复后的发言
 		const lastEntry = entries[entries.length - 1];
 		expect(lastEntry?.type).toBe("custom_message");
 		expect((lastEntry as Record<string, unknown>)?.content).toContain("Recovered speak");
-		// Its parentId must point to a real disk entry, not the failed one
+		// 其 parentId 必须指向真实的磁盘条目，而非失败的条目
 		const parentId = (lastEntry as Record<string, unknown>)?.parentId as string;
 		expect(typeof parentId).toBe("string");
 		const parentExists = entries.some((e) => e.id === parentId);
@@ -988,7 +988,7 @@ describe("CreatorRuntime", () => {
 
 		await runtime.submitUserPersonaMessage("First");
 
-		// Simulate append failure (exercises recovery path)
+		// 模拟追加失败（覆盖恢复路径）
 		const sm = (runtime as unknown as { groupSessionManager: { appendSessionInfo: typeof vi.fn } }).groupSessionManager;
 		vi.spyOn(sm, "appendSessionInfo").mockImplementationOnce(() => {
 			throw new Error("disk full");
@@ -996,11 +996,11 @@ describe("CreatorRuntime", () => {
 
 		await expect(runtime.setName("After Crash")).rejects.toThrow("disk full");
 
-		// Recovery succeeded — next setName should chain to correct disk leaf
+		// 恢复成功——后续 setName 应链到正确的磁盘叶子
 		await runtime.setName("Recovered Name");
 		expect(runtime.state.groupChat.name).toBe("Recovered Name");
 
-		// Verify the successful session_info was persisted
+		// 校验成功的 session_info 已持久化
 		const jsonlFiles = await jsonlFilesUnder(join(root, "agent"));
 		const sessionPath = join(root, "agent", jsonlFiles[0] as string);
 		const lines = (await readFile(sessionPath, "utf8")).trim().split("\n");
@@ -1008,7 +1008,7 @@ describe("CreatorRuntime", () => {
 		const lastSessionInfo = entries.reverse().find((e) => e.type === "session_info");
 		expect(lastSessionInfo).toBeDefined();
 		expect((lastSessionInfo as Record<string, unknown>)?.name).toBe("Recovered Name");
-		// parentId must point to a real disk entry
+		// parentId 必须指向真实的磁盘条目
 		const parentId = (lastSessionInfo as Record<string, unknown>)?.parentId as string;
 		expect(typeof parentId).toBe("string");
 		expect(entries.some((e) => e.id === parentId)).toBe(true);
@@ -1025,7 +1025,7 @@ describe("CreatorRuntime", () => {
 
 		await runtime.submitUserPersonaMessage("First");
 
-		// Simulate append failure (exercises recovery path)
+		// 模拟追加失败（覆盖恢复路径）
 		const sm = (runtime as unknown as { groupSessionManager: { appendCustomEntry: typeof vi.fn } }).groupSessionManager;
 		vi.spyOn(sm, "appendCustomEntry").mockImplementationOnce(() => {
 			throw new Error("disk full");
@@ -1033,11 +1033,11 @@ describe("CreatorRuntime", () => {
 
 		await expect(runtime.setMaxMessages(7)).rejects.toThrow("disk full");
 
-		// Recovery succeeded — next setMaxMessages should work
+		// 恢复成功——后续 setMaxMessages 应正常工作
 		await runtime.setMaxMessages(7);
 		expect(runtime.state.groupChat.groupMaxMessages).toBe(7);
 
-		// Verify the successful group-settings entry was persisted
+		// 校验成功的 group-settings 条目已持久化
 		const jsonlFiles = await jsonlFilesUnder(join(root, "agent"));
 		const sessionPath = join(root, "agent", jsonlFiles[0] as string);
 		const lines = (await readFile(sessionPath, "utf8")).trim().split("\n");
@@ -1062,11 +1062,11 @@ describe("CreatorRuntime", () => {
 			characters: [{ characterId: "dev", name: "Dev", description: "", path: "/x.md", prompt: "" }],
 		});
 
-		// First message establishes the file
+		// 首条消息建立会话文件
 		await runtime.submitUserPersonaMessage("First");
 		const roundBefore = { ...runtime.state.round };
 
-		// Simulate: append fails AND setSessionFile also fails → persistence fatal
+		// 模拟：追加失败且 setSessionFile 也失败 → 持久化致命
 		const sm = (
 			runtime as unknown as {
 				groupSessionManager: { appendCustomMessageEntry: typeof vi.fn; setSessionFile: typeof vi.fn };
@@ -1079,18 +1079,18 @@ describe("CreatorRuntime", () => {
 			throw new Error("cannot read file");
 		});
 
-		// First write fails with recovery error
+		// 首次写入以恢复错误失败
 		await expect(runtime.submitUserPersonaMessage("Second")).rejects.toThrow(/ersistence recovery failed/);
 
-		// State unchanged after failed write
+		// 写入失败后状态不变
 		expect(runtime.state.round?.usedMessages).toBe(roundBefore?.usedMessages);
 
-		// Subsequent writes are rejected
+		// 后续写入被拒绝
 		await expect(runtime.submitUserPersonaMessage("Third")).rejects.toThrow(/ersistence is broken/);
 		await expect(runtime.setName("New Name")).rejects.toThrow(/ersistence is broken/);
 		await expect(runtime.setMaxMessages(5)).rejects.toThrow(/ersistence is broken/);
 
-		// No new JSONL files
+		// 无新的 JSONL 文件
 		expect(await jsonlFilesUnder(join(root, "agent"))).toHaveLength(1);
 
 		await runtime.close();
@@ -1106,7 +1106,7 @@ describe("CreatorRuntime", () => {
 
 		await runtime.submitUserPersonaMessage("First");
 
-		// Join a character
+		// 加入一个角色
 		const client = new WebSocket(
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
@@ -1120,7 +1120,7 @@ describe("CreatorRuntime", () => {
 
 		const roundBefore = { ...runtime.state.round };
 
-		// Trigger fatal: append fails + setSessionFile fails
+		// 触发致命：追加失败 + setSessionFile 失败
 		const sm = (
 			runtime as unknown as {
 				groupSessionManager: { appendCustomMessageEntry: typeof vi.fn; setSessionFile: typeof vi.fn };
@@ -1138,10 +1138,10 @@ describe("CreatorRuntime", () => {
 		expect(fatalResponse.success).toBe(false);
 		expect(fatalResponse.error).toContain("ersistence recovery failed");
 
-		// State unchanged
+		// 状态不变
 		expect(runtime.state.round?.usedMessages).toBe(roundBefore?.usedMessages);
 
-		// Subsequent speak also rejected (assertWritable in handleSpeak)
+		// 后续发言同样被拒绝（handleSpeak 中的 assertWritable）
 		client.send(JSON.stringify({ id: "5", type: "speak", content: "Should be rejected" }));
 		const rejectedResponse = await waitForMessage(client, "response");
 		expect(rejectedResponse.success).toBe(false);
@@ -1168,7 +1168,7 @@ describe("CreatorRuntime", () => {
 			],
 		});
 
-		// Join a character and create a round with max 1 message
+		// 加入角色并创建最多 1 条消息的轮次
 		const client = new WebSocket(
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
@@ -1182,13 +1182,13 @@ describe("CreatorRuntime", () => {
 
 		await runtime.submitUserPersonaMessage("Start");
 
-		// Exhaust the round
+		// 耗尽轮次配额
 		client.send(JSON.stringify({ id: "4", type: "speak", content: "First and only" }));
 		const firstResponse = await waitForMessage(client, "response");
 		expect((firstResponse as { data: { published: boolean } }).data.published).toBe(true);
 		expect(runtime.state.round?.usedMessages).toBe(1);
 
-		// Next speak should be rejected
+		// 下一条发言应被拒绝
 		client.send(JSON.stringify({ id: "5", type: "speak", content: "Too late" }));
 		const secondResponse = await waitForMessage(client, "response");
 
@@ -1201,7 +1201,7 @@ describe("CreatorRuntime", () => {
 			round: { round_max_messages: 1, used_messages: 1, remaining_messages: 0 },
 		});
 
-		// Used messages unchanged
+		// 已用消息数不变
 		expect(runtime.state.round?.usedMessages).toBe(1);
 
 		client.close();
@@ -1224,11 +1224,11 @@ describe("CreatorRuntime", () => {
 			],
 		});
 
-		// Create two public messages before joining
+		// 加入前先创建两条公开消息
 		await runtime.submitUserPersonaMessage("First");
 		await runtime.submitUserPersonaMessage("Second");
 
-		// Join a character
+		// 加入一个角色
 		const client = new WebSocket(
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
@@ -1239,7 +1239,7 @@ describe("CreatorRuntime", () => {
 		await waitForMessage(client, "response");
 		client.send(JSON.stringify({ id: "3", type: "character_ready" }));
 
-		// Wait for the message_history
+		// 等待 message_history
 		const historyPromise = new Promise<Record<string, unknown>>((resolve) => {
 			const onMessage = (data: WebSocket.RawData) => {
 				const msg = JSON.parse(data.toString()) as Record<string, unknown>;
@@ -1279,8 +1279,8 @@ describe("CreatorRuntime", () => {
 			],
 		});
 
-		// 15 messages fit inside the 100-message snapshot window: the join
-		// history carries them all, no paging advertised.
+		// 15 条消息在 100 条快照窗口内：加入
+		// 历史一次携带全部，无需分页。
 		for (let i = 1; i <= 15; i++) {
 			await runtime.submitUserPersonaMessage(`Message ${i}`);
 		}
@@ -1314,8 +1314,8 @@ describe("CreatorRuntime", () => {
 			],
 		});
 
-		// 105 messages exceed the 100-message window: the snapshot is the
-		// newest 100 (sequences 6..105), paging advertised for the rest.
+		// 105 条消息超过 100 条窗口：快照为
+		// 最新 100 条（序号 6..105），其余以分页告知。
 		for (let i = 1; i <= 105; i++) {
 			await runtime.submitUserPersonaMessage(`Message ${i}`);
 		}
@@ -1349,8 +1349,8 @@ describe("CreatorRuntime", () => {
 			],
 		});
 
-		// 105 messages exceed the 100-message join window: paging is
-		// advertised and older history is reachable through the cursor.
+		// 105 条消息超过 100 条加入窗口：分页
+		// 被告知，更早的历史可通过游标获取。
 		for (let i = 1; i <= 105; i++) {
 			await runtime.submitUserPersonaMessage(`Message ${i}`);
 		}
@@ -1358,9 +1358,9 @@ describe("CreatorRuntime", () => {
 		const { client, messageHistory } = await joinCharacter(runtime, "session-1", "dev");
 		expect(typeof messageHistory.cursor).toBe("string");
 
-		// Request the page before the initial 100-message batch: sequences
-		// 1..5 are older than the join window (6..105) and reachable via the
-		// cursor, one 10-message page at a time.
+		// 请求初始 100 条批次之前的页：序号
+		// 1..5 早于加入窗口（6..105），可通过
+		// 游标获取，每次 10 条一页。
 		client.send(JSON.stringify({ id: "4", type: "get_message_history", cursor: messageHistory.cursor }));
 		const firstPage = await waitForMessage(client, "response");
 		expect(firstPage.command).toBe("get_message_history");
@@ -1372,7 +1372,7 @@ describe("CreatorRuntime", () => {
 		expect(data.has_more).toBe(false);
 		expect(data.total_messages).toBe(105);
 
-		// New messages after the cursor do not shift the page boundary
+		// 游标之后的新消息不会移动分页边界
 		await runtime.submitUserPersonaMessage("Message 106");
 		client.send(JSON.stringify({ id: "5", type: "get_message_history", cursor: messageHistory.cursor }));
 		const secondPage = await waitForMessage(client, "response");
@@ -1407,7 +1407,7 @@ describe("CreatorRuntime", () => {
 		expect(messageHistory.has_more).toBe(false);
 		expect(messageHistory.total_messages).toBe(0);
 
-		// Explicit history request on an empty group chat
+		// 对空群聊显式请求历史
 		client.send(JSON.stringify({ id: "4", type: "get_message_history" }));
 		const response = await waitForMessage(client, "response");
 		expect(response.command).toBe("get_message_history");
@@ -1440,13 +1440,13 @@ describe("CreatorRuntime", () => {
 
 		const { client } = await joinCharacter(runtime, "session-1", "dev");
 
-		// Not started yet: no JSONL file exists, so the request must fail
+		// 尚未启动：JSONL 文件不存在，请求必须失败
 		client.send(JSON.stringify({ id: "4", type: "get_chat_history_file" }));
 		const emptyResponse = await waitForMessage(client, "response");
 		expect(emptyResponse.command).toBe("get_chat_history_file");
 		expect(emptyResponse.success).toBe(false);
 
-		// Start the group chat and request the file path
+		// 启动群聊并请求文件路径
 		await runtime.submitUserPersonaMessage("First");
 		client.send(JSON.stringify({ id: "5", type: "get_chat_history_file" }));
 		const response = await waitForMessage(client, "response");
@@ -1461,7 +1461,7 @@ describe("CreatorRuntime", () => {
 		);
 		expect(fileExists).toBe(true);
 
-		// A connection that never completed character_ready is rejected
+		// 从未完成 character_ready 的连接被拒绝
 		const stranger = new WebSocket(
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
@@ -1517,12 +1517,12 @@ describe("CreatorRuntime", () => {
 		expect(resumed.activeDescriptor.instanceId).not.toBe(original.activeDescriptor.instanceId);
 		expect(resumed.activeDescriptor.port).not.toBe(original.activeDescriptor.port);
 		expect(resumed.activeDescriptor.name).toBe("Architecture Review");
-		// started_at reflects the resumed instance start, not the original creation time
+		// started_at 反映恢复实例的启动时间，而非原始创建时间
 		expect(resumed.activeDescriptor.startedAt).not.toBe(original.state.groupChat.createdAt);
-		// Member connections are not restored
+		// 成员连接不会被恢复
 		expect(resumed.state.onlineCharacters.size).toBe(0);
 
-		// The resumed runtime continues appending with the next sequence
+		// 恢复的运行时以下一个序号继续追加
 		await resumed.submitUserPersonaMessage("Third");
 		expect(resumed.state.nextSequence).toBe(4);
 		expect(resumed.state.round?.roundMaxMessages).toBe(5);
@@ -1531,7 +1531,7 @@ describe("CreatorRuntime", () => {
 		const lastEntry = JSON.parse(lines[lines.length - 1] as string) as { details: { sequence: number } };
 		expect(lastEntry.details.sequence).toBe(4);
 
-		// A new Character receives the disk-rebuilt history on join
+		// 新角色加入时收到由磁盘重建的历史
 		const joined = await joinCharacter(resumed, "session-2", "dev");
 		const historyMessages = (joined.messageHistory.messages as Array<{ sequence: number; content: string }>) ?? [];
 		expect(joined.messageHistory.total_messages).toBe(4);
@@ -1579,8 +1579,8 @@ describe("CreatorRuntime", () => {
 		const emptyPath = join(sessionDir, "empty.jsonl");
 		await writeFile(emptyPath, "");
 
-		// SessionManager.open() would mint a random new session id for an empty
-		// file; the resume guard must reject it before any descriptor is published.
+		// SessionManager.open() 会为空文件
+		// 铸造随机的新会话 id；恢复守卫必须在任何描述符发布前拒绝它。
 		await expect(CreatorRuntime.resume({ cwd, agentDir, sessionPath: emptyPath })).rejects.toThrow(/empty/i);
 	});
 });
@@ -1599,15 +1599,15 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 		const { client: memberA } = await joinCharacter(runtime, "session-a", "dev");
 		const { client: memberB } = await joinCharacter(runtime, "session-b", "qa");
 
-		// Register the round-start listener before submitting so the frame is
-		// consumed even if ws dispatches it a tick late.
+		// 在提交前注册轮次开始监听器，确保帧
+		// 即使 ws 晚一个 tick 分发也能被消费。
 		const roundStartPromise = waitForMessage(memberB, "group_chat_update");
 		await runtime.submitUserPersonaMessage("Round start");
 		const roundStartNotification = await roundStartPromise;
 		expect((roundStartNotification.preview_messages as Record<string, unknown>[]).at(-1)?.content).toBe("Round start");
 
-		// The failing member's socket can no longer deliver anything — including
-		// the speak response (stand-in for a response send timeout).
+		// 失败成员的 socket 无法再投递任何内容——包括
+		// 发言响应（模拟响应发送超时）。
 		const failingSocket = runtime.connections.get("session-a");
 		expect(failingSocket).toBeDefined();
 		if (!failingSocket) return;
@@ -1618,12 +1618,12 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 		const broadcastPromise = waitForMessage(memberB, "group_chat_update");
 		memberA.send(JSON.stringify({ id: "s1", type: "speak", content: "committed anyway" }));
 
-		// The committed message is broadcast to the healthy member…
+		// 已提交的消息广播给健康成员……
 		const broadcast = await broadcastPromise;
 		const preview = broadcast.preview_messages as Record<string, unknown>[];
 		expect(preview.at(-1)?.content).toBe("committed anyway");
 		expect(preview.at(-1)?.sequence).toBe(2);
-		// …and the session file keeps the persisted message (no rollback).
+		// ……且会话文件保留已持久化的消息（无回滚）。
 		const [sessionFile] = await jsonlFilesUnder(join(root, "agent"));
 		expect(sessionFile).toBeDefined();
 		if (sessionFile) {
@@ -1656,7 +1656,7 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 			},
 		);
 
-		// The first persist is gated inside the runtime queue.
+		// 首次持久化被运行时队列门控。
 		const submitPromise = runtime.submitUserPersonaMessage("Hello");
 		await vi.waitFor(() => expect(gated).toBe(true));
 
@@ -1666,7 +1666,7 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 			return result;
 		});
 
-		// close must wait for the in-flight task instead of interleaving with it.
+		// close 必须等待进行中的任务，而非与其交错执行。
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		expect(closeSettled).toBe(false);
 
@@ -1675,7 +1675,7 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 		await submitPromise;
 		expect(result.timedOut).toBe(false);
 
-		// The message was persisted, and close still completed all local cleanup.
+		// 消息已持久化，且 close 仍完成了全部本地清理。
 		expect(await jsonlFilesUnder(join(root, "agent"))).toHaveLength(1);
 		expect(await readActiveDescriptor(runtime.activeDescriptorPath)).toBeNull();
 		expect(runtime.webSocketServer.address()).toBeNull();
@@ -1704,7 +1704,7 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 		const result = await runtime.close();
 		expect(result.timedOut).toBe(true);
 
-		// Local cleanup completes regardless: descriptor removed, server closed.
+		// 本地清理无论如何都会完成：描述符移除、服务器关闭。
 		expect(await readActiveDescriptor(runtime.activeDescriptorPath)).toBeNull();
 		expect(runtime.webSocketServer.address()).toBeNull();
 	});
@@ -1735,7 +1735,7 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 		);
 		await joinCharacter(runtime, "session-1", "dev");
 
-		// Several ping/pong cycles with an auto-responding client.
+		// 与自动响应客户端进行若干次 ping/pong 周期。
 		await new Promise((resolve) => setTimeout(resolve, 300));
 
 		expect(runtime.state.onlineCharacters.has("session-1")).toBe(true);
@@ -1759,7 +1759,7 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 		const { client: healthy } = await joinCharacter(runtime, "session-healthy", "dev");
 		await joinCharacter(runtime, "session-dead", "qa", { autoPong: false });
 
-		// The dead member is cleaned up via the unified disconnected path.
+		// 失效成员经统一的断开路径被清理。
 		const left = await waitForMessage(healthy, "character_left");
 		expect(left.reason).toBe("disconnected");
 		expect(runtime.state.onlineCharacters.has("session-dead")).toBe(false);
@@ -1793,9 +1793,9 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 
 		const leftPromise = waitForMessage(memberB, "character_left");
 		await runtime.submitUserPersonaMessage("Hello");
-		// memberB still receives the broadcast…
+		// memberB 仍收到广播……
 		expect(await waitForMessage(memberB, "group_chat_update")).toBeDefined();
-		// …and then the failed member's departure.
+		// ……随后收到失效成员的离开。
 		const left = await leftPromise;
 		expect(left.reason).toBe("disconnected");
 		expect(runtime.connections.has("session-a")).toBe(false);
@@ -1818,7 +1818,7 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 		const { client: memberB } = await joinCharacter(runtime, "session-b", "qa");
 		await runtime.submitUserPersonaMessage("Hello"); // starts the round
 
-		// A connection that never completes character_ready.
+		// 一个从未完成 character_ready 的连接。
 		const pendingClient = new WebSocket(
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
@@ -1830,15 +1830,15 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 		expect(handoff.connections.size).toBe(2);
 		expect(handoff.bufferedFrames.size).toBe(0);
 
-		// The pending (not-yet-ready) connection is released and closed.
+		// 待处理的（未就绪）连接被释放并关闭。
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		expect(pendingClient.readyState).toBe(WebSocket.CLOSED);
-		// Stable members stay connected.
+		// 稳定成员保持连接。
 		expect(memberA.readyState).toBe(WebSocket.OPEN);
 		expect(memberB.readyState).toBe(WebSocket.OPEN);
 		expect(runtime.state.onlineCharacters.size).toBe(2);
 
-		// A reload-window speak is buffered, not processed yet.
+		// 重载窗口内的发言被缓冲，尚未处理。
 		memberA.send(JSON.stringify({ id: "r1", type: "speak", content: "During reload" }));
 		await new Promise((resolve) => setTimeout(resolve, 80));
 		expect(handoff.bufferedFrames.get("session-a")?.length).toBe(1);
@@ -1849,14 +1849,14 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 		expect(taken.state.onlineCharacters.has("session-a")).toBe(true);
 		expect(taken.state.onlineCharacters.has("session-b")).toBe(true);
 
-		// The buffered speak was replayed: memberB sees the notification and
-		// its preview carries the message.
-		// (User Persona messages do not consume round quota, so the speak is usedMessages 1.)
+		// 缓冲的发言被重放：memberB 看到通知且
+		// 其预览携带该消息。
+		// （用户 persona 消息不消耗轮次配额，因此发言后 usedMessages 为 1。）
 		const publicMessage = await waitForMessage(memberB, "group_chat_update");
 		expect((publicMessage.preview_messages as Record<string, unknown>[]).at(-1)?.content).toBe("During reload");
 		expect(taken.state.round?.usedMessages).toBe(1);
 
-		// The taken runtime serves new frames and owns the descriptor.
+		// 被接管的运行时服务新帧并拥有描述符。
 		memberB.send(JSON.stringify({ id: "r2", type: "speak", content: "After reload" }));
 		const afterReload = await waitForMessage(memberA, "group_chat_update");
 		expect((afterReload.preview_messages as Record<string, unknown>[]).at(-1)?.content).toBe("After reload");
@@ -1903,11 +1903,11 @@ describe("ISSUE-013 B2: speak staleness check", () => {
 		});
 
 		const { client } = await joinCharacter(runtime, "session-stale", "dev");
-		// Two user persona messages: latest sequence is 2.
+		// 两条用户 persona 消息：最新序号为 2。
 		await runtime.submitUserPersonaMessage("one");
 		await runtime.submitUserPersonaMessage("two");
 
-		// Speak with a stale based_on_sequence (0 < latest 2).
+		// 用过期的 based_on_sequence（0 < 最新 2）发言。
 		client.send(JSON.stringify({ id: "s1", type: "speak", content: "Stale reply", based_on_sequence: 0 }));
 		const staleResponse = await waitForMessage(client, "response");
 
@@ -1919,18 +1919,18 @@ describe("ISSUE-013 B2: speak staleness check", () => {
 			missing_sequences: { from: 1, to: 2 },
 			round: { round_max_messages: 20, used_messages: 0, remaining_messages: 20 },
 		});
-		// B4: no quota consumed by the stale speak.
+		// B4：过期发言不消耗配额。
 		expect(runtime.state.round?.usedMessages).toBe(0);
-		// stale does not raise the hand (distinct from round_limit_reached).
+		// stale 不触发手举（区别于 round_limit_reached）。
 		expect(runtime.state.onlineCharacters.get("session-stale")?.handRaised).toBe(false);
 
-		// The stale message was not published: next sequence is still 3.
+		// 过期消息未被发布：下一个序号仍为 3。
 		client.send(JSON.stringify({ id: "s2", type: "speak", content: "Fresh reply", based_on_sequence: 2 }));
 		const freshResponse = await waitForMessage(client, "response");
 		expect(freshResponse.data).toMatchObject({
 			published: true,
 			sequence: 3,
-			// B6: the success response carries the new latest for the client to sync.
+			// B6：成功响应携带新的最新序号供客户端同步。
 			latest_sequence: 3,
 		});
 		expect(runtime.state.round?.usedMessages).toBe(1);
@@ -1956,26 +1956,26 @@ describe("ISSUE-013 B2: speak staleness check", () => {
 		});
 
 		const { client } = await joinCharacter(runtime, "session-legacy", "dev");
-		await runtime.submitUserPersonaMessage("one"); // latest = 1
+		await runtime.submitUserPersonaMessage("one"); // 最新 = 1
 
-		// Legacy client omits the field: staleness check skipped, published.
+		// 旧客户端省略该字段：跳过过期检查，发布成功。
 		client.send(JSON.stringify({ id: "l1", type: "speak", content: "Legacy reply" }));
 		const legacyResponse = await waitForMessage(client, "response");
 		expect(legacyResponse.data).toMatchObject({ published: true, sequence: 2 });
 
-		// Current client sends based_on_sequence == latest: published.
+		// 当前客户端发送 based_on_sequence == 最新：发布成功。
 		client.send(JSON.stringify({ id: "l2", type: "speak", content: "Current reply", based_on_sequence: 2 }));
 		const currentResponse = await waitForMessage(client, "response");
 		expect(currentResponse.data).toMatchObject({ published: true, sequence: 3 });
 
-		// A new user message arrives (seq 4) — now a behind speak is stale
-		// against another sender (the server excludes the requester's own
-		// messages, so only other senders count toward staleness). The new
-		// user message also opens a fresh round (used=0); the stale refusal
-		// consumes no quota of it (B4).
+		// 一条新的用户消息到达（序号 4）——现在落后的发言
+		// 相对另一发送者即为过期（服务端排除请求者自己的
+		// 消息，因此只有其他发送者计入过期判定）。新的
+		// 用户消息也会开启全新轮次（used=0）；过期拒绝
+		// 不消耗其配额（B4）。
 		await runtime.submitUserPersonaMessage("two");
 
-		// Boundary: based_on_sequence behind another sender's latest is stale.
+		// 边界：based_on_sequence 落后于另一发送者的最新序号即为过期。
 		client.send(JSON.stringify({ id: "l3", type: "speak", content: "Behind reply", based_on_sequence: 2 }));
 		const behindResponse = await waitForMessage(client, "response");
 		expect(behindResponse.data).toEqual({
@@ -2051,9 +2051,9 @@ async function joinCharacter(
 	client.send(JSON.stringify({ id: "2", type: "claim_character", character_id: characterId }));
 	await waitForMessage(client, "response");
 	client.send(JSON.stringify({ id: "3", type: "character_ready" }));
-	// Register the message_history listener BEFORE awaiting the response: the
-	// response and message_history arrive back-to-back, and a listener added
-	// after the response resolves would miss the history frame.
+	// 在等待响应之前注册 message_history 监听器：
+	// 响应与 message_history 相继到达，若在
+	// 响应解析后才添加监听器会错过历史帧。
 	const historyPromise = waitForMessage(client, "message_history");
 	await waitForMessage(client, "response");
 	const messageHistory = await historyPromise;

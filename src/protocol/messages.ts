@@ -98,9 +98,9 @@ export const ClientMessageSchema = Type.Union([
 			id: RequestIdSchema,
 			type: Type.Literal("speak"),
 			content: Type.String(),
-			// ISSUE-013: optional — absent = legacy client, server skips staleness
-			// check (smooth protocol evolution). When present the server rejects
-			// stale speaks (reason: "stale") instead of publishing them.
+			// ISSUE-013：可选字段——缺省 = 旧版客户端，服务端跳过 stale
+			// 检查（平滑演进）。存在时服务端拒绝过期发言（reason: "stale"）
+			// 而不是发布它们。
 			based_on_sequence: Type.Optional(Type.Integer({ minimum: 0 })),
 		},
 		{ additionalProperties: false },
@@ -350,9 +350,9 @@ const SpeakResponseSchema = Type.Union([
 					event_id: Type.String(),
 					sequence: Type.Integer({ minimum: 1 }),
 					round: RoundSnapshotSchema,
-					// ISSUE-013 B6: lets the client advance its last-seen sequence
-					// past its own message (echo is filtered, so the cursor never
-					// advances on its own) without being falsely judged stale.
+					// ISSUE-013 B6：让客户端能把 last-seen sequence 推进到
+					// 自己的消息之后（回声被过滤，游标不会自行推进），
+					// 而不会被误判为 stale。
 					latest_sequence: Type.Integer({ minimum: 1 }),
 				},
 				{ additionalProperties: false },
@@ -386,10 +386,9 @@ const SpeakResponseSchema = Type.Union([
 			success: Type.Literal(true),
 			data: Type.Object(
 				{
-					// ISSUE-013 B2: stale rejection mirrors round_limit_reached — a
-					// business refusal, not a protocol error. Carries only the
-					// missing sequence range; the client pulls the increment via
-					// the existing fetch_messages_since (no second pull protocol).
+					// ISSUE-013 B2：stale 拒绝镜像 round_limit_reached——业务拒绝
+					// 而非协议错误。只携带缺失的 sequence 区间；客户端通过既有的
+					// fetch_messages_since 拉增量（不引入第二个拉取协议）。
 					published: Type.Literal(false),
 					reason: Type.Literal("stale"),
 					missing_sequences: Type.Object(

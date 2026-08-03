@@ -3,9 +3,9 @@ import WebSocket from "ws";
 import type { ActiveGroupChatDescriptor } from "../../src/data/discovery/active-descriptor.js";
 
 /**
- * Raw WebSocket client that buffers every frame it receives (ws drops frames
- * that arrive before a listener is attached, so join-time frames must be
- * captured from the very first message).
+ * 缓冲接收到的每一帧的裸 WebSocket 客户端（ws 会丢弃
+ * 在监听器挂载之前到达的帧，因此加入时的帧必须从
+ * 第一条消息起就捕获）。
  */
 export class BufferedWsClient {
 	private readonly frames: Record<string, unknown>[] = [];
@@ -85,7 +85,7 @@ export class BufferedWsClient {
 	}
 }
 
-/** Connect a raw WebSocket client and complete the join flow. */
+/** 连接裸 WebSocket 客户端并完成加入流程。 */
 export async function joinCharacterWs(
 	descriptor: ActiveGroupChatDescriptor,
 	sessionId: string,

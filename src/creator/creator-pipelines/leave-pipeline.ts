@@ -37,7 +37,7 @@ export class LeavePipeline {
 		// offline：状态清理 + 广播（注入 runtime 编排）
 		this.deps.removeOnlineCharacter(connection, "left");
 
-		// respond + close
+		// 响应 + 关闭
 		this.deps.send(socket, {
 			...(message.id !== undefined ? { id: message.id } : {}),
 			type: "response",

@@ -28,10 +28,9 @@ type TavernConfigFile = Static<typeof TavernConfigFileSchema>;
 
 const checkTavernConfigFile = Compile(TavernConfigFileSchema);
 /**
- * #37 (2026-08-02): default message quota for newly created group chats.
- * Single source of truth — creator-runtime.ts and commands.ts import this
- * constant instead of re-declaring it (three identical constants were the
- * root cause of the 10→100 quota miss).
+ * #37 (2026-08-02)：新建群聊的默认消息配额。唯一事实源——
+ * creator-runtime.ts 与 commands.ts import 本常量而非重复声明
+ * （三个相同的常量曾是 10→100 配额漏改的根因）。
  */
 export const DEFAULT_CONFIG_MAX_MESSAGES = 20;
 

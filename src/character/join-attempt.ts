@@ -13,14 +13,13 @@ import { type CharacterConnectionTransfer, CharacterRuntime } from "./character-
 export interface JoinAttemptOptions {
 	requestTimeoutMs?: number;
 	onDisconnected?: () => void;
-	/** Interval between heartbeat checks on the transferred Character connection. */
+	/** 移交后的 Character 连接上的心跳检查间隔。 */
 	heartbeatIntervalMs?: number;
-	/** Creator-ping timeout threshold on the transferred Character connection. */
+	/** 移交后的 Character 连接上的 creator ping 超时阈值。 */
 	heartbeatTimeoutMs?: number;
 	/**
-	 * M7 (ISSUE-012/#24): absolute path of the per-group-chat cursor file,
-	 * forwarded to the CharacterRuntime so incremental pulls resume across
-	 * restarts and reloads.
+	 * M7 (ISSUE-012/#24)：群聊级游标文件绝对路径，转发给
+	 * CharacterRuntime，让增量拉取跨重启与 reload 续接。
 	 */
 	cursorStorePath?: string;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
@@ -172,9 +171,9 @@ export class JoinAttempt {
 				throw new Error(readyResponse.error);
 			}
 			runtime.activate(this.takeConnection(), pi);
-			// ISSUE-014/#21: pull the group chat state snapshot right after
-			// joining so the widget shows the real member count immediately —
-			// before the first public message arrives (no "成员数未知" window).
+			// ISSUE-014/#21：join 后立即拉取群聊状态快照，
+			// 让 widget 马上显示真实成员数——在第一条公共消息
+			// 到达之前（不再有“成员数未知”窗口期）。
 			void runtime.refreshGroupChatState();
 			return runtime;
 		} catch (error) {

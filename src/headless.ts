@@ -1,16 +1,15 @@
 /**
- * ISSUE-014: headless RPC character mode — automatic group-chat join.
+ * ISSUE-014：headless RPC 角色模式——自动加入群聊。
  *
- * A character pi started with PITAVERN_AUTO_JOIN=1 joins an active group
- * chat on session_start without any interactive UI: the group chat and
- * character are picked programmatically (env overrides, then the unique /
- * first candidate). Everything else (claim → ready → identity → speak →
- * group-chat input) reuses the interactive path unchanged.
+ * 以 PITAVERN_AUTO_JOIN=1 启动的 character pi 在 session_start 时无需任何
+ * 交互 UI 即加入活跃群聊：群聊与角色以编程方式选定（env 覆盖，然后唯一/首个
+ * 候选）。其余一切（claim → ready → identity → speak → 群聊输入）原样复用
+ * 交互路径。
  *
- * Env contract (documented in docs/headless-character.md):
- * - PITAVERN_AUTO_JOIN=1        enable auto-join
- * - PITAVERN_CHARACTER=<name|id>  pick a specific character card
- * - PITAVERN_GROUP_CHAT=<id|name> pick a specific group chat (else unique/first)
+ * 环境变量契约（见 docs/headless-character.md）：
+ * - PITAVERN_AUTO_JOIN=1        启用自动加入
+ * - PITAVERN_CHARACTER=<name|id>  指定角色卡
+ * - PITAVERN_GROUP_CHAT=<id|name> 指定群聊（否则取唯一/首个候选）
  */
 import { join } from "node:path";
 
@@ -30,10 +29,9 @@ export interface AutoJoinOptions {
 }
 
 /**
- * Minimal context surface needed by the auto-join flow. The interactive
- * path passes the real ExtensionContext; the headless launcher supplies a
- * synthetic adapter (process.cwd + generated session id + stderr notify),
- * because RPC mode has no session_start / resources_discover startup events.
+ * auto-join 流程所需的最小上下文面。交互路径传真实 ExtensionContext；
+ * headless 启动器提供合成适配器（process.cwd + 生成 session id + stderr
+ * notify），因为 RPC 模式没有 session_start / resources_discover 启动事件。
  */
 export interface AutoJoinContext {
 	cwd: string;
@@ -73,9 +71,9 @@ function pickCharacter(
 }
 
 /**
- * Auto-join an active group chat as a character. Pure programmatic flow:
- * no dialogs, no select() calls — headless RPC character mode (ISSUE-014).
- * Returns the joined character name, or null when nothing was joined.
+ * 以角色身份自动加入活跃群聊。纯程序化流程：无对话框、无 select() 调用——
+ * headless RPC 角色模式（ISSUE-014）。返回加入的角色名；未加入任何群聊时
+ * 返回 null。
  */
 export async function autoJoinCharacter(
 	pi: ExtensionAPI,
@@ -88,7 +86,7 @@ export async function autoJoinCharacter(
 		try {
 			ctx.ui.notify(message, type);
 		} catch {
-			// Headless: notify is fire-and-forget; never fail the join on UI noise.
+			// Headless：notify 是 fire-and-forget，不因 UI 噪音让 join 失败。
 		}
 	};
 
@@ -137,13 +135,13 @@ export async function autoJoinCharacter(
 		notify(`Auto-joined ${descriptor.name ?? descriptor.groupChatId} as ${runtime.character.name}`, "info");
 		return runtime.character.name;
 	} catch (error) {
-		// A concurrent join may have taken the character: refresh once and
-		// retry the pick, mirroring the interactive /tavern-join loop.
+		// 并发 join 可能已占走该角色：刷新一次再重试选择，
+		// 与交互式 /tavern-join 循环一致。
 		if (controller.getState().type === "joining" && attempt.isActive) {
 			try {
 				await attempt.refreshAvailableCharacters();
 			} catch {
-				// Fall through to leave.
+				// 落到 leave。
 			}
 			const retry = pickCharacter(options, attempt.availableCharacters);
 			if (retry) {

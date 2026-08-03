@@ -75,10 +75,10 @@ describe("ReloadHandoffRegistry", () => {
 		const cleanup = vi.fn(async () => undefined);
 		registry.publish(creatorHandoff("pi-session-1", Date.now() + 60_000, cleanup));
 
-		// A different pi session cannot take it.
+		// 其他 pi session 无法接管。
 		expect(registry.take("pi-session-other")).toBeNull();
 
-		// The rightful owner takes it once…
+		// 合法属主只接管一次……
 		const taken = registry.take("pi-session-1");
 		expect(taken?.kind).toBe("creator");
 

@@ -10,12 +10,12 @@ import { PiProcess } from "./pi-process.js";
 /**
  * ISSUE-014 acceptance: headless RPC character mode (CPU 根治).
  *
- * A character pi started with PITAVERN_AUTO_JOIN=1 joins the active group
- * chat programmatically (no dialogs, no TUI). The acceptance asserts the
- * full chain: auto-join lands on the creator's online list, group-chat
- * input reaches the headless session (cursor file advances — RPC has no
- * session_start so the PITAVERTEST notify channel is unavailable), and the
- * process idles with negligible CPU (RPC mode has no TUI render pipeline).
+ * 以 PITAVERN_AUTO_JOIN=1 启动的角色 pi 以编程方式加入活动群聊
+ *（无对话框、无 TUI）。验收断言全链路：
+ * auto-join 出现在 creator 的在线列表、群聊
+ * 输入到达无头会话（游标文件推进——RPC 无
+ * session_start 故 PITAVERTEST 通知通道不可用），且
+ * 进程空闲时 CPU 可忽略（RPC 模式无 TUI 渲染管线）。
  */
 describe("acceptance: headless RPC character auto-join (ISSUE-014)", () => {
 	let root: string;
@@ -53,14 +53,14 @@ describe("acceptance: headless RPC character auto-join (ISSUE-014)", () => {
 		processes.push(creator);
 		const descriptor = await creator.startGroupChat(projectDir, agentDir);
 
-		// One User Persona message creates the round.
+		// 一条用户 Persona 消息创建轮次。
 		await creator.runCommand("/tavern-test-message hello");
 		await creator.waitFor(
 			(e) =>
 				e.type === "extension_ui_request" && e.method === "notify" && e.message === "User Persona message published",
 		);
 
-		// ── Headless character: RPC mode + auto-join env ───────────────────
+		// ── 无头角色：RPC 模式 + auto-join 环境 ───────────────────
 		const headless = PiProcess.spawn({
 			label: "hl",
 			agentDir,
@@ -74,14 +74,14 @@ describe("acceptance: headless RPC character auto-join (ISSUE-014)", () => {
 		});
 		processes.push(headless);
 
-		// The headless process reports the programmatic join on stderr
-		// (headless notify goes to stderr to keep the RPC JSONL stream clean).
-		// Join completes lazily: process boot + 3s scheduled delay + claim.
+		// 无头进程在 stderr 报告编程式加入
+		//（无头 notify 走 stderr 以保持 RPC JSONL 流干净）。
+		// 加入惰性完成：进程启动 + 3 秒定时延迟 + 认领。
 		const joinStarted = Date.now();
 		await headless.waitForStderr("Auto-joined", 60_000);
 		console.log(`[headless] auto-join completed in ${Date.now() - joinStarted}ms`);
 
-		// The creator sees the headless character online (2 people).
+		// creator 看到无头角色在线（2 人）。
 		await creator.waitFor(
 			(e) =>
 				e.type === "extension_ui_request" &&
@@ -89,11 +89,11 @@ describe("acceptance: headless RPC character auto-join (ISSUE-014)", () => {
 				(e.widgetLines as string[])?.[0]?.startsWith("2 人在线") === true,
 		);
 
-		// ── Group-chat input reaches the headless session ─────────────────
-		// The delivery pipeline advances the persisted cursor file on a
-		// successful increment (RPC has no session_start, so the PITAVERTEST
-		// [tavern-inject] notify is not wired; the cursor file is the
-		// deterministic proof the message was pulled and delivered).
+		// ── 群聊输入到达无头会话 ─────────────────
+		// 投递管线在成功增量时推进持久化游标文件
+		//（RPC 无 session_start，故 PITAVERTEST
+		// [tavern-inject] 通知未接线；游标文件是
+		// 消息已被拉取并投递的确定性证据）。
 		// PR #71 后游标 = cursors/<groupId>/<sessionId>.json（sessionId 进程生成不可预知）：
 		// 轮询目录内全部游标文件（会话无关）。
 		const cursorDir = getGroupChatCursorDirectory(agentDir, projectDir);
@@ -105,7 +105,7 @@ describe("acceptance: headless RPC character auto-join (ISSUE-014)", () => {
 		);
 		await pollSessionCursor(cursorDir, groupChatId, 2, 30_000, "cursor file");
 
-		// ── ISSUE-014 core: idle CPU is negligible (no TUI pipeline) ──────
+		// ── ISSUE-014 核心：空闲 CPU 可忽略（无 TUI 管线）──
 		const cpu = await headless.sampleCpuPercent(3_000);
 		expect(cpu).toBeLessThanOrEqual(2);
 	});

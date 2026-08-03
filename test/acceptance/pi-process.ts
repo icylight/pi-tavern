@@ -47,8 +47,8 @@ export interface EventCheckpoint {
 }
 
 /**
- * A real pi process driven over `--mode rpc`: JSON commands on stdin, JSON
- * events (including extension_ui_request dialogs) on stdout.
+ * 以 `--mode rpc` 驱动的真实 pi 进程：stdin 上的 JSON 命令、stdout 上的
+ * JSON 事件（含 extension_ui_request 对话框）。
  */
 export class PiProcess {
 	readonly child: ChildProcess;
@@ -65,7 +65,7 @@ export class PiProcess {
 	}
 
 	/**
-	 * Spawn a real pi (via references/pi/pi-test.sh) loading the workspace extension.
+	 * 生成真实 pi（经 references/pi/pi-test.sh）加载工作区扩展。
 	 *
 	 * #52（QA，2026-08-02）：白名单 env 替代 {...process.env, ...} 展开 + 去 --no-env——
 	 * ① 堵开发机真 key/模型配置泄漏进测试进程（Dev 归因：PI_PROVIDER/PI_MODEL/
@@ -241,8 +241,8 @@ export class PiProcess {
 	}
 
 	/**
-	 * Run /tavern-new and wait until the active descriptor is published.
-	 * Returns the descriptor.
+	 * 运行 /tavern-new 并等待活动描述符发布。
+	 * 返回描述符。
 	 */
 	async startGroupChat(cwd: string, agentDir: string): Promise<ActiveGroupChatDescriptor> {
 		await this.waitForTavernReady();
@@ -251,9 +251,9 @@ export class PiProcess {
 	}
 
 	/**
-	 * Run /tavern-join and complete the join flow, answering select dialogs
-	 * automatically (single candidates are auto-selected by the extension).
-	 * Returns the descriptor of the joined group chat.
+	 * 运行 /tavern-join 并完成加入流程，自动应答选择对话框
+	 *（唯一候选由扩展自动选中）。
+	 * 返回已加入群聊的描述符。
 	 */
 	async joinGroupChat(cwd: string, agentDir: string, characterLabel?: string): Promise<ActiveGroupChatDescriptor> {
 		await this.waitForTavernReady();
@@ -261,9 +261,9 @@ export class PiProcess {
 		const descriptor = await waitForDescriptor(agentDir, cwd);
 		const firstSelect = await this.waitFor((e) => e.type === "extension_ui_request" && e.method === "select");
 		if (firstSelect.title === "Choose a group chat") {
-			// The select returns the option label, not the group chat id; when
-			// several group chats exist, match the label that contains the
-			// descriptor's id (label format: "<name> (<groupChatId>)").
+			// select 返回选项标签而非群聊 id；当
+			// 存在多个群聊时，匹配包含
+			// 描述符 id 的标签（标签格式："<名称> (<群聊id>)"）。
 			const options = (firstSelect.options as unknown as string[]) ?? [];
 			const chosen = options.find((o) => o.includes(descriptor.groupChatId)) ?? options[0];
 			this.respond(String(firstSelect.id), { value: chosen });
@@ -296,7 +296,7 @@ export class PiProcess {
 			try {
 				event = JSON.parse(line) as RpcEvent;
 			} catch {
-				// Non-JSON boot chatter (e.g. "Running without API keys...").
+				// 非 JSON 的启动输出（如 "Running without API keys..."）。
 				continue;
 			}
 			this.events.push(event);
@@ -346,7 +346,7 @@ export class PiProcess {
 		const readTicks = async (): Promise<number> => {
 			try {
 				const stat = await readFile(`/proc/${pid}/stat`, "utf8");
-				// utime (14) + stime (15), in clock ticks (usually 100/s).
+				// utime（14）+ stime（15），以时钟滴答计（通常 100/秒）。
 				const fields = stat.split(" ");
 				return Number(fields[13]) + Number(fields[14]);
 			} catch {
@@ -365,7 +365,7 @@ export class PiProcess {
 
 	private onStderr(chunk: Buffer): void {
 		this.stderrChunks.push(chunk.toString());
-		// Keep stderr available for diagnostics; acceptance failures print it.
+		// 保留 stderr 用于诊断；验收失败时会打印它。
 		process.stderr.write(`[${this.label}] ${chunk.toString()}`);
 	}
 }
