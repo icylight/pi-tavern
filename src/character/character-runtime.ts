@@ -31,14 +31,14 @@ export interface PrepareCharacterRuntimeOptions {
 	character: CharacterCard;
 	requestTimeoutMs?: number;
 	onDisconnected?: () => void;
-	/** Interval between heartbeat checks (defaults to 30s). */
+	/** 心跳检查间隔（默认 30s）。 */
 	heartbeatIntervalMs?: number;
-	/** Creator-ping timeout threshold (defaults to 120s); overdue → terminate. */
+	/** creator ping 超时阈值（默认 120s）；超时 → 终止连接。 */
 	heartbeatTimeoutMs?: number;
 	/**
-	 * M7 (ISSUE-012/#24): absolute path of the per-group-chat cursor file
-	 * ("last successfully delivered message sequence"), persisted across
-	 * restarts. Omitted → incremental pulls are disabled (history-only mode).
+	 * M7 (ISSUE-012/#24)：群聊级游标文件绝对路径
+	 * （“最后一条成功投递的消息序号”），跨重启持久化。
+	 * 缺省 → 增量拉取关闭（仅历史模式）。
 	 */
 	cursorStorePath?: string;
 	/**
@@ -63,9 +63,9 @@ const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
 const DEFAULT_AGENT_WEDGED_TIMEOUT_MS = 180_000;
 
 /**
- * ISSUE-013 B5: maximum automatic stale-recovery pulls per round. Beyond
- * this budget the speak tool reports the refusal without auto-pulling, so a
- * message flood cannot loop the agent between reject and re-publish.
+ * ISSUE-013 B5：每轮自动 stale 恢复拉取的上限。超过预算后 speak 工具
+ * 直接上报拒绝而不再自动拉取，防止消息洪泛让 agent 在拒绝与重发之间
+ * 死循环。
  */
 const MAX_STALE_AUTO_RECOVERIES = 2;
 
@@ -75,13 +75,12 @@ export class CharacterRuntime {
 	readonly character: CharacterCard;
 	readonly receivedMessages: ServerMessage[] = [];
 	onEnvironmentMessage: ((message: ServerMessage) => void) | undefined;
-	/** Latest group chat state snapshot (cached for read-only TUI projection). */
+	/** 最新群聊状态快照（缓存供只读 TUI 投影）。 */
 	lastGroupChatState: GroupChatStateMessage | null = null;
 	/**
-	 * ISSUE-014/#14: agent_end watchdog — resets is_streaming if
-	 * agent_settled never arrives (aborted/errored runs must not hang the
-	 * "正在发言" display). Cleared by agent_settled; reload re-arms via
-	 * activateFromHandoff's explicit false re-send.
+	 * ISSUE-014/#14：agent_end 看门狗——若 agent_settled 迟迟不到则把
+	 * is_streaming 复位（被中止/报错的 run 不能一直挂着“正在发言”灯）。
+	 * agent_settled 清除；reload 经 activateFromHandoff 的显式 false 重发重新布防。
 	 */
 	private streamingResetWatchdog: NodeJS.Timeout | null = null;
 	/**
@@ -95,17 +94,16 @@ export class CharacterRuntime {
 	private readonly agentWedgedTimeoutMs: number;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	private readonly triggerDebounceMs: number | undefined;
-	/** Fired after a fresh state snapshot arrives (TUI refresh trigger). */
+	/** 新鲜状态快照到达后触发（TUI 刷新钩子）。 */
 	onStateSnapshot: ((snapshot: GroupChatStateMessage) => void) | undefined;
 	/**
-	 * M7 (ISSUE-012/#24): true while the pi Agent is mid-run (agent_start
-	 * fired, agent_settled not yet). GroupChatInput queues the increment
-	 * while active and flushes as soon as the run settles, so a pull never
-	 * interrupts the current run.
+	 * M7 (ISSUE-012/#24)：pi Agent 运行中（agent_start 已触发、agent_settled
+	 * 未到）为 true。GroupChatInput 在活跃期间排队增量、run 一 settle 立即
+	 * 冲刷，拉取永远不会打断当前 run。
 	 */
 	isAgentActive = false;
 	/**
-	 * Fired when the Agent run settles (agent_settled), so queued input can flush.
+	 * Agent run settle（agent_settled）后触发，供排队输入冲刷。
 	 * #66：wedged 强制收敛后（wedgedSettled=true）getter 返回 undefined——迟到的
 	 * 真实 settle 经 onAgentSettled?.() 路径幂等跳过，不重复冲刷。
 	 */
@@ -133,11 +131,9 @@ export class CharacterRuntime {
 	private cursorSequence: number | null = null;
 
 	/**
-	 * ISSUE-013 B5: per-round stale auto-recovery budget. Tracked against the
-	 * round snapshot returned with each speak response; the key changes when
-	 * the round does (new round or others publishing), which resets the
-	 * budget. Beyond the budget the client stops flagging the A2 injection
-	 * and reports the refusal for manual re-decision.
+	 * ISSUE-013 B5：每轮 stale 自动恢复预算。按每次 speak 响应带回的轮次
+	 * 快照跟踪；轮次变化（新轮或他人发布）时 key 变化即重置预算。超过预算后
+	 * 客户端不再标记 A2 注入，而是上报拒绝供人工重新决策。
 	 */
 	private staleRecoveryKey: string | null = null;
 	private staleRecoveryCount = 0;
@@ -217,9 +213,9 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * ISSUE-014/#14 watchdog: after agent_end, force is_streaming back to
-	 * false if agent_settled does not arrive within the window. Node timers
-	 * do not depend on agent state, so a wedged run still resets.
+	 * ISSUE-014/#14 看门狗：agent_end 之后，若 agent_settled 在窗口内未到，
+	 * 强制把 is_streaming 复位为 false。Node 定时器不依赖 agent 状态，
+	 * 因此 wedged run 也会被复位。
 	 */
 	armStreamingResetWatchdog(delayMs = 5_000): void {
 		this.clearStreamingResetWatchdog();
@@ -291,15 +287,15 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * ISSUE-014/#14 / #21: refresh the cached group chat state snapshot.
-	 * Keeps the TUI widget current even when no new messages arrive (member
-	 * changes, streaming flips, hand-raises). Failures are display-only.
+	 * ISSUE-014/#14 / #21：刷新缓存的群聊状态快照。
+	 * 即使没有新消息到达也保持 TUI widget 最新（成员变化、流式开关、
+	 * 举手）。失败仅影响展示。
 	 */
 	async refreshGroupChatState(): Promise<void> {
 		try {
 			await this.getGroupChatState();
 		} catch {
-			// Display-only refresh; never affects protocol or membership.
+			// 仅刷新展示，不影响协议与成员资格。
 		}
 	}
 
@@ -330,13 +326,12 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * Fetch one page of group chat history from the creator, ordered newest
-	 * first. The cursor (opaque server-provided sequence boundary) advances
-	 * towards older messages; pass the cursor from a message_history event or
-	 * a previous page response to page further back. Returns null when the
-	 * server rejects the request (e.g. connection dropped mid-window).
-	 * ISSUE-008: the join-time message_history only carries the 10 most
-	 * recent messages; this is how the client walks the remaining history.
+	 * 从 creator 拉取一页群聊历史，按最新在前排序。
+	 * cursor（服务端提供的不透明序号边界）向更早消息推进；
+	 * 传入 message_history 事件或上一页响应中的 cursor 可继续向后翻页。
+	 * 服务端拒绝请求时返回 null（例如窗口中途掉线）。
+	 * ISSUE-008：join 时 message_history 只携带最近 10 条消息，
+	 * 客户端靠本方法走完剩余历史。
 	 */
 	async fetchMessageHistoryPage(cursor: string | null): Promise<{
 		messages: ServerMessage[];
@@ -351,8 +346,8 @@ export class CharacterRuntime {
 				...(cursor !== null ? { cursor } : {}),
 			});
 		} catch (error) {
-			// The connection may have dropped while paging; the caller keeps
-			// whatever history it already has rather than failing the turn.
+			// 翻页期间连接可能已断开：调用方保留已拿到的历史，
+			// 而不是让本轮失败。
 			if (this.disconnected) {
 				return null;
 			}
@@ -379,10 +374,9 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * M7 (ISSUE-012/#24): pull every message with sequence > since from the
-	 * creator. The server filters by sequence, so a missed notification
-	 * (gap) is healed by the next pull. Returns null if the connection
-	 * dropped mid-request.
+	 * M7 (ISSUE-012/#24)：从 creator 拉取所有 sequence > since 的消息。
+	 * 服务端按 sequence 过滤，因此漏掉的通知（gap）由下一次拉取补齐。
+	 * 连接中途断开时返回 null。
 	 */
 	async fetchMessagesSince(sinceSequence: number): Promise<{
 		messages: ServerMessage[];
@@ -438,10 +432,9 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * M7: load the persisted cursor (last successfully delivered message
-	 * sequence) for this group chat. Returns null when no cursor exists yet
-	 * (first join) or the store is unavailable — the caller then falls back
-	 * to the full-history paging path.
+	 * M7：加载本群聊的持久化游标（最后一条成功投递的消息序号）。
+	 * 尚无游标（首次 join）或存储不可用时返回 null——调用方随即回退到
+	 * 完整历史分页路径。
 	 */
 	loadCursor(): number | null {
 		if (!this.cursorStorePath) {
@@ -467,9 +460,8 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * M7: persist the cursor after a successful delivery. Writing is atomic
-	 * (tmp file + rename) so a crash mid-write never corrupts the cursor;
-	 * delivery failures must NOT advance the cursor (retry semantics).
+	 * M7：成功投递后持久化游标。写入是原子的（tmp 文件 + rename），
+	 * 写中途崩溃不会损坏游标；投递失败绝不能推进游标（重试语义）。
 	 */
 	saveCursor(sequence: number): void {
 		if (!this.cursorStorePath) {
@@ -480,8 +472,8 @@ export class CharacterRuntime {
 		try {
 			writeCursorFile(this.cursorStorePath, sequence);
 		} catch {
-			// Persistence is best-effort: losing a cursor write only means the
-			// next join re-pulls from an older position (idempotent by sequence).
+			// 持久化尽力而为：游标写入丢失只意味着下次 join
+			// 从更早的位置重新拉取（按 sequence 幂等）。
 		}
 	}
 
@@ -496,12 +488,11 @@ export class CharacterRuntime {
 		autoRecover?: boolean;
 		round?: { roundMaxMessages: number; usedMessages: number; remainingMessages: number };
 	}> {
-		// ISSUE-013 B1: the client always carries its delivery cursor (the
-		// last successfully delivered sequence — A5: advanced only by the
-		// delivery path). The client never advances it on its own; the server
-		// excludes the requester's own messages from the staleness check (B6),
-		// so the cursor sitting before one's own published message never
-		// causes a false rejection. Legacy servers ignore the field.
+		// ISSUE-013 B1：客户端始终携带自己的投递游标（最后一条成功投递的
+		// sequence——A5：只能由投递路径推进）。客户端不会自行推进游标；
+		// 服务端把请求者自己的消息排除在 stale 检查之外（B6），
+		// 因此游标停在自己已发布的消息之前永远不会导致误拒。
+		// 旧版服务端忽略该字段。
 		const basedOnSequence = this.loadCursor() ?? 0;
 		const response = await this.request({ type: "speak", content, based_on_sequence: basedOnSequence });
 		if (response.type !== "response" || response.command !== "speak") {
@@ -550,21 +541,19 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * ISSUE-013 B3: flag the A2 "increment pending" mark so the settle hook
-	 * pulls the missed increment through the unified delivery pipeline.
-	 * Called by the speak tool when a stale refusal needs auto-recovery; the
-	 * tool itself returns only a short notice (no message text — the full
-	 * increment arrives in the next turn via the normal group chat input).
+	 * ISSUE-013 B3：标记 A2“增量挂起”标记，让 settle 钩子经统一投递管线
+	 * 拉取错过的增量。由 speak 工具在 stale 拒绝需要自动恢复时调用；
+	 * 工具本身只返回简短提示（不带消息文本——完整增量在下一轮经正常
+	 * 群聊输入到达）。
 	 */
 	markIncrementPending(): void {
 		this.groupChatInput?.markIncrementPending();
 	}
 
 	/**
-	 * Detach the runtime for a reload: stop the input pipeline and heartbeat,
-	 * buffer reload-window frames on the live socket, and publish a one-shot
-	 * handoff. The connection, Character identity, un-flushed environment
-	 * events, and the debounce deadline are preserved for the new runtime.
+	 * 为 reload 拆离 runtime：停止输入管线与心跳，在存活 socket 上缓冲
+	 * reload 窗口帧，并发布一次性交接。连接、Character 身份、未冲刷的
+	 * 环境事件与 debounce 截止时刻都保留给新 runtime。
 	 */
 	async detachForReload(piSessionId: string): Promise<CharacterReloadHandoff> {
 		if (this.lifecycle !== "active" || !this.socket || this.disconnected) {
@@ -621,17 +610,14 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * Take over a character handoff: re-attach the live socket with fresh
-	 * handlers, restore heartbeat tracking and the environment input pipeline
-	 * (with its pending events and debounce deadline), then replay buffered
-	 * frames in received order. A member that disconnected during the reload
-	 * window is routed into the normal disconnected cleanup instead.
+	 * 接管 character 交接：用新处理器重新挂接存活 socket，恢复心跳跟踪与
+	 * 环境输入管线（含其挂起事件与 debounce 截止时刻），然后按到达顺序
+	 * 重放缓冲帧。reload 窗口期间断线的成员走正常断线清理。
 	 *
-	 * ISSUE-005: the character card is re-read from disk on reload so a card
-	 * edit while joined (e.g. the three-way 0.5 collaboration merge) is
-	 * reflected in the injected persona after reload. If re-reading fails the
-	 * previous card is kept and the warning is surfaced via the optional
-	 * notify callback — the reload proceeds, never crashing the session.
+	 * ISSUE-005：reload 时重新从磁盘读角色卡，因此加入期间对卡片的编辑
+	 * （例如四方 0.5 协作合并）会在 reload 后反映到注入的 persona。若重读
+	 * 失败则保留旧卡并把警告经可选 notify 回调暴露——reload 继续，绝不
+	 * 使会话崩溃。
 	 */
 	static async takeHandoff(
 		handoff: CharacterReloadHandoff,
@@ -648,13 +634,13 @@ export class CharacterRuntime {
 				handoff.character.path,
 				resolve(dirname(handoff.character.path), "tavern.json"),
 			);
-			// Keep the registered identity anchor: the card may have been edited
-			// while joined, but the character_id is the join-time registration.
-			// (Same pattern as loadClaimedCharacter.)
+			// 保留注册时的身份锚：加入期间角色卡可能被编辑过，
+			// 但 character_id 以 join 时注册为准。
+			// （与 loadClaimedCharacter 同款。）
 			character = { ...character, characterId: handoff.character.characterId };
 		} catch (error) {
-			// Keep the previous card; surface the failure so the user knows the
-			// persona may be stale. The connection stays up either way.
+			// 保留旧角色卡；把失败暴露给用户，让其知道 persona
+			// 可能已过期。无论哪种情况连接都保持。
 			notify?.(
 				`reload: failed to re-read character card ${handoff.character.path}, keeping the previous one: ${error instanceof Error ? error.message : String(error)}`,
 			);
@@ -697,11 +683,10 @@ export class CharacterRuntime {
 			this.handleIncomingData(frame.data, false);
 		}
 
-		// ISSUE-014/#14 reload corner: the old runtime's streaming watchdog
-		// timer dies with the old Extension Runtime. If the previous agent
-		// run was interrupted mid-flight (streaming stuck true), explicitly
-		// reset — the run is dead, the display must not stay hung. This is
-		// the only deterministic coverage of the reload path (M5 handoff).
+		// ISSUE-014/#14 reload 角落：旧 runtime 的流式看门狗定时器
+		// 随旧 Extension Runtime 一起消亡。若上一次 agent run 中途被打断
+		// （streaming 卡在 true），这里显式复位——run 已死，展示不能一直
+		// 挂着。这是 reload 路径唯一确定性的覆盖（M5 handoff）。
 		this.updateStreaming(false);
 	}
 
@@ -725,7 +710,7 @@ export class CharacterRuntime {
 
 	private async closePermanently(): Promise<void> {
 		if (this.lifecycle === "detaching") {
-			// close() and detachForReload() are mutually exclusive paths.
+			// close() 与 detachForReload() 是互斥路径。
 			throw new Error("CharacterRuntime has been detached for reload and cannot be closed");
 		}
 		this.lifecycle = "disposed";
@@ -805,7 +790,7 @@ export class CharacterRuntime {
 		}
 		this.heartbeatTimer = setInterval(() => {
 			if (Date.now() - this.lastPingAt > this.heartbeatTimeoutMs) {
-				// No creator ping for the timeout window: the connection is half-open.
+				// 超时窗口内不给 creator 发 ping：连接处于半开状态。
 				this.failConnection(new Error("PiTavern heartbeat timeout"));
 			}
 		}, this.heartbeatIntervalMs);

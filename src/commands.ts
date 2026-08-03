@@ -246,10 +246,9 @@ export function registerCommands(
 		},
 	});
 
-	// Test-only commands for the process-level acceptance suite. RPC mode has
-	// no input channel and no way to invoke extension tools, so the acceptance
-	// tests need explicit entries to publish a User Persona message and to
-	// trigger a real pi reload. Registered only when PITAVERN_TEST=1.
+	// 仅测试用的命令（进程级验收套件）。RPC 模式没有输入通道、
+	// 也无法调用扩展工具，因此验收套件需要显式入口来发布 User Persona
+	// 消息与触发真实 pi reload。仅在 PITAVERN_TEST=1 时注册。
 	if (process.env.PITAVERN_TEST === "1") {
 		pi.registerCommand("tavern-test-message", {
 			description: "[test] Publish a User Persona message as the creator",

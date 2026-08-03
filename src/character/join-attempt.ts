@@ -172,9 +172,9 @@ export class JoinAttempt {
 				throw new Error(readyResponse.error);
 			}
 			runtime.activate(this.takeConnection(), pi);
-			// ISSUE-014/#21: pull the group chat state snapshot right after
-			// joining so the widget shows the real member count immediately —
-			// before the first public message arrives (no "成员数未知" window).
+			// ISSUE-014/#21：join 后立即拉取群聊状态快照，
+			// 让 widget 马上显示真实成员数——在第一条公共消息
+			// 到达之前（不再有“成员数未知”窗口期）。
 			void runtime.refreshGroupChatState();
 			return runtime;
 		} catch (error) {

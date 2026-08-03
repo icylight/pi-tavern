@@ -50,7 +50,7 @@ function creatorWidgetLines(state: {
 	onlineCharacters: Map<string, { character: { name: string }; isStreaming: boolean; handRaised: boolean }>;
 	round: RoundState | null;
 }): string[] | null {
-	const onlineCount = state.onlineCharacters.size + 1; // + User Persona
+	const onlineCount = state.onlineCharacters.size + 1; // + User Persona 也计入
 	const streaming = [...state.onlineCharacters.values()]
 		.filter((online) => online.isStreaming)
 		.map((online) => online.character.name);
@@ -130,7 +130,7 @@ export class TavernUiPresenter {
 			ui.setStatus(TAVERN_UI_KEY, view.status ?? undefined);
 			ui.setWidget(TAVERN_UI_KEY, view.widgetLines ?? undefined, { placement: "belowEditor" });
 		} catch {
-			// Best-effort display only.
+			// 尽力展示即可。
 		}
 	}
 }
