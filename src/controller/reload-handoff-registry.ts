@@ -8,7 +8,7 @@ import type { GroupChatState } from "../data/group-chat-state.js";
 import type { ServerMessage } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 
-/** Private globalThis key so reloaded extension code can find the slot. */
+/** 私有 globalThis 键，让 reload 后的扩展代码能找到槽位。 */
 export const RELOAD_HANDOFF_SYMBOL: unique symbol = Symbol.for("pi-tavern.reload-handoff");
 
 export interface BufferedFrame {
@@ -21,9 +21,9 @@ interface HeartbeatStateSnapshot {
 }
 
 /**
- * Resources moved from the old Extension Runtime to the reloaded one.
- * One-shot: take() succeeds exactly once; on 5s expiry the handoff's own
- * cleanup releases everything.
+ * 从旧 Extension Runtime 移交到 reload 后新 runtime 的资源。
+ * 一次性：take() 恰好成功一次；5s 过期后由 handoff 自身的 cleanup
+ * 释放全部资源。
  */
 export interface CreatorReloadHandoff {
 	kind: "creator";
@@ -46,7 +46,7 @@ export interface CreatorReloadHandoff {
 	bufferingHandlers: Map<string, { message: (data: WebSocket.RawData) => void; close: () => void }>;
 	closedSessionIds: Set<string>;
 
-	/** Releases the server, member sockets, and the active descriptor. */
+	/** 释放服务端、成员 socket 与活跃描述符。 */
 	cleanup: () => Promise<void>;
 }
 
@@ -58,7 +58,7 @@ export interface CharacterReloadHandoff {
 	groupChatId: string;
 	socket: WebSocket;
 	character: CharacterCard;
-	/** M7 (ISSUE-012/#24): cursor file path, carried across reloads. */
+	/** M7 (ISSUE-012/#24)：跨 reload 携带的游标文件路径。 */
 	cursorStorePath?: string;
 	pendingEvents: ServerMessage[];
 	debounceDueAt: number | null;
@@ -68,7 +68,7 @@ export interface CharacterReloadHandoff {
 	bufferingHandlers: { message: (data: WebSocket.RawData) => void; close: () => void };
 	socketClosed: boolean;
 
-	/** Closes the socket and drops un-flushed pending events. */
+	/** 关闭 socket 并丢弃未冲刷的挂起事件。 */
 	cleanup: () => Promise<void>;
 }
 
@@ -78,7 +78,7 @@ class ReloadHandoffRegistry {
 	private handoff: ReloadHandoff | null = null;
 	private expireTimer: NodeJS.Timeout | null = null;
 
-	/** Publish a handoff; a previously untaken handoff is expired first. */
+	/** 发布交接；之前未被取走的交接先过期。 */
 	publish(handoff: ReloadHandoff): void {
 		this.clearExpireTimer();
 		const previous = this.handoff;
@@ -92,8 +92,8 @@ class ReloadHandoffRegistry {
 	}
 
 	/**
-	 * Take the handoff. Only the same pi session may take it; a mismatched
-	 * session returns null and leaves the slot for the rightful owner.
+	 * 取走交接。只有同一 pi session 可以取；session 不匹配时返回 null，
+	 * 槽位留给真正的归属者。
 	 */
 	take(piSessionId: string): ReloadHandoff | null {
 		const handoff = this.handoff;
@@ -105,7 +105,7 @@ class ReloadHandoffRegistry {
 		return handoff;
 	}
 
-	/** Expire the current handoff if one is still held (used by tests too). */
+	/** 若仍有交接则使其过期（测试也用）。 */
 	expireNow(): Promise<void> {
 		this.clearExpireTimer();
 		const handoff = this.handoff;
@@ -134,8 +134,8 @@ class ReloadHandoffRegistry {
 }
 
 /**
- * Process-wide registry keyed by Symbol.for so the reloaded extension code
- * (a fresh module instance) finds the slot published by the old runtime.
+ * 以 Symbol.for 为键的进程级注册表：reload 后的扩展代码（全新模块实例）
+ * 能找到旧 runtime 发布的槽位。
  */
 export function getReloadHandoffRegistry(): ReloadHandoffRegistry {
 	const holder = globalThis as Record<symbol, ReloadHandoffRegistry | undefined>;

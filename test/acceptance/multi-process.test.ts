@@ -58,7 +58,7 @@ describe("acceptance: multiple real pi processes discover and join the same grou
 		expect(descriptor.port).toBeGreaterThan(0);
 		expect(descriptor.cwd).toBe(resolve(projectDir));
 
-		// The descriptor lives under agentDir/tavern/<project-key>/active.
+		// 描述符位于 agentDir/tavern/<项目键>/active 下。
 		const descriptorPath = join(
 			getGroupChatProjectDirectory(agentDir, projectDir),
 			"active",
@@ -66,9 +66,9 @@ describe("acceptance: multiple real pi processes discover and join the same grou
 		);
 		expect(await readFile(descriptorPath, "utf8")).toContain(descriptor.groupChatId);
 
-		// ── Characters 1 & 2 (two real pi processes, concurrent join) ────────
-		// Both discover the same descriptor and claim their persona at the
-		// same time: the creator must serialize the joins and admit both.
+		// ── 角色 1 与 2（两个真实 pi 进程，并发加入）────────
+		// 两者发现同一描述符并同时认领各自 persona：
+		// creator 必须串行化加入并同时接纳两者。
 		const character = PiProcess.spawn({
 			label: "character-1",
 			agentDir,
@@ -88,14 +88,14 @@ describe("acceptance: multiple real pi processes discover and join the same grou
 			second.joinGroupChat(projectDir, agentDir, "Reviewer — Reviews designs"),
 		]);
 
-		// The characters are officially online: creator rendered "3 人在线".
+		// 角色已正式在线：creator 渲染出「3 人在线」。
 		await creator.waitFor(
 			(e) =>
 				e.type === "extension_ui_request" &&
 				e.method === "setWidget" &&
 				(e.widgetLines as string[] | undefined)?.[0] === "3 人在线",
 		);
-		// Both characters rendered their persona status.
+		// 两个角色都已渲染其 persona 状态。
 		await character.waitFor(
 			(e) =>
 				e.type === "extension_ui_request" &&
@@ -111,13 +111,13 @@ describe("acceptance: multiple real pi processes discover and join the same grou
 				e.statusText.includes("Tavern Character · Reviewer"),
 		);
 
-		// The group chat history file only appears after the first public
-		// message (design: empty group chats leave no JSONL behind).
+		// 群聊历史文件仅在第一条公开消息后出现
+		//（设计：空群聊不留下 JSONL）。
 		const chatsDir = getGroupChatSessionDirectory(agentDir, projectDir);
 		const files = await (await import("node:fs/promises")).readdir(chatsDir).catch(() => []);
 		expect(files).toEqual([]);
 
-		// ── Clean leave ────────────────────────────────────────────────────
+		// ── 干净离开 ────────────────────────────────────────────────────
 		await second.runCommand("/tavern-leave");
 		await creator.waitFor(
 			(e) =>

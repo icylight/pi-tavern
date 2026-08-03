@@ -13,14 +13,13 @@ import { type CharacterConnectionTransfer, CharacterRuntime } from "./character-
 export interface JoinAttemptOptions {
 	requestTimeoutMs?: number;
 	onDisconnected?: () => void;
-	/** Interval between heartbeat checks on the transferred Character connection. */
+	/** 移交后的 Character 连接上的心跳检查间隔。 */
 	heartbeatIntervalMs?: number;
-	/** Creator-ping timeout threshold on the transferred Character connection. */
+	/** 移交后的 Character 连接上的 creator ping 超时阈值。 */
 	heartbeatTimeoutMs?: number;
 	/**
-	 * M7 (ISSUE-012/#24): absolute path of the per-group-chat cursor file,
-	 * forwarded to the CharacterRuntime so incremental pulls resume across
-	 * restarts and reloads.
+	 * M7 (ISSUE-012/#24)：群聊级游标文件绝对路径，转发给
+	 * CharacterRuntime，让增量拉取跨重启与 reload 续接。
 	 */
 	cursorStorePath?: string;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */

@@ -146,7 +146,7 @@ describe("CreatorRuntime", () => {
 
 		// 校验 session_info 条目（群聊首次持久化时已有名称才会写入）
 		const sessionInfoEntry = allEntries.find((e) => e.type === "session_info");
-		expect(sessionInfoEntry).toBeUndefined(); // No name set, so no session_info
+		expect(sessionInfoEntry).toBeUndefined(); // 未设置名称，故无 session_info
 
 		// 校验 group-settings 条目
 		const settingsEntry = allEntries.find((e) => e.type === "custom" && e.customType === "pi-tavern.group-settings");
@@ -1956,7 +1956,7 @@ describe("ISSUE-013 B2: speak staleness check", () => {
 		});
 
 		const { client } = await joinCharacter(runtime, "session-legacy", "dev");
-		await runtime.submitUserPersonaMessage("one"); // latest = 1
+		await runtime.submitUserPersonaMessage("one"); // 最新 = 1
 
 		// 旧客户端省略该字段：跳过过期检查，发布成功。
 		client.send(JSON.stringify({ id: "l1", type: "speak", content: "Legacy reply" }));

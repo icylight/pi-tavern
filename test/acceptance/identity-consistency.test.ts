@@ -98,7 +98,7 @@ describe("acceptance: identity consistency (ISSUE-003)", () => {
 	});
 
 	it("concurrent real-pi sessions keep their own identity (registered name == persona, no cross-talk)", async () => {
-		// Both sessions are admitted: creator rendered "3 人在线".
+		// 两个会话都被接纳：creator 渲染出「3 人在线」。
 		await creator.waitFor(
 			(e) =>
 				e.type === "extension_ui_request" &&
@@ -150,7 +150,7 @@ describe("acceptance: identity consistency (ISSUE-003)", () => {
 		expect(claim.success).toBe(false);
 		expect(String(claim.error)).toContain("no longer available");
 
-		// The ghost never became a member: creator still shows 3 人在线.
+		// 幽灵卡从未成为成员：creator 仍显示 3 人在线。
 		await creator.waitFor(
 			(e) =>
 				e.type === "extension_ui_request" &&

@@ -34,7 +34,7 @@ describe("acceptance: a developer pi's activity does not pollute the daily pi", 
 	});
 
 	it("keeps every tavern artifact inside the developer agent dir", async () => {
-		const homeDir = join(root, "fake-home"); // stands in for the daily pi's home
+		const homeDir = join(root, "fake-home"); // 代表该 pi 的 home 目录
 		const devAgentDir = join(root, "dev-agent");
 		const projectFilesBefore = await readdir(projectDir).catch(() => []);
 
@@ -43,8 +43,8 @@ describe("acceptance: a developer pi's activity does not pollute the daily pi", 
 			agentDir: devAgentDir,
 			sessionDir: join(devAgentDir, "sessions"),
 			cwd: projectDir,
-			// Override HOME so the pi's default agent dir is isolated from the
-			// developer agent dir we configured explicitly.
+			// 覆盖 HOME 使 pi 的默认 agent 目录与
+			// 我们显式配置的开发者 agent 目录隔离。
 			env: { HOME: homeDir },
 		});
 		processes.push(dev);
@@ -57,19 +57,19 @@ describe("acceptance: a developer pi's activity does not pollute the daily pi", 
 		);
 		await dev.runCommand("/tavern-leave");
 
-		// The group chat record lives under the developer agent dir.
+		// 群聊记录位于开发者 agent 目录下。
 		const chatsDir = join(devAgentDir, "tavern");
 		expect(await exists(chatsDir)).toBe(true);
 		const tavernFiles = await readdir(chatsDir, { recursive: true });
 		expect(tavernFiles.some((f) => f.endsWith(".jsonl"))).toBe(true);
 		expect(descriptor.port).toBeGreaterThan(0);
 
-		// Nothing was written into the daily pi's home directory.
+		// 无任何内容写入该 pi 的 home 目录。
 		const homePiDir = join(homeDir, ".pi");
 		const homeContents = (await readdir(homePiDir, { recursive: true }).catch(() => [])) as string[];
 		expect(homeContents.some((f) => f.includes("tavern"))).toBe(false);
 
-		// The project directory was not modified (config files are read-only inputs).
+		// 项目目录未被修改（配置文件是只读输入）。
 		const projectFilesAfter = await readdir(projectDir).catch(() => []);
 		expect(projectFilesAfter).toEqual(projectFilesBefore);
 	}, 120_000);

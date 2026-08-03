@@ -10,12 +10,12 @@ import {
 } from "./discovery/active-descriptor.js";
 
 export interface GroupChatSessionSummary {
-	/** Absolute path to the group chat history JSONL file. */
+	/** 群聊历史 JSONL 文件的绝对路径。 */
 	path: string;
 	groupChatId: string;
-	/** Latest session_info display name, if any. */
+	/** 最近的 session_info 显示名（若有）。 */
 	name: string | null;
-	/** First public message text, used to display unnamed group chats. */
+	/** 首条公共消息文本，用于展示未命名群聊。 */
 	firstMessage: string;
 	created: Date;
 	/** True when an active instance descriptor exists for this group chat. */
@@ -87,11 +87,10 @@ export const defaultGroupChatSessionIoDependencies: Omit<GroupChatSessionDepende
 const defaultDeleteDependencies: DeleteGroupChatSessionDependencies = defaultGroupChatSessionIoDependencies;
 
 /**
- * List persisted group chat sessions for a project, newest first, marking
- * those that are currently active (they cannot be resumed). The displayed
- * first message is scanned from the file itself: pi's SessionManager.list()
- * only counts type === "message" entries, while group chat public messages
- * are custom_message entries, so its firstMessage is always "(no messages)".
+ * 列出项目下已持久化的群聊会话，最新在前，并标记当前活跃的（不可
+ * resume）。展示的首条消息从文件本身扫描：pi 的 SessionManager.list()
+ * 只统计 type === "message" 条目，而群聊公共消息是 custom_message 条目，
+ * 因此它的 firstMessage 永远是 "(no messages)"。
  */
 export async function listGroupChatSessions(
 	agentDir: string,
@@ -115,7 +114,7 @@ export async function listGroupChatSessions(
 	return summaries;
 }
 
-/** Scan a session file for the first pi-tavern.public-message content. */
+/** 扫描会话文件，取第一条 pi-tavern.public-message 内容。 */
 function firstPublicMessageFrom(
 	sessionPath: string,
 	sessionDir: string,
@@ -135,8 +134,8 @@ function firstPublicMessageFrom(
 }
 
 /**
- * Delete a group chat history file following pi's own session deletion
- * semantics: try the `trash` CLI first, fall back to permanent unlink.
+ * 按 pi 自身的会话删除语义删除群聊历史文件：先尝试 `trash` CLI，
+ * 失败则回退到永久 unlink。
  */
 export async function deleteGroupChatSession(
 	path: string,

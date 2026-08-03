@@ -101,8 +101,8 @@ describe("CreatorRuntime Character join lifecycle", () => {
 		});
 
 		// 方案 A (ISSUE-014/#14): membership changes also broadcast a
-		// group_chat_update so other characters refresh their snapshots.
-		// Join-time: no messages yet, so latest_sequence=0 / empty preview.
+		// group_chat_update 使其他角色刷新其快照。
+		// 加入时：尚无消息，故 latest_sequence=0 / 预览为空。
 		expect(await peer.next()).toEqual({
 			type: "group_chat_update",
 			latest_sequence: 0,
@@ -195,15 +195,15 @@ describe("CreatorRuntime Character join lifecycle", () => {
 		const first = await connectAndReady(runtime, "session-1", characters[0]?.characterId as string);
 		const second = await connectAndReady(runtime, "session-2", characters[1]?.characterId as string);
 		// 方案 A (ISSUE-014/#14): drain first's queue — its own join-time
-		// group_chat_update, then second's join broadcast
-		// (character_joined + group_chat_update).
+		// group_chat_update，然后是第二个角色的加入广播
+		//（character_joined + group_chat_update）。
 		await first.next();
 		await first.next();
 		await first.next();
 
 		first.send({ id: "leave", type: "leave_group_chat" });
 		// 方案 A (ISSUE-014/#14): second still has its own join-time
-		// group_chat_update in the queue before the leave broadcast.
+		// 队列中先于离开广播的 group_chat_update。
 		expect(await second.next()).toMatchObject({ type: "group_chat_update" });
 		expect(await second.next()).toEqual({
 			type: "character_left",

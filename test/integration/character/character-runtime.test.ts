@@ -324,7 +324,7 @@ describe("ISSUE-013 B: speak staleness client side", () => {
 		const root = await createTemporaryDirectory();
 		const cursorPath = join(root, "cursors", "group.json");
 		const { creator, character } = await startCreator();
-		await creator.submitUserPersonaMessage("one"); // seq 1, round created
+		await creator.submitUserPersonaMessage("one"); // 序号 1，轮次已创建
 
 		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-b6", {
 			cursorStorePath: cursorPath,
@@ -375,7 +375,7 @@ describe("ISSUE-013 B: speak staleness client side", () => {
 		runtime.saveCursor(1);
 
 		// 轮次状态 10:0 下的两次过期发言。
-		await creator.submitUserPersonaMessage("two"); // latest 2 > seen 1
+		await creator.submitUserPersonaMessage("two"); // 最新 2 > 已见 1
 		expect((await runtime.speak("r1")).autoRecover).toBe(true);
 		expect((await runtime.speak("r2")).autoRecover).toBe(true);
 
@@ -385,7 +385,7 @@ describe("ISSUE-013 B: speak staleness client side", () => {
 		expect(published.published).toBe(true);
 
 		// 再次过期：预算随轮次快照重置。
-		await creator.submitUserPersonaMessage("three"); // latest 4 > seen 3
+		await creator.submitUserPersonaMessage("three"); // 最新 4 > 已见 3
 		const afterReset = await runtime.speak("r3");
 		expect(afterReset.autoRecover).toBe(true);
 	});

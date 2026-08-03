@@ -119,7 +119,7 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 				e.type === "extension_ui_request" && e.method === "notify" && e.message === "User Persona message published",
 		);
 
-		// The turn lights up: creator widget shows "正在工作：Architect".
+		// 回合点亮：creator widget 显示「正在工作：Architect」。
 		await creator.waitFor(
 			(e) => widgetHasStreaming(e) && (e.widgetLines as string[]).some((line) => line.includes("Architect")),
 			60_000,

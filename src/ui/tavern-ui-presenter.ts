@@ -3,7 +3,7 @@ import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type { TavernController } from "../controller/tavern-controller.js";
 import type { RoundState } from "../data/group-chat-state.js";
 
-/** Fixed key used for both the footer status and the bottom widget. */
+/** 页脚状态与底部 widget 共用的固定键。 */
 export const TAVERN_UI_KEY = "pi-tavern";
 
 export interface TavernViewModel {
@@ -12,9 +12,8 @@ export interface TavernViewModel {
 }
 
 /**
- * Read-only view model derived from the Controller and runtime state
- * snapshots. The cache exists only to avoid redundant refreshes; it never
- * participates in protocol, quota, membership, or resume decisions.
+ * 从 Controller 与 runtime 状态快照派生的只读视图模型。缓存只为避免
+ * 冗余刷新；它绝不参与协议、配额、成员资格或 resume 决策。
  */
 export function buildTavernViewModel(controller: TavernController): TavernViewModel {
 	const state = controller.getState();
@@ -105,9 +104,9 @@ function characterWidgetLines(
 }
 
 /**
- * Renders the view model through the current Extension Runtime's UI context.
- * UI failures are local display problems only: they never change group chat
- * state, roll back public messages, or close WebSockets.
+ * 通过当前 Extension Runtime 的 UI 上下文渲染视图模型。
+ * UI 失败只是局部展示问题：它们绝不改变群聊状态、撤销公共消息
+ * 或关闭 WebSocket。
  */
 export class TavernUiPresenter {
 	private ui: ExtensionUIContext | null = null;

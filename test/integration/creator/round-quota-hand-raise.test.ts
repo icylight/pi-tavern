@@ -71,9 +71,9 @@ async function startRuntime(roundMaxMessages: number): Promise<CreatorRuntime> {
 		characters: [character],
 	});
 	runtimes.push(runtime);
-	// Create the first round with the intended quota: setMaxMessages applies
-	// to the NEXT round (current round unaffected), so set before the first
-	// User Persona message.
+	// 以目标配额创建首个轮次：setMaxMessages 作用于
+	// 下一轮（当前轮次不受影响），因此在第一条
+	// 用户 Persona 消息之前设置。
 	await runtime.setMaxMessages(roundMaxMessages);
 	await runtime.submitUserPersonaMessage("First");
 	return runtime;
@@ -99,7 +99,7 @@ describe("A5: hand_raised truth flow on round-limit refusal", () => {
 		const runtime = await startRuntime(1);
 		const client = await joinCharacter(runtime, "session-1");
 
-		// First speak fits the quota (round max = 1).
+		// 第一条发言在配额内（轮次上限 = 1）。
 		client.send(JSON.stringify({ id: "s1", type: "speak", content: "first" }));
 		const first = await waitForMessage(client, "response");
 		expect(first).toMatchObject({
@@ -109,7 +109,7 @@ describe("A5: hand_raised truth flow on round-limit refusal", () => {
 			data: { published: true },
 		});
 
-		// Second speak exceeds the quota → round_limit_reached refusal with
+		// 第二条发言超过配额 → 以 round_limit_reached 拒绝并
 		// hand raised (User-observed #20 chain: 配额用尽 → 自动举手).
 		client.send(JSON.stringify({ id: "s2", type: "speak", content: "second" }));
 		const refusal = await waitForMessage(client, "response");
@@ -129,10 +129,10 @@ describe("A5: hand_raised truth flow on round-limit refusal", () => {
 			},
 		});
 
-		// Runtime state: the character's hand is up.
+		// 运行时状态：角色的手已举起。
 		expect(runtime.state.onlineCharacters.get("session-1")?.handRaised).toBe(true);
 
-		// Snapshot truth: get_group_chat_state reports hand_raised=true.
+		// 快照真相：get_group_chat_state 报告 hand_raised=true。
 		client.send(JSON.stringify({ id: "state", type: "get_group_chat_state" }));
 		const snapshot = await waitForMessage(client, "response");
 		expect(snapshot).toMatchObject({
@@ -161,8 +161,8 @@ describe("A5: hand_raised truth flow on round-limit refusal", () => {
 		await waitForMessage(client, "response");
 		expect(runtime.state.onlineCharacters.get("session-1")?.handRaised).toBe(true);
 
-		// A new User Persona message opens a fresh round and clears hands
-		// (creator-runtime round reset semantics).
+		// 新的用户 Persona 消息开启新轮次并清除手举标志
+		//（creator-runtime 轮次重置语义）。
 		await runtime.submitUserPersonaMessage("Second");
 		expect(runtime.state.onlineCharacters.get("session-1")?.handRaised).toBe(false);
 		expect(runtime.state.round?.usedMessages).toBe(0);

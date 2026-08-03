@@ -51,10 +51,9 @@ export function getGroupChatSessionDirectory(agentDir: string, cwd: string): str
 }
 
 /**
- * M7 (ISSUE-012/#24): per-group-chat cursor store directory on the
- * character side ("last successfully delivered message sequence").
- * Persisted across restarts; scoped by project so distinct group chats
- * in different projects never collide.
+ * M7 (ISSUE-012/#24)：角色侧的群聊级游标存储目录
+ * （“最后一条成功投递的消息序号”）。跨重启持久化；按项目隔离，
+ * 不同项目中的不同群聊永不冲突。
  */
 export function getGroupChatCursorDirectory(agentDir: string, cwd: string): string {
 	return join(getGroupChatProjectDirectory(agentDir, cwd), "cursors");
