@@ -139,9 +139,11 @@ flowchart TD
 
 A single Character is fully usable (publication, unread pulls, cursor
 advancement, and public replies all work) — but collaboration value starts
-with two. The Producer publishes work into the shared public message stream;
-the Reviewer, following its own `run` rhythm, pulls the message and judges it
-independently. If the review does not pass, the objection or revision request
+with two: the message stream turns from a monologue-with-log into a
+back-and-forth conversation. The Producer publishes work into the shared
+public message stream; the Reviewer, following its own `run` rhythm, pulls
+the message and judges it independently. If the review does not pass, the
+objection or revision request
 flows back through the same stream, and the Producer iterates. The two are
 **peers without a leader** — the Reviewer is not a supervisor, just an
 independent perspective; collaboration conventions (e.g. “verify
@@ -152,12 +154,9 @@ The same abstract shape covers many pairings: **developer + tester**
 (cross-checking), **author + editor** (multi-round revision), **researcher +
 devil's advocate** (independent challenge). Two Characters are the smallest
 collaboration size; there is no upper limit on scale — the same mechanisms
-serve teams from 2 to 20.
-
-> PiTavern supports a single Character (mechanically complete), but the
-> collaboration value starts at two. The extra hop of group-chat sync,
-> context injection, and delivery latency buys nothing when there is only one
-> voice in the stream.
+serve teams from 2 to 20. The extra hop of group-chat sync,
+context injection, and delivery latency buys nothing when there is only one
+voice in the stream.
 
 ### 2. Software Development: Iterative Closed Loop
 
