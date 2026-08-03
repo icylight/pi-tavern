@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { unlink } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 
 import {
 	type ActiveGroupChatDescriptor,
@@ -136,6 +137,8 @@ function firstPublicMessageFrom(
 /**
  * 按 pi 自身的会话删除语义删除群聊历史文件：先尝试 `trash` CLI，
  * 失败则回退到永久 unlink。
+ * #107（F8）：同步删除决策状态 sidecar（{id}.decisions.jsonl），
+ * 不留不可见的决策历史（best-effort：sidecar 缺失不报错）。
  */
 export async function deleteGroupChatSession(
 	path: string,
@@ -143,10 +146,13 @@ export async function deleteGroupChatSession(
 ): Promise<DeleteGroupChatSessionResult> {
 	const trashResult = deps.trash(path);
 	if (trashResult.status === 0 || !deps.exists(path)) {
+		// 主文件已删除/入回收站——同步处理决策 sidecar。
+		await deleteDecisionSidecar(path, deps);
 		return { ok: true, method: "trash" };
 	}
 	try {
 		await deps.unlink(path);
+		await deleteDecisionSidecar(path, deps);
 		return { ok: true, method: "unlink" };
 	} catch (error) {
 		const unlinkError = error instanceof Error ? error.message : String(error);
@@ -156,5 +162,29 @@ export async function deleteGroupChatSession(
 			method: "unlink",
 			error: trashErrorHint ? `${unlinkError} (${trashErrorHint})` : unlinkError,
 		};
+	}
+}
+
+/** #107（F8）：决策 sidecar 路径 = 会话文件同目录、同名去扩展名 + .decisions.jsonl。 */
+function decisionSidecarPath(sessionPath: string): string {
+	const dir = dirname(sessionPath);
+	const base = basename(sessionPath).replace(/\.[^.]+$/, "");
+	return join(dir, `${base}.decisions.jsonl`);
+}
+
+/** 删除决策 sidecar（best-effort：trash 优先，回退 unlink；缺失 = 忽略）。 */
+async function deleteDecisionSidecar(sessionPath: string, deps: DeleteGroupChatSessionDependencies): Promise<void> {
+	const sidecar = decisionSidecarPath(sessionPath);
+	if (!deps.exists(sidecar)) {
+		return;
+	}
+	const trashResult = deps.trash(sidecar);
+	if (trashResult.status === 0 || !deps.exists(sidecar)) {
+		return;
+	}
+	try {
+		await deps.unlink(sidecar);
+	} catch {
+		// best-effort：主文件已删除，sidecar 残留不影响功能。
 	}
 }

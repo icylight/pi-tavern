@@ -92,6 +92,80 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 	});
 
 	pi.registerTool({
+		name: "tavern_decision_declare",
+		label: "Tavern Decision Declare",
+		description:
+			"Declare a decision/decision version to the PiTavern group chat decision state. " +
+			"The Creator mechanically validates the version chain (target exists, version monotonic, no cycles) " +
+			"and injects the current effective decision into every environment update. " +
+			"Closing (status=closed) is limited to the proposer or the User; overturning a decided item requires a " +
+			"new proposal closed by the User. " +
+			"Only available when joined as a Character. " +
+			"Text decisions outside this tool never enter the decision state.",
+		parameters: Type.Object(
+			{
+				decision_id: Type.String(),
+				version: Type.Integer({ minimum: 1 }),
+				content: Type.String(),
+				supersedes: Type.Array(Type.String(), { default: [] }),
+				status: Type.Optional(Type.Union([Type.Literal("proposed"), Type.Literal("closed")])),
+			},
+			{ additionalProperties: false },
+		),
+		execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) => {
+			const state = ctrl.getState();
+			if (state.type !== "character") {
+				return {
+					content: [{ type: "text", text: "Error: You are not currently joined to a group chat as a Character." }],
+					details: undefined,
+					isError: true,
+				};
+			}
+
+			try {
+				const result = await state.runtime.declareDecision(params);
+				if (result.accepted) {
+					const snapshot = result.snapshot;
+					const current = snapshot?.current
+						? `当前决定：${snapshot.current.decision_id}@v${snapshot.current.version}`
+						: "无当前决定";
+					const activeCount = snapshot?.active.filter((r) => r.status === "proposed").length ?? 0;
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Decision declared (${params.decision_id}@v${params.version}). ${current}；活跃提案 ${activeCount} 个。`,
+							},
+						],
+						details: { snapshot },
+					};
+				}
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Decision NOT declared: ${result.error_code ?? "unknown"} — ${result.error_message ?? ""}`,
+						},
+					],
+					details: undefined,
+					isError: true,
+				};
+			} catch (error) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Failed to declare decision: ${error instanceof Error ? error.message : String(error)}`,
+						},
+					],
+					details: undefined,
+					isError: true,
+				};
+			}
+		},
+	});
+
+	pi.registerTool({
 		name: "tavern_whoami",
 		label: "Tavern Whoami",
 		description:

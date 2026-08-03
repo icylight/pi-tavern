@@ -4,10 +4,11 @@ import type { WebSocketServer } from "ws";
 
 import type { CharacterCard, CharacterSummary } from "../config/character-card.js";
 import type { CreatorReloadHandoff } from "../controller/reload-handoff-registry.js";
+import { computeSnapshot } from "../data/decision-store.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
 import type { SessionStore } from "../data/session-store.js";
-import type { ClientMessage } from "../protocol/messages.js";
+import type { ClientMessage, DecisionRecordWire } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 import { CHARACTER_REFRESH_TIMEOUT_MS } from "../shared/constants.js";
 import type { RuntimeCloseReason, RuntimeCloseResult } from "../shared/runtime-close.js";
@@ -15,6 +16,7 @@ import { BroadcastHub } from "./broadcast-hub.js";
 import { type ConnectionContext, ConnectionManager } from "./connection-manager.js";
 import { buildCreatorDependencies, createNewRuntime, resumeRuntime } from "./creator-factory.js";
 import type { ClaimPipeline } from "./creator-pipelines/claim-pipeline.js";
+import type { DecisionPipeline, DecisionStoreAccess } from "./creator-pipelines/decision-pipeline.js";
 import { dispatchClientMessage as dispatchClientMessageFlow } from "./creator-pipelines/dispatch.js";
 import type { JoinPipeline } from "./creator-pipelines/join-pipeline.js";
 import type { LeavePipeline } from "./creator-pipelines/leave-pipeline.js";
@@ -54,6 +56,10 @@ export interface ResumeCreatorRuntimeOptions {
 interface PersistedRuntimeState {
 	publicMessages: PublicMessageState[];
 	persistedCount: number;
+	/** #107：决策状态链（resume/handoff 恢复，C2/T14）。 */
+	decisionRecords: DecisionRecordWire[];
+	/** #107（F4）：决策声明配额计数（handoff 传递；resume 无 = 空，与 round 不恢复同语义）。 */
+	declareCounts?: Map<string, number>;
 }
 
 export interface CreatorRuntimeDependencies {
@@ -63,6 +69,10 @@ export interface CreatorRuntimeDependencies {
 	readyTimeoutMs: number;
 	publishDescriptor: (agentDir: string, descriptor: ActiveGroupChatDescriptor) => Promise<string>;
 	writeFile: (path: string, data: string) => Promise<void>;
+	/** #107：决策 JSONL 原子替换（temp+rename；组合根注入默认实现）。 */
+	rename: (from: string, to: string) => Promise<void>;
+	/** #107：决策 JSONL 读取（组合根注入默认实现；runtime 不直连 node:fs）。 */
+	readFile?: (path: string) => Promise<string>;
 	rm: (path: string) => Promise<void>;
 	/** WebSocket 心跳 ping 间隔（默认 30s）。 */
 	heartbeatIntervalMs: number;
@@ -105,6 +115,10 @@ export class CreatorRuntime {
 	private readonly claimDeps: ConstructorParameters<typeof ClaimPipeline>[0];
 	private readonly readyDeps: ConstructorParameters<typeof ReadyPipeline>[0];
 	private readonly queryDeps: ConstructorParameters<typeof QueryPipeline>[0];
+	/** #107：决策状态访问面（组合根装配；单写者，跨 reload 由 handoff 传递）。 */
+	readonly decisionStore: DecisionStoreAccess;
+	/** #107：decision_declare 管线依赖（RuntimeFacades 的 User 入口复用）。 */
+	readonly decisionDeps: ConstructorParameters<typeof DecisionPipeline>[0];
 	/** @internal reload-flow 快照读取；语义不变。 */
 	persistedCount = 0;
 
@@ -156,6 +170,8 @@ export class CreatorRuntime {
 		private readonly readyTimeoutMs: number,
 		deps: CreatorRuntimeDependencies,
 		initialPersistedState?: PersistedRuntimeState,
+		/** #107：决策状态 JSONL 路径（工厂推导；undefined = 仅内存不落盘兜底）。 */
+		readonly decisionFilePath?: string,
 	) {
 		this.deps = deps;
 		this.heartbeatRegistry = new HeartbeatRegistry({
@@ -168,6 +184,7 @@ export class CreatorRuntime {
 		this.broadcastHub = new BroadcastHub({
 			state: this.state,
 			readPublicMessages: () => this.publicMessages,
+			readDecisionSnapshot: () => computeSnapshot(this.decisionStore.records),
 			iterateConnections: (visit) => {
 				for (const socket of this.connections.values()) {
 					visit(socket);
@@ -209,6 +226,23 @@ export class CreatorRuntime {
 			this.publicMessages = initialPersistedState.publicMessages;
 			this.persistedCount = initialPersistedState.persistedCount;
 		}
+		// #107：决策状态访问面（单写者）。append = 完整链持久化（temp+rename
+		// 原子替换；reload/resume 由 handoff/工厂恢复内存链）。
+		this.decisionStore = {
+			records: initialPersistedState?.decisionRecords ?? [],
+			declareCounts: new Map(initialPersistedState?.declareCounts ?? []),
+			append: async (records) => {
+				if (!this.decisionFilePath) {
+					return;
+				}
+				const lines = records.map((r) => JSON.stringify(r));
+				const content = `${lines.join("\n")}\n`;
+				// F6：temp + rename 原子替换（崩溃/部分写不损坏既有链）。
+				const tmpPath = `${this.decisionFilePath}.tmp`;
+				await this.deps.writeFile(tmpPath, content);
+				await this.deps.rename(tmpPath, this.decisionFilePath);
+			},
+		};
 		this.runtimeLifecycle = new RuntimeLifecycle({
 			readLifecycle: () => this.lifecycle,
 			setLifecycle: (value) => {
@@ -241,6 +275,7 @@ export class CreatorRuntime {
 			},
 			broadcastHub: this.broadcastHub,
 			memberBookkeeping: this.memberBookkeeping,
+			decisionStore: this.decisionStore,
 			enqueue: (operation) => this.enqueue(operation),
 			readOnPublicMessage: () => this.onPublicMessage,
 			readOnPublicMessageError: () => this.onPublicMessageError,
@@ -255,6 +290,7 @@ export class CreatorRuntime {
 		this.claimDeps = assembly.claimDeps;
 		this.readyDeps = assembly.readyDeps;
 		this.queryDeps = assembly.queryDeps;
+		this.decisionDeps = assembly.decisionDeps;
 
 		this.runtimeFacades = new RuntimeFacades({
 			state: this.state,
@@ -268,6 +304,7 @@ export class CreatorRuntime {
 				},
 			},
 			submitMessageDeps: this.submitMessageDeps,
+			decisionDeps: this.decisionDeps,
 			enqueue: (operation) => this.enqueue(operation),
 		});
 		this.heartbeatRegistry.start();
@@ -307,6 +344,17 @@ export class CreatorRuntime {
 
 	setMaxMessages(maxMessages: number): Promise<void> {
 		return this.runtimeFacades.setMaxMessages(maxMessages);
+	}
+
+	/** #107（F2）：User Persona 决策声明入口（命令层调用；decided_by 由管线固定）。 */
+	declareDecisionAsUser(decl: {
+		decision_id: string;
+		version: number;
+		content: string;
+		supersedes: string[];
+		status?: "proposed" | "closed";
+	}): Promise<import("./creator-pipelines/decision-pipeline.js").DecisionPipelineResult> {
+		return this.runtimeFacades.declareAsUser(decl);
 	}
 
 	submitUserPersonaMessage(content: string): Promise<string> {
@@ -434,6 +482,7 @@ export class CreatorRuntime {
 				claimDeps: this.claimDeps,
 				readyDeps: this.readyDeps,
 				queryDeps: this.queryDeps,
+				decisionDeps: this.decisionDeps,
 			},
 			socket,
 			connection,

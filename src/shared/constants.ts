@@ -21,3 +21,9 @@ export const CHARACTER_REFRESH_TIMEOUT_MS = 1_000;
  * 仅限 join 推送窗口；增量分页粒度（get_message_history 每页）保持 10。
  */
 export const JOIN_HISTORY_LIMIT = 100;
+
+/** #107：每角色每轮 tavern_decision_declare 成功声明上限（成功才计次，失败不消耗）。 */
+export const DECLARE_PER_ROUND_LIMIT = 3;
+
+/** #107：环境文本「当前有效裁决」节注入的活跃提案显示上限（超限截断 + 「+M 更早」标注）。 */
+export const DECISION_INJECTION_LIMIT = 5;

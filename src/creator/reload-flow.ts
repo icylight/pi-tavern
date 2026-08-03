@@ -12,6 +12,7 @@ import type { SessionStore } from "../data/session-store.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 import type { ConnectionContext, ConnectionManager } from "./connection-manager.js";
 import { createFromHandoff } from "./creator-factory.js";
+import type { DecisionStoreAccess } from "./creator-pipelines/decision-pipeline.js";
 import type { CreatorRuntime, CreatorRuntimeDependencies } from "./creator-runtime.js";
 import type { HeartbeatRegistry } from "./heartbeat-registry.js";
 import { closeWebSocketServer } from "./ws-utils.js";
@@ -31,6 +32,8 @@ export interface ReloadFlowHost {
 	characters: ReadonlyMap<string, CharacterCard>;
 	publicMessages: PublicMessageState[];
 	persistedCount: number;
+	/** #107：决策状态访问面（reload 快照读取）。 */
+	decisionStore: DecisionStoreAccess;
 	sessionStore: SessionStore;
 	groupSessionManager: SessionManager;
 	deps: {
@@ -114,6 +117,8 @@ export async function detachForReload(host: ReloadFlowHost, piSessionId: string)
 		characters: [...host.characters.values()],
 		publicMessages: [...host.publicMessages],
 		persistedCount: host.persistedCount,
+		decisionRecords: [...host.decisionStore.records],
+		declareCounts: new Map(host.decisionStore.declareCounts),
 		bufferedFrames,
 		bufferingHandlers,
 		closedSessionIds,

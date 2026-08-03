@@ -2,6 +2,7 @@ import WebSocket from "ws";
 import type { CharacterSummary } from "../config/character-card.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
 import { encodeMessage } from "../protocol/codec.js";
+import type { DecisionSnapshotWire } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 
 export type FailureCommand =
@@ -13,13 +14,16 @@ export type FailureCommand =
 	| "get_message_history"
 	| "fetch_messages_since"
 	| "get_chat_history_file"
-	| "speak";
+	| "speak"
+	| "decision_declare";
 
 export interface BroadcastHubOptions {
 	/** 群聊状态对象（骨架持有实体，只读引用注入）。 */
 	state: GroupChatState;
 	/** 公共消息数组读取（骨架持有实体，getter 注入）。 */
 	readPublicMessages: () => PublicMessageState[];
+	/** #107：决策状态快照读取（getter 注入——快照归属组合根/骨架，hub 只装配）。 */
+	readDecisionSnapshot: () => DecisionSnapshotWire | null;
 	/** 在线连接表遍历（骨架持有 Map 实体，只读引用注入）。 */
 	iterateConnections: (visit: (socket: WebSocket) => void) => void;
 	/** runtime 是否处于 active 生命周期（决定发送失败是否走断连清理）。 */
@@ -66,6 +70,8 @@ export class BroadcastHub {
 				is_streaming: online.isStreaming,
 				hand_raised: online.handRaised,
 			})),
+			// #107：决策状态快照（join/reload 重同步——C2/T14；空链 = null）。
+			decision_snapshot: this.options.readDecisionSnapshot(),
 		};
 	}
 
@@ -115,6 +121,8 @@ export class BroadcastHub {
 				latest_sequence: 0,
 				preview_messages: [],
 				total_messages: 0,
+				// #107（F3）：广播携带决策快照——角色快照变化即触发注入投递。
+				decision_snapshot: this.options.readDecisionSnapshot(),
 			});
 			return;
 		}
@@ -131,6 +139,8 @@ export class BroadcastHub {
 				round: m.round,
 			})),
 			total_messages: messages.length,
+			// #107（F3）：广播携带决策快照——角色快照变化即触发注入投递。
+			decision_snapshot: this.options.readDecisionSnapshot(),
 		});
 	}
 }

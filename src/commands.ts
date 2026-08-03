@@ -219,6 +219,58 @@ export function registerCommands(
 		},
 	});
 
+	pi.registerCommand("tavern-decision", {
+		description: "Declare a decision as User Persona (close/override). Usage: /tavern-decision '<json>'",
+		handler: async (args, ctx) => {
+			if (!isCreator(controller, ctx.ui.notify)) {
+				return;
+			}
+			const input = args.trim();
+			let parsed: {
+				decision_id: string;
+				version: number;
+				content: string;
+				supersedes?: string[];
+				status?: "proposed" | "closed";
+			};
+			try {
+				parsed = JSON.parse(input) as typeof parsed;
+			} catch {
+				ctx.ui.notify(
+					'Usage: /tavern-decision \'{"decision_id":"D1","version":1,"content":"...","status":"closed"}\'',
+					"error",
+				);
+				return;
+			}
+			if (
+				typeof parsed?.decision_id !== "string" ||
+				typeof parsed.version !== "number" ||
+				typeof parsed.content !== "string"
+			) {
+				ctx.ui.notify("decision_id/version/content 必填", "error");
+				return;
+			}
+			try {
+				// #107（F2）：User Persona 决策声明入口（decided_by=user_persona
+				// 由命令层固定注入）——关闭/替代已决定提案的唯一真实路径。
+				const result = await controller.declareDecisionAsUser({
+					decision_id: parsed.decision_id,
+					version: parsed.version,
+					content: parsed.content,
+					supersedes: parsed.supersedes ?? [],
+					...(parsed.status !== undefined ? { status: parsed.status } : {}),
+				});
+				if (result.accepted) {
+					ctx.ui.notify(`Decision ${parsed.decision_id}@v${parsed.version} declared`, "info");
+				} else {
+					ctx.ui.notify(`Decision NOT declared: ${result.error_code} — ${result.error_message}`, "error");
+				}
+			} catch (error) {
+				notifyError(ctx.ui.notify, error);
+			}
+		},
+	});
+
 	pi.registerCommand("tavern-set-max", {
 		description: "Set the maximum Character messages for future rounds",
 		handler: async (args, ctx) => {
