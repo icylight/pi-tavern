@@ -93,13 +93,16 @@ describe("acceptance: #90 W1-c 端到端点亮点亮", () => {
 		// ② 端到端点亮点亮：creator widget 出现「正在工作：」行（#81 语义，
 		// run 活跃即亮；T4 同信号已证可达）。白名单 run 毫秒级：行可能在
 		// 事件流早期出现（全历史重放），等待即可。
-		const seen = await creator.waitFor(
-			(e) =>
-				(e.type === "extension_ui_request" &&
-					e.method === "setWidget" &&
-					(e.widgetLines as string[] | undefined)?.some((line) => line.startsWith("正在工作："))) ?? false,
-			90_000,
-		).catch(() => undefined);
+		const seen = await creator
+			.waitFor(
+				(e) =>
+					(e.type === "extension_ui_request" &&
+						e.method === "setWidget" &&
+						(e.widgetLines as string[] | undefined)?.some((line) => line.startsWith("正在工作："))) ??
+					false,
+				90_000,
+			)
+			.catch(() => undefined);
 		expect(seen).toBeDefined();
 	});
 });
