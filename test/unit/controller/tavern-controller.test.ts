@@ -100,7 +100,7 @@ describe("TavernController", () => {
 		expect(controller.getState()).toEqual({ type: "idle" });
 		expect(runtime.close).toHaveBeenCalledTimes(1);
 
-		// The exit is not rolled back even when the following native operation fails.
+		// 即使后续原生操作失败，退出也不回滚。
 		expect(controller.getState()).toEqual({ type: "idle" });
 	});
 

@@ -93,8 +93,8 @@ describe("PiTavern protocol codec", () => {
 						published: true,
 						event_id: "evt-1",
 						sequence: 1,
-						// ISSUE-013 B6: success carries latest_sequence so the client
-						// can advance its last-seen past its own published message.
+						// ISSUE-013 B6：成功携带 latest_sequence，客户端可将
+						// last-seen 推进到越过自己已发布的消息。
 						latest_sequence: 1,
 						round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
 					},

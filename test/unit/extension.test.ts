@@ -112,8 +112,8 @@ function createMockCreatorRuntime(): CreatorRuntime {
 		groupMaxMessages: 10,
 	});
 
-	// Class mocks require type assertion; new fields on CreatorRuntime will
-	// not break compilation but tests will fail at runtime.
+	// 类 mock 需要类型断言；CreatorRuntime 新增字段不会破坏编译，
+	// 但测试会在运行时失败。
 	return {
 		configMaxMessages: 12,
 		state,
@@ -258,8 +258,8 @@ describe("PiTavern extension", () => {
 		expect(tool).toBeDefined();
 		const result = await tool.execute("call-1", {});
 		expect(result.isError).toBeUndefined();
-		// Field naming shared with the identity-line contract (cab1fd7):
-		// name / character_id / description, single source = runtime.character.
+		// 字段命名与身份行契约（cab1fd7）共享：
+		// name / character_id / description，唯一来源 = runtime.character。
 		expect(result.details).toEqual({
 			name: runtime.character.name,
 			character_id: runtime.character.characterId,
@@ -300,9 +300,8 @@ describe("PiTavern extension", () => {
 	});
 
 	it("fails tavern_speak when the runtime connection dropped but the controller is still in character state (BC-17)", async () => {
-		// Window: the WebSocket already closed (runtime disconnected) but the
-		// controller has not completed its idle transition yet. The tool must
-		// report a send failure instead of pretending the message went out.
+		// 窗口期：WebSocket 已关闭（runtime 断连）但 controller 尚未完成
+		// idle 转换。工具必须报告发送失败，而不是假装消息已发出。
 		const runtime = createMockCharacterRuntime({});
 		runtime.speak = vi.fn(async () => {
 			throw new Error("PiTavern connection is not open");
@@ -367,16 +366,16 @@ describe("PiTavern extension", () => {
 		if (!tool) throw new Error("no tool");
 		const result = await tool.execute("call-1", { content: "Stale message" });
 
-		// The tool reports the refusal with the missing range, not a generic error.
+		// 工具报告拒绝时附带缺失的消息区间，而非泛化错误。
 		expect(result.isError).not.toBe(true);
 		const text = result.content[0]?.text ?? "";
 		expect(text).toContain("out of sync");
 		expect(text).toContain("messages 3..5 arrived");
 		expect(text).toContain("not counted against the round quota");
 		expect(text).toContain("no hand was raised");
-		// Final design (User "怎么简单怎么来"): no in-tool pull, no message text —
-		// only the A2 increment mark, so the settle hook pulls once through the
-		// unified pipeline and the LLM re-decides with full context next turn.
+		// 最终设计（User "怎么简单怎么来"）：工具内不拉取、不带消息文本——
+		// 只打 A2 增量标记，由 settle 钩子经统一管线拉取一次，
+		// LLM 下一轮带完整上下文重新决策。
 		expect(runtime.fetchMessagesSince).not.toHaveBeenCalled();
 		expect(text).not.toContain("[seq 3]");
 		expect(runtime.markIncrementPending).toHaveBeenCalledTimes(1);
@@ -401,8 +400,8 @@ describe("PiTavern extension", () => {
 		if (!tool) throw new Error("no tool");
 		const result = await tool.execute("call-1", { content: "Stale again" });
 
-		// Budget exhausted: the notice stays, but no A2 increment mark is set
-		// (no further automatic recovery this round) and no in-tool pull.
+		// 预算耗尽：提示保留，但不打 A2 增量标记
+		// （本轮不再自动恢复），工具内也不拉取。
 		expect(runtime.markIncrementPending).not.toHaveBeenCalled();
 		expect(runtime.fetchMessagesSince).not.toHaveBeenCalled();
 		const text = result.content[0]?.text ?? "";
@@ -413,7 +412,7 @@ describe("PiTavern extension", () => {
 	it("enables tavern_speak when entering character state", () => {
 		const runtime = createMockCharacterRuntime({});
 		const controller = new TavernController();
-		// Set internal state to character
+		// 设置内部状态为 character
 		(controller as unknown as { state: { type: string; runtime: unknown } }).state = {
 			type: "character",
 			runtime,
@@ -423,7 +422,7 @@ describe("PiTavern extension", () => {
 		vi.mocked(mock.getActiveTools).mockReturnValue(["existing_tool"]);
 		piTavern(mock as unknown as ExtensionAPI, controller);
 
-		// Trigger state change to sync tools
+		// 触发状态变更以同步工具
 		controller.onStateChange?.();
 
 		expect(mock.setActiveTools).toHaveBeenCalledWith(["existing_tool", "tavern_speak"]);
@@ -521,7 +520,7 @@ describe("PiTavern extension", () => {
 
 	it("appends creator-display entry when user persona message is submitted", async () => {
 		const runtime = createMockCreatorRuntime();
-		// Wire submitUserPersonaMessage to fire onPublicMessage like the real impl
+		// 将 submitUserPersonaMessage 接入 onPublicMessage 触发（与真实实现一致）
 		runtime.submitUserPersonaMessage = vi.fn(async (content: string) => {
 			runtime.onPublicMessage?.({
 				sender: { type: "user_persona" },
@@ -539,10 +538,10 @@ describe("PiTavern extension", () => {
 		const mock = createMockExtensionAPI();
 		piTavern(mock as unknown as ExtensionAPI, controller);
 
-		// Trigger the onStateChange to wire up creator display
+		// 触发 onStateChange 以接入 creator 显示
 		controller.onStateChange?.();
 
-		// Trigger input to submit a user persona message
+		// 触发输入提交 user persona 消息
 		const ctx = stubContext();
 		await mock.inputHandlers[0]?.({ type: "input", text: "hello", source: "interactive" } as InputEvent, ctx);
 
@@ -562,7 +561,7 @@ describe("PiTavern extension", () => {
 
 	it("appends error notification when creator-display projection fails", async () => {
 		const runtime = createMockCreatorRuntime();
-		// Wire submitUserPersonaMessage to fire onPublicMessage like the real impl
+		// 将 submitUserPersonaMessage 接入 onPublicMessage 触发（与真实实现一致）
 		runtime.submitUserPersonaMessage = vi.fn(async (content: string) => {
 			runtime.onPublicMessage?.({
 				sender: { type: "user_persona" },
@@ -578,7 +577,7 @@ describe("PiTavern extension", () => {
 		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
 
 		const mock = createMockExtensionAPI();
-		// First appendEntry throws, second succeeds
+		// 第一次 appendEntry 抛错，第二次成功
 		let callCount = 0;
 		vi.mocked(mock.appendEntry).mockImplementation(() => {
 			callCount++;
@@ -591,7 +590,7 @@ describe("PiTavern extension", () => {
 		const ctx = stubContext();
 		await mock.inputHandlers[0]?.({ type: "input", text: "hello", source: "interactive" } as InputEvent, ctx);
 
-		// First call was the content projection
+		// 第一次调用是内容投影
 		expect(mock.appendEntry).toHaveBeenNthCalledWith(1, "pi-tavern.creator-display", {
 			kind: "public_message",
 			group_chat_id: "group-1",
@@ -604,7 +603,7 @@ describe("PiTavern extension", () => {
 				round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
 			},
 		});
-		// Second call is the error notification
+		// 第二次调用是错误通知
 		expect(mock.appendEntry).toHaveBeenNthCalledWith(2, "pi-tavern.creator-display", {
 			kind: "public_message",
 			group_chat_id: "group-1",
@@ -728,7 +727,7 @@ describe("PiTavern extension", () => {
 			updateStreaming: vi.fn(),
 		} as unknown as CharacterRuntime;
 		const controller = new TavernController();
-		// Use internal state setter to bypass transition lock for test setup
+		// 用内部状态 setter 绕过转换锁，便于测试准备
 		(controller as unknown as { state: { type: string; runtime: CharacterRuntime } }).state = {
 			type: "character",
 			runtime: characterRuntime,
@@ -920,11 +919,11 @@ describe("PiTavern extension", () => {
 
 		await mock.sessionHandlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
 
-		// Rendering failure must not close the runtime or change business state.
+		// 渲染失败不得关闭 runtime 或改变业务状态。
 		expect(controller.getState().type).toBe("creator");
 		expect(runtime.close).not.toHaveBeenCalled();
 
-		// A later member state change still refreshes without crashing.
+		// 后续成员状态变更仍能刷新而不崩溃。
 		expect(() => runtime.onMembersChanged?.()).not.toThrow();
 	});
 

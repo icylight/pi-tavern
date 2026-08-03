@@ -90,7 +90,7 @@ describe("group chat sessions", () => {
 			`${JSON.stringify({ type: "session", id: "group-2", timestamp: "2026-07-02T00:00:00.000Z", version: 1, cwd })}\n`,
 		);
 
-		// group-2 has an active descriptor
+		// group-2 存在活动描述符
 		const activePath = getActiveDescriptorPath(agentDir, cwd, "group-2");
 		await mkdir(dirname(activePath), { recursive: true });
 		await writeFile(
@@ -131,7 +131,7 @@ describe("group chat sessions", () => {
 		expect(byId.get("group-1")?.active).toBe(false);
 		expect(byId.get("group-2")?.active).toBe(true);
 		expect(byId.get("group-1")?.path.endsWith("group-1.jsonl")).toBe(true);
-		// firstMessage is scanned from the file, not pi's message-only firstMessage
+		// firstMessage 从文件扫描得到，而非 pi 的仅消息 firstMessage
 		expect(byId.get("group-1")?.firstMessage).toBe("User Persona:\nFirst public message");
 	});
 

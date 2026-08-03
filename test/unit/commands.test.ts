@@ -95,9 +95,8 @@ function createContext(): {
 
 describe("PiTavern commands", () => {
 	it("registers the M2 command set", () => {
-		// Isolate from PITAVERN_TEST env leakage — test-only commands
-		// (tavern-test-*) are conditionally registered and should not
-		// appear in the base command set assertion.
+		// 隔离 PITAVERN_TEST 环境变量泄漏——测试专用命令
+		// （tavern-test-*）是条件注册的，不应出现在基础命令集断言中。
 		const saved = process.env.PITAVERN_TEST;
 		delete process.env.PITAVERN_TEST;
 		try {
