@@ -50,8 +50,12 @@ function createFakeSocket(): {
 	return { socket, handlers };
 }
 
-function createRuntime(): { runtime: CharacterRuntime; socket: ReturnType<typeof createFakeSocket>["socket"] } {
-	const { socket } = createFakeSocket();
+function createRuntime(): {
+	runtime: CharacterRuntime;
+	socket: ReturnType<typeof createFakeSocket>["socket"];
+	closeSocket: () => void;
+} {
+	const { socket, handlers } = createFakeSocket();
 	const runtime = CharacterRuntime.prepare({
 		groupChatId: "group-1",
 		sessionId: "session-1",
@@ -62,7 +66,11 @@ function createRuntime(): { runtime: CharacterRuntime; socket: ReturnType<typeof
 		socket: socket as never,
 		bufferedMessages: [],
 	} as never);
-	return { runtime, socket };
+	const closeSocket = handlers.close;
+	if (!closeSocket) {
+		throw new Error("CharacterRuntime did not register a close handler");
+	}
+	return { runtime, socket, closeSocket };
 }
 
 describe("A3: streaming reset watchdog (#14 悬挂兜底)", () => {
@@ -276,6 +284,62 @@ describe("A4: run wedged watchdog (#66 兑底)", () => {
 
 			// 消费侧去重（incrementPending）由 GroupChatInput 承担，运行时侧保证不重复触发。
 			expect(onSettled).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
+describe("connection-closed resilience（死连接点火= uncaughtException 根因回归）", () => {
+	// 线上两例崩溃同源（用户 2026-08 报告）：连接先断（pi 退出竞态/心跳超时），
+	// ① agent_settled→settleRun 把异常炸进 ExtensionRunner.emit（报错但不致命）；
+	// ② agent_end 布防的流式复位定时器在 socket 置空后点火——定时器内 throw =
+	// uncaughtException = 杀死整个 pi 进程。双修复：finishDisconnected 拆定时器
+	// + updateStreaming 对关连接静默跳过（尽力而为，同 refreshGroupChatState）。
+
+	it("disconnect clears the armed streaming watchdog — timer never fires on a dead connection", () => {
+		vi.useFakeTimers();
+		try {
+			const { runtime, socket, closeSocket } = createRuntime();
+			const updateStreaming = vi.spyOn(runtime, "updateStreaming");
+
+			runtime.armStreamingResetWatchdog(5_000);
+			// 连接先断（onClose → finishDisconnected）：定时器必须被拆除。
+			closeSocket();
+			socket.send.mockClear();
+
+			vi.advanceTimersByTime(10_000);
+			expect(updateStreaming).not.toHaveBeenCalled();
+			expect(socket.send).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("settleRun after disconnect is a silent no-op — never throws into the extension emit", () => {
+		const { runtime, socket, closeSocket } = createRuntime();
+
+		// 模拟 agent_settled 在连接断开后才到达（agent-lifecycle 接线路径）。
+		closeSocket();
+		socket.send.mockClear();
+
+		expect(() => runtime.settleRun()).not.toThrow();
+		expect(socket.send).not.toHaveBeenCalled();
+	});
+
+	it("disconnect clears the run wedged watchdog — no forced settle on a dead runtime", () => {
+		vi.useFakeTimers();
+		try {
+			const { runtime, closeSocket } = createRuntime();
+			const onSettled = vi.fn();
+			runtime.onAgentSettled = onSettled;
+
+			runtime.armRunWedgedWatchdog(50);
+			runtime.isAgentActive = true;
+			closeSocket();
+
+			vi.advanceTimersByTime(10_000);
+			expect(onSettled).not.toHaveBeenCalled();
 		} finally {
 			vi.useRealTimers();
 		}
