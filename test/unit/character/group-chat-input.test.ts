@@ -173,6 +173,9 @@ describe("GroupChatInput", () => {
 		expect(message.content).toContain("First message");
 		// ISSUE-003 三字段身份契约（cab1fd7）
 		expect(message.content).toContain("你的当前角色：Developer（character_id=dev，注册名=Developer）");
+		// #104：环境文本带当前时间（头部）+ 消息发言时间/间隔（存在性断言防脆测）
+		expect(message.content).toMatch(/当前时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/);
+		expect(message.content).toMatch(/User Persona（\d{4}-\d{2}-\d{2} \d{2}:\d{2}（\d+ 秒前|\d+ 分钟前））:/);
 
 		expect(options.triggerTurn).toBe(true);
 		expect(options.deliverAs).toBe("followUp");
