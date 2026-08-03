@@ -374,3 +374,43 @@ describe("connection-closed resilience（死连接点火= uncaughtException 根�
 		}
 	});
 });
+	it("#90 W1-b: agent_end→continue 后 watchdog 不误灭活跃 run 的灯（isAgentActive 守卫）", () => {
+		// User 观察（2026-08-03）：群聊面板「正在工作」run 中不亮——根因 =
+		// agent_end 布防 5s 显示 watchdog 后 continue → agent_start 再亮但
+		// 不清定时器（W1-a 接线修复），且回调无 isAgentActive 守卫（本钉）：
+		// 定时器到点时 run 仍活跃 → 必须跳过灭灯（双保险之二）。
+		// 红基线（当前实现）：回调无条件 updateStreaming(false) → 误灭。
+		vi.useFakeTimers();
+		try {
+			const { runtime } = createRuntime();
+			const updateStreaming = vi.spyOn(runtime, "updateStreaming");
+
+			// run 活跃（agent_start 后）：亮灯；agent_end 布防 5s watchdog。
+			runtime.isAgentActive = true;
+			runtime.updateStreaming(true);
+			runtime.armStreamingResetWatchdog(5_000);
+
+			// 5s 到：watchdog 回调——run 仍活跃，不得灭灯。
+			vi.advanceTimersByTime(5_000);
+			expect(updateStreaming).not.toHaveBeenCalledWith(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("#90 W2 回归: 真悬挂（无 agent_start 续命）仍 5s 复位", () => {
+		// W1 修复不得破坏 #14 防悬挂语义：agent_end 后无新 agent_start、
+		// 无 settle → 5s 后仍灭灯。
+		vi.useFakeTimers();
+		try {
+			const { runtime } = createRuntime();
+			const updateStreaming = vi.spyOn(runtime, "updateStreaming");
+
+			runtime.isAgentActive = false; // 悬挂：run 已死
+			runtime.armStreamingResetWatchdog(5_000);
+			vi.advanceTimersByTime(5_000);
+			expect(updateStreaming).toHaveBeenCalledExactlyOnceWith(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
