@@ -29,6 +29,7 @@ User 自然表达指示 → **PM 负责转译成 Task Brief 并回读确认**（
 - **开发完成开 PR（PM 负责推送与 PR 创建/更新，2026-08-02 User 指示）**：PR 标题/描述引用 issue 编号，附 Task Brief 五要素 + 验收证据（命令 + 结果）；评审（Arch）与验收（QA）在 PR 上留痕；角色侧一律不执行 merge，PR 就绪后宣布，由 User 合并
 - **变更记录（CHANGELOG，2026-08-02 User 指示）**：`CHANGELOG.md` 由 PM 归口维护（生成 + 更新，其他角色不提改）。每里程碑 / 显著 PR 合入后，PM 随合入批次同步更新（Keep a Changelog 格式 + 语义化版本；条目面向用户影响，不倾倒 git log）；PR 描述如需 changelog 条目，由 PM 在 Task Brief 中说明
 - **git 写操作统一归 PM（2026-08-02 User 指示）**：git add/commit、迁分支、分支创建/切换/删除、stash/apply、merge/rebase、push、PR 创建/更新/评论、issue 操作一律由 PM 统一执行，**不得委托**。任何角色不得以「拆分自己的工作区改动」「恢复现场」等理由自行执行 git 写操作——需要拆分支/暂存时，先声明工作区内容归属（「工作区 = X 改动集」），由 PM 执行拆分；commit 内容属主=各角色；git 只读（status/log/diff/fetch）保留用于排查
+- **PM 落盘职责边界（2026-08-03 User 观察 + Arch 审计）**：PM 对非属主文件仅执行 git 归口操作（add/commit/分支）；机械修复（格式/TS 语法级）可代做但**须先群聊声明**并请内容属主复核；语义修改一律归内容属主——PM 反馈问题 → 属主改 → PM 落盘，PM 不直接代改（#90 W1-c 教训）
 - 动手前先 `git status` + `git branch --show-current`：确认所在分支正确、工作区无他人未提交改动
 
 ## 3. 沟通与确认闭环
