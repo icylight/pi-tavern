@@ -40,6 +40,9 @@ function creatorHandoff(piSessionId: string, expiresAt: number, cleanup: () => P
 		characters: [],
 		publicMessages: [],
 		persistedCount: 0,
+		// #107（F4）：决策状态链 + 配额计数（handoff 传递——reload 不恢复额度）。
+		decisionRecords: [],
+		declareCounts: new Map(),
 		bufferedFrames: new Map(),
 		bufferingHandlers: new Map(),
 		closedSessionIds: new Set(),

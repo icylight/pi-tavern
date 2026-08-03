@@ -10,6 +10,7 @@ function createMockRuntime(
 		groupChatId?: string;
 		hasPublicMessages?: boolean;
 		getGroupChatState?: () => Promise<unknown>;
+		decisionSnapshot?: unknown;
 	} = {},
 ): CharacterRuntime {
 	return {
@@ -23,6 +24,8 @@ function createMockRuntime(
 		},
 		getGroupChatState: overrides.getGroupChatState ?? (async () => ({})),
 		hasPublicMessages: overrides.hasPublicMessages ?? false,
+		// #107：决策状态快照（注入节渲染源；undefined = 无状态，省略段）。
+		decisionSnapshot: overrides.decisionSnapshot,
 		onEnvironmentMessage: undefined,
 		onAgentSettled: undefined,
 		isAgentActive: false,
@@ -1109,5 +1112,123 @@ describe("GroupChatInput", () => {
 		expect(fetchMock.mock.calls[0]?.[0]).toBe(4);
 
 		input.stop();
+	});
+});
+
+describe("#107 当前有效裁决注入节（ADR-0006，Arch 属主）", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	function snapshotRuntime(snapshot: unknown) {
+		return createMockRuntime({
+			characterId: "dev",
+			groupChatId: "group-1",
+			getGroupChatState: vi.fn(async () => ({})),
+			decisionSnapshot: snapshot,
+		});
+	}
+
+	async function renderDecision(runtime: ReturnType<typeof snapshotRuntime>): Promise<string> {
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+		handler(aPublicMessage("user_persona"));
+		await vi.advanceTimersByTimeAsync(1000);
+		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
+		input.stop();
+		return (call[0] as { content: string }).content;
+	}
+
+	function aSnapshotRecord(over: Record<string, unknown> = {}) {
+		return {
+			decision_id: "D1",
+			version: 1,
+			content: "决策内容",
+			status: "proposed",
+			supersedes: [],
+			decided_by: { type: "character", character_id: "dev", name: "Developer" },
+			created_at: "2026-08-01T00:00:00.000Z",
+			updated_at: "2026-08-01T00:00:00.000Z",
+			...over,
+		};
+	}
+
+	it("无快照 → 省略注入段（零噪音）", async () => {
+		vi.useFakeTimers();
+		const content = await renderDecision(snapshotRuntime(undefined));
+		expect(content).not.toContain("当前有效裁决");
+	});
+
+	it("空快照（无 active 无 current）→ 省略注入段", async () => {
+		vi.useFakeTimers();
+		const content = await renderDecision(snapshotRuntime({ current: null, active: [] }));
+		expect(content).not.toContain("当前有效裁决");
+	});
+
+	it("当前决定行：closed 记录显示「已决定 + 由 User 关闭 + 替代链」", async () => {
+		vi.useFakeTimers();
+		const content = await renderDecision(
+			snapshotRuntime({
+				current: aSnapshotRecord({
+					status: "closed",
+					decided_by: { type: "user_persona" },
+					supersedes: ["D0@v2"],
+				}),
+				active: [],
+			}),
+		);
+		expect(content).toContain("当前有效裁决：");
+		expect(content).toMatch(/D1@v1 已决定（2026-08-01，由 User 关闭；替代 D0@v2）/);
+	});
+
+	it("注入含决策内容：当前决定/活跃行含 content（转述失真根治闭环，F5）", async () => {
+		vi.useFakeTimers();
+		const content = await renderDecision(
+			snapshotRuntime({
+				current: aSnapshotRecord({
+					status: "closed",
+					decided_by: { type: "user_persona" },
+					content: "采用 B 方案：轻量当前决定状态",
+				}),
+				active: [aSnapshotRecord({ decision_id: "D2", content: "考虑 C 投票方案" })],
+			}),
+		);
+		expect(content).toContain("采用 B 方案：轻量当前决定状态");
+		expect(content).toContain("考虑 C 投票方案");
+	});
+
+	it("活跃提案行：proposed 记录显示「活跃 + 提案人」", async () => {
+		vi.useFakeTimers();
+		const content = await renderDecision(
+			snapshotRuntime({
+				current: null,
+				active: [aSnapshotRecord({})],
+			}),
+		);
+		expect(content).toMatch(/D1@v1 活跃（2026-08-01，由 Developer 提案）/);
+	});
+
+	it("截断：6 活跃提案 → 保留最新 5 + 「+1 个更早活跃提案」显式标注（C10，F7 最新优先）", async () => {
+		vi.useFakeTimers();
+		const active = Array.from({ length: 6 }, (_, i) => aSnapshotRecord({ decision_id: `D${i + 1}`, version: 1 }));
+		const content = await renderDecision(snapshotRuntime({ current: null, active }));
+		expect(content).toContain("+1 个更早活跃提案");
+		// 最新优先：D6 可见，最早的 D1 被隐藏（F7 方向修正）
+		expect(content).toContain("D6@v1 活跃");
+		expect(content).not.toContain("D1@v1 活跃");
+	});
+
+	it("superseded 记录不出现在活跃提案中（active 已排除）", async () => {
+		vi.useFakeTimers();
+		const content = await renderDecision(
+			snapshotRuntime({
+				current: null,
+				active: [aSnapshotRecord({})],
+			}),
+		);
+		// 注入节只渲染 active（归约在 Creator 侧），渲染端不重复过滤 superseded。
+		expect(content).toContain("D1@v1 活跃");
 	});
 });

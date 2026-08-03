@@ -7,6 +7,7 @@ import type { PublicMessageState } from "../protocol/public-message-state.js";
 import type { BroadcastHub } from "./broadcast-hub.js";
 import type { ConnectionContext } from "./connection-manager.js";
 import type { ClaimPipeline } from "./creator-pipelines/claim-pipeline.js";
+import type { DecisionPipeline, DecisionStoreAccess } from "./creator-pipelines/decision-pipeline.js";
 import { JoinPipeline } from "./creator-pipelines/join-pipeline.js";
 import { LeavePipeline } from "./creator-pipelines/leave-pipeline.js";
 import type { QueryPipeline } from "./creator-pipelines/query-pipeline.js";
@@ -31,6 +32,8 @@ export interface PipelineAssemblyHost {
 	readOnPublicMessage: () => ((msg: PublicMessageState) => void) | undefined;
 	readOnPublicMessageError: () => ((error: string, sequence: number, timestamp: string) => void) | undefined;
 	readOnMembersChanged: () => (() => void) | undefined;
+	/** #107：决策状态访问面（组合根注入，单写者）。 */
+	decisionStore: DecisionStoreAccess;
 	now: () => Date;
 	toCharacterSummary: (character: CharacterCard) => CharacterSummary;
 	toCharacterSummaryMessage: (character: CharacterSummary) => {
@@ -47,6 +50,8 @@ export interface PipelineAssembly {
 	claimDeps: ConstructorParameters<typeof ClaimPipeline>[0];
 	readyDeps: ConstructorParameters<typeof ReadyPipeline>[0];
 	queryDeps: ConstructorParameters<typeof QueryPipeline>[0];
+	/** #107：decision_declare 管线依赖面。 */
+	decisionDeps: ConstructorParameters<typeof DecisionPipeline>[0];
 }
 
 /** 管线门面装配（PR-B 拆自 CreatorRuntime 构造器；跨消息状态经注入引用显式读写，决策 7）。 */
@@ -72,11 +77,33 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 			persistedCount: host.persistedCount,
 			sessionStore: host.sessionStore,
 			broadcastGroupChatUpdate: () => broadcastHub.broadcastGroupChatUpdate(),
+			onRoundStarted: () => host.decisionStore.declareCounts.clear(),
 			onPublicMessage: (msg) => host.readOnPublicMessage()?.(msg),
 			onPublicMessageError: (error, sequence, timestamp) =>
 				host.readOnPublicMessageError()?.(error, sequence, timestamp),
 			send: (socket, message) => broadcastHub.send(socket, message),
 			sendFailure: (socket, id, command, reason) => broadcastHub.sendFailure(socket, id, command, reason),
+		},
+		decisionDeps: {
+			decisionStore: host.decisionStore,
+			broadcastGroupChatUpdate: () => broadcastHub.broadcastGroupChatUpdate(),
+			send: (socket, message) => broadcastHub.send(socket, message),
+			now: host.now,
+			// 发送者 = 在线角色表（与 submit-message 同源；窄接口注入）。
+			resolveSender: (connection) => {
+				if (connection.sessionId === null) {
+					return null;
+				}
+				const online = host.state.onlineCharacters.get(connection.sessionId);
+				if (!online) {
+					return null;
+				}
+				return {
+					type: "character",
+					character_id: online.character.characterId,
+					name: online.character.name,
+				};
+			},
 		},
 		claimDeps: {
 			state: host.state,
@@ -109,7 +136,8 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 			publicMessages: host.publicMessages,
 			sessionStore: host.sessionStore,
 			getPersistedCount: () => host.persistedCount.get(),
-			getGroupChatStateMessage: (requestingSessionId) => broadcastHub.getGroupChatStateMessage(requestingSessionId),
+			getGroupChatStateMessage: (requestingSessionId, includeDecisionSnapshot) =>
+				broadcastHub.getGroupChatStateMessage(requestingSessionId, includeDecisionSnapshot),
 			send: (socket, message) => broadcastHub.send(socket, message),
 			sendFailure: (socket, id, command, reason) => broadcastHub.sendFailure(socket, id, command, reason),
 			broadcastGroupChatUpdate: () => broadcastHub.broadcastGroupChatUpdate(),

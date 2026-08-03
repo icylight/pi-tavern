@@ -25,6 +25,8 @@ export interface SubmitMessagePipelineDependencies {
 	persistedCount: PersistedCountAccess;
 	sessionStore: SessionStore;
 	broadcastGroupChatUpdate: () => void;
+	/** #107（F4）：新讨论轮次开始时清空决策声明计数（每角色每轮语义）。 */
+	onRoundStarted?: () => void;
 	onPublicMessage?: (msg: PublicMessageState) => void;
 	onPublicMessageError?: (error: string, sequence: number, timestamp: string) => void;
 	send: (socket: WebSocket, message: unknown) => void;
@@ -292,6 +294,8 @@ export class SubmitMessagePipeline {
 		// 阶段 3：提交状态（仅在持久化成功后）
 		this.deps.state.round = { roundMaxMessages: this.roundMaxMessages, usedMessages: 0 };
 		this.deps.state.nextSequence = this.sequence;
+		// #107（F4）：新讨论轮次 = 决策声明配额重置。
+		this.deps.onRoundStarted?.();
 		// 清除上一轮的手举标志（仅成功时）
 		for (const character of this.deps.state.onlineCharacters.values()) {
 			character.handRaised = false;

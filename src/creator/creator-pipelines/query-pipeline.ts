@@ -9,6 +9,7 @@ import type { PublicMessageState } from "../../protocol/public-message-state.js"
 export type QueryConnectionLike = {
 	sessionId: string | null;
 	online: boolean;
+	decisionStateCapable: boolean;
 };
 
 export interface QueryPipelineDependencies {
@@ -17,7 +18,7 @@ export interface QueryPipelineDependencies {
 	sessionStore: SessionStore;
 	getPersistedCount: () => number;
 	/** 群聊状态快照构造（runtime 方法注入：group_chat/round/online_characters 装配）。 */
-	getGroupChatStateMessage: (requestingSessionId: string) => unknown;
+	getGroupChatStateMessage: (requestingSessionId: string, includeDecisionSnapshot: boolean) => unknown;
 	send: (socket: WebSocket, message: unknown) => void;
 	sendFailure: (
 		socket: WebSocket,
@@ -51,7 +52,7 @@ export class QueryPipeline {
 			type: "response",
 			command: "get_group_chat_state",
 			success: true,
-			data: this.deps.getGroupChatStateMessage(connection.sessionId),
+			data: this.deps.getGroupChatStateMessage(connection.sessionId, connection.decisionStateCapable),
 		});
 	}
 

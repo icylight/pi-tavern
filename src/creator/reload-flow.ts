@@ -12,6 +12,7 @@ import type { SessionStore } from "../data/session-store.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 import type { ConnectionContext, ConnectionManager } from "./connection-manager.js";
 import { createFromHandoff } from "./creator-factory.js";
+import type { DecisionStoreAccess } from "./creator-pipelines/decision-pipeline.js";
 import type { CreatorRuntime, CreatorRuntimeDependencies } from "./creator-runtime.js";
 import type { HeartbeatRegistry } from "./heartbeat-registry.js";
 import { closeWebSocketServer } from "./ws-utils.js";
@@ -31,6 +32,8 @@ export interface ReloadFlowHost {
 	characters: ReadonlyMap<string, CharacterCard>;
 	publicMessages: PublicMessageState[];
 	persistedCount: number;
+	/** #107：决策状态访问面（reload 快照读取）。 */
+	decisionStore: DecisionStoreAccess;
 	sessionStore: SessionStore;
 	groupSessionManager: SessionManager;
 	deps: {
@@ -79,9 +82,11 @@ export async function detachForReload(host: ReloadFlowHost, piSessionId: string)
 	const bufferedFrames = new Map<string, BufferedFrame[]>();
 	const bufferingHandlers = new Map<string, { message: (data: WebSocket.RawData) => void; close: () => void }>();
 	const closedSessionIds = new Set<string>();
+	const decisionStateSessionIds = new Set<string>();
 	for (const [sessionId, socket] of host.connections) {
 		const connection = host.connectionManager.getConnection(socket);
 		if (connection) {
+			if (connection.decisionStateCapable) decisionStateSessionIds.add(sessionId);
 			host.connectionManager.detachSocketHandlers(socket, connection);
 		}
 		const handlers = {
@@ -114,6 +119,9 @@ export async function detachForReload(host: ReloadFlowHost, piSessionId: string)
 		characters: [...host.characters.values()],
 		publicMessages: [...host.publicMessages],
 		persistedCount: host.persistedCount,
+		decisionRecords: [...host.decisionStore.records],
+		declareCounts: new Map(host.decisionStore.declareCounts),
+		decisionStateSessionIds,
 		bufferedFrames,
 		bufferingHandlers,
 		closedSessionIds,
@@ -161,6 +169,7 @@ export async function takeHandoff(
 			sessionId,
 			reservedCharacterId: null,
 			online: true,
+			decisionStateCapable: handoff.decisionStateSessionIds?.has(sessionId) ?? false,
 			readyTimer: null,
 			handlers: null,
 		};

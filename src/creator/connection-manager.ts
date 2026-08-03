@@ -8,6 +8,8 @@ export interface ConnectionContext {
 	sessionId: string | null;
 	reservedCharacterId: string | null;
 	online: boolean;
+	/** join capability：仅支持新字段的客户端接收 decision_snapshot。 */
+	decisionStateCapable: boolean;
 	readyTimer: NodeJS.Timeout | null;
 	/** 事件处理器引用，供 detachForReload 换入缓冲处理器。 */
 	handlers: {
@@ -87,6 +89,7 @@ export class ConnectionManager {
 			sessionId: null,
 			reservedCharacterId: null,
 			online: false,
+			decisionStateCapable: false,
 			readyTimer: null,
 			handlers: null,
 		};
