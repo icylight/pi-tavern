@@ -1,6 +1,6 @@
 # 重构实施计划:五层架构(IO 管线范式)
 
-- 状态:**Draft**(规划分支产出,随 ADR-0005 一起四方评审;批准后另立实施分支)
+- 状态：**实施中——Phase 5 收口**（Phase 1–4 已合入 main @ b71af53；ADR-0005 转 Accepted 为收口里程碑，转正后本文档归档为完成态计划）
 - 关联:ADR-0005(五层定义与映射)、QA 行为等价验收基准承诺(2026-08-02)
 - 原则:契约零改动、行为零变化、每阶段独立绿、试点优先「测试覆盖最厚」模块
 
@@ -32,7 +32,7 @@
 - 试点顺序（QA v2 定序）：resume-projection（12 钉测先例）→ active-descriptor（覆盖最厚）→ session/cursor；discover-group-chats 有 integration 专测，无需先补钉
 - PR 切分：按 skills 模块拆 2-3 个 PR，各带定向验证（防单 PR 过大）
 - 验证:unit 全量 + 定向(message-sync / persistence / discovery)
-- 出口：data/ 全部无 pi 依赖、可单测；**全仓文件 IO 调用点 grep 审计 = 非 skills 层 0 调用点**（adapter/shared 直读直写清零；契约面 messages/codec 只编解码，实测触盘则一并收敛）；runtime 不再直接写文件
+- 出口：data/ 全部无 pi 依赖、可单测；**全仓文件 IO 调用点审计 = lint-layers 强制矩阵 + 豁免面核对**（Phase 5 收口修正口径，2026-08-02 QA 预核 + Dev 复核：非 skills 层字面 0 调用点不成立——实测 3 处豁免：config 侧 load-config/character-card 与 creator-factory，均有裁决依据；`grep writeFile` 另有 2 处依赖注入接口类型签名假命中——creator-runtime.ts:88 / reload-flow.ts:39，import 无 node:fs，非直连 IO）；runtime 不再直接写文件
 
 ### Phase 2:application 提取(管线化)
 
