@@ -1,4 +1,3 @@
-import type WebSocket from "ws";
 import { WebSocketServer } from "ws";
 
 import { MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";

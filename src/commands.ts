@@ -7,11 +7,7 @@ import type { TavernController } from "./controller/tavern-controller.js";
 import type { CreatorRuntime } from "./creator/creator-runtime.js";
 import { type ActiveGroupChatDescriptor, getGroupChatCursorDirectory } from "./data/discovery/active-descriptor.js";
 import type { DiscoverGroupChatsOptions } from "./data/discovery/discover-group-chats.js";
-import type {
-	DeleteGroupChatSessionResult,
-	GroupChatSessionManagerLike,
-	GroupChatSessionSummary,
-} from "./data/group-chat-sessions.js";
+import type { DeleteGroupChatSessionResult, GroupChatSessionSummary } from "./data/group-chat-sessions.js";
 
 export interface RegisterCommandsOptions {
 	agentDir?: string;
@@ -68,7 +64,10 @@ export function registerCommands(
 				}
 				const config = await loadConfig({ agentDir, cwd: ctx.cwd });
 				// 组合根契约：index.ts 装配注入行为默认实现（ADR-0005 层方向）。
-				const sessions = await listGroupChatSessions!(agentDir, ctx.cwd);
+				if (!listGroupChatSessions) {
+					throw new Error("listGroupChatSessions 未注入（组合根契约违反）");
+				}
+				const sessions = await listGroupChatSessions(agentDir, ctx.cwd);
 				const resumable = sessions.filter((session) => !session.active);
 				if (resumable.length === 0) {
 					ctx.ui.notify("No resumable group chat found for this project", "info");
@@ -81,13 +80,12 @@ export function registerCommands(
 					return;
 				}
 				if (choice === deleteLabel) {
-					await runDeleteGroupChatFlow(
-						resumable,
-						ctx.ui.select,
-						ctx.ui.confirm,
-						ctx.ui.notify,
-						deleteGroupChatSession!,
-					);
+					// 组合根契约：index.ts 装配注入行为默认实现（ADR-0005 层方向）——
+					// 契约违反时显式报错（fail fast），替代非空断言（#89 check 清零）。
+					if (!deleteGroupChatSession) {
+						throw new Error("deleteGroupChatSession 未注入（组合根契约违反）");
+					}
+					await runDeleteGroupChatFlow(resumable, ctx.ui.select, ctx.ui.confirm, ctx.ui.notify, deleteGroupChatSession);
 					return;
 				}
 				const session = resumable[labels.indexOf(choice)];
@@ -118,7 +116,10 @@ export function registerCommands(
 				if (!ctx.hasUI) {
 					throw new Error("/tavern-join requires an interactive UI");
 				}
-				const candidates = await discoverGroupChats!({
+				if (!discoverGroupChats) {
+					throw new Error("discoverGroupChats 未注入（组合根契约违反）");
+				}
+				const candidates = await discoverGroupChats({
 					agentDir,
 					cwd: ctx.cwd,
 				});
