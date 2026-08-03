@@ -95,9 +95,9 @@ describe("acceptance: #90 W1-c 端到端点亮点亮", () => {
 		// 事件流早期出现（全历史重放），等待即可。
 		const seen = await creator.waitFor(
 			(e) =>
-				e.type === "extension_ui_request" &&
-				e.method === "setWidget" &&
-				(e.widgetLines as string[] | undefined)?.some((line) => line.startsWith("正在工作：")) ?? false,
+				(e.type === "extension_ui_request" &&
+					e.method === "setWidget" &&
+					(e.widgetLines as string[] | undefined)?.some((line) => line.startsWith("正在工作："))) ?? false,
 			90_000,
 		).catch(() => undefined);
 		expect(seen).toBeDefined();
