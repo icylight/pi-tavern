@@ -117,19 +117,40 @@ describe("A3: streaming reset watchdog (#14 悬挂兜底)", () => {
 		}
 	});
 
-	it("A1/A2 runtime semantics: group-chat turn trigger is one-shot", () => {
+	it("#77 semantics: is_streaming is driven by run activity, not a turn marker", () => {
 		const { runtime } = createRuntime();
 
-		// No trigger marked → direct/user turns stay dark.
-		expect(runtime.consumeGroupChatTurnTriggered()).toBe(false);
-		expect(runtime.consumeGroupChatTurnTriggered()).toBe(false);
+		// #77：标记机制已删除——点亮由 agent_start 无条件执行（run 活跃即亮），
+		// 复位由 agent_end/settle/watchdog 完成。直接验证 updateStreaming 通道。
+		const updateStreaming = vi.spyOn(runtime, "updateStreaming");
+		runtime.updateStreaming(true);
+		expect(updateStreaming).toHaveBeenCalledExactlyOnceWith(true);
+		runtime.updateStreaming(false);
+		expect(updateStreaming).toHaveBeenCalledTimes(2);
+	});
 
-		// GroupChatInput.flush marks the turn before delivery.
-		runtime.markGroupChatTurnTriggered();
-		expect(runtime.consumeGroupChatTurnTriggered()).toBe(true);
+	it("#77 candidate-1: state refresh re-sends is_streaming=true while a run is active (self-healing)", async () => {
+		const { runtime } = createRuntime();
+		const updateStreaming = vi.spyOn(runtime, "updateStreaming");
+		runtime.isAgentActive = true;
+		// request 为私有方法——经类型断言的 spy（仅测试态）。
+		vi.spyOn(runtime as unknown as { request: (message: unknown) => Promise<unknown> }, "request").mockResolvedValue({
+			type: "response",
+			command: "get_group_chat_state",
+			success: true,
+			data: {},
+		});
 
-		// One-shot: consumed exactly once.
-		expect(runtime.consumeGroupChatTurnTriggered()).toBe(false);
+		// 状态拉取成功（连接健康）且 run 仍活跃 → 补偿重发点亮（幂等），
+		// 修复半开连接期间点亮上报被静默丢弃的盲区。
+		await runtime.getGroupChatState();
+		expect(updateStreaming).toHaveBeenCalledWith(true);
+
+		// run 已结束：状态拉取不再重发点亮。
+		updateStreaming.mockClear();
+		runtime.isAgentActive = false;
+		await runtime.getGroupChatState();
+		expect(updateStreaming).not.toHaveBeenCalled();
 	});
 });
 

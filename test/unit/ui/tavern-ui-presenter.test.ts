@@ -79,8 +79,8 @@ const baseSnapshot = {
 	online_characters: [memberA],
 };
 
-describe("U1 正在发言状态呈现", () => {
-	it("creator 视图：is_streaming=true 的角色出现在「正在发言」行", () => {
+describe("U1 正在工作状态呈现", () => {
+	it("creator 视图：is_streaming=true 的角色出现在「正在工作」行", () => {
 		const state = creatorState({
 			onlineCharacters: new Map([
 				["s1", { character: { name: "A" }, isStreaming: true, handRaised: false }],
@@ -88,18 +88,18 @@ describe("U1 正在发言状态呈现", () => {
 			]),
 		});
 		const view = buildTavernViewModel(stubController(state));
-		expect(view.widgetLines).toContain("正在发言：A");
+		expect(view.widgetLines).toContain("正在工作：A");
 	});
 
-	it("creator 视图：is_streaming=false 的角色不出现于「正在发言」行", () => {
+	it("creator 视图：is_streaming=false 的角色不出现于「正在工作」行", () => {
 		const state = creatorState({
 			onlineCharacters: new Map([["s1", { character: { name: "A" }, isStreaming: false, handRaised: false }]]),
 		});
 		const view = buildTavernViewModel(stubController(state));
-		expect(view.widgetLines).not.toContainEqual(expect.stringContaining("正在发言"));
+		expect(view.widgetLines).not.toContainEqual(expect.stringContaining("正在工作"));
 	});
 
-	it("character 视图：is_streaming=true 的角色出现在「正在发言」行", () => {
+	it("character 视图：is_streaming=true 的角色出现在「正在工作」行", () => {
 		const state = characterState({
 			snapshot: {
 				...baseSnapshot,
@@ -107,10 +107,10 @@ describe("U1 正在发言状态呈现", () => {
 			},
 		});
 		const view = buildTavernViewModel(stubController(state));
-		expect(view.widgetLines).toContain("正在发言：A");
+		expect(view.widgetLines).toContain("正在工作：A");
 	});
 
-	it("character 视图：is_streaming=false 的角色不出现于「正在发言」行", () => {
+	it("character 视图：is_streaming=false 的角色不出现于「正在工作」行", () => {
 		const state = characterState({
 			snapshot: {
 				...baseSnapshot,
@@ -118,7 +118,7 @@ describe("U1 正在发言状态呈现", () => {
 			},
 		});
 		const view = buildTavernViewModel(stubController(state));
-		expect(view.widgetLines).not.toContainEqual(expect.stringContaining("正在发言"));
+		expect(view.widgetLines).not.toContainEqual(expect.stringContaining("正在工作"));
 	});
 });
 

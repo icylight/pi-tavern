@@ -29,7 +29,7 @@ pi-agent-core `agent-loop.js` `runLoop`：内层循环每轮 turn（LLM 调用+�
    - 协议格式与消息类型零变更；creator 零改动；
    - isAgentActive 语义保留（仍用于 settle 收尾/守卫；#14 is_streaming 真值不变）；
    - 光标单点推进：run 中拉取照常 saveCursor，settle 补投从 cursor 后拉——单调、不重不漏；
-   - #14 marker 生命周期：steer 路径不调用 markGroupChatTurnTriggered（无 agent_start 消费，防遗留标记被直聊 turn 误消费）；settle 收尾路径仍置位（补投即群聊触发 turn，点亮 is_streaming 语义正确）。
+   - **#77 修订（2026-08-03，User 拍板）**：「正在发言」指示语义 = **run 活跃即亮**（agent_start 无条件 updateStreaming(true)），不区分触发源（群聊/steer/救援/私有直聊）；`groupChatTurnTriggered` 标记机制已删除（无消费方）；投递路径（idle followUp / 忙态 steer）不再涉及点亮判定；长工具循环下「正在工作」常亮数分钟 = **预期行为**（run 结束才复位，非卡死）。
 3. **延迟目标**：秒级（单次工具调用间隙）。验收先例沿用 M7 A5：单测 ≤5s / 验收 ≤10s。
 
 ## 与 ADR-0003 的关系

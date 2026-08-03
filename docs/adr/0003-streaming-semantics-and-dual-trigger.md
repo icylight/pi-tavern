@@ -22,6 +22,8 @@
 
 已知残余边缘（可接受）：flush 置位后若用户直聊 turn 先启动会误消费标记 → ≤5s 瞬态误亮，由 watchdog + settled 双重复位缓解；不为此引入队列级追踪。
 
+> **#77 修订（2026-08-03，User 拍板）**：本决策被「正在工作」语义取代——`is_streaming` = run 活跃即亮（agent_start 无条件 `updateStreaming(true)`），不再区分触发源；`groupChatTurnTriggered` 标记机制已删除（决策 1 的误消费边缘随之消失）。保留部分：watchdog 悬挂兜底（决策 2）、与 `isAgentActive` 解耦——均不变。
+
 ### 2. 悬挂兜底（#14-A3）：agent_end watchdog + reload 补发
 
 - **watchdog**：`agent_end` 时布防 5s 定时器，`agent_settled` 清除；超时未清则强制补发 `is_streaming=false`。Node 定时器不依赖 agent 状态，run 卡死仍触发。契约依据：pi `agent.ts` `handleRunFailure`（:511）在错误/中止路径（stopReason=aborted/error）**保证发射 `agent_end`**——布防在 end 即覆盖全部可救悬挂场景；仅进程级 kill/事件循环硬卡死不可救（由既有断连清理兜底）。

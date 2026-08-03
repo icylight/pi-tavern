@@ -29,8 +29,7 @@ function createMockRuntime(
 		loadCursor: () => null,
 		saveCursor: () => undefined,
 		fetchMessagesSince: async () => ({ messages: [], latestSequence: 0, totalMessages: 0 }),
-		// ISSUE-014/#14：投递将下一个 turn 标记为群聊触发。
-		markGroupChatTurnTriggered: () => undefined,
+		// #77：标记机制已删除（agent_start 无条件点亮）。
 		refreshGroupChatState: async () => undefined,
 	} as unknown as CharacterRuntime;
 }
@@ -530,7 +529,6 @@ describe("GroupChatInput", () => {
 		runtime.saveCursor = vi.fn((value: number) => {
 			cursor = value;
 		});
-		runtime.markGroupChatTurnTriggered = vi.fn();
 		runtime.isAgentActive = true;
 
 		const pi = createMockPi();
@@ -553,10 +551,9 @@ describe("GroupChatInput", () => {
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
 		const message = call[0] as { details: { events: Array<{ type: string; sequence?: number }> } };
 		expect(message.details.events.map((e) => e.type)).toEqual(["character_joined", "public_message"]);
-		// 忙态投递走 steer 通道（工具间隙），绝不标记群聊触发（#14 边界）。
+		// 忙态投递走 steer 通道（工具间隙投递）。
 		const options = call[1] as { deliverAs: string };
 		expect(options.deliverAs).toBe("steer");
-		expect(runtime.markGroupChatTurnTriggered).not.toHaveBeenCalled();
 
 		// settle → 补拉全（游标已推进到 7 → 空拉取，无重复投递）。
 		runtime.isAgentActive = false;
@@ -699,27 +696,23 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("#38 T3: steer delivery never marks a group-chat-triggered turn (#14 boundary)", async () => {
-		// #14 边界：只有实际开启新 turn 的 idle flush 才能
-		// 标记群聊触发（agent_start 消费它点亮 is_streaming）。
-		// run 中的 steer 投递必须不触碰标记——
-		// 运行中的 turn 仍是唯一的 streaming 源。
+	it("#38 T3 (revised #77): delivery channels keep steer semantics; no group-chat marker involved", async () => {
+		// #77：标记机制已删除——点亮由 agent_start 无条件执行（run 活跃即亮，
+		// User 2026-08-03 拍板），投递路径不再涉及标记。保留的语义断言 =
+		// 通道选择：idle 用 followUp+triggerTurn，忙态用 steer+triggerTurn。
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({
 			getGroupChatState: async () => ({}),
 		});
-		runtime.markGroupChatTurnTriggered = vi.fn();
 		const pi = createMockPi();
 
-		// idle 投递保持 #14 语义：flush 将下一个 turn 标记为
-		// 群聊触发并使用 followUp 通道。
+		// idle 投递：followUp 通道 + triggerTurn（开启新 turn 唤醒 agent）。
 		const idleInput = new GroupChatInput(runtime, pi);
 		idleInput.start();
 		const idleHandler = runtime.onEnvironmentMessage ?? (() => {});
 		idleHandler(aPublicMessage("user_persona"));
 		await vi.advanceTimersByTimeAsync(1000);
-		expect(runtime.markGroupChatTurnTriggered).toHaveBeenCalledTimes(1);
 		const idleOptions = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as {
 			deliverAs: string;
 			triggerTurn: boolean;
@@ -728,10 +721,10 @@ describe("GroupChatInput", () => {
 		expect(idleOptions.triggerTurn).toBe(true);
 		idleInput.stop();
 		(pi.sendMessage as ReturnType<typeof vi.fn>).mockClear();
-		(runtime.markGroupChatTurnTriggered as ReturnType<typeof vi.fn>).mockClear();
 
-		// 活跃 run：settle 竞态兜底（isAgentActive 陈旧）下 steer 投递不得标记——
-		// 不会消费 agent_start，因此 is_streaming 仅由运行中的 turn 点亮。
+		// 活跃 run：忙态走 steer 通道（deliverAs=steer + triggerTurn=true——
+		// streaming 时 pi 忽略照常入队；非 streaming 时触发唤醒，堵
+		// agent_settled 缺失的 wedged 场景）。
 		runtime.fetchMessagesSince = vi.fn(async (since: number) => ({
 			messages: [aPublicMessage("user_persona", { sequence: since + 1 })],
 			latestSequence: since + 1,
@@ -747,11 +740,8 @@ describe("GroupChatInput", () => {
 			preview_messages: [],
 			total_messages: 1,
 		} as unknown as ServerMessage);
-		// 忙态：立即拉取 + 立即 steer 投递（绝不标记群聊触发）。
+		// 忙态：立即拉取 + 立即 steer 投递。
 		await vi.advanceTimersByTimeAsync(0);
-		expect(runtime.markGroupChatTurnTriggered).not.toHaveBeenCalled();
-		// steer 通道语义钉死：deliverAs=steer + triggerTurn=true（streaming 时 pi
-		// 忽略照常入队；非 streaming 时触发唤醒，堵 agent_settled 缺失的 wedged 场景）。
 		expect((pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({
 			deliverAs: "steer",
 			triggerTurn: true,
