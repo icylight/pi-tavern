@@ -533,6 +533,11 @@ export class GroupChatInput {
 	private buildContent(events: ServerMessage[], state: unknown): string {
 		const parts: string[] = ["PiTavern 群聊环境更新"];
 
+		// #104：注入时点统一基准（Arch 评审 B 级观察）——头部当前时间与
+		// 每条消息间隔共用同一 now，避免毫秒级基准漂移。
+		const now = new Date();
+		parts.push(`\n当前时间：${formatDateTime(now)}`);
+
 		// 身份锚（ISSUE-003 三字段契约，cab1fd7）：始终声明本会话是哪个
 		// Character，模型无需从上下文或可用技能猜测自己的身份。格式：
 		// 你的当前角色：<persona 名>（character_id=<characterId>，注册名=<name>）
@@ -565,7 +570,11 @@ export class GroupChatInput {
 			for (const message of messages) {
 				if (message.type === "public_message") {
 					const sender = message.sender.type === "user_persona" ? "User Persona" : message.sender.name;
-					parts.push(`${sender}:\n${message.content}`);
+					// #104：每条消息带发言时间 + 距当前注入时点的间隔（相对时间）。
+					// timestamp 为 ISO 字符串（creator 侧 toISOString 填充），
+					// 解析失败时静默降级为不带时间渲染，不阻塞消息展示。
+					const when = formatMessageTime(message.timestamp, now);
+					parts.push(when ? `${sender}（${when}）:\n${message.content}` : `${sender}:\n${message.content}`);
 				}
 			}
 		}
@@ -606,4 +615,41 @@ export class GroupChatInput {
 
 		return parts.join("\n");
 	}
+}
+
+/**
+ * #104：格式化注入时点，用于环境文本头部「当前时间」行。
+ * 本地时区 `YYYY-MM-DD HH:MM:SS`（与消息发言时间的 HH:MM 粒度区分，
+ * 秒级让 agent 感知更精确的“现在”）。
+ */
+function formatDateTime(date: Date): string {
+	const pad = (n: number): string => String(n).padStart(2, "0");
+	return (
+		`${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+		`${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+	);
+}
+
+/**
+ * #104：格式化消息发言时间 + 距当前注入时点的间隔（相对时间）。
+ * 返回 `YYYY-MM-DD HH:MM（x 分钟前 / x 秒前）`；timestamp 缺失或非法时
+ * 返回 null（调用方降级为不带时间渲染）。<60s 显示秒级，否则分钟级。
+ */
+function formatMessageTime(timestamp: string | undefined, now: Date): string | null {
+	if (timestamp === undefined) {
+		return null;
+	}
+	const parsed = new Date(timestamp);
+	if (Number.isNaN(parsed.getTime())) {
+		return null;
+	}
+	const pad = (n: number): string => String(n).padStart(2, "0");
+	const at =
+		`${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())} ` +
+		`${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+	const elapsedMs = now.getTime() - parsed.getTime();
+	const elapsedSec = Math.max(0, Math.floor(elapsedMs / 1000));
+	const ago =
+		elapsedSec < 60 ? `${elapsedSec} 秒前` : `${Math.floor(elapsedSec / 60)} 分钟前`;
+	return `${at}（${ago}）`;
 }
