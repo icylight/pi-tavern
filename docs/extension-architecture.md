@@ -156,7 +156,7 @@ discovery/
 └── discover-group-chats.ts
 ```
 
-- `active-descriptor.ts` 定义描述结构和路径，负责原子发布、读取及所有者删除；
+- `active-descriptor.ts` 定义描述结构和路径，负责一次性写入、读取及所有者删除；
 - `discover-group-chats.ts` 枚举候选描述、检查 PID、通过实际 WebSocket 地址验证实例身份、清理失效描述并返回可加入列表。
 
 PID 检查只用于快速排除失效候选，实际 WebSocket 地址和实例身份校验仍是发现结果的最终判断。
@@ -418,7 +418,7 @@ webSocketServer.on("connection", (socket) => {
 
 `sessionId` 和 `reservedCharacterId` 不能定义在单次消息处理函数中，因为三阶段加入发生在同一连接上的多条独立消息。
 
-`claim_character` 成功时只向 `characterReservations` 写入预留，不进入 `connections` 或 `onlineCharacters`。`character_ready` 成功时原子删除预留，并将连接和 Character 写入 `connections` 与 `onlineCharacters`。
+`claim_character` 成功时只向 `characterReservations` 写入预留，不进入 `connections` 或 `onlineCharacters`。`character_ready` 成功时原子删除预留（原子：删除预留与写入连接、在线状态作为一个整体一次完成，不出现中间可见态），并将连接和 Character 写入 `connections` 与 `onlineCharacters`。
 
 连接在正式加入前关闭时，从 `characterReservations` 释放对应预留，不广播 `character_left`。首版仍不为连接定义 `PendingConnection`、临时连接 Map 或额外 Runtime 状态。
 
@@ -475,7 +475,7 @@ pi 原生 `SessionManager.create()` 可以在不立即创建 session 文件的�
 
 首版接受这份展示投影与群聊权威记录之间的数据重复，以换取 pi 原生 TUI 展示和更简单的实现。
 
-群聊专用 session 的持久化成功是消息提交点。创建者侧处理消息时遵循：
+群聊专用 session 的持久化成功是消息成立点。创建者侧处理消息时遵循：
 
 ```text
 持久化群聊权威记录
@@ -497,7 +497,7 @@ pi 原生 `SessionManager.create()` 可以在不立即创建 session 文件的�
   └── WebSocket 广播
 ```
 
-二者互不作为对方成功的前提，也不因一方失败而取消另一方。TUI 投影失败时不回滚已经提交的群聊消息，创建者界面应显示投影失败提示。WebSocket 发送失败也不回滚消息，并按照已经确认的连接断开规则清理对应 Character。
+二者互不作为对方成功的前提，也不因一方失败而取消另一方。TUI 投影失败时不撤销已经提交的群聊消息，创建者界面应显示投影失败提示。WebSocket 发送失败也不撤销消息，并按照已经确认的连接断开规则清理对应 Character。
 
 具体 `customType`、entry 数据结构和 renderer 见本文的 TUI 投影设计。
 
@@ -589,7 +589,7 @@ Extension 通过 `session_before_switch` 处理 `/new` 和 `/resume`，通过 `s
 - `character`：执行正常离开并清理 `CharacterRuntime`；
 - `creator`：关闭整个群聊并清理 `CreatorRuntime`。
 
-退出与后续 pi session 操作不构成事务。PiTavern 提交到 `idle` 后，即使后续 `/new`、`/resume`、`/fork` 或 `/clone` 失败、被取消或没有实际完成，也不恢复之前的 Runtime、不重新创建群聊、不重新加入群聊。
+退出与后续 pi session 操作互不绑定，退出一旦完成即不回退。PiTavern 提交到 `idle` 后，即使后续 `/new`、`/resume`、`/fork` 或 `/clone` 失败、被取消或没有实际完成，也不恢复之前的 Runtime、不重新创建群聊、不重新加入群聊。
 
 ### pi Runtime bindings
 
@@ -690,7 +690,7 @@ Runtime 任务队列与 pi follow-up queue 是两套不同职责：
 
 reload detach 时，旧 Runtime 先进入 `detaching`，新 frame 转入 handoff buffer，再等待当前 Runtime 任务完成。等待最多使用 5 秒通用短期协调超时。随后停止计时器、移除旧 handler、使 bindings 失效并发布 handoff。
 
-等待超时时，取消仍可取消的任务；已经完成权威记录持久化的公开消息不回滚。超时后的旧任务不得再调用 pi API 或继续修改已交接状态。
+等待超时时，取消仍可取消的任务；已经完成权威记录持久化的公开消息不撤销。超时后的旧任务不得再调用 pi API 或继续修改已交接状态。
 
 新 Runtime 使用新的 bindings 和代码恢复队列，将 handoff buffer 按接收顺序先入队，再开放 live frame dispatch 并进入 `active`。普通离开、quit 和 pi session 切换则进入 `disposed`，不允许交接或重新绑定。
 
@@ -761,7 +761,7 @@ CreatorRuntime 的永久关闭顺序：
 9. 释放连接表和运行期 `GroupChatState`；
 10. 使 `PiRuntimeBindings` 失效。
 
-等待当前任务超时时，取消仍可取消的任务；已经成功持久化的公开消息不回滚，随后继续关闭群聊。群聊 session 文件保留，不追加结束 entry。
+等待当前任务超时时，取消仍可取消的任务；已经成功持久化的公开消息不撤销，随后继续关闭群聊。群聊 session 文件保留，不追加结束 entry。
 
 `detachForReload()` 不调用普通 `close()`。它把 lifecycle 置为 `detaching`，停止 live dispatch，等待当前任务最多 5 秒，移除旧 handler 和计时器，再把仍需保留的资源移动到 `ReloadHandoff`。WebSocket、Character、活动描述、未提交环境事件等资源按照前文 handoff 规则保留。
 
@@ -854,7 +854,7 @@ TUI 刷新触发点：
 - reload handoff 被新 Runtime 接管；
 - Runtime 清理。
 
-UI 更新失败只产生本地展示警告，不改变群聊状态、不回滚公开消息，也不关闭 WebSocket。
+UI 更新失败只产生本地展示警告，不改变群聊状态、不撤销公开消息，也不关闭 WebSocket。
 
 #### 创建者主聊天区投影
 
@@ -878,7 +878,7 @@ interface CreatorDisplayEntryData {
 
 renderer 只读取 entry 自身的数据，不读取 live Runtime 或 `GroupChatState`，保证创建者以后恢复自己的私有 pi session 时仍能稳定展示历史投影。
 
-公开消息必须先完成群聊权威记录持久化和 `GroupChatState` 提交，再追加创建者展示 entry。展示 entry 写入失败不回滚群聊消息。
+公开消息必须先完成群聊权威记录持久化和 `GroupChatState` 提交，再追加创建者展示 entry。展示 entry 写入失败不撤销群聊消息。
 
 成员加入、离开和举手只属于运行期环境，既不写入群聊专用 session，也不作为展示 entry 写入创建者私有 session。创建者通过当前 UI context 的 notify 和 widget 查看这些运行期变化。
 
@@ -976,18 +976,18 @@ class CreatorRuntime {
 
 WebSocket Server 的单个未正式加入连接仍由对应 connection handler 闭包持有 `sessionId`、`reservedCharacterId` 和 5 秒准备超时 timer。它不是正式在线资源，不进入 `connections`；正式加入或连接关闭后，该闭包必须停止准备超时 timer。
 
-### 启动提交点
+### 启动成立点
 
 `startNew()` 和 `resume()` 在返回 `CreatorRuntime` 前完成以下共同启动步骤：
 
 1. 准备群聊 `SessionManager` 和 `GroupChatState`；
 2. 创建仅监听 `127.0.0.1`、由系统分配端口的 WebSocket Server；
 3. 安装 connection handler、Runtime 队列和心跳；
-4. 原子创建活动描述文件；
+4. 一次性创建活动描述文件；
 5. 将全部资源交给新 `CreatorRuntime`；
 6. Controller 最后提交到 `creator` 并刷新 TUI。
 
-活动描述成功创建是外部可发现的启动提交点。在此之前 `/tavern-join` 不能发现该实例。任一步失败时按初始化逆序清理已经取得的资源，删除可能创建的活动描述，并保持 Controller 为 `idle`；新建空群聊不留下群聊 session 文件。
+活动描述成功创建是外部可发现的启动成立点。在此之前 `/tavern-join` 不能发现该实例。任一步失败时按初始化逆序清理已经取得的资源，删除可能创建的活动描述，并保持 Controller 为 `idle`；新建空群聊不留下群聊 session 文件。
 
 Controller 进入 `creator` 后，所有 User Persona 消息、WebSocket frame 和群聊状态修改都通过同一个 `runtimeQueue` 串行执行。永久关闭顺序和 reload detach 顺序使用本文已经确定的统一清理接口，不再定义第三个停止入口。
 
