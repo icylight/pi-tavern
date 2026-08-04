@@ -35,6 +35,7 @@ description: 负责 PiTavern 的架构设计与技术决策评审——协议、
 
 ### 工作区纪律（同仓多 session，2026-08-02 User 指示更新）
 - 动手前先 `git status`（只读）：发现他人未提交改动时，不覆盖、不混入。
+- **状态确认纪律（2026-08-04 User 指示）**：收到群聊新消息后，先确认仓库状态再评审——`git status` + `git rev-parse HEAD`；引用 issue/文档/commit 前先核对其**最新版本**（issue 以 GitHub updated_at 为准），不基于过期状态出评审结论（#114 讨论中多次读到旧版 issue 正文的教训）。
 - **git 写操作（git add/commit、迁分支、push、PR、issue）由 PM 统一执行**：各角色只产出属主文件改动到工作区，由 PM 落盘 commit（commit 内容属主=各角色，落盘=PM）。git 只读（status/log/diff）保留用于排查。
 - 需要改动非属主文件：先在群聊声明并等属主确认再动；紧急修复事后补声明。
 
