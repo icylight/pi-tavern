@@ -7,7 +7,7 @@ import type { SessionStore } from "../data/session-store.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 import type { BroadcastHub } from "./broadcast-hub.js";
 import type { ConnectionContext } from "./connection-manager.js";
-import type { BoardPipeline } from "./creator-pipelines/board-pipeline.js";
+import type { BoardPipeline, BoardPipelineDependencies } from "./creator-pipelines/board-pipeline.js";
 import type { ClaimPipeline } from "./creator-pipelines/claim-pipeline.js";
 import { JoinPipeline } from "./creator-pipelines/join-pipeline.js";
 import { LeavePipeline } from "./creator-pipelines/leave-pipeline.js";
@@ -34,6 +34,8 @@ export interface PipelineAssemblyHost {
 	readOnPublicMessage: () => ((msg: PublicMessageState) => void) | undefined;
 	readOnPublicMessageError: () => ((error: string, sequence: number, timestamp: string) => void) | undefined;
 	readOnMembersChanged: () => (() => void) | undefined;
+	/** 白板模型（#114）：creator 实时提示（纯展示，applied 广播触发）。 */
+	readOnBoardUpdated: () => BoardPipelineDependencies["onBoardUpdated"];
 	now: () => Date;
 	toCharacterSummary: (character: CharacterCard) => CharacterSummary;
 	toCharacterSummaryMessage: (character: CharacterSummary) => {
@@ -125,6 +127,7 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 			send: (socket, message) => broadcastHub.send(socket, message),
 			sendFailure: (socket, id, command, reason) => broadcastHub.sendFailure(socket, id, command, reason),
 			broadcast: (message) => broadcastHub.broadcast(message),
+			onBoardUpdated: (update) => host.readOnBoardUpdated()?.(update),
 		},
 	};
 }

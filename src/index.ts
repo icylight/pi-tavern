@@ -39,6 +39,16 @@ interface CreatorDisplayEntryData {
 	event: CreatorDisplayEvent;
 }
 
+/** 白板模型（#114）：creator-display 的 board_update 条目（纯展示，非协议）。 */
+interface CreatorBoardEntryData {
+	kind: "board_update";
+	group_chat_id: string;
+	actor: string;
+	actor_name: string;
+	action: "add" | "update" | "remove" | "clear";
+	note?: { id: string; content: string };
+}
+
 /** #42：当前 pi 会话的只读引用（session_start 捕获，用于投影锚定扫描）。 */
 let sessionManagerRef: ProjectionEntryReader | null = null;
 
@@ -199,6 +209,12 @@ function wireCreatorDisplay(pi: ExtensionAPI, ctrl: TavernController): void {
 		appendCreatorDisplayEntry(pi, state.runtime, msg);
 	};
 
+	// 白板模型（#114）：board_update 实时提示（纯展示，不扩协议面）——
+	// 组合根接线，runtime 无 ui 句柄；显示通道与 public_message 同源。
+	state.runtime.onBoardUpdated = (update) => {
+		appendCreatorBoardEntry(pi, state.runtime, update);
+	};
+
 	// 接线降级错误路径：onPublicMessage 自身崩溃时（如 pi 不可用）
 	state.runtime.onPublicMessageError = (error, sequence, timestamp) => {
 		try {
@@ -228,6 +244,41 @@ function wireCreatorDisplay(pi: ExtensionAPI, ctrl: TavernController): void {
  * #42：增量/回放共用的 creator-display 条目落盘（格式唯一来源，保证
  * 回放与增量投影逐字一致——A2）。失败时降级为错误通知条目（与旧行为一致）。
  */
+/** 白板模型（#114）：creator 实时提示——board_update 追加到 creator-display
+ * 面板（尽力而为；与 appendCreatorDisplayEntry 同容错）。
+ */
+function appendCreatorBoardEntry(
+	pi: ExtensionAPI,
+	runtime: CreatorRuntime,
+	update: { actor: string; action: "add" | "update" | "remove" | "clear"; note?: { id: string; content: string } },
+): void {
+	const data: CreatorBoardEntryData = {
+		kind: "board_update",
+		group_chat_id: runtime.state.groupChat.groupChatId,
+		actor: update.actor,
+		actor_name: runtime.characters.get(update.actor)?.name ?? update.actor,
+		action: update.action,
+		...(update.note ? { note: update.note } : {}),
+	};
+	try {
+		pi.appendEntry("pi-tavern.creator-display", data);
+	} catch (error) {
+		// 尽力而为：board 提示失败不阻塞（与 public_message 投影同容错）。
+		try {
+			pi.appendEntry("pi-tavern.creator-display", {
+				kind: "board_update" as const,
+				group_chat_id: data.group_chat_id,
+				actor: data.actor,
+				actor_name: data.actor_name,
+				action: data.action,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		} catch {
+			// 双失败静默（display 通道不可用）。
+		}
+	}
+}
+
 function appendCreatorDisplayEntry(pi: ExtensionAPI, runtime: CreatorRuntime, msg: PublicMessageState): void {
 	const data: CreatorDisplayEntryData = {
 		kind: "public_message",

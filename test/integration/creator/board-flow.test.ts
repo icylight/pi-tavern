@@ -368,6 +368,30 @@ describe("B3 白板管线（#114，integration）", () => {
 		expect(boards[characters[0].characterId]).toEqual([{ id: note.id, content: "持久化" }]);
 	});
 
+	it("creator 实时提示：onBoardUpdated 在 applied 时触发、changed:false 不触发（B5）", async () => {
+		const runtime = await startRuntime();
+		const updates: Array<{ actor: string; action: string; note?: { id: string; content: string } }> = [];
+		runtime.onBoardUpdated = (update) => {
+			updates.push(update);
+		};
+		const peer = await joinAndReady(runtime, "s6", characters[0].characterId);
+
+		peer.send({ id: "w1", type: "board_write", action: "set", note: { content: "贴条" } });
+		await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "w1");
+		expect(updates).toHaveLength(1);
+		expect(updates[0]).toEqual({
+			type: "board_update",
+			actor: characters[0].characterId,
+			action: "add",
+			note: { id: expect.any(String), content: "贴条" },
+		});
+
+		// changed:false（告知/拒绝）不触发
+		peer.send({ id: "w2", type: "board_write", action: "remove", note: { id: "ghost" } });
+		await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "w2");
+		expect(updates).toHaveLength(1);
+	});
+
 	it("协议级错误走 sendFailure（未入群成员直接 board_write）", async () => {
 		const runtime = await startRuntime();
 		const peer = await connectPeer(runtime);

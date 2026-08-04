@@ -25,6 +25,12 @@ export interface BoardPipelineDependencies {
 	) => void;
 	/** board_update 通知通道（复用 broadcast()，不混入 group_chat_update）。 */
 	broadcast: (message: unknown) => void;
+	/** creator 实时提示（纯展示，组合根接线；每次 applied 广播触发）。 */
+	onBoardUpdated?: (update: {
+		actor: string;
+		action: "add" | "update" | "remove" | "clear";
+		note?: { id: string; content: string };
+	}) => void;
 }
 
 /**
@@ -63,14 +69,18 @@ export class BoardPipeline {
 		this.deps.send(socket, this.toWriteResponse(message.id, outcome));
 		if (outcome.status === "applied") {
 			// 增量摘要：remove 携带被撕条完整内容；clear 无 note。
-			const action = message.action === "set" ? (note?.id !== undefined ? "update" : "add") : message.action;
+			const action: "add" | "update" | "remove" | "clear" =
+				message.action === "set" ? (note?.id !== undefined ? "update" : "add") : message.action;
 			const broadcastNote = outcome.note ?? removedNote;
-			this.deps.broadcast({
-				type: "board_update",
+			const update = {
+				type: "board_update" as const,
 				actor: sender,
 				action,
 				...(broadcastNote ? { note: broadcastNote } : {}),
-			});
+			};
+			this.deps.broadcast(update);
+			// creator 实时提示（纯展示）：每次 applied 广播同步通知组合根。
+			this.deps.onBoardUpdated?.(update);
 		}
 	}
 

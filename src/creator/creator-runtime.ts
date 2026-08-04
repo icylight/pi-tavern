@@ -134,6 +134,15 @@ export class CreatorRuntime {
 	/** 在线成员或流式状态变化时触发（TUI 刷新信号）。 */
 	onMembersChanged: (() => void) | undefined;
 
+	/** 白板模型（#114）：board_update applied 时触发（creator 实时提示，纯展示）。 */
+	onBoardUpdated:
+		| ((update: {
+				actor: string;
+				action: "add" | "update" | "remove" | "clear";
+				note?: { id: string; content: string };
+		  }) => void)
+		| undefined;
+
 	/** @internal reload-flow 快照读取；对外读走 publicMessageList getter。 */
 	publicMessages: PublicMessageState[] = [];
 
@@ -252,6 +261,7 @@ export class CreatorRuntime {
 			readOnPublicMessage: () => this.onPublicMessage,
 			readOnPublicMessageError: () => this.onPublicMessageError,
 			readOnMembersChanged: () => this.onMembersChanged,
+			readOnBoardUpdated: () => this.onBoardUpdated,
 			now: () => this.deps.now(),
 			toCharacterSummary,
 			toCharacterSummaryMessage,

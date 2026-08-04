@@ -445,7 +445,7 @@ function formatCreatorStatus(runtime: CreatorRuntime): string {
 	const { groupChat, round, onlineCharacters } = runtime.state;
 	const roundStatus = round ? `${round.usedMessages}/${round.roundMaxMessages} messages used` : "not started";
 
-	return [
+	const lines = [
 		`Group chat: ${groupChat.name ?? groupChat.groupChatId}`,
 		`ID: ${groupChat.groupChatId}`,
 		`Listening: ${runtime.activeDescriptor.host}:${runtime.activeDescriptor.port}`,
@@ -453,7 +453,23 @@ function formatCreatorStatus(runtime: CreatorRuntime): string {
 		`Config max messages: ${runtime.configMaxMessages}`,
 		`Group max messages: ${groupChat.groupMaxMessages}`,
 		`Round: ${roundStatus}`,
-	].join("\n");
+	];
+
+	// 白板模型（#114，ADR-0007）：白板快照小节（纯展示，不扩协议面）——
+	// store 随 runtime 装配（B3），按在线/全员角色名展示条列表。
+	const boards = runtime.boardStore.read(groupChat.groupChatId);
+	const boardCharacters = Object.keys(boards);
+	if (boardCharacters.length > 0) {
+		lines.push("Boards:");
+		for (const characterId of boardCharacters) {
+			const notes = boards[characterId] ?? [];
+			const name = runtime.characters.get(characterId)?.name ?? characterId;
+			lines.push(
+				notes.length === 0 ? `  ${name}: (empty)` : `  ${name}: ${notes.map((n) => `「${n.content}」`).join("、")}`,
+			);
+		}
+	}
+	return lines.join("\n");
 }
 
 function formatCharacterStatus(

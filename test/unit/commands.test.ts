@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from "@earendil-works/pi-coding-agent";
 
@@ -8,6 +10,7 @@ import { registerCommands } from "../../src/commands.js";
 import type { CharacterCard } from "../../src/config/character-card.js";
 import { TavernController } from "../../src/controller/tavern-controller.js";
 import type { CreatorRuntime } from "../../src/creator/creator-runtime.js";
+import { createBoardStore } from "../../src/data/board-store.js";
 import type { ActiveGroupChatDescriptor } from "../../src/data/discovery/active-descriptor.js";
 import { createGroupChatState } from "../../src/data/group-chat-state.js";
 
@@ -51,6 +54,8 @@ function createRuntime(): CreatorRuntime {
 			state.groupChat.groupMaxMessages = maxMessages;
 		}),
 		close: vi.fn(async () => undefined),
+		characters: new Map(),
+		boardStore: createBoardStore({ boardDir: join(tmpdir(), `pi-tavern-commands-board-${randomUUID()}`) }),
 	} as unknown as CreatorRuntime;
 }
 
@@ -238,6 +243,26 @@ describe("PiTavern commands", () => {
 		expect(message).toContain("Config max messages: 12");
 		expect(message).toContain("Group max messages: 10");
 		expect(message).toContain("Round: not started");
+		// 白板模型（#114）：空板不渲染小节（无 Boards 段）
+		expect(message).not.toContain("Boards:");
+	});
+
+	it("shows the board snapshot in creator status (B5, #114)", async () => {
+		const runtime = createRuntime();
+		const controller = new TavernController(async () => runtime);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+		const commands = register(controller);
+		const { context, notify } = createContext();
+
+		// 预置白板内容（store 随 runtime 装配——B5 纯展示）
+		const store = (runtime as unknown as { boardStore: ReturnType<typeof createBoardStore> }).boardStore;
+		store.write("group-1", "characters/dev.md", "set", { content: "共识一" });
+
+		await commands.get("tavern-status")?.handler("", context);
+
+		const message = notify.mock.calls[0]?.[0] as string;
+		expect(message).toContain("Boards:");
+		expect(message).toContain("「共识一」");
 	});
 
 	it("updates the name and absolute group message limit", async () => {
