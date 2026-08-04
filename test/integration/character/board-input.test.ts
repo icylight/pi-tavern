@@ -119,38 +119,50 @@ afterEach(async () => {
 });
 
 describe("B4 字符侧四处接线（#114，integration）", () => {
-	it("门闸放行 + 白板桶渲染 + 不产生消息流拉取（board_update 两套消费语义）", { timeout: 20_000 }, async () => {
+	it("门闸放行 + 白板桶渲染 + 自回显过滤 + 不产生消息流拉取（board_update 两套消费语义）", { timeout: 20_000 }, async () => {
 		process.env.PITAVERN_TEST = "1";
 		const notifications: string[] = [];
 		setTestNotify((message) => notifications.push(message));
 
-		const { creator, characters } = await startCreator();
-		const character = characters[0] as CharacterCard;
+		const { creator, characters } = await startCreator(2);
+		const writer = characters[0] as CharacterCard;
+		const observer = characters[1] as CharacterCard;
 		await creator.submitUserPersonaMessage("开题"); // 建轮次（对照 speak 用）
-		const { runtime, pi } = await joinCharacter(creator, character, "session-b4");
+		const { runtime, pi } = await joinCharacter(creator, writer, "session-b4a");
+		const { runtime: obsRuntime, pi: obsPi } = await joinCharacter(creator, observer, "session-b4b");
 		await settleJoin(runtime, pi);
+		await settleJoin(obsRuntime, obsPi);
 		const sendMessage = pi.sendMessage as ReturnType<typeof vi.fn>;
+		const obsSendMessage = obsPi.sendMessage as ReturnType<typeof vi.fn>;
 		notifications.length = 0;
+		obsSendMessage.mockClear();
 
-		// 贴条：applied → 广播 board_update（发送者也收，echo 语义）→ 门闸放行
+		// 写者贴条：applied → 广播 board_update → 观察者门闸放行
 		const result = await runtime.boardWrite("set", { content: "共识一" });
 		expect(result).toEqual({ changed: true, note: { id: expect.any(String), content: "共识一" } });
 
-		// 1s 合并窗口到期 → 1 次上下文注入（09:26 定案：字符侧窗口合并）
+		// 观察者：1s 合并窗口到期 → 1 次上下文注入（09:26 定案：字符侧窗口合并）
 		await waitFor(() => notifications.some((n) => n.includes("board_updates=1")));
-		const injected = sendMessage.mock.calls
+		const obsInjected = obsSendMessage.mock.calls
 			.map((call) => String((call[0] as { content?: string }).content ?? ""))
 			.join("\n");
 
 		// 白板桶渲染：谁/动作/内容摘要
-		expect(injected).toContain("白板更新：");
-		expect(injected).toContain("贴条：「共识一」");
+		expect(obsInjected).toContain("白板更新：");
+		expect(obsInjected).toContain("贴条：「共识一」");
 
-		// 负例：无消息流拉取（无 latest_seq 通知、无「新消息」桶）
+		// 写者无自回显（User 拍板 2026-08-04）：响应已含结果，不注入自己
+		await new Promise((resolve) => setTimeout(resolve, 1_600));
+		const writerInjected = sendMessage.mock.calls
+			.map((call) => String((call[0] as { content?: string }).content ?? ""))
+			.join("\n");
+		expect(writerInjected).not.toContain("白板更新：");
+
+		// 负例：无消息流拉取（观察者侧无 latest_seq 通知、无「新消息」桶）
 		expect(notifications.some((n) => n.includes("latest_seq="))).toBe(false);
-		expect(injected).not.toContain("新消息：");
+		expect(obsInjected).not.toContain("新消息：");
 
-		// 告知/拒绝静默：remove 不存在 → changed:false → 无新通知
+		// 告知/拒绝静默：remove 不存在 → changed:false → 无人收到新通知
 		const noop = await runtime.boardWrite("remove", { id: "ghost" });
 		expect(noop).toEqual({ changed: false, code: "note_not_found" });
 		await new Promise((resolve) => setTimeout(resolve, 1_600));

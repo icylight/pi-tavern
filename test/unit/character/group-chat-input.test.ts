@@ -215,6 +215,35 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
+	it("filters out own board_update echo while keeping others' updates (User 拍板 2026-08-04)", async () => {
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({ characterId: "dev" });
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+
+		// 自己的 board_update 回显（actor = 本角色）——响应已含结果，过滤
+		handler({ type: "board_update", actor: "dev", action: "add", note: { id: "n1", content: "我的条" } } as ServerMessage);
+		// 他人的 board_update——照常进批处理（门闸放行）
+		handler({ type: "board_update", actor: "other", action: "remove", note: { id: "n2", content: "别人的条" } } as ServerMessage);
+
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
+		const message = call[0] as { details: { events: Array<Record<string, unknown>> } };
+		const events = message.details.events;
+
+		// 仅 1 个事件：他人的更新（自己的回显已被过滤）
+		expect(events).toHaveLength(1);
+		expect(events[0]?.actor).toBe("other");
+
+		input.stop();
+	});
+
 	it("skips character_joined and character_left when no public messages exist", async () => {
 		vi.useFakeTimers();
 

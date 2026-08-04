@@ -99,7 +99,9 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 				},
 			},
 		};
-		const run = () => {
+		// headless 进程不触发 session_start（观察通道在 headless 是死通道，QA B6
+		// 实证）——补接线：注入代码有 PITAVERN_TEST=1 门闸，生产零影响。
+		setTestNotify(ctx.ui.notify);const run = () => {
 			void autoJoinCharacter(pi, ctrl, ctx, {
 				// 组合根装配（ADR-0005 层方向，Phase 4）。
 				...(injectTriggerDebounce !== undefined ? { triggerDebounceMs: injectTriggerDebounce } : {}),

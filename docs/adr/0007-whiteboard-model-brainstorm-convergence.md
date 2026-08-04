@@ -55,7 +55,7 @@
 
 ### 6. 字符侧投递：四处接线（B4）
 
-① 路由：character-runtime handleServerMessage 非 response 全量推 onEnvironmentMessage——天然可达，无需改；② **isEnvironmentEvent 门闸（最靠前）**：group-chat-input.ts:125 catch-all 在进 pendingEvents 前过滤，必须新增 board_update case（346-358 行 switch 现仅四 case、default false）；③ buildContent 新增「白板更新」桶（过滤桶现 567/583 行两处）——否则 agent 看不到通知也不会去查；④ 不挂 incrementPending（仅 group_chat_update 分支置位，catch-all 路径天然满足；负例断言：收到 board_update 不产生消息流拉取）
+① 路由：character-runtime handleServerMessage 非 response 全量推 onEnvironmentMessage——天然可达，无需改；② **isEnvironmentEvent 门闸（最靠前）**：group-chat-input.ts:125 catch-all 在进 pendingEvents 前过滤，必须新增 board_update case（346-358 行 switch 现仅四 case、default false）——**自回显过滤（User 拍板 2026-08-04）**：写者本人（actor === 本角色 character_id）的 board_update 不视为环境事件（响应已含结果、actor 限定本人板 → 自回显 100% 自生成冗余；与 public_message isOwnEcho 同构），他人更新照常进 pendingEvents；③ buildContent 新增「白板更新」桶（过滤桶现 567/583 行两处）——否则 agent 看不到通知也不会去查；④ 不挂 incrementPending（仅 group_chat_update 分支置位，catch-all 路径天然满足；负例断言：收到 board_update 不产生消息流拉取）
 
 唤醒机制 = catch-all 路径（125 行 push + resetJoinDebounce），与成员变化同机制；增量摘要随唤醒上下文 = 白板桶渲染；**无需另设脏标记**（那是接线缺失时的退化补丁）。
 
