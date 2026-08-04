@@ -1,14 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
-import { dirname, join, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG_MAX_MESSAGES, loadTavernConfig } from "../config/load-config.js";
 import type { CreatorReloadHandoff } from "../controller/reload-handoff-registry.js";
 import { countPersistedEntries } from "../data/cursor-store.js";
-import { computeDeclareCountsForRound, parseDecisionLine } from "../data/decision-store.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
 import {
 	getActiveDescriptorPath,
@@ -19,7 +18,6 @@ import {
 } from "../data/discovery/active-descriptor.js";
 import { createGroupChatState, type GroupChatState } from "../data/group-chat-state.js";
 import { SessionStore } from "../data/session-store.js";
-import type { DecisionRecordWire } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 import {
 	HEARTBEAT_PING_INTERVAL_MS,
@@ -41,7 +39,6 @@ export function buildCreatorDependencies(
 		readyTimeoutMs: SHORT_COORDINATION_TIMEOUT_MS,
 		publishDescriptor: publishActiveDescriptor,
 		writeFile: (path, data) => writeFile(path, data),
-		rename: (from, to) => rename(from, to),
 		rm: (path) => rm(path, { force: true }),
 		heartbeatIntervalMs: HEARTBEAT_PING_INTERVAL_MS,
 		heartbeatTimeoutMs: HEARTBEAT_TIMEOUT_MS,
@@ -64,8 +61,6 @@ export async function createNewRuntime(
 			options.loadCharacters ??
 			dependencies.loadCharacters ??
 			(() => loadTavernConfig({ agentDir: options.agentDir, cwd: options.cwd }).then((config) => config.characters)),
-		// #107：决策 JSONL 读取默认实现（组合根豁免直连 fs）。
-		readFile: dependencies.readFile ?? ((path) => readFile(path, "utf8")),
 	};
 	const groupChatId = runtimeDeps.createId();
 	const instanceId = runtimeDeps.createId();
@@ -97,8 +92,6 @@ export async function createNewRuntime(
 		startedAt: createdAt,
 	};
 	const activeDescriptorPath = getActiveDescriptorPath(options.agentDir, cwd, groupChatId);
-	// #107：决策状态 JSONL（群聊目录内独立命名空间，与消息流零耦合）。
-	const decisionFilePath = join(getGroupChatSessionDirectory(options.agentDir, cwd), `${groupChatId}.decisions.jsonl`);
 	const runtime = new CreatorRuntime(
 		webSocketServer,
 		sessionStore,
@@ -109,8 +102,6 @@ export async function createNewRuntime(
 		options.characters ?? [],
 		runtimeDeps.readyTimeoutMs,
 		runtimeDeps,
-		undefined,
-		decisionFilePath,
 	);
 
 	try {
@@ -141,8 +132,6 @@ export async function resumeRuntime(
 			options.loadCharacters ??
 			dependencies.loadCharacters ??
 			(() => loadTavernConfig({ agentDir: options.agentDir, cwd: options.cwd }).then((config) => config.characters)),
-		// #107：决策 JSONL 读取默认实现（组合根豁免直连 fs）。
-		readFile: dependencies.readFile ?? ((path) => readFile(path, "utf8")),
 	};
 	const cwd = resolve(options.cwd);
 	const configMaxMessages = options.configMaxMessages ?? DEFAULT_CONFIG_MAX_MESSAGES;
@@ -179,22 +168,6 @@ export async function resumeRuntime(
 	let round: GroupChatState["round"] = null;
 	let nextSequence = 0;
 	const persistedCount = countPersistedEntries(entries);
-
-	// #107：决策状态链恢复——独立 JSONL（不存在 = 空链，不报错）；
-	// 损坏行跳过（与消息流恢复同语义）。
-	const decisionFilePath = join(dirname(options.sessionPath), `${header.id}.decisions.jsonl`);
-	let decisionRecords: DecisionRecordWire[] = [];
-	try {
-		const raw = await runtimeDeps.readFile?.(decisionFilePath);
-		if (raw) {
-			decisionRecords = raw
-				.split("\n")
-				.map(parseDecisionLine)
-				.filter((r): r is DecisionRecordWire => r !== null);
-		}
-	} catch {
-		// 文件不存在/读失败 = 空链（尽力而为，与游标语义一致）。
-	}
 	for (const entry of entries) {
 		if (entry.type === "session_info") {
 			name = entry.name?.trim() || null;
@@ -244,12 +217,6 @@ export async function resumeRuntime(
 	state.groupChat.name = name;
 	state.round = round;
 	state.nextSequence = nextSequence;
-	const roundStartedAt = round
-		? ([...publicMessages].reverse().find((message) => message.sender.type === "user_persona")?.timestamp ?? null)
-		: null;
-	const declareCounts = round
-		? computeDeclareCountsForRound(decisionRecords, roundStartedAt)
-		: new Map<string, number>();
 
 	// 全新运行时身份：新 instance_id 与新端口；无成员连接。
 	const instanceId = dependencies.createId();
@@ -276,8 +243,7 @@ export async function resumeRuntime(
 		options.characters ?? [],
 		runtimeDeps.readyTimeoutMs,
 		runtimeDeps,
-		{ publicMessages, persistedCount, decisionRecords, declareCounts },
-		decisionFilePath,
+		{ publicMessages, persistedCount },
 	);
 
 	try {
@@ -301,11 +267,6 @@ export function createFromHandoff(
 		writeFile: dependencies.writeFile,
 		rm: dependencies.rm,
 	});
-	// #107：决策 JSONL 路径与 session 文件同目录（handoff 会话必已持久化）。
-	const sessionPath = sessionStore.getSessionFilePath();
-	const decisionFilePath = sessionPath
-		? join(dirname(sessionPath), `${handoff.groupChatState.groupChat.groupChatId}.decisions.jsonl`)
-		: undefined;
 	return new CreatorRuntime(
 		handoff.webSocketServer,
 		sessionStore,
@@ -316,12 +277,6 @@ export function createFromHandoff(
 		handoff.characters,
 		dependencies.readyTimeoutMs,
 		dependencies,
-		{
-			publicMessages: handoff.publicMessages,
-			persistedCount: handoff.persistedCount,
-			decisionRecords: handoff.decisionRecords,
-			declareCounts: handoff.declareCounts,
-		},
-		decisionFilePath,
+		{ publicMessages: handoff.publicMessages, persistedCount: handoff.persistedCount },
 	);
 }

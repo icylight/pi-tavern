@@ -2,7 +2,6 @@ import WebSocket from "ws";
 import type { CharacterSummary } from "../config/character-card.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
 import { encodeMessage } from "../protocol/codec.js";
-import type { DecisionSnapshotWire } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 
 export type FailureCommand =
@@ -14,20 +13,15 @@ export type FailureCommand =
 	| "get_message_history"
 	| "fetch_messages_since"
 	| "get_chat_history_file"
-	| "speak"
-	| "decision_declare";
+	| "speak";
 
 export interface BroadcastHubOptions {
 	/** 群聊状态对象（骨架持有实体，只读引用注入）。 */
 	state: GroupChatState;
 	/** 公共消息数组读取（骨架持有实体，getter 注入）。 */
 	readPublicMessages: () => PublicMessageState[];
-	/** #107：决策状态快照读取（getter 注入——快照归属组合根/骨架，hub 只装配）。 */
-	readDecisionSnapshot: () => DecisionSnapshotWire | null;
 	/** 在线连接表遍历（骨架持有 Map 实体，只读引用注入）。 */
 	iterateConnections: (visit: (socket: WebSocket) => void) => void;
-	/** 旧客户端严格拒绝未知字段；仅协商 capability 后发送决策快照。 */
-	supportsDecisionState: (socket: WebSocket) => boolean;
 	/** runtime 是否处于 active 生命周期（决定发送失败是否走断连清理）。 */
 	isActive: () => boolean;
 	/** 发送失败时的统一断连清理（runtime 注入，含 connectionBySocket 簿记）。 */
@@ -50,7 +44,7 @@ export class BroadcastHub {
 		this.options = options;
 	}
 
-	getGroupChatStateMessage(requestingSessionId: string, includeDecisionSnapshot = false) {
+	getGroupChatStateMessage(requestingSessionId: string) {
 		const { groupChat, round } = this.options.state;
 		return {
 			group_chat: {
@@ -72,7 +66,6 @@ export class BroadcastHub {
 				is_streaming: online.isStreaming,
 				hand_raised: online.handRaised,
 			})),
-			...(includeDecisionSnapshot ? { decision_snapshot: this.options.readDecisionSnapshot() } : {}),
 		};
 	}
 
@@ -87,20 +80,9 @@ export class BroadcastHub {
 	}
 
 	send(socket: WebSocket, message: unknown): void {
-		let encoded: string;
-		try {
-			encoded = encodeMessage(message);
-		} catch (error) {
-			// G2（审查②）：编码失败（如超 1 MiB）= 消息问题，**不是 socket 问题**——
-			// 记录并跳过该连接，绝不触发断连清理（防「一次坏消息毒死全群聊」）。
-			console.error(
-				`[pi-tavern] broadcast encode failed, skipping connection: ${error instanceof Error ? error.message : String(error)}`,
-			);
-			return;
-		}
 		try {
 			if (socket.readyState === WebSocket.OPEN) {
-				socket.send(encoded);
+				socket.send(encodeMessage(message));
 				return;
 			}
 		} catch {
@@ -128,16 +110,15 @@ export class BroadcastHub {
 		// ISSUE-014/#14（方案 A）：成员/流式变化可能先于任何公开消息到达——
 		// 仍广播（latest_sequence 0、空 preview），使角色唤醒并刷新快照。
 		if (!latest) {
-			const base = {
+			this.broadcast({
 				type: "group_chat_update",
 				latest_sequence: 0,
 				preview_messages: [],
 				total_messages: 0,
-			};
-			this.broadcastGroupChatUpdateMessage(base);
+			});
 			return;
 		}
-		const base = {
+		this.broadcast({
 			type: "group_chat_update",
 			latest_sequence: latest.sequence,
 			preview_messages: messages.slice(-3).map((m) => ({
@@ -150,14 +131,6 @@ export class BroadcastHub {
 				round: m.round,
 			})),
 			total_messages: messages.length,
-		};
-		this.broadcastGroupChatUpdateMessage(base);
-	}
-
-	private broadcastGroupChatUpdateMessage(base: object): void {
-		const snapshot = this.options.readDecisionSnapshot();
-		this.options.iterateConnections((socket) => {
-			this.send(socket, this.options.supportsDecisionState(socket) ? { ...base, decision_snapshot: snapshot } : base);
 		});
 	}
 }

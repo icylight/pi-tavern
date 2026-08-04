@@ -128,22 +128,6 @@ export class TavernController {
 		});
 	}
 
-	/** #107（F2）：User Persona 决策声明（仅 creator 态）。 */
-	declareDecisionAsUser(decl: {
-		decision_id: string;
-		version: number;
-		content: string;
-		supersedes: string[];
-		status?: "proposed" | "closed";
-	}): Promise<import("../creator/creator-pipelines/decision-pipeline.js").DecisionPipelineResult> {
-		return this.runTransition(async () => {
-			if (this.state.type !== "creator") {
-				throw new Error("This command is only available to the group chat creator");
-			}
-			return this.state.runtime.declareDecisionAsUser(decl);
-		});
-	}
-
 	leave(): Promise<void> {
 		return this.runTransition(async () => {
 			if (this.state.type === "idle") {

@@ -1,12 +1,5 @@
 import { type Static, Type } from "typebox";
 
-import {
-	DECISION_CONTENT_MAX_LENGTH,
-	DECISION_ID_MAX_LENGTH,
-	DECISION_SUPERSEDES_MAX_ITEMS,
-	DECISION_TARGET_MAX_LENGTH,
-} from "../shared/constants.js";
-
 export const CharacterSummarySchema = Type.Object(
 	{
 		character_id: Type.String(),
@@ -32,69 +25,12 @@ export const OnlineCharacterSchema = Type.Object(
 
 const RequestIdSchema = Type.Optional(Type.String());
 
-// #107（ADR-0006）：决策状态记录 wire 形态（与 public_message 独立命名空间，
-// 零耦合）。状态链由 Creator 机械归约，角色不自行 fold。
-export const DecisionRecordSchema = Type.Object(
-	{
-		decision_id: Type.String({ minLength: 1, maxLength: DECISION_ID_MAX_LENGTH }),
-		version: Type.Integer({ minimum: 1 }),
-		content: Type.String(),
-		status: Type.Union([Type.Literal("proposed"), Type.Literal("superseded"), Type.Literal("closed")]),
-		supersedes: Type.Array(Type.String({ minLength: 1, maxLength: DECISION_TARGET_MAX_LENGTH }), {
-			maxItems: DECISION_SUPERSEDES_MAX_ITEMS,
-		}),
-		decided_by: Type.Union([
-			Type.Object({ type: Type.Literal("user_persona") }, { additionalProperties: false }),
-			Type.Object(
-				{ type: Type.Literal("character"), character_id: Type.String(), name: Type.String() },
-				{ additionalProperties: false },
-			),
-		]),
-		created_at: Type.String(),
-		updated_at: Type.String(),
-	},
-	{ additionalProperties: false },
-);
-
-export type DecisionRecordWire = Static<typeof DecisionRecordSchema>;
-
-/** #107（G2）：decision_declare 请求（命名导出——命令入口复用同一套运行时校验）。 */
-export const DecisionDeclareRequestSchema = Type.Object(
-	{
-		id: RequestIdSchema,
-		type: Type.Literal("decision_declare"),
-		decision_id: Type.String({ minLength: 1, maxLength: DECISION_ID_MAX_LENGTH }),
-		version: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
-		content: Type.String({ maxLength: DECISION_CONTENT_MAX_LENGTH }),
-		// 缺省 = 无替代（与工具参数 default [] 一致；服务端按空数组校验）。
-		supersedes: Type.Optional(
-			Type.Array(Type.String({ minLength: 1, maxLength: DECISION_TARGET_MAX_LENGTH }), {
-				maxItems: DECISION_SUPERSEDES_MAX_ITEMS,
-			}),
-		),
-		status: Type.Optional(Type.Union([Type.Literal("proposed"), Type.Literal("closed")])),
-	},
-	{ additionalProperties: false },
-);
-
-/** #107：决策状态快照——当前决定（链末端 closed）+ 活跃提案全集（截断在渲染端）。 */
-export const DecisionSnapshotSchema = Type.Object(
-	{
-		current: Type.Union([DecisionRecordSchema, Type.Null()]),
-		active: Type.Array(DecisionRecordSchema),
-	},
-	{ additionalProperties: false },
-);
-
-export type DecisionSnapshotWire = Static<typeof DecisionSnapshotSchema>;
-
 export const ClientMessageSchema = Type.Union([
 	Type.Object(
 		{
 			id: RequestIdSchema,
 			type: Type.Literal("join_group_chat"),
 			session_id: Type.String(),
-			capabilities: Type.Optional(Type.Array(Type.Literal("decision_state_v1"), { maxItems: 1 })),
 		},
 		{ additionalProperties: false },
 	),
@@ -169,9 +105,6 @@ export const ClientMessageSchema = Type.Union([
 		},
 		{ additionalProperties: false },
 	),
-	// #107（ADR-0006）：决策状态声明（唯一入口——文字裁决永不进入状态）。
-	// 全部字段必填；status 缺省 = proposed（closed 仅提案人/User，机械校验）。
-	DecisionDeclareRequestSchema,
 ]);
 
 export type ClientMessage = Static<typeof ClientMessageSchema>;
@@ -234,7 +167,6 @@ const FailureResponseSchema = Type.Object(
 			Type.Literal("fetch_messages_since"),
 			Type.Literal("get_chat_history_file"),
 			Type.Literal("speak"),
-			Type.Literal("decision_declare"),
 		]),
 		success: Type.Literal(false),
 		error: Type.String(),
@@ -271,9 +203,6 @@ const GroupChatStateResponseSchema = Type.Object(
 					Type.Null(),
 				]),
 				online_characters: Type.Array(OnlineCharacterSchema),
-				// #107（ADR-0006）：决策状态快照（新增可选字段——旧客户端
-				// 忽略；join/reload 时随状态重同步，T14/C2）。
-				decision_snapshot: Type.Optional(DecisionSnapshotSchema),
 			},
 			{ additionalProperties: false },
 		),
@@ -388,9 +317,6 @@ const GroupChatUpdateSchema = Type.Object(
 		latest_sequence: Type.Integer({ minimum: 0 }),
 		preview_messages: Type.Array(PublicMessageSchema),
 		total_messages: Type.Integer({ minimum: 0 }),
-		// #107（ADR-0006）：决策状态快照（新增可选字段——旧客户端忽略；
-		// 零新推送类型，复用 group_chat_update + 拉取路径）。
-		decision_snapshot: Type.Optional(DecisionSnapshotSchema),
 	},
 	{ additionalProperties: false },
 );
@@ -481,56 +407,6 @@ const SpeakResponseSchema = Type.Union([
 	),
 ]);
 
-// #107（ADR-0006）：decision_declare 业务响应——镜像 speak 的
-// published/reason 风格：accepted:true = 成功（携状态链快照）；
-// accepted:false = 机械校验拒绝（错误码枚举，非协议错误）。
-const DecisionDeclareResponseSchema = Type.Union([
-	Type.Object(
-		{
-			id: RequestIdSchema,
-			type: Type.Literal("response"),
-			command: Type.Literal("decision_declare"),
-			success: Type.Literal(true),
-			data: Type.Object(
-				{
-					accepted: Type.Literal(true),
-					snapshot: DecisionSnapshotSchema,
-				},
-				{ additionalProperties: false },
-			),
-		},
-		{ additionalProperties: false },
-	),
-	Type.Object(
-		{
-			id: RequestIdSchema,
-			type: Type.Literal("response"),
-			command: Type.Literal("decision_declare"),
-			success: Type.Literal(true),
-			data: Type.Object(
-				{
-					accepted: Type.Literal(false),
-					error_code: Type.Union([
-						Type.Literal("target_missing"),
-						Type.Literal("target_closed_denied"),
-						Type.Literal("cycle_rejected"),
-						Type.Literal("version_not_monotonic"),
-						Type.Literal("permission_denied"),
-						Type.Literal("quota_exceeded"),
-						// G2（审查②）：活跃提案超上限（防超大快照毒死群聊）。
-						Type.Literal("active_limit_reached"),
-						// 二轮审查：status 非法 / content 超限（服务端机械校验拒绝）。
-						Type.Literal("invalid_declaration"),
-					]),
-					error_message: Type.String(),
-				},
-				{ additionalProperties: false },
-			),
-		},
-		{ additionalProperties: false },
-	),
-]);
-
 export const ServerMessageSchema = Type.Union([
 	JoinGroupChatResponseSchema,
 	ClaimCharacterResponseSchema,
@@ -541,7 +417,6 @@ export const ServerMessageSchema = Type.Union([
 	FetchMessagesSinceResponseSchema,
 	GetChatHistoryFileResponseSchema,
 	SpeakResponseSchema,
-	DecisionDeclareResponseSchema,
 	CharacterJoinedSchema,
 	CharacterLeftSchema,
 	GroupChatClosedSchema,

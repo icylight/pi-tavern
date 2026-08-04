@@ -12,7 +12,7 @@ import {
 } from "../controller/reload-handoff-registry.js";
 import { readCursorFile, writeCursorFile } from "../data/cursor-store.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
-import type { DecisionSnapshotWire, GroupChatStateMessage, ServerMessage } from "../protocol/messages.js";
+import type { GroupChatStateMessage, ServerMessage } from "../protocol/messages.js";
 import {
 	HEARTBEAT_PING_INTERVAL_MS,
 	HEARTBEAT_TIMEOUT_MS,
@@ -77,8 +77,6 @@ export class CharacterRuntime {
 	onEnvironmentMessage: ((message: ServerMessage) => void) | undefined;
 	/** 最新群聊状态快照（缓存供只读 TUI 投影）。 */
 	lastGroupChatState: GroupChatStateMessage | null = null;
-	/** #107：决策状态快照缓存（随 getGroupChatState/group_chat_update 更新；buildContent 注入用）。 */
-	decisionSnapshot: DecisionSnapshotWire | null = null;
 	/**
 	 * ISSUE-014/#14：agent_end 看门狗——若 agent_settled 迟迟不到则把
 	 * is_streaming 复位（被中止/报错的 run 不能一直挂着“正在发言”灯）。
@@ -310,9 +308,6 @@ export class CharacterRuntime {
 			throw new Error(response.error);
 		}
 		this.lastGroupChatState = response.data;
-		if (response.data.decision_snapshot) {
-			this.decisionSnapshot = response.data.decision_snapshot;
-		}
 		this.onStateSnapshot?.(response.data);
 		// #77 候选①自愈 + #83 收敛修正（User 2026-08-03 根因）：补偿重发
 		// 保留自愈价值（半开连接点亮丢失盲区），但**仅当服务端快照中本角色
@@ -542,41 +537,6 @@ export class CharacterRuntime {
 			reason: "round_limit_reached",
 			handRaised: response.data.hand_raised,
 			round,
-		};
-	}
-
-	/**
-	 * #107（ADR-0006）：决策状态声明（唯一入口——文字裁决永不进入状态）。
-	 * 镜像 speak 模式：业务拒绝 = accepted:false + 错误码（不抛协议错误）。
-	 */
-	async declareDecision(decl: {
-		decision_id: string;
-		version: number;
-		content: string;
-		supersedes?: string[];
-		status?: "proposed" | "closed";
-	}): Promise<{
-		accepted: boolean;
-		error_code?: string;
-		error_message?: string;
-		snapshot?: DecisionSnapshotWire;
-	}> {
-		const response = await this.request({ type: "decision_declare", ...decl, supersedes: decl.supersedes ?? [] });
-		if (response.type !== "response" || response.command !== "decision_declare") {
-			throw new Error("Unexpected PiTavern decision_declare response");
-		}
-		if (!response.success) {
-			throw new Error(response.error);
-		}
-		if (response.data.accepted) {
-			// 快照同步更新本地缓存（注入节立即反映最新状态）。
-			this.decisionSnapshot = response.data.snapshot;
-			return { accepted: true, snapshot: response.data.snapshot };
-		}
-		return {
-			accepted: false,
-			error_code: response.data.error_code,
-			error_message: response.data.error_message,
 		};
 	}
 

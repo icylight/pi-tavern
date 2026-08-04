@@ -1,6 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { DecisionRecordWire, ServerMessage } from "../protocol/messages.js";
-import { DECISION_INJECTION_LIMIT } from "../shared/constants.js";
+import type { ServerMessage } from "../protocol/messages.js";
 import type { CharacterRuntime } from "./character-runtime.js";
 
 /**
@@ -111,17 +110,6 @@ export class GroupChatInput {
 				// preview 仅供 TUI（同一数据源，内容不会分叉）。
 				// ISSUE-014/#14（方案 A）：成员/流式变化也走此通道——刷新缓存快照，
 				// 即使拉取结果为空 widget 也保持最新。
-				// #107（F3）：广播携带 decision_snapshot——快照结构变化 = 输入事件，
-				// 零公开消息也触发投递（注入节被动可见新决定，不依赖他人发言）。
-				if (message.decision_snapshot) {
-					const key = JSON.stringify(message.decision_snapshot);
-					const prevKey = this.runtime.decisionSnapshot ? JSON.stringify(this.runtime.decisionSnapshot) : null;
-					if (key !== prevKey) {
-						this.runtime.decisionSnapshot = message.decision_snapshot;
-						// 零消息投递：仅注入节刷新（latestSequence=undefined 不推进游标）。
-						void this.deliver([], undefined, true);
-					}
-				}
 				if (this.runtime.isAgentActive) {
 					// 忙态（User 拍板 2026-08-02）：立即拉取（无合并窗口）——
 					// 单飞行锁仅并发保护；投递走 steer 通道（工具间隙秒级）。
@@ -193,22 +181,18 @@ export class GroupChatInput {
 	 * 事件合并，保证顺序（事件先到，消息更新）。Agent 运行中事件经 steer
 	 * 通道投递（口径 A）——在下一个工具调用间隙可见，绝不打断 run。
 	 */
-	private async deliver(
-		messages: ServerMessage[],
-		latestSequence: number | undefined,
-		forceSnapshot = false,
-	): Promise<void> {
+	private async deliver(messages: ServerMessage[], latestSequence: number): Promise<void> {
 		if (this.stopped) {
 			return;
 		}
 		const events = [...this.pendingEvents, ...messages];
 		this.pendingEvents = [];
-		if (events.length === 0 && !forceSnapshot) {
+		if (events.length === 0) {
 			return;
 		}
 		// await 投递链：flush 内 preflightResult 成功才推进游标——do-while 补拉
 		// 决策必须基于已推进的游标（否则重复投递已投窗口）。
-		await this.flush(events, latestSequence, forceSnapshot);
+		await this.flush(events, latestSequence);
 	}
 
 	/**
@@ -417,14 +401,13 @@ export class GroupChatInput {
 	 * （followUp + triggerTurn + 群聊标记），批次仍能唤醒 agent
 	 * （Arch settle 竞态修复）。
 	 */
-	private async flush(events?: ServerMessage[], latestSequence?: number, forceSnapshot = false): Promise<void> {
+	private async flush(events?: ServerMessage[], latestSequence?: number): Promise<void> {
 		const toDeliver = events ?? this.pendingEvents;
 		if (events === undefined) {
 			this.pendingEvents = [];
 		}
 
-		// #107（F3）：零消息但快照变化（forceSnapshot）仍投递——注入节刷新。
-		if ((toDeliver.length === 0 && !forceSnapshot) || this.stopped) return;
+		if (toDeliver.length === 0 || this.stopped) return;
 
 		let groupChatState: unknown = null;
 		try {
@@ -621,10 +604,6 @@ export class GroupChatInput {
 			parts.push(`- 剩余发言次数：${round.remaining_messages}`);
 		}
 
-		// #107（ADR-0006）：当前有效裁决注入节（唯一事实源——机械生成，
-		// 角色不转述不归约）。有快照且非空时渲染；无有效裁决时省略整段（零噪音）。
-		this.appendDecisionSection(parts);
-
 		parts.push(
 			"\n请根据这些群聊变化继续当前工作。",
 			"如果需要公开回复，请调用 tavern_speak；",
@@ -636,76 +615,6 @@ export class GroupChatInput {
 
 		return parts.join("\n");
 	}
-
-	/**
-	 * #107：渲染「当前有效裁决」注入节。
-	 * - current = 链末端 closed（「当前决定」，可修订——由 User 关闭的新提案替代）；
-	 * - active = 未 superseded 全集（截断 DECISION_INJECTION_LIMIT + 「+M 更早」显式标注）；
-	 * - 无有效裁决（快照空）→ 省略整段（零噪音）。
-	 */
-	private appendDecisionSection(parts: string[]): void {
-		const snapshot = this.runtime.decisionSnapshot;
-		if (!snapshot) {
-			return;
-		}
-		const active = snapshot.active;
-		if (active.length === 0 && snapshot.current === null) {
-			return;
-		}
-
-		parts.push("\n当前有效裁决：");
-		const lines: string[] = [];
-
-		// 当前决定（含内容 + 替代链标注，可追溯：R1/R2 验收锚点；
-		// F5：content 注入——角色看到「决定是什么」而非只有 id）。
-		if (snapshot.current) {
-			const c = snapshot.current;
-			const by = formatDecidedBy(c.decided_by);
-			const supersededNote = c.supersedes.length > 0 ? `；替代 ${c.supersedes.join("、")}` : "";
-			lines.push(
-				`- ${c.decision_id}@v${c.version} 已决定（${formatDate(c.created_at)}，由 ${by} 关闭${supersededNote}）：${truncateContent(c.content)}`,
-			);
-		}
-
-		// 活跃提案集（F7：最新优先取前 N，隐藏的更早标注——C10/M2）。
-		const proposers = active.filter((r) => r.status === "proposed");
-		const visible = proposers.slice(-DECISION_INJECTION_LIMIT);
-		const hidden = proposers.length - visible.length;
-		for (const p of visible) {
-			const by = formatDecidedBy(p.decided_by);
-			lines.push(
-				`- ${p.decision_id}@v${p.version} 活跃（${formatDate(p.created_at)}，由 ${by} 提案）：${truncateContent(p.content)}`,
-			);
-		}
-		if (hidden > 0) {
-			lines.push(`- +${hidden} 个更早活跃提案`);
-		}
-
-		parts.push(...lines);
-	}
-}
-
-/** #107（F5）：决策内容限长截断（防上下文膨胀；状态本身完整持久化）。 */
-function truncateContent(content: string): string {
-	const MAX = 120;
-	if (content.length <= MAX) {
-		return content;
-	}
-	return `${content.slice(0, MAX)}…`;
-}
-
-/** #107：决定者显示名（user_persona → User；角色 → 注册名）。 */
-function formatDecidedBy(decidedBy: DecisionRecordWire["decided_by"]): string {
-	return decidedBy.type === "user_persona" ? "User" : decidedBy.name;
-}
-
-/** #107：ISO 时间 → YYYY-MM-DD（注入节粒度，与 #104 时间节并列不冲突）。 */
-function formatDate(iso: string): string {
-	const date = new Date(iso);
-	if (Number.isNaN(date.getTime())) {
-		return iso;
-	}
-	return date.toISOString().slice(0, 10);
 }
 
 /**
