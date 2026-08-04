@@ -72,13 +72,13 @@
 - Q3 ↔ Q5 耦合：占额度则 board_write 要带计数逻辑，方向一起定
 
 ### 影响面声明（契约变更三处，立项前四方确认 + ADR）
-1. protocol 新增两个客户端消息：board_write（贴/撕/清）+ board_query（查全量）——**通知复用现有广播事件通道**（group_chat_update 的 events 批次），不新增独立推送通道（Arch 补充①）
+1. protocol 新增两个客户端消息：board_write（贴/撕/清）+ board_query（查全量）+ 一个服务器通知消息 **board_update**（独立消息类型，复用 broadcast() 广播通道，不混入 group_chat_update 的 events 批次——后者为 closed schema，混入=破坏性变更且误触发角色侧拉取；ADR-0007 §3 定稿）
 2. 角色卡新增工具
 3. 新持久化文件 boards/<groupId>.json
 
 ### 生命周期明确（Arch 补充②+⑤：关闭 ≠ 删除）
 - **关闭**（creator 退出 /tavern-leave）：群聊 JSONL **保留**，board 文件同步保留——恢复（/tavern-resume）时按 groupChatId 读回白板，避免恢复后角色立场回到不可见、收敛链断裂
-- **删除**（/tavern-resume 删历史，deleteGroupChatSession）：JSONL 进废纸篓/删除，board 文件**同步清理**（复用现有 trash/unlink 逻辑），不留孤儿文件
+- **删除**（/tavern-resume 删历史，deleteGroupChatSession）：JSONL 进废纸篓/删除，board 文件**同步清理**（复用现有 trash/unlink 逻辑，trash 优先/unlink 回退/幂等）。**边界（best-effort，ADR-0007 §4 定案）**：会话删除是主动作——白板清理失败仅 warning 不阻塞，可能留孤儿文件（后续删除同类群聊不自动重试；孤儿不影响功能，仅占磁盘）
 - 一句话：board 文件不独立决定去留，只跟群聊记录同生共死——记录在，白板在；记录删，白板删
 - 群聊内跨轮次保留、不跨群聊累积
 
