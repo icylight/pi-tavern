@@ -1,4 +1,12 @@
 import {
+	ERROR_ORIGINAL_ERROR_PREFIX,
+	ERROR_PERSISTENCE_BLOCKED,
+	ERROR_PERSISTENCE_BROKEN,
+	ERROR_RECOVERY_FAILED_PREFIX,
+	ERROR_ROLLBACK_DELETE_FAILED,
+	ERROR_SESSION_FILE_NOT_SET,
+} from "../shared/messages.js";
+import {
 	FIRST_PERSIST_HEADER_WRITTEN,
 	FIRST_PERSIST_MESSAGE_APPENDED,
 	FIRST_PERSIST_NAME_APPENDED,
@@ -143,13 +151,13 @@ export class SessionStore {
 
 	getSessionFilePath(): string {
 		const path = this.sessionManager.getSessionFile();
-		if (!path) throw new Error("Session file not set");
+		if (!path) throw new Error(ERROR_SESSION_FILE_NOT_SET);
 		return path;
 	}
 
 	assertWritable(): void {
 		if (this.persistenceFatal) {
-			throw new Error("Group chat persistence is broken — further writes are blocked");
+			throw new Error(ERROR_PERSISTENCE_BROKEN);
 		}
 	}
 
@@ -187,8 +195,8 @@ export class SessionStore {
 			// setSessionFile 自身失败——不可恢复。
 			this.persistenceFatal = true;
 			throw new Error(
-				`Persistence recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}. ` +
-					`Original error: ${originalError instanceof Error ? originalError.message : String(originalError)}`,
+				`${ERROR_RECOVERY_FAILED_PREFIX}${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}. ` +
+					`${ERROR_ORIGINAL_ERROR_PREFIX}${originalError instanceof Error ? originalError.message : String(originalError)}`,
 				{ cause: originalError },
 			);
 		}
@@ -204,8 +212,8 @@ export class SessionStore {
 		} catch (recoveryError) {
 			this.persistenceFatal = true;
 			return new Error(
-				`Persistence recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}. ` +
-					`Original error: ${originalError instanceof Error ? originalError.message : String(originalError)}`,
+				`${ERROR_RECOVERY_FAILED_PREFIX}${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}. ` +
+					`${ERROR_ORIGINAL_ERROR_PREFIX}${originalError instanceof Error ? originalError.message : String(originalError)}`,
 				{ cause: originalError },
 			);
 		}
@@ -291,10 +299,7 @@ export class SessionStore {
 				await this.deps.rm(sessionPath);
 			} catch {
 				this.persistenceFatal = true;
-				throw new Error(
-					"Failed to delete half-initialized session file during rollback. " +
-						"Persistence is now blocked to prevent duplicate sessions.",
-				);
+				throw new Error(ERROR_ROLLBACK_DELETE_FAILED + ERROR_PERSISTENCE_BLOCKED);
 			}
 		}
 

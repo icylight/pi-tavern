@@ -17,6 +17,18 @@ import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent"
 import type { TavernController } from "./controller/tavern-controller.js";
 import { type ActiveGroupChatDescriptor, getGroupChatCursorDirectory } from "./data/discovery/active-descriptor.js";
 import type { DiscoverGroupChatsOptions } from "./data/discovery/discover-group-chats.js";
+import {
+	ERROR_INJECTION_AUTO_JOIN_DISCOVER,
+	HEADLESS_FAILED_PREFIX,
+	HEADLESS_JOIN_ATTEMPT_FAILED,
+	HEADLESS_JOINED_MID,
+	HEADLESS_JOINED_PREFIX,
+	HEADLESS_NO_ACTIVE_GROUP_CHAT,
+	HEADLESS_NO_CHARACTER_AVAILABLE,
+	HEADLESS_NO_CHARACTER_CANDIDATE,
+	HEADLESS_NO_GROUP_CHAT_CANDIDATE,
+	HEADLESS_SKIPPED_PREFIX,
+} from "./shared/messages.js";
 
 export interface AutoJoinOptions {
 	agentDir?: string;
@@ -91,21 +103,21 @@ export async function autoJoinCharacter(
 	};
 
 	if (controller.getState().type !== "idle") {
-		notify(`Auto-join skipped: PiTavern is ${controller.getState().type}`, "warning");
+		notify(`${HEADLESS_SKIPPED_PREFIX}${controller.getState().type}`, "warning");
 		return null;
 	}
 
 	if (!options.discoverGroupChats) {
-		throw new Error("autoJoinCharacter: discoverGroupChats must be injected by the composition root");
+		throw new Error(ERROR_INJECTION_AUTO_JOIN_DISCOVER);
 	}
 	const candidates = await options.discoverGroupChats({ agentDir, cwd: ctx.cwd });
 	if (candidates.length === 0) {
-		notify("Auto-join: no active group chat found for this project", "warning");
+		notify(HEADLESS_NO_ACTIVE_GROUP_CHAT, "warning");
 		return null;
 	}
 	const descriptor = pickGroupChat(options, candidates);
 	if (!descriptor) {
-		notify("Auto-join: no group chat candidate", "warning");
+		notify(HEADLESS_NO_GROUP_CHAT_CANDIDATE, "warning");
 		return null;
 	}
 
@@ -116,23 +128,26 @@ export async function autoJoinCharacter(
 		cursorStorePath: join(getGroupChatCursorDirectory(agentDir, ctx.cwd), descriptor.groupChatId, `${sessionId}.json`),
 	});
 	if (!attempt.isActive) {
-		notify("Auto-join: join attempt failed", "warning");
+		notify(HEADLESS_JOIN_ATTEMPT_FAILED, "warning");
 		return null;
 	}
 	if (attempt.availableCharacters.length === 0) {
-		notify("Auto-join: no Character is available in this group chat", "warning");
+		notify(HEADLESS_NO_CHARACTER_AVAILABLE, "warning");
 		await controller.leave();
 		return null;
 	}
 	const selected = pickCharacter(options, attempt.availableCharacters);
 	if (!selected) {
-		notify("Auto-join: no character candidate", "warning");
+		notify(HEADLESS_NO_CHARACTER_CANDIDATE, "warning");
 		await controller.leave();
 		return null;
 	}
 	try {
 		const runtime = await controller.claimCharacter(selected.character_id, pi);
-		notify(`Auto-joined ${descriptor.name ?? descriptor.groupChatId} as ${runtime.character.name}`, "info");
+		notify(
+			`${HEADLESS_JOINED_PREFIX}${descriptor.name ?? descriptor.groupChatId}${HEADLESS_JOINED_MID}${runtime.character.name}`,
+			"info",
+		);
 		return runtime.character.name;
 	} catch (error) {
 		// 并发 join 可能已占走该角色：刷新一次再重试选择，
@@ -146,11 +161,14 @@ export async function autoJoinCharacter(
 			const retry = pickCharacter(options, attempt.availableCharacters);
 			if (retry) {
 				const runtime = await controller.claimCharacter(retry.character_id, pi);
-				notify(`Auto-joined ${descriptor.name ?? descriptor.groupChatId} as ${runtime.character.name}`, "info");
+				notify(
+					`${HEADLESS_JOINED_PREFIX}${descriptor.name ?? descriptor.groupChatId}${HEADLESS_JOINED_MID}${runtime.character.name}`,
+					"info",
+				);
 				return runtime.character.name;
 			}
 		}
-		notify(`Auto-join failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+		notify(`${HEADLESS_FAILED_PREFIX}${error instanceof Error ? error.message : String(error)}`, "error");
 		await controller.leave();
 		return null;
 	}

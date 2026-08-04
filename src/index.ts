@@ -21,6 +21,12 @@ import { registerTavernTools } from "./extension/tavern-tools.js";
 import { type AutoJoinContext, autoJoinCharacter } from "./headless.js";
 import type { PublicMessageState } from "./protocol/public-message-state.js";
 import { JOIN_HISTORY_LIMIT } from "./shared/constants.js";
+import {
+	ERROR_TUI_PROJECTION_FAILED_PREFIX,
+	ERROR_UNKNOWN,
+	UI_CONFIRM_LEAVE_BODY,
+	UI_CONFIRM_LEAVE_TITLE,
+} from "./shared/messages.js";
 import { registerRenderers } from "./ui/renderers.js";
 import { TavernUiPresenter } from "./ui/tavern-ui-presenter.js";
 
@@ -150,10 +156,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	// /new 与 /resume：已绑定群聊时先确认退出。
 	pi.on("session_before_switch", async (_event, ctx) => {
 		const result = await ctrl.prepareForSessionOperation(() =>
-			ctx.ui.confirm(
-				"退出群聊？",
-				"PiTavern 当前已加入群聊。继续将先退出群聊，之后即使本次操作失败或取消也不会自动恢复。",
-			),
+			ctx.ui.confirm(UI_CONFIRM_LEAVE_TITLE, UI_CONFIRM_LEAVE_BODY),
 		);
 		return { cancel: result.cancel };
 	});
@@ -161,10 +164,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	// /fork 与 /clone：与 /new、/resume 相同的确认闸门。
 	pi.on("session_before_fork", async (_event, ctx) => {
 		const result = await ctrl.prepareForSessionOperation(() =>
-			ctx.ui.confirm(
-				"退出群聊？",
-				"PiTavern 当前已加入群聊。继续将先退出群聊，之后即使本次操作失败或取消也不会自动恢复。",
-			),
+			ctx.ui.confirm(UI_CONFIRM_LEAVE_TITLE, UI_CONFIRM_LEAVE_BODY),
 		);
 		return { cancel: result.cancel };
 	});
@@ -308,7 +308,7 @@ function appendCreatorDisplayEntry(pi: ExtensionAPI, runtime: CreatorRuntime, ms
 					sequence: msg.sequence,
 					timestamp: msg.timestamp,
 					sender: msg.sender,
-					content: `TUI projection failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+					content: `${ERROR_TUI_PROJECTION_FAILED_PREFIX}${error instanceof Error ? error.message : ERROR_UNKNOWN}`,
 					round: msg.round,
 				},
 			});

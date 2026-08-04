@@ -4,6 +4,7 @@ import type { WebSocketServer } from "ws";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
 import { removeOwnedActiveDescriptor } from "../data/discovery/active-descriptor.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
+import { ERROR_CREATOR_RUNTIME_DETACHED, ERROR_GROUP_CHAT_CLOSED } from "../shared/messages.js";
 import type { RuntimeCloseReason, RuntimeCloseResult } from "../shared/runtime-close.js";
 import type { BroadcastHub } from "./broadcast-hub.js";
 import type { HeartbeatRegistry } from "./heartbeat-registry.js";
@@ -48,7 +49,7 @@ export class RuntimeLifecycle {
 	private async performClose(_reason: RuntimeCloseReason): Promise<RuntimeCloseResult> {
 		if (this.host.readLifecycle() === "detaching") {
 			// close() 与 detachForReload() 是互斥路径。
-			throw new Error("CreatorRuntime has been detached for reload and cannot be closed");
+			throw new Error(ERROR_CREATOR_RUNTIME_DETACHED);
 		}
 		const errors: Error[] = [];
 		this.host.setLifecycle("disposed");
@@ -64,7 +65,7 @@ export class RuntimeLifecycle {
 			errors.push(asError(error));
 		}
 		for (const socket of this.host.webSocketServer.clients) {
-			socket.close(1001, "Group chat closed");
+			socket.close(1001, ERROR_GROUP_CHAT_CLOSED);
 		}
 		await closeWebSocketServer(this.host.webSocketServer);
 		this.host.connections.clear();

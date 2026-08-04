@@ -1,9 +1,17 @@
 import type WebSocket from "ws";
-
 import { type GroupChatState, setHandRaised } from "../../data/group-chat-state.js";
 import { formatEntryContent, type SessionHeaderLike, type SessionStore } from "../../data/session-store.js";
 import type { ClientMessage } from "../../protocol/messages.js";
 import type { PublicMessageState } from "../../protocol/public-message-state.js";
+import {
+	ERROR_MESSAGE_TOO_LARGE,
+	ERROR_NO_ACTIVE_ROUND,
+	ERROR_NOT_GROUP_MEMBER,
+	ERROR_PERSIST_FAILED_PREFIX,
+	ERROR_TUI_PROJECTION_FAILED_PREFIX,
+	ERROR_UNKNOWN,
+	ERROR_USER_PERSONA_MESSAGE_TOO_LARGE,
+} from "../../shared/messages.js";
 
 type SpeakMessage = Extract<ClientMessage, { type: "speak" }>;
 
@@ -52,25 +60,25 @@ export class SubmitMessagePipeline {
 	async runSpeak(socket: WebSocket, connection: SpeakConnectionLike, message: SpeakMessage): Promise<void> {
 		// 阶段 1：校验（成员资格 / 大小 / 在线角色 / 活跃轮次）
 		if (!connection.online || connection.sessionId === null) {
-			this.deps.sendFailure(socket, message.id, "speak", "Character is not a group member");
+			this.deps.sendFailure(socket, message.id, "speak", ERROR_NOT_GROUP_MEMBER);
 			return;
 		}
 
 		const contentBytes = Buffer.byteLength(message.content, "utf8");
 		if (contentBytes > 64 * 1024) {
-			this.deps.sendFailure(socket, message.id, "speak", "Message exceeds 64 KiB");
+			this.deps.sendFailure(socket, message.id, "speak", ERROR_MESSAGE_TOO_LARGE);
 			return;
 		}
 
 		const onlineCharacter = this.deps.state.onlineCharacters.get(connection.sessionId);
 		if (!onlineCharacter) {
-			this.deps.sendFailure(socket, message.id, "speak", "Character is not a group member");
+			this.deps.sendFailure(socket, message.id, "speak", ERROR_NOT_GROUP_MEMBER);
 			return;
 		}
 
 		const round = this.deps.state.round;
 		if (!round) {
-			this.deps.sendFailure(socket, message.id, "speak", "No active round");
+			this.deps.sendFailure(socket, message.id, "speak", ERROR_NO_ACTIVE_ROUND);
 			return;
 		}
 
@@ -175,7 +183,7 @@ export class SubmitMessagePipeline {
 			);
 		} catch (error) {
 			const reportError = this.deps.sessionStore.recoverFromFailedAppendAndCatch(error);
-			this.deps.sendFailure(socket, message.id, "speak", `Failed to persist message: ${reportError.message}`);
+			this.deps.sendFailure(socket, message.id, "speak", `${ERROR_PERSIST_FAILED_PREFIX}${reportError.message}`);
 			return;
 		}
 
@@ -233,7 +241,7 @@ export class SubmitMessagePipeline {
 
 		const contentBytes = Buffer.byteLength(content, "utf8");
 		if (contentBytes > 64 * 1024) {
-			throw new Error("User Persona message exceeds 64 KiB");
+			throw new Error(ERROR_USER_PERSONA_MESSAGE_TOO_LARGE);
 		}
 
 		// 阶段 2：持久化
@@ -328,7 +336,7 @@ export class SubmitMessagePipeline {
 			this.deps.onPublicMessage?.(msg);
 		} catch (error) {
 			this.deps.onPublicMessageError?.(
-				`TUI projection failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+				`${ERROR_TUI_PROJECTION_FAILED_PREFIX}${error instanceof Error ? error.message : ERROR_UNKNOWN}`,
 				msg.sequence,
 				msg.timestamp,
 			);

@@ -1,11 +1,11 @@
 import type WebSocket from "ws";
-
 import type { CharacterCard, CharacterSummary } from "../../config/character-card.js";
 import { encodeCursor } from "../../data/cursor-store.js";
 import type { GroupChatState } from "../../data/group-chat-state.js";
 import type { ClientMessage } from "../../protocol/messages.js";
 import type { PublicMessageState } from "../../protocol/public-message-state.js";
 import { JOIN_HISTORY_LIMIT } from "../../shared/constants.js";
+import { ERROR_ALREADY_IN_GROUP_CHAT, ERROR_RESERVATION_INVALID } from "../../shared/messages.js";
 import type { HeartbeatRegistry } from "../heartbeat-registry.js";
 
 type CharacterReadyMessage = Extract<ClientMessage, { type: "character_ready" }>;
@@ -59,11 +59,11 @@ export class ReadyPipeline {
 			connection.online ||
 			this.deps.state.characterReservations.get(reservedCharacterId) !== sessionId
 		) {
-			this.deps.sendFailure(socket, message.id, "character_ready", "Character reservation is no longer valid");
+			this.deps.sendFailure(socket, message.id, "character_ready", ERROR_RESERVATION_INVALID);
 			return;
 		}
 		if (this.deps.connections.has(sessionId)) {
-			this.deps.sendFailure(socket, message.id, "character_ready", "This pi session is already in the group chat");
+			this.deps.sendFailure(socket, message.id, "character_ready", ERROR_ALREADY_IN_GROUP_CHAT);
 			return;
 		}
 

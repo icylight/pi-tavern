@@ -13,6 +13,61 @@ import {
 } from "./data/discovery/active-descriptor.js";
 import type { DiscoverGroupChatsOptions } from "./data/discovery/discover-group-chats.js";
 import type { DeleteGroupChatSessionResult, GroupChatSessionSummary } from "./data/group-chat-sessions.js";
+import {
+	CMD_DESC_JOIN,
+	CMD_DESC_LEAVE,
+	CMD_DESC_NAME,
+	CMD_DESC_NEW,
+	CMD_DESC_RESUME,
+	CMD_DESC_SET_MAX,
+	CMD_DESC_STATUS,
+	CMD_DESC_TEST_MESSAGE,
+	CMD_DESC_TEST_RELOAD,
+	CMD_DESC_TEST_WHOAMI,
+	CONFIRM_DELETE_HISTORY_BODY_PREFIX,
+	CONFIRM_DELETE_HISTORY_TITLE,
+	ERROR_CREATOR_ONLY,
+	ERROR_DELETE_HISTORY_FAILED_PREFIX,
+	ERROR_GROUP_CHAT_CLOSED,
+	ERROR_INJECTION_DELETE_SESSION,
+	ERROR_INJECTION_DISCOVER,
+	ERROR_INJECTION_LIST_SESSIONS,
+	ERROR_JOIN_REQUIRES_UI,
+	ERROR_LEFT_GROUP_CHAT,
+	ERROR_NO_ACTIVE_GROUP_CHAT,
+	ERROR_NO_ACTIVE_GROUP_CHAT_FOR_PROJECT,
+	ERROR_RESUME_REQUIRES_UI,
+	NOTIFY_CREATED_MID,
+	NOTIFY_CREATED_PREFIX,
+	NOTIFY_CREATOR_ONLY_MESSAGE,
+	NOTIFY_DELETED_BOARD_FAIL_PREFIX,
+	NOTIFY_DELETED_PREFIX,
+	NOTIFY_DELETED_SUFFIX,
+	NOTIFY_JOINED_AS,
+	NOTIFY_JOINED_PREFIX,
+	NOTIFY_JOINING_PREFIX,
+	NOTIFY_JOINING_SUFFIX,
+	NOTIFY_MAX_MESSAGES_INVALID,
+	NOTIFY_MAX_SET_PREFIX,
+	NOTIFY_MESSAGE_PUBLISHED,
+	NOTIFY_NAME_SET_PREFIX,
+	NOTIFY_NO_CHARACTER_AVAILABLE,
+	NOTIFY_NO_RESUMABLE_GROUP_CHAT,
+	NOTIFY_NOT_IN_CHARACTER_STATE,
+	NOTIFY_RESUMED_PREFIX,
+	NOTIFY_USAGE_NAME,
+	NOTIFY_USAGE_SET_MAX,
+	SELECT_CHOOSE_CHARACTER,
+	SELECT_CHOOSE_GROUP_CHAT,
+	SELECT_DELETE_HISTORY_CHOICE,
+	SELECT_DELETE_HISTORY_LABEL,
+	SELECT_RESUME_LABEL,
+	UI_GROUP_CHAT_LABEL_PREFIX,
+	UI_ID_LABEL,
+	UI_MESSAGES_USED,
+	UI_ROUND_NOT_STARTED,
+	UI_UNNAMED_GROUP_CHAT,
+} from "./shared/messages.js";
 
 export interface RegisterCommandsOptions {
 	agentDir?: string;
@@ -49,7 +104,7 @@ export function registerCommands(
 	const deleteBoard = options.deleteBoard;
 
 	pi.registerCommand("tavern-new", {
-		description: "Create a new PiTavern group chat",
+		description: CMD_DESC_NEW,
 		handler: async (_args, ctx) => {
 			try {
 				const config = await loadConfig({ agentDir, cwd: ctx.cwd });
@@ -63,7 +118,7 @@ export function registerCommands(
 					characters: config.characters,
 				});
 				ctx.ui.notify(
-					`Created group chat ${runtime.state.groupChat.groupChatId} at ${runtime.activeDescriptor.host}:${runtime.activeDescriptor.port}`,
+					`${NOTIFY_CREATED_PREFIX}${runtime.state.groupChat.groupChatId}${NOTIFY_CREATED_MID}${runtime.activeDescriptor.host}:${runtime.activeDescriptor.port}`,
 					"info",
 				);
 			} catch (error) {
@@ -73,26 +128,26 @@ export function registerCommands(
 	});
 
 	pi.registerCommand("tavern-resume", {
-		description: "Resume a PiTavern group chat from its history",
+		description: CMD_DESC_RESUME,
 		handler: async (_args, ctx) => {
 			try {
 				if (!ctx.hasUI) {
-					throw new Error("/tavern-resume requires an interactive UI");
+					throw new Error(ERROR_RESUME_REQUIRES_UI);
 				}
 				const config = await loadConfig({ agentDir, cwd: ctx.cwd });
 				// 组合根契约：index.ts 装配注入行为默认实现（ADR-0005 层方向）。
 				if (!listGroupChatSessions) {
-					throw new Error("listGroupChatSessions 未注入（组合根契约违反）");
+					throw new Error(ERROR_INJECTION_LIST_SESSIONS);
 				}
 				const sessions = await listGroupChatSessions(agentDir, ctx.cwd);
 				const resumable = sessions.filter((session) => !session.active);
 				if (resumable.length === 0) {
-					ctx.ui.notify("No resumable group chat found for this project", "info");
+					ctx.ui.notify(NOTIFY_NO_RESUMABLE_GROUP_CHAT, "info");
 					return;
 				}
-				const deleteLabel = "Delete a group chat history…";
+				const deleteLabel = SELECT_DELETE_HISTORY_CHOICE;
 				const labels = [...resumable.map(formatSessionLabel), deleteLabel];
-				const choice = await ctx.ui.select("Resume group chat:", labels);
+				const choice = await ctx.ui.select(SELECT_RESUME_LABEL, labels);
 				if (choice === undefined) {
 					return;
 				}
@@ -100,7 +155,7 @@ export function registerCommands(
 					// 组合根契约：index.ts 装配注入行为默认实现（ADR-0005 层方向）——
 					// 契约违反时显式报错（fail fast），替代非空断言（#89 check 清零）。
 					if (!deleteGroupChatSession) {
-						throw new Error("deleteGroupChatSession 未注入（组合根契约违反）");
+						throw new Error(ERROR_INJECTION_DELETE_SESSION);
 					}
 					await runDeleteGroupChatFlow(
 						resumable,
@@ -128,7 +183,7 @@ export function registerCommands(
 					characters: config.characters,
 				});
 				ctx.ui.notify(
-					`Resumed group chat ${runtime.state.groupChat.groupChatId} at ${runtime.activeDescriptor.host}:${runtime.activeDescriptor.port}`,
+					`${NOTIFY_RESUMED_PREFIX}${runtime.state.groupChat.groupChatId}${NOTIFY_CREATED_MID}${runtime.activeDescriptor.host}:${runtime.activeDescriptor.port}`,
 					"info",
 				);
 			} catch (error) {
@@ -138,21 +193,21 @@ export function registerCommands(
 	});
 
 	pi.registerCommand("tavern-join", {
-		description: "Join an active PiTavern group chat as a Character",
+		description: CMD_DESC_JOIN,
 		handler: async (_args, ctx) => {
 			try {
 				if (!ctx.hasUI) {
-					throw new Error("/tavern-join requires an interactive UI");
+					throw new Error(ERROR_JOIN_REQUIRES_UI);
 				}
 				if (!discoverGroupChats) {
-					throw new Error("discoverGroupChats 未注入（组合根契约违反）");
+					throw new Error(ERROR_INJECTION_DISCOVER);
 				}
 				const candidates = await discoverGroupChats({
 					agentDir,
 					cwd: ctx.cwd,
 				});
 				if (candidates.length === 0) {
-					ctx.ui.notify("No active group chat found for this project", "info");
+					ctx.ui.notify(ERROR_NO_ACTIVE_GROUP_CHAT_FOR_PROJECT, "info");
 					return;
 				}
 				const descriptor = await selectGroupChat(candidates, ctx.ui.select);
@@ -173,7 +228,7 @@ export function registerCommands(
 
 				while (attempt.isActive) {
 					if (attempt.availableCharacters.length === 0) {
-						ctx.ui.notify("No Character is currently available in this group chat", "info");
+						ctx.ui.notify(NOTIFY_NO_CHARACTER_AVAILABLE, "info");
 						await controller.leave();
 						return;
 					}
@@ -184,7 +239,10 @@ export function registerCommands(
 					}
 					try {
 						const runtime = await controller.claimCharacter(selected.character_id, pi);
-						ctx.ui.notify(`Joined ${descriptor.name ?? descriptor.groupChatId} as ${runtime.character.name}`, "info");
+						ctx.ui.notify(
+							`${NOTIFY_JOINED_PREFIX}${descriptor.name ?? descriptor.groupChatId}${NOTIFY_JOINED_AS}${runtime.character.name}`,
+							"info",
+						);
 						return;
 					} catch (error) {
 						if (controller.getState().type !== "joining" || !attempt.isActive) {
@@ -201,15 +259,18 @@ export function registerCommands(
 	});
 
 	pi.registerCommand("tavern-status", {
-		description: "Show the current PiTavern group chat status",
+		description: CMD_DESC_STATUS,
 		handler: async (_args, ctx) => {
 			const state = controller.getState();
 			if (state.type === "idle") {
-				ctx.ui.notify("No active group chat", "info");
+				ctx.ui.notify(ERROR_NO_ACTIVE_GROUP_CHAT, "info");
 				return;
 			}
 			if (state.type === "joining") {
-				ctx.ui.notify(`Joining group chat; ${state.attempt.availableCharacters.length} Characters available`, "info");
+				ctx.ui.notify(
+					`${NOTIFY_JOINING_PREFIX}${state.attempt.availableCharacters.length}${NOTIFY_JOINING_SUFFIX}`,
+					"info",
+				);
 				return;
 			}
 			if (state.type === "creator") {
@@ -226,7 +287,7 @@ export function registerCommands(
 	});
 
 	pi.registerCommand("tavern-name", {
-		description: "Set the current group chat name",
+		description: CMD_DESC_NAME,
 		handler: async (args, ctx) => {
 			if (!isCreator(controller, ctx.ui.notify)) {
 				return;
@@ -234,13 +295,13 @@ export function registerCommands(
 
 			const name = args.trim();
 			if (!name) {
-				ctx.ui.notify("Usage: /tavern-name <name>", "error");
+				ctx.ui.notify(NOTIFY_USAGE_NAME, "error");
 				return;
 			}
 
 			try {
 				const normalizedName = await controller.setName(name);
-				ctx.ui.notify(`Group chat name set to ${normalizedName}`, "info");
+				ctx.ui.notify(`${NOTIFY_NAME_SET_PREFIX}${normalizedName}`, "info");
 			} catch (error) {
 				notifyError(ctx.ui.notify, error);
 			}
@@ -248,7 +309,7 @@ export function registerCommands(
 	});
 
 	pi.registerCommand("tavern-set-max", {
-		description: "Set the maximum Character messages for future rounds",
+		description: CMD_DESC_SET_MAX,
 		handler: async (args, ctx) => {
 			if (!isCreator(controller, ctx.ui.notify)) {
 				return;
@@ -256,18 +317,18 @@ export function registerCommands(
 
 			const value = args.trim();
 			if (!/^\d+$/.test(value)) {
-				ctx.ui.notify("Usage: /tavern-set-max <non-negative integer>", "error");
+				ctx.ui.notify(NOTIFY_USAGE_SET_MAX, "error");
 				return;
 			}
 			const maxMessages = Number(value);
 			if (!Number.isSafeInteger(maxMessages)) {
-				ctx.ui.notify("Maximum messages must be a non-negative safe integer", "error");
+				ctx.ui.notify(NOTIFY_MAX_MESSAGES_INVALID, "error");
 				return;
 			}
 
 			try {
 				await controller.setMaxMessages(maxMessages);
-				ctx.ui.notify(`Group max messages set to ${maxMessages}`, "info");
+				ctx.ui.notify(`${NOTIFY_MAX_SET_PREFIX}${maxMessages}`, "info");
 			} catch (error) {
 				notifyError(ctx.ui.notify, error);
 			}
@@ -279,33 +340,33 @@ export function registerCommands(
 	// 消息与触发真实 pi reload。仅在 PITAVERN_TEST=1 时注册。
 	if (process.env.PITAVERN_TEST === "1") {
 		pi.registerCommand("tavern-test-message", {
-			description: "[test] Publish a User Persona message as the creator",
+			description: CMD_DESC_TEST_MESSAGE,
 			handler: async (args, ctx) => {
 				const state = controller.getState();
 				if (state.type !== "creator") {
-					ctx.ui.notify("Only the group chat creator can send User Persona messages", "error");
+					ctx.ui.notify(NOTIFY_CREATOR_ONLY_MESSAGE, "error");
 					return;
 				}
 				try {
 					await state.runtime.submitUserPersonaMessage(args.trim());
-					ctx.ui.notify("User Persona message published", "info");
+					ctx.ui.notify(NOTIFY_MESSAGE_PUBLISHED, "info");
 				} catch (error) {
 					notifyError(ctx.ui.notify, error);
 				}
 			},
 		});
 		pi.registerCommand("tavern-test-reload", {
-			description: "[test] Trigger a real pi reload to exercise the handoff",
+			description: CMD_DESC_TEST_RELOAD,
 			handler: async (_args, ctx) => {
 				await ctx.reload();
 			},
 		});
 		pi.registerCommand("tavern-test-whoami", {
-			description: "[test] Report the registered character identity (ISSUE-007 observation channel)",
+			description: CMD_DESC_TEST_WHOAMI,
 			handler: async (_args, ctx) => {
 				const state = controller.getState();
 				if (state.type !== "character") {
-					ctx.ui.notify("Not in character state", "error");
+					ctx.ui.notify(NOTIFY_NOT_IN_CHARACTER_STATE, "error");
 					return;
 				}
 				const character = state.runtime.character;
@@ -318,11 +379,11 @@ export function registerCommands(
 	}
 
 	pi.registerCommand("tavern-leave", {
-		description: "Close or leave the current PiTavern group chat",
+		description: CMD_DESC_LEAVE,
 		handler: async (_args, ctx) => {
 			const state = controller.getState();
 			if (state.type === "idle") {
-				ctx.ui.notify("No active group chat", "info");
+				ctx.ui.notify(ERROR_NO_ACTIVE_GROUP_CHAT, "info");
 				return;
 			}
 
@@ -330,10 +391,10 @@ export function registerCommands(
 				await controller.leave();
 				ctx.ui.notify(
 					state.type === "creator"
-						? "Group chat closed"
+						? ERROR_GROUP_CHAT_CLOSED
 						: state.type === "joining"
 							? "Join cancelled"
-							: "Left group chat",
+							: ERROR_LEFT_GROUP_CHAT,
 					"info",
 				);
 			} catch (error) {
@@ -350,8 +411,8 @@ async function selectGroupChat(
 	if (candidates.length === 1) {
 		return candidates[0] ?? null;
 	}
-	const labels = candidates.map((candidate) => `${candidate.name ?? "Unnamed group chat"} (${candidate.groupChatId})`);
-	const selected = await select("Choose a group chat", labels);
+	const labels = candidates.map((candidate) => `${candidate.name ?? UI_UNNAMED_GROUP_CHAT} (${candidate.groupChatId})`);
+	const selected = await select(SELECT_CHOOSE_GROUP_CHAT, labels);
 	const index = selected === undefined ? -1 : labels.indexOf(selected);
 	return index >= 0 ? (candidates[index] ?? null) : null;
 }
@@ -383,7 +444,7 @@ async function runDeleteGroupChatFlow(
 	boardDir?: string,
 ): Promise<void> {
 	const labels = sessions.map(formatSessionLabel);
-	const choice = await select("Delete group chat history:", labels);
+	const choice = await select(SELECT_DELETE_HISTORY_LABEL, labels);
 	if (choice === undefined) {
 		return;
 	}
@@ -391,33 +452,30 @@ async function runDeleteGroupChatFlow(
 	if (!session) {
 		return;
 	}
-	const confirmed = await confirm("Delete group chat history?", `This cannot be undone: ${session.path}`);
+	const confirmed = await confirm(CONFIRM_DELETE_HISTORY_TITLE, `${CONFIRM_DELETE_HISTORY_BODY_PREFIX}${session.path}`);
 	if (!confirmed) {
 		return;
 	}
 	const result = await deleteSession(session.path);
 	if (result.ok) {
-		notify(`Deleted group chat history (${result.method})`, "info");
+		notify(`${NOTIFY_DELETED_PREFIX}${result.method}${NOTIFY_DELETED_SUFFIX}`, "info");
 		// 白板模型（#114，ADR-0007 契约④）：best-effort 同步清理白板——
 		// 失败仅 warning，不阻塞会话删除主流程。
 		if (deleteBoard && boardDir) {
 			try {
 				const boardResult = await deleteBoard(session.groupChatId, boardDir);
 				if (!boardResult.ok) {
-					notify(
-						`Deleted group chat history, but failed to delete its board: ${boardResult.error ?? "unknown error"}`,
-						"warning",
-					);
+					notify(`${NOTIFY_DELETED_BOARD_FAIL_PREFIX}${boardResult.error ?? "unknown error"}`, "warning");
 				}
 			} catch (error) {
 				notify(
-					`Deleted group chat history, but failed to delete its board: ${error instanceof Error ? error.message : String(error)}`,
+					`${NOTIFY_DELETED_BOARD_FAIL_PREFIX}${error instanceof Error ? error.message : String(error)}`,
 					"warning",
 				);
 			}
 		}
 	} else {
-		notify(`Failed to delete group chat history: ${result.error ?? "unknown error"}`, "error");
+		notify(`${ERROR_DELETE_HISTORY_FAILED_PREFIX}${result.error ?? "unknown error"}`, "error");
 	}
 }
 
@@ -430,7 +488,7 @@ async function selectCharacter(
 	select: (title: string, options: string[]) => Promise<string | undefined>,
 ) {
 	const labels = characters.map((character) => `${character.name} — ${character.description}`);
-	const selected = await select("Choose a Character", labels);
+	const selected = await select(SELECT_CHOOSE_CHARACTER, labels);
 	const index = selected === undefined ? -1 : labels.indexOf(selected);
 	return index >= 0 ? characters[index] : undefined;
 }
@@ -441,7 +499,7 @@ function isCreator(
 ): boolean {
 	const state = controller.getState();
 	if (state.type !== "creator") {
-		notify("This command is only available to the group chat creator", "error");
+		notify(ERROR_CREATOR_ONLY, "error");
 		return false;
 	}
 	return true;
@@ -449,11 +507,13 @@ function isCreator(
 
 function formatCreatorStatus(runtime: CreatorRuntime): string {
 	const { groupChat, round, onlineCharacters } = runtime.state;
-	const roundStatus = round ? `${round.usedMessages}/${round.roundMaxMessages} messages used` : "not started";
+	const roundStatus = round
+		? `${round.usedMessages}/${round.roundMaxMessages} ${UI_MESSAGES_USED}`
+		: UI_ROUND_NOT_STARTED;
 
 	const lines = [
-		`Group chat: ${groupChat.name ?? groupChat.groupChatId}`,
-		`ID: ${groupChat.groupChatId}`,
+		`${UI_GROUP_CHAT_LABEL_PREFIX}${groupChat.name ?? groupChat.groupChatId}`,
+		`${UI_ID_LABEL}${groupChat.groupChatId}`,
 		`Listening: ${runtime.activeDescriptor.host}:${runtime.activeDescriptor.port}`,
 		`Online Characters: ${onlineCharacters.size}`,
 		`Config max messages: ${runtime.configMaxMessages}`,
@@ -484,7 +544,7 @@ function formatCharacterStatus(
 ): string {
 	const self = snapshot.online_characters.find((character) => character.is_self);
 	return [
-		`Group chat: ${snapshot.group_chat.name ?? snapshot.group_chat.group_chat_id}`,
+		`${UI_GROUP_CHAT_LABEL_PREFIX}${snapshot.group_chat.name ?? snapshot.group_chat.group_chat_id}`,
 		`Character: ${runtime.character.name}`,
 		`Online Characters: ${snapshot.online_characters.length}`,
 		`Streaming: ${self?.is_streaming ?? false}`,

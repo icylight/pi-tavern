@@ -3,7 +3,11 @@ import { dirname, join, resolve } from "node:path";
 
 import { type Static, Type } from "typebox";
 import { Compile } from "typebox/compile";
-
+import {
+	ERROR_INVALID_CONFIG_PREFIX,
+	ERROR_PARSE_CONFIG_PREFIX,
+	ERROR_READ_CONFIG_PREFIX,
+} from "../shared/messages.js";
 import { type CharacterCard, type CharacterImport, loadCharacterCards } from "./character-card.js";
 
 export interface TavernConfig {
@@ -74,17 +78,17 @@ async function readConfigFile(path: string): Promise<TavernConfigFile | null> {
 		if (isNodeError(error, "ENOENT")) {
 			return null;
 		}
-		throw new Error(`Failed to read PiTavern config: ${path}`, { cause: error });
+		throw new Error(`${ERROR_READ_CONFIG_PREFIX}${path}`, { cause: error });
 	}
 
 	let value: unknown;
 	try {
 		value = JSON.parse(contents);
 	} catch (error) {
-		throw new Error(`Failed to parse PiTavern config: ${path}`, { cause: error });
+		throw new Error(`${ERROR_PARSE_CONFIG_PREFIX}${path}`, { cause: error });
 	}
 	if (!checkTavernConfigFile.Check(value)) {
-		throw new Error(`Invalid PiTavern config: ${path}`);
+		throw new Error(`${ERROR_INVALID_CONFIG_PREFIX}${path}`);
 	}
 	return value;
 }

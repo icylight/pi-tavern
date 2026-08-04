@@ -1,6 +1,6 @@
 import type WebSocket from "ws";
-
 import type { ClientMessage } from "../../protocol/messages.js";
+import { ERROR_LEFT_GROUP_CHAT, ERROR_NOT_IN_GROUP_CHAT } from "../../shared/messages.js";
 
 type LeaveGroupChatMessage = Extract<ClientMessage, { type: "leave_group_chat" }>;
 
@@ -30,7 +30,7 @@ export class LeavePipeline {
 	run(socket: WebSocket, connection: LeaveConnectionLike, message: LeaveGroupChatMessage): void {
 		// validate：非成员拒绝
 		if (!connection.online) {
-			this.deps.sendFailure(socket, message.id, "leave_group_chat", "Character is not in the group chat");
+			this.deps.sendFailure(socket, message.id, "leave_group_chat", ERROR_NOT_IN_GROUP_CHAT);
 			return;
 		}
 
@@ -44,6 +44,6 @@ export class LeavePipeline {
 			command: "leave_group_chat",
 			success: true,
 		});
-		socket.close(1000, "Left group chat");
+		socket.close(1000, ERROR_LEFT_GROUP_CHAT);
 	}
 }

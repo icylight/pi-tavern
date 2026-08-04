@@ -2,6 +2,7 @@ import type WebSocket from "ws";
 
 import type { CharacterCard, CharacterSummary } from "../config/character-card.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
+import { ERROR_READY_TIMEOUT } from "../shared/messages.js";
 import type { BroadcastHub } from "./broadcast-hub.js";
 import type { ConnectionContext } from "./connection-manager.js";
 import type { HeartbeatRegistry } from "./heartbeat-registry.js";
@@ -40,7 +41,7 @@ export class MemberBookkeeping {
 			void this.options.enqueue(() => {
 				if (!connection.online && connection.reservedCharacterId !== null) {
 					this.releaseReservation(connection);
-					socket.close(1008, "Character ready timeout");
+					socket.close(1008, ERROR_READY_TIMEOUT);
 				}
 			});
 		}, this.options.readyTimeoutMs);

@@ -3,6 +3,22 @@ import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import {
+	ERROR_ACCESS_CHARACTER_IMPORT_PREFIX,
+	ERROR_CLAIMED_SUMMARY_MISMATCH_PREFIX,
+	ERROR_DUPLICATE_AND,
+	ERROR_DUPLICATE_CHARACTER_ID_PREFIX,
+	ERROR_DUPLICATE_CHARACTER_NAME_PREFIX,
+	ERROR_DUPLICATE_SUFFIX,
+	ERROR_IMPORT_NOT_FILE_OR_DIR_PREFIX,
+	ERROR_MD_EXTENSION_PREFIX,
+	ERROR_MD_MISSING_FIELD_FIELD_SUFFIX,
+	ERROR_MD_MISSING_FIELD_PREFIX,
+	ERROR_MD_MISSING_FIELD_SUFFIX,
+	ERROR_PARSE_CHARACTER_MD_PREFIX,
+	ERROR_READ_CHARACTER_DIR_PREFIX,
+	ERROR_READ_CHARACTER_MD_PREFIX,
+} from "../shared/messages.js";
 
 export interface CharacterSummary {
 	characterId: string;
@@ -33,14 +49,14 @@ export async function loadCharacterCard(path: string, configPath: string): Promi
 	try {
 		contents = await readFile(resolvedPath, "utf8");
 	} catch (error) {
-		throw new Error(`Failed to read Character Markdown: ${resolvedPath}`, { cause: error });
+		throw new Error(`${ERROR_READ_CHARACTER_MD_PREFIX}${resolvedPath}`, { cause: error });
 	}
 
 	let parsed: ReturnType<typeof parseFrontmatter>;
 	try {
 		parsed = parseFrontmatter(contents);
 	} catch (error) {
-		throw new Error(`Failed to parse Character Markdown: ${resolvedPath}`, { cause: error });
+		throw new Error(`${ERROR_PARSE_CHARACTER_MD_PREFIX}${resolvedPath}`, { cause: error });
 	}
 
 	const name = readRequiredString(parsed.frontmatter, "name", resolvedPath);
@@ -78,11 +94,15 @@ export async function loadCharacterCards(imports: CharacterImport[]): Promise<Ch
 		const character = await loadCharacterCard(discoveredCharacter.path, discoveredCharacter.configPath);
 		const existingNamePath = names.get(character.name);
 		if (existingNamePath) {
-			throw new Error(`Duplicate Character name "${character.name}" in ${existingNamePath} and ${character.path}`);
+			throw new Error(
+				`${ERROR_DUPLICATE_CHARACTER_NAME_PREFIX}${character.name}${ERROR_DUPLICATE_SUFFIX}${existingNamePath}${ERROR_DUPLICATE_AND}${character.path}`,
+			);
 		}
 		const existingIdPath = characterIds.get(character.characterId);
 		if (existingIdPath) {
-			throw new Error(`Duplicate Character ID "${character.characterId}" in ${existingIdPath} and ${character.path}`);
+			throw new Error(
+				`${ERROR_DUPLICATE_CHARACTER_ID_PREFIX}${character.characterId}${ERROR_DUPLICATE_SUFFIX}${existingIdPath}${ERROR_DUPLICATE_AND}${character.path}`,
+			);
 		}
 
 		names.set(character.name, character.path);
@@ -96,7 +116,7 @@ export async function loadCharacterCards(imports: CharacterImport[]): Promise<Ch
 export async function loadClaimedCharacter(claimed: ClaimedCharacter): Promise<CharacterCard> {
 	const loaded = await loadCharacterCard(claimed.path, resolve(dirname(claimed.path), "tavern.json"));
 	if (loaded.name !== claimed.name || loaded.description !== claimed.description) {
-		throw new Error(`Claimed Character no longer matches its public summary: ${loaded.path}`);
+		throw new Error(`${ERROR_CLAIMED_SUMMARY_MISMATCH_PREFIX}${loaded.path}`);
 	}
 	return {
 		...loaded,
@@ -110,17 +130,17 @@ async function discoverImport(path: string): Promise<string[]> {
 	try {
 		importedStat = await stat(resolvedPath);
 	} catch (error) {
-		throw new Error(`Failed to access Character import: ${resolvedPath}`, { cause: error });
+		throw new Error(`${ERROR_ACCESS_CHARACTER_IMPORT_PREFIX}${resolvedPath}`, { cause: error });
 	}
 
 	if (importedStat.isFile()) {
 		if (!resolvedPath.endsWith(".md")) {
-			throw new Error(`Character file must use the .md extension: ${resolvedPath}`);
+			throw new Error(`${ERROR_MD_EXTENSION_PREFIX}${resolvedPath}`);
 		}
 		return [resolvedPath];
 	}
 	if (!importedStat.isDirectory()) {
-		throw new Error(`Character import is not a file or directory: ${resolvedPath}`);
+		throw new Error(`${ERROR_IMPORT_NOT_FILE_OR_DIR_PREFIX}${resolvedPath}`);
 	}
 
 	return discoverDirectory(resolvedPath);
@@ -131,7 +151,7 @@ async function discoverDirectory(directory: string): Promise<string[]> {
 	try {
 		entries = await readdir(directory, { withFileTypes: true });
 	} catch (error) {
-		throw new Error(`Failed to read Character directory: ${directory}`, { cause: error });
+		throw new Error(`${ERROR_READ_CHARACTER_DIR_PREFIX}${directory}`, { cause: error });
 	}
 	entries.sort((left, right) => left.name.localeCompare(right.name));
 
@@ -150,7 +170,9 @@ async function discoverDirectory(directory: string): Promise<string[]> {
 function readRequiredString(frontmatter: Record<string, unknown>, field: string, path: string): string {
 	const value = frontmatter[field];
 	if (typeof value !== "string" || value.trim() === "") {
-		throw new Error(`Character Markdown ${path} requires a non-empty "${field}" field`);
+		throw new Error(
+			`${ERROR_MD_MISSING_FIELD_PREFIX}${path}${ERROR_MD_MISSING_FIELD_SUFFIX}${field}${ERROR_MD_MISSING_FIELD_FIELD_SUFFIX}`,
+		);
 	}
 	return value.trim();
 }

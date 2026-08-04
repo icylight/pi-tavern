@@ -1,4 +1,5 @@
 import type { CharacterSummary } from "../config/character-card.js";
+import { ERROR_MAX_MESSAGES_INVALID } from "../shared/messages.js";
 
 export interface GroupChatInfo {
 	groupChatId: string;
@@ -101,6 +102,6 @@ export function setHandRaised(state: GroupChatState, sessionId: string, raised: 
 
 export function assertValidMaxMessages(maxMessages: number): void {
 	if (!Number.isSafeInteger(maxMessages) || maxMessages < 0) {
-		throw new Error("maxMessages must be a non-negative safe integer");
+		throw new Error(ERROR_MAX_MESSAGES_INVALID);
 	}
 }

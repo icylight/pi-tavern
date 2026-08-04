@@ -1,7 +1,7 @@
 import type WebSocket from "ws";
-
 import type { CharacterCard, CharacterSummary } from "../../config/character-card.js";
 import type { ClientMessage } from "../../protocol/messages.js";
+import { ERROR_ALREADY_IN_GROUP_CHAT } from "../../shared/messages.js";
 
 type JoinGroupChatMessage = Extract<ClientMessage, { type: "join_group_chat" }>;
 
@@ -40,7 +40,7 @@ export class JoinPipeline {
 			this.deps.connections.has(message.session_id) ||
 			(connection.sessionId !== null && connection.sessionId !== message.session_id)
 		) {
-			this.deps.sendFailure(socket, message.id, "join_group_chat", "This pi session is already in the group chat");
+			this.deps.sendFailure(socket, message.id, "join_group_chat", ERROR_ALREADY_IN_GROUP_CHAT);
 			return;
 		}
 

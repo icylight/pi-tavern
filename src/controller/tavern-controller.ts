@@ -6,6 +6,11 @@ import {
 	type StartNewCreatorRuntimeOptions,
 } from "../creator/creator-runtime.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
+import {
+	ERROR_ALREADY_BOUND_TO_GROUP_CHAT,
+	ERROR_CREATOR_ONLY,
+	ERROR_NOT_JOINING_GROUP_CHAT,
+} from "../shared/messages.js";
 import { getReloadHandoffRegistry } from "./reload-handoff-registry.js";
 
 export type TavernState =
@@ -42,7 +47,7 @@ export class TavernController {
 	startNew(options: StartNewCreatorRuntimeOptions): Promise<CreatorRuntime> {
 		return this.runTransition(async () => {
 			if (this.state.type !== "idle") {
-				throw new Error("This pi session is already bound to a group chat; leave it first");
+				throw new Error(ERROR_ALREADY_BOUND_TO_GROUP_CHAT);
 			}
 
 			const runtime = await this.startCreator(options);
@@ -54,7 +59,7 @@ export class TavernController {
 	startResume(options: ResumeCreatorRuntimeOptions): Promise<CreatorRuntime> {
 		return this.runTransition(async () => {
 			if (this.state.type !== "idle") {
-				throw new Error("This pi session is already bound to a group chat; leave it first");
+				throw new Error(ERROR_ALREADY_BOUND_TO_GROUP_CHAT);
 			}
 
 			const runtime = await this.startResumeStarter(options);
@@ -70,7 +75,7 @@ export class TavernController {
 	): Promise<JoinAttempt> {
 		return this.runTransition(async () => {
 			if (this.state.type !== "idle") {
-				throw new Error("This pi session is already bound to a group chat; leave it first");
+				throw new Error(ERROR_ALREADY_BOUND_TO_GROUP_CHAT);
 			}
 
 			const token = {};
@@ -92,7 +97,7 @@ export class TavernController {
 	): Promise<CharacterRuntime> {
 		return this.runTransition(async () => {
 			if (this.state.type !== "joining") {
-				throw new Error("This pi session is not joining a group chat");
+				throw new Error(ERROR_NOT_JOINING_GROUP_CHAT);
 			}
 
 			const attempt = this.state.attempt;
@@ -113,7 +118,7 @@ export class TavernController {
 	setName(name: string): Promise<string | null> {
 		return this.runTransition(async () => {
 			if (this.state.type !== "creator") {
-				throw new Error("This command is only available to the group chat creator");
+				throw new Error(ERROR_CREATOR_ONLY);
 			}
 			return this.state.runtime.setName(name);
 		});
@@ -122,7 +127,7 @@ export class TavernController {
 	setMaxMessages(maxMessages: number): Promise<void> {
 		return this.runTransition(async () => {
 			if (this.state.type !== "creator") {
-				throw new Error("This command is only available to the group chat creator");
+				throw new Error(ERROR_CREATOR_ONLY);
 			}
 			await this.state.runtime.setMaxMessages(maxMessages);
 		});
