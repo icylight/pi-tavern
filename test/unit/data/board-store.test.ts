@@ -121,6 +121,27 @@ describe("board-store（B0 契约先行）", () => {
 	});
 
 	describe("单条长度上限（140 码点，utf8mb4 同款）", () => {
+		it("空串贴条 = noop note_unchanged（不占条数不广播；与 update 不带 content 同构）", () => {
+			const store = createStore(createTemporaryDirectory());
+			expect(store.write("g1", "A", "set", { content: "" })).toEqual({
+				status: "noop",
+				code: "note_unchanged",
+			});
+			expect(store.read("g1")).toEqual({ A: [] });
+		});
+
+		it("贴满 5 条后空串贴条仍为 noop（不占条数）", () => {
+			const store = createStore(createTemporaryDirectory());
+			for (let i = 0; i < 5; i++) {
+				expect(store.write("g1", "A", "set", { content: `条${i}` }).status).toBe("applied");
+			}
+			expect(store.write("g1", "A", "set", { content: "" })).toEqual({
+				status: "noop",
+				code: "note_unchanged",
+			});
+			expect(store.read("g1")["A"]).toHaveLength(5);
+		});
+
 		it("140 码点通过、141 码点被拒（note_length_exceeded）", () => {
 			const store = createStore(createTemporaryDirectory());
 			expect(store.write("g1", "A", "set", { content: "汉".repeat(140) }).status).toBe("applied");

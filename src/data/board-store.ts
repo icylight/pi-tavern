@@ -190,8 +190,8 @@ export function createBoardStore(deps: BoardStoreDependencies): BoardStore {
 				persist(groupId);
 				return { status: "applied", note: { id: existing.id, content: existing.content } };
 			}
-			// 新贴：无内容可贴 = 无变化（schema 允许缺省，业务语义幂等）。
-			if (note?.content === undefined) {
+			// 新贴：无内容可贴（undefined 或空串）= 无变化（schema 允许缺省，业务语义幂等）。
+			if (note?.content === undefined || note.content === "") {
 				return { status: "noop", code: "note_unchanged" };
 			}
 			if ([...note.content].length > maxNoteLength) {
