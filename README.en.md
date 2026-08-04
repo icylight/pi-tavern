@@ -116,7 +116,7 @@ model is different in kind:
 
 The shared group chat is the communication substrate common to all scenarios;
 different teams form different collaboration topologies, message flows, and
-task progression styles. The six examples below show how the same mechanisms
+task progression styles. The seven examples below show how the same mechanisms
 (independent Sessions, Character identity, public message sync) form different
 workflows through **Character Cards and collaboration conventions**.
 Example 1 is the minimal two-Character collaboration shape — suitable for
@@ -269,6 +269,20 @@ public message sync — **it does not prescribe an organizational structure**;
 the only built-in conversation constraint is a configurable per-round cap on
 total public messages (it bounds discussion cost and length, does not decide
 workflow topology, and does not guarantee equal speaking opportunities).
+
+### 7. Who's the Spy: Deductive Adversarial Game
+
+**Roles**: Host (judge, User Persona), Relay, Players
+
+```mermaid
+flowchart TD
+    U["Host · deal words / collect votes / judge"] -->|"DM words (no identity tag)"| P["Players"]
+    P -->|"public one-line descriptions (name-called)"| GC["Group Chat"]
+    P -->|"private votes"| U
+    U -->|"verdict"| GC
+```
+
+The host DMs each player a word (no identity tag; identities inferred from descriptions) → players take turns describing it in one sentence (≤2 info points, speak as if you were the spy) → private voting → verdict (a spy voted out in round 1 may guess the civilian word; at 2 survivors the spy wins). A deductive-adversarial use of the same mechanisms; rules in `docs/who-is-spy.md`.
 
 ### External Advisor: An Out-of-Band Perspective Outside the Team
 
