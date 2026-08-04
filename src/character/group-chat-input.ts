@@ -111,6 +111,14 @@ export class GroupChatInput {
 				// ISSUE-014/#14（方案 A）：成员/流式变化也走此通道——刷新缓存快照，
 				// 即使拉取结果为空 widget 也保持最新。
 				if (this.runtime.isAgentActive) {
+					// v0.5（abort-interrupt-delivery，User 2026-08-04 拍板）：忙态消息到达即 abort——
+					// 终止在途生成，agent 空闲后按游标拉全部未读重开（PM 确认：不需要 steer 入队
+					// 中间步）。deliverSteer 的 abort 保留为竞态兜底（拉取期间 abort 未生效仍活跃）。
+					// 观察通道：abort 决策经 [tavern-inject] abort=1 通知（QA 红测契约点，M7 A6 同款）。
+					this.runtime.abortAgent?.();
+					if (process.env.PITAVERN_TEST === "1") {
+						testNotify?.(`[tavern-inject] group=${this.runtime.groupChatId} abort=1`);
+					}
 					// 忙态（User 拍板 2026-08-02）：立即拉取（无合并窗口）——
 					// 单飞行锁仅并发保护；投递走 steer 通道（工具间隙秒级）。
 					// settle 后仍补拉全（游标幂等，不丢不重）。

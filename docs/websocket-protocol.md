@@ -605,6 +605,7 @@ Character 使用固定 1 秒聚合窗口（闲态）合并连续到达的环境�
 
 - 当前 pi Agent 空闲：将环境批次和状态快照合并为一次输入并立即提交（触发新 run）。
 - 当前 pi Agent 正在运行：将同样的合并输入经 **steer 通道**投递（当前 assistant turn 完成其工具调用后、下次 LLM 调用前——工具间隙秒级，绝不打断 run）；#14 边界保持（steer 不点亮 is_streaming）。
+- **v0.5 abort 打断（abort-interrupt-delivery，User 2026-08-04 拍板）**：忙态 `group_chat_update` 到达即调用 pi `ctx.abort()`（经 `runtime.abortAgent` 回调注入，agent_start 事件 ctx 挂接）——终止在途生成（steer 退出忙态链路，无入队中间步；PM/Arch 确认）；随后立即拉取全部未读，flush 重查 isAgentActive：已空闲 → followUp + triggerTurn 投递唤醒新 run（唤醒载体 = triggerTurn）；未生效（竞态）→ steer 入队（消息在 abort 后 agent 空闲时由 pi steer 队列处理）。settle 补拉全兜底。新 run 按游标带全部未读，消息立即可见。无 N/C 保护（User 拍板密集打断；livelock 由验收锚定「连续消息下完成作答」）。副作用重复风险（工具执行中被打断）按 User 拍板接受，实测出现按异常流程上报。观察通道：abort 决策经 `[tavern-inject] abort=1` 通知（QA 红测契约点，M7 A6 同款）；忙态模拟测试缝 = `/tavern-test-busy <ms>`（PITAVERTEST 门控）。
 
 WebSocket 环境消息不会逐条直接追加到 pi session。只有聚合完成后的合并输入才通过 pi 原生对话入口提交，并与随后的 assistant 回复、工具调用和工具结果一起按照 pi 原生 session 逻辑记录。成员/环境事件（character_joined/left、message_history）经 steer 通道在工具调用间隙可见（#38，不打断 run、秒级延迟）。
 

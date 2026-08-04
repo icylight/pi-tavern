@@ -16,9 +16,13 @@ export function wireAgentLifecycle(pi: ExtensionAPI, ctrl: TavernController): vo
 	});
 
 	// 向群聊 creator 汇报流式状态
-	pi.on("agent_start", () => {
+	pi.on("agent_start", (event, ctx) => {
 		const state = ctrl.getState();
 		if (state.type === "character") {
+			// v0.5（abort-interrupt-delivery）：把 pi 的 abort 能力注入 runtime——
+			// 群聊投递链 deliverSteer 入队后调用（苍蓝星 2026-08-04 拍板：密集打断）。
+			// 每次 agent_start 重新赋值（新事件 ctx；abort 后重开 run 会再次触发）。
+			state.runtime.abortAgent = () => ctx.abort();
 			// M7（ISSUE-012/#24）：标记 run 活跃，使 group_chat_update 拉取排队
 			// 而不是打断当前轮次。
 			state.runtime.isAgentActive = true;

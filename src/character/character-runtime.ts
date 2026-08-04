@@ -138,6 +138,19 @@ export class CharacterRuntime {
 	set onAgentSettled(callback: (() => void) | undefined) {
 		this._onAgentSettled = callback;
 	}
+	/**
+	 * v0.5（abort-interrupt-delivery）：pi 扩展 abort 能力注入（苍蓝星 2026-08-04 拍板）。
+	 * agent_start 事件 ctx 的 abort() 在此挂接——群聊投递链（deliverSteer 入队后）
+	 * 调用以终止在途生成，使消息立即可见（abort → agent 空闲 → steer 队列内容
+	 * 触发重开）。回调注入（依赖注入窄接口化），不 import pi 类型。
+	 */
+	private _abortAgent: (() => void) | undefined;
+	get abortAgent(): (() => void) | undefined {
+		return this._abortAgent;
+	}
+	set abortAgent(callback: (() => void) | undefined) {
+		this._abortAgent = callback;
+	}
 	/** #66：run wedged 强制收敛已执行标记（下一 run agent_start 时重置）。 */
 	private wedgedSettled = false;
 	groupChatInput: GroupChatInput | undefined;

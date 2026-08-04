@@ -1150,3 +1150,4 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 });
+

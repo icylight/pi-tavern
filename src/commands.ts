@@ -21,6 +21,7 @@ import {
 	CMD_DESC_RESUME,
 	CMD_DESC_SET_MAX,
 	CMD_DESC_STATUS,
+	CMD_DESC_TEST_BUSY,
 	CMD_DESC_TEST_MESSAGE,
 	CMD_DESC_TEST_RELOAD,
 	CMD_DESC_TEST_WHOAMI,
@@ -57,6 +58,7 @@ import {
 	NOTIFY_RESUMED_PREFIX,
 	NOTIFY_USAGE_NAME,
 	NOTIFY_USAGE_SET_MAX,
+	NOTIFY_USAGE_TEST_BUSY,
 	SELECT_CHOOSE_CHARACTER,
 	SELECT_CHOOSE_GROUP_CHAT,
 	SELECT_DELETE_HISTORY_CHOICE,
@@ -374,6 +376,30 @@ export function registerCommands(
 					`[tavern-test-whoami] name=${character.name} character_id=${character.characterId} description=${character.description}`,
 					"info",
 				);
+			},
+		});
+		pi.registerCommand("tavern-test-busy", {
+			description: CMD_DESC_TEST_BUSY,
+			handler: async (args, ctx) => {
+				const state = controller.getState();
+				if (state.type !== "character") {
+					ctx.ui.notify(NOTIFY_NOT_IN_CHARACTER_STATE, "error");
+					return;
+				}
+				const ms = Number(args.trim());
+				if (!Number.isSafeInteger(ms) || ms < 0) {
+					ctx.ui.notify(NOTIFY_USAGE_TEST_BUSY, "error");
+					return;
+				}
+				// v0.5 测试缝（QA 红测依赖）：无 LLM 环境下挂起 agent 活跃态（模拟忙态），
+				// 使群聊输入走忙态路径（到达即 abort）。N ms 后复位。
+				state.runtime.isAgentActive = true;
+				state.runtime.updateStreaming(true);
+				setTimeout(() => {
+					state.runtime.isAgentActive = false;
+					state.runtime.updateStreaming(false);
+				}, ms);
+				ctx.ui.notify(`[tavern-test-busy] busy=${ms}ms`, "info");
 			},
 		});
 	}
