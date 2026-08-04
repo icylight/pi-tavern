@@ -226,9 +226,19 @@ describe("GroupChatInput", () => {
 		const handler = runtime.onEnvironmentMessage ?? (() => {});
 
 		// 自己的 board_update 回显（actor = 本角色）——响应已含结果，过滤
-		handler({ type: "board_update", actor: "dev", action: "add", note: { id: "n1", content: "我的条" } } as ServerMessage);
+		handler({
+			type: "board_update",
+			actor: "dev",
+			action: "add",
+			note: { id: "n1", content: "我的条" },
+		} as ServerMessage);
 		// 他人的 board_update——照常进批处理（门闸放行）
-		handler({ type: "board_update", actor: "other", action: "remove", note: { id: "n2", content: "别人的条" } } as ServerMessage);
+		handler({
+			type: "board_update",
+			actor: "other",
+			action: "remove",
+			note: { id: "n2", content: "别人的条" },
+		} as ServerMessage);
 
 		await vi.advanceTimersByTimeAsync(1000);
 
