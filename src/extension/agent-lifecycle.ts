@@ -16,7 +16,7 @@ export function wireAgentLifecycle(pi: ExtensionAPI, ctrl: TavernController): vo
 	});
 
 	// 向群聊 creator 汇报流式状态
-	pi.on("agent_start", (event, ctx) => {
+	pi.on("agent_start", (_event, ctx) => {
 		const state = ctrl.getState();
 		if (state.type === "character") {
 			// v0.5（abort-interrupt-delivery）：把 pi 的 abort 能力注入 runtime——

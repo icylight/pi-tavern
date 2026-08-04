@@ -89,11 +89,7 @@ describe("acceptance: A' v0.5——忙态入队即 abort 重开（可见性 + li
 		character.respond(String(characterSelect.id), { value: options[0] });
 		// 等 join 命令完成（prompt 响应落定），避免尾部活动阻塞后续命令处理。
 		const settleCheckpoint = character.checkpoint();
-		await character.waitForAfter(
-			settleCheckpoint,
-			(e) => e.type === "response" && e.command === "prompt",
-			10_000,
-		);
+		await character.waitForAfter(settleCheckpoint, (e) => e.type === "response" && e.command === "prompt", 10_000);
 		return character;
 	}
 
@@ -223,9 +219,7 @@ describe("acceptance: A' v0.5——忙态入队即 abort 重开（可见性 + li
 				}
 			}
 			if (Date.now() > deadline) {
-				throw new Error(
-					`T2 red: 连续消息后队列未排空（pendingMessageCount=${String(pending)}）——livelock 风险锚点`,
-				);
+				throw new Error(`T2 red: 连续消息后队列未排空（pendingMessageCount=${String(pending)}）——livelock 风险锚点`);
 			}
 			await new Promise((resolveWait) => setTimeout(resolveWait, 200));
 		}
