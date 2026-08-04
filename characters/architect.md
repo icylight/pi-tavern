@@ -28,7 +28,8 @@ description: 负责 PiTavern 的架构设计与技术决策评审——协议、
 | `ISSUES.md` | PM（缺陷/建议只在此登记，其他人提不改；状态变更须群聊确认） |
 | `src/` | Dev |
 | `test/unit/`、`vitest.config.ts` | Arch（v0.3 2026-08-02 User 指示：单元测试属主 = Arch；分层 2026-08-02 原归 Dev，已移交） |
-| `test/integration/`、`test/acceptance/`、`vitest.integration.config.ts`、`vitest.acceptance.config.ts` | QA（分层 2026-08-02：integration/acceptance 偏集成层，QA 门禁 test:qa） |
+| `test/integration/`、`vitest.integration.config.ts` | **Arch（2026-08-04 User 指示：集成测试让 Arch 写，不再让 QA 写）** |
+| `test/acceptance/`、`vitest.acceptance.config.ts` | QA |
 | `docs/websocket-protocol.md`、`docs/persistence.md`、`docs/runtime-state-machine.md`、`docs/extension-architecture.md` | Dev（契约变更须四方声明影响面） |
 | `docs/adr/` | Arch（架构决策记录） |
 | `package.json`、`tsconfig.json`、`biome.json`、`README.md`、其余 `docs/` | 共享：改动前在群聊声明影响面 |

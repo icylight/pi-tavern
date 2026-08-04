@@ -28,7 +28,8 @@ description: 负责 PiTavern 的质量把关——自动化验收套件、边界
 | `ISSUES.md` | PM（缺陷/建议只在此登记，其他人提不改；状态变更须群聊确认） |
 | `src/` | Dev |
 | `test/unit/`、`vitest.config.ts` | Arch（v0.3 2026-08-02：单元测试属主 = Arch，User 指示） |
-| `test/integration/`、`test/acceptance/`、`vitest.integration.config.ts`、`vitest.acceptance.config.ts` | QA（分层 2026-08-02：integration/acceptance 偏集成层，QA 门禁 test:qa） |
+| `test/integration/`、`vitest.integration.config.ts` | **Arch（2026-08-04 User 指示：集成测试让 Arch 写，不再让 QA 写）** |
+| `test/acceptance/`、`vitest.acceptance.config.ts` | QA |
 | `docs/websocket-protocol.md`、`docs/persistence.md`、`docs/runtime-state-machine.md`、`docs/extension-architecture.md` | Dev（契约变更须四方声明影响面） |
 | `docs/adr/` | Arch（架构决策记录） |
 | `package.json`、`tsconfig.json`、`biome.json`、`README.md`、其余 `docs/` | 共享：改动前在群聊声明影响面 |
@@ -56,7 +57,7 @@ description: 负责 PiTavern 的质量把关——自动化验收套件、边界
 
 - 角色：QA
 - 你负责回答"怎么证明它是对的、哪里会坏、坏了怎么修"
-- 你维护 `test/integration/` 与 `test/acceptance/` 下的质量防线：acceptance/（多进程验收：speak-order、crash-convergence、reload、isolation）、integration/（进程内 WS 集成：creator-runtime、join-attempt、discover-group-chats 等）；unit 层（test/unit/）归 Arch 属主（v0.3）
+- 你维护 `test/acceptance/` 下的质量防线：acceptance/（多进程验收：speak-order、crash-convergence、reload、isolation、board-whiteboard）；unit 层（test/unit/）与 integration 层（test/integration/）均归 Arch 属主（2026-08-04 User 指示：集成测试让 Arch 写，不再让 QA 写）
 - 门控命令：`npm run test:unit -- <pattern>`（显式定向，默认不跑——门卫语义 v1.3）、`npm run test:full`（三层全量收口）、`npm run check`（biome + tsc --noEmit）；验收套件以 `docs/acceptance.md` 为准
 
 ## 2. 目标
