@@ -178,25 +178,7 @@ The user raises a requirement in the group chat → the Product Manager clarifie
 
 > PiTavern itself is developed through this kind of multi-role collaboration.
 
-### 3. Who's the Spy: Deduction and Signal Discipline
-
-**Roles**: Host (judge, User Persona), Relay, Players (multiple Characters)
-
-```mermaid
-flowchart TD
-    U["Host · deal words / collect votes / judge"] -->|"DM each player their word (no identity tag)"| P1["Player 1"]
-    U -->|"DM word"| P2["Player 2"]
-    U -->|"DM word"| P3["Player 3"]
-    P1 & P2 & P3 -->|"public one-line description (name-called, ≤2 info points)"| GC["Group Chat"]
-    U -->|"public signals (judge: prefix)"| GC
-    P1 & P2 & P3 -->|"private vote"| U
-    U -->|"result / verdict (relayed verbatim)"| GC
-    GC -->|"read-only responses to signals"| P1 & P2 & P3
-```
-
-The host DMs each player their word (**without an identity tag** — the “unknown identity” setup: players infer whether they are civilians or the spy from one another's descriptions) → players take turns describing their word in one public sentence (**minimal description: ≤2 info points per sentence**, speak as if you were the spy) → private voting → the host announces the result and judges (a spy voted out may guess the civilian word for a comeback — **round 1 only**; if survivors drop to 2, the spy wins). Signals use a uniform “Judge:” prefix, speaking is name-called, and game rounds map to group-chat discussion rounds (quota auto-resets). This is the same set of mechanisms (independent Sessions, identity isolation, public message sync) used as a **deductive adversarial game** — a tabletop deduction game fully text-based, zero code. Rules: `docs/who-is-spy.md` (includes lessons and acceptance results from six practice rounds).
-
-### 4. Incident Response: Parallel Investigation Converging on a Lead
+### 3. Incident Response: Parallel Investigation Converging on a Lead
 
 **Roles**: Incident Commander, Application Engineer, System Engineer, Network Engineer, Database Engineer
 
@@ -214,7 +196,7 @@ flowchart TD
 
 The Incident Commander posts the incident symptoms and investigation goals → multiple engineers investigate different systems **at the same time, in parallel** → every role keeps syncing findings to the shared group chat, and a new finding from one role can steer others to adjust their direction → findings converge back to the Commander → the Commander consolidates root cause, remediation plan, and recovery status. The point is **parallel investigation, continuous sync, centralized convergence** — not one role finishing before the next starts.
 
-### 5. Security Review: Adversarial Fix-and-Reverify Loop
+### 4. Security Review: Adversarial Fix-and-Reverify Loop
 
 **Roles**: Security Auditor, Developer, Security Test Engineer, Architect, Compliance Reviewer
 
@@ -233,7 +215,7 @@ flowchart TD
 
 The Security Auditor and the Security Test Engineer **independently** discover risks → the Developer proposes and implements fixes → the Architect judges whether a fix introduces new design problems → after the fix, the work **must return to the Security Test Engineer for independent re-verification** → the Compliance Reviewer checks whether the final result satisfies requirements. Failures re-enter the fix loop. The point is **challenge, checks and balances, and re-verification** between roles — not every Agent nodding to the same conclusion.
 
-### 6. Documentation: Serial Pipeline with Multiple Revision Rounds
+### 5. Documentation: Serial Pipeline with Multiple Revision Rounds
 
 **Roles**: User, Research Associate, Writer, Fact-Checker, Reviewer, Editor-in-Chief
 
@@ -253,7 +235,7 @@ flowchart TD
 
 The user provides goals, requirements, and local materials → the Research Associate organizes the information → the Writer produces a first draft → the Fact-Checker verifies key facts and citations → the Reviewer checks structure, language, and consistency → issues return to the Writer for revision → the Editor-in-Chief consolidates feedback into the final version. The user can add requirements or change direction at any stage through the group chat. The main line is **research → drafting → fact-checking → review → revision → finalization**, with multiple revision rounds as the norm. Suitable for **technical documentation, internal proposals, research notes, organizing private materials**, and **local documents you do not want to upload to external services** — use it with local models and local tools; PiTavern itself does not provide a document editor, nor does it make privacy promises.
 
-### 7. Group Brainstorming: Free-Flowing Discussion, Dynamic Convergence
+### 6. Group Brainstorming: Free-Flowing Discussion, Dynamic Convergence
 
 **Roles**: User, Facilitator, Product Manager, Tech Lead, User Researcher, Devil's Advocate
 
@@ -287,6 +269,20 @@ public message sync — **it does not prescribe an organizational structure**;
 the only built-in conversation constraint is a configurable per-round cap on
 total public messages (it bounds discussion cost and length, does not decide
 workflow topology, and does not guarantee equal speaking opportunities).
+
+### 7. Who's the Spy: Deductive Adversarial Game
+
+**Roles**: Host (judge, User Persona), Relay, Players
+
+```mermaid
+flowchart TD
+    U["Host · deal words / collect votes / judge"] -->|"DM words (no identity tag)"| P["Players"]
+    P -->|"public one-line descriptions (name-called)"| GC["Group Chat"]
+    P -->|"private votes"| U
+    U -->|"verdict"| GC
+```
+
+The host DMs each player a word (no identity tag; identities inferred from descriptions) → players take turns describing it in one sentence (≤2 info points, speak as if you were the spy) → private voting → verdict (a spy voted out in round 1 may guess the civilian word; at 2 survivors the spy wins). A deductive-adversarial use of the same mechanisms; rules in `docs/who-is-spy.md`.
 
 ### External Advisor: An Out-of-Band Perspective Outside the Team
 
