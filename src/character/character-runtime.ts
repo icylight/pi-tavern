@@ -12,7 +12,7 @@ import {
 } from "../controller/reload-handoff-registry.js";
 import { readCursorFile, writeCursorFile } from "../data/cursor-store.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
-import type { GroupChatStateMessage, ServerMessage } from "../protocol/messages.js";
+import type { BoardNoteWire, BoardWriteDataWire, GroupChatStateMessage, ServerMessage } from "../protocol/messages.js";
 import {
 	HEARTBEAT_PING_INTERVAL_MS,
 	HEARTBEAT_TIMEOUT_MS,
@@ -538,6 +538,41 @@ export class CharacterRuntime {
 			handRaised: response.data.hand_raised,
 			round,
 		};
+	}
+
+	/**
+	 * 白板模型（#114，ADR-0007）：board_write——贴/改/撕/清本人板。
+	 * 返回响应 data（四态：changed:true 带/不带 note；changed:false 带告知/拒绝码）。
+	 * 群聊静默：changed:false 不广播 board_update（接口层告知）。
+	 */
+	async boardWrite(
+		action: "set" | "remove" | "clear",
+		note?: { id?: string; content?: string },
+	): Promise<BoardWriteDataWire> {
+		const response = await this.request({
+			type: "board_write",
+			action,
+			...(note !== undefined ? { note } : {}),
+		});
+		if (response.type !== "response" || response.command !== "board_write") {
+			throw new Error("Unexpected PiTavern board_write response");
+		}
+		if (!response.success) {
+			throw new Error(response.error);
+		}
+		return response.data;
+	}
+
+	/** 白板模型（#114）：board_query——全量 per-character 条目（本人视角）。 */
+	async boardQuery(): Promise<Record<string, BoardNoteWire[]>> {
+		const response = await this.request({ type: "board_query" });
+		if (response.type !== "response" || response.command !== "board_query") {
+			throw new Error("Unexpected PiTavern board_query response");
+		}
+		if (!response.success) {
+			throw new Error(response.error);
+		}
+		return response.data.boards;
 	}
 
 	/**

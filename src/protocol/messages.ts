@@ -452,6 +452,8 @@ export const BoardNoteSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+export type BoardNoteWire = Static<typeof BoardNoteSchema>;
+
 /**
  * 白板 reason_code 五码（09:24 版定案，取值区分告知/拒绝）：
  * - 拒绝码（资源约束，未执行）：max_notes_exceeded / note_length_exceeded
@@ -489,6 +491,8 @@ export const BoardWriteDataSchema = Type.Union([
 		{ additionalProperties: false },
 	),
 ]);
+
+export type BoardWriteDataWire = Static<typeof BoardWriteDataSchema>;
 
 /** board_write 响应：success 恒 true 业务变体（success:false 协议错误走 FailureResponseSchema）。 */
 export const BoardWriteResponseSchema = Type.Object(
