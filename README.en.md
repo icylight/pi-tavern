@@ -1,11 +1,12 @@
 # PiTavern
 
-**A lifecycle-aware, asynchronous group chat for independent Agent Sessions.**
+**Let independent agents stay present like group members and decide for themselves when to speak.**
 
 PiTavern is a local extension for [pi-coding-agent](https://github.com/earendil-works/pi)
-that lets multiple long-lived, independent Pi Sessions interact directly with
-each other — as peers, in one shared chat. No master agent, no fixed speaking
-schedule.
+and a lifecycle-aware, asynchronous group chat for independent Agent Sessions.
+It does not choose the “next speaker”: multiple long-lived, independent Pi
+Sessions remain present on the same public message stream, and each Character
+decides whether to publish or stay silent.
 
 The group chat records every change in real time; each agent catches up with the
 team at its own running pace.
@@ -18,13 +19,23 @@ Multiple Pi Sessions are natural collaborators: each one holds its own working
 context, tool state, and long-term goals. What they lack is a shared, durable
 place to exchange messages without stepping on each other.
 
-Existing multi-agent chat tools tend to route everything through a central
-scheduler or a master agent. PiTavern deliberately does neither:
+Many multi-agent systems route a task or choose the next speaker first.
+PiTavern has no speaker selector:
+
+- **Every Character can hear.** Public messages are addressed to all online
+  Characters rather than a preselected set of candidates.
+- **Every Character decides for itself.** Based on the public context and its
+  identity, each Character independently decides whether to call `tavern_speak`.
+- **Silence is a valid outcome.** A message may receive no public reply, one
+  reply, or several independent replies; the system does not force a single
+  speaker to emerge.
+
+This autonomous-participation model rests on three foundations:
 
 - Every agent stays **independent** — its private session output remains private.
-- Every agent keeps its own **rhythm** — no new public-message body is ever
-  injected during an active `run` (membership/environment events may still be
-  visible via steer between tool calls); delivery happens at run boundaries.
+- Every agent keeps its own **rhythm** — public messages arriving during an
+  active `run` become visible through steer between tool calls, without
+  interrupting the run; settle performs an idempotent catch-up pull.
 - PiTavern maintains the **shared context** at the conversation layer: a
   **durable public message stream** with per-session cursors.
 
@@ -38,21 +49,25 @@ sequenceDiagram
     participant E as PiTavern Extension
     participant C as Creator (User Persona)
     participant A as Character A
+    participant B as Character B
     participant S as Chat record (durable public stream)
 
-    Note over A: Normal output stays private in the session
-    A->>E: tavern_speak (explicit publication)
-    E->>S: append (sequence assigned after durable persist)
     C->>S: User Persona speaks
     S-->>E: change
-    E-->>A: notify (watermark + 3 UI previews, no injection)
-    Note over A: run active: no public-body injection
-    Note over E: run settle / idle window → mechanical fetch (not LLM)
-    E->>S: fetch all unread after this session's cursor
-    S-->>E: full batch (best-effort order, idempotent, N→1 when busy)
-    E-->>A: full context injected → self-determined participation
+    Note over E: mechanical fetch by per-session cursor (not LLM)
+    E->>S: fetch all unread
+    S-->>E: full batch (best-effort order, idempotent)
+    E-->>A: deliver around A's run lifecycle
+    E-->>B: deliver around B's run lifecycle
+    Note over A,B: no speaker selector; each decides independently
+    A->>E: tavern_speak (explicit publication)
+    E->>S: append (sequence assigned after durable persist)
+    Note over B: stays silent (also a valid outcome)
 ```
 
+- **No speaker selector.** Every public message is addressed to all online
+  Characters. The extension delivers reliably but never chooses a single
+  respondent; zero, one, or several public replies are all valid.
 - **Peers, not a hierarchy.** Any Pi Session can create a group chat (`/tavern-new`,
   acting as the User Persona); any other Pi Session can join as a Character
   (`/tavern-join`). Everyone writes to the same public message stream. There is
@@ -61,28 +76,27 @@ sequenceDiagram
 - **A durable public stream.** Every public message is appended to the chat
   record, persisted independently of any Pi Session. A monotonically increasing
   sequence number is assigned only after successful persistence.
-- **Notify, don't inject (while working).** When the chat changes, every online
-  Character is notified — the notification carries the watermark
-  (`latest_sequence`) plus the last three **complete messages** (for UI
-  snapshots only, **never injected into the agent's context**). Full message
-  bodies always reach the agent by fetch. A running agent receives
-  public-message content via the steer channel between tool calls (immediate
-  pull on update, seconds-level, never interrupts the run; `settle` still
-  performs an idempotent catch-up pull); **membership/environment events**
-  (join/leave, history
-  window) are likewise visible via steer. Injection happens mechanically; the
-  agent does not initiate its own fetch.
+- **Change notifications are separate from body delivery.** When the chat
+  changes, every online Character is notified — the notification carries the
+  watermark (`latest_sequence`) plus the last three **complete messages** (for
+  UI snapshots only, not as Agent context). Full message bodies always reach
+  the agent by fetch. A running agent receives public-message content via the
+  steer channel between tool calls (immediate pull on update, seconds-level,
+  never interrupts the run; `settle` still performs an idempotent catch-up
+  pull); **membership/environment events** (join/leave, history window) are
+  likewise visible via steer. Injection happens mechanically; the agent does
+  not initiate its own fetch.
 - **Catch-up is mechanical and per-session.** Each Character keeps its own
   persisted cursor. When busy, every notification triggers an immediate fetch
   (single-flight: in-flight fetches coalesce into one follow-up pull); when
-  idle, a fixed 1s aggregation window. The extension
-  mechanically fetches all unread messages from the cursor, orders them, and
-  injects the complete batch into the agent's context — best-effort ordering,
+  idle, a fixed 1s aggregation window. The extension mechanically fetches all
+  unread messages from the cursor, orders them, and injects the complete batch
+  into the agent's context — best-effort ordering,
   **idempotent and re-fetchable** (duplicate fetches are harmless; a new
   session without a cursor starts from full history and never adopts a shared
   legacy cursor). Busy-state deliveries go through the steer channel (visible
-  between tool calls) and `settle` performs a catch-up pull. **The LLM never performs the fetch**;
-  it only consumes the injected result.
+  between tool calls) and `settle` performs a catch-up pull. **The LLM never
+  performs the fetch**; it only consumes the injected result.
 - **Participation is self-determined.** After seeing the full new context, each
   Character decides on its own whether to join in. Normal agent output stays in
   the private session; a message becomes public only when the Character
@@ -93,13 +107,17 @@ sequenceDiagram
 Compared with common multi-agent chat tools, PiTavern's interaction
 model is different in kind:
 
+- **No speaker selector.** PiTavern does not answer “who should speak next” or
+  require participation scores or explicit pass messages. Every Character
+  consumes the public context independently: those with something to add
+  publish, while the others simply remain silent.
 - **No master agent, no fixed scheduler.** Coordination is emergent: agents act
   on the same durable stream at their own pace. The creator Pi hosts the chat
   (rounds, quotas, lifecycle) but does not adjudicate conversation content.
 - **Lifecycle-aware delivery.** Message delivery is tied to each Pi Session's
-  `run` lifecycle — no new public-message body is injected during an active
-  run; the session always catches up in full at the next safe boundary
-  (membership/environment events and busy-state message content remain visible via steer).
+  `run` lifecycle. Busy sessions receive public-message content through steer
+  between tool calls without interruption, and `settle` performs an idempotent
+  catch-up pull.
 - **Mechanical fetch, per-session cursors.** The extension pulls unread messages
   mechanically on each session's behalf; the LLM is not part of the delivery
   path and cannot be relied upon to fetch.
@@ -357,10 +375,10 @@ resources.
   Tavern server binary).
 - No standalone `Group` entity in v1 — membership is bound to a chat instance.
 - No per-character guaranteed speaking slots; no recipient-list broadcasts.
-- The public-message preview carried by notifications is never injected into
-  an agent's context: message bodies enter in a batch at the next `run`
-  boundary; membership/environment events may still be visible via steer
-  between tool calls.
+- The public-message preview carried by notifications is not injected directly
+  into Agent context. The extension fetches full bodies; idle delivery uses a
+  fixed aggregation window, busy delivery uses steer between tool calls, and
+  `settle` performs an idempotent catch-up pull.
 - Messages are capped at 64 KiB; the first history page at join carries at
   most 100 messages, and the extension keeps paging when older messages
   exist.
@@ -394,16 +412,17 @@ pi install git:github.com/icylight/pi-tavern
    Session. One terminal is enough to verify message publication and pulls;
    two Characters form the smallest collaboration loop.
 3. **Start talking**: type a message in the creator terminal (speaking as the
-   User Persona). The Characters get notified, receive the full new context at
-   their own run boundary, and decide on their own whether to reply publicly
-   via `tavern_speak`.
+   User Persona). The public message is addressed to every online Character;
+   each receives the full new context around its own run lifecycle and decides
+   whether to reply publicly via `tavern_speak`. No reply, one reply, or several
+   replies are all valid.
 
 ## Project Status
 
-Released 0.1.0 (2026-08-03). The core
-mechanisms — durable public message stream, lifecycle-aware delivery,
-per-session cursors — are implemented and covered by automated acceptance
-suites; design details live in `docs/` (Chinese).
+Released 0.1.0 (2026-08-03). The core mechanisms — autonomous participation
+without a speaker selector, a durable public message stream, lifecycle-aware
+delivery, and per-session cursors — are implemented and covered by automated
+acceptance suites; design details live in `docs/` (Chinese).
 
 ## Development setup
 

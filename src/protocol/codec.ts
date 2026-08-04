@@ -1,6 +1,12 @@
 import { Compile } from "typebox/compile";
 import type { RawData } from "ws";
-
+import {
+	ERROR_ENCODE_FAILED,
+	ERROR_INVALID_CLIENT_MESSAGE,
+	ERROR_INVALID_SERVER_MESSAGE,
+	ERROR_PARSE_JSON_FAILED,
+	ERROR_WS_FRAME_TOO_LARGE,
+} from "../shared/messages.js";
 import { type ClientMessage, ClientMessageSchema, type ServerMessage, ServerMessageSchema } from "./messages.js";
 
 export const MAX_WEBSOCKET_FRAME_BYTES = 1024 * 1024;
@@ -13,7 +19,7 @@ const checkServerMessage = Compile(ServerMessageSchema);
 export function decodeClientMessage(data: RawData): ClientMessage {
 	const value = parseJson(data);
 	if (!checkClientMessage.Check(value)) {
-		throw new ProtocolError("Invalid PiTavern client message");
+		throw new ProtocolError(ERROR_INVALID_CLIENT_MESSAGE);
 	}
 	return value;
 }
@@ -21,7 +27,7 @@ export function decodeClientMessage(data: RawData): ClientMessage {
 export function decodeServerMessage(data: RawData): ServerMessage {
 	const value = parseJson(data);
 	if (!checkServerMessage.Check(value)) {
-		throw new ProtocolError("Invalid PiTavern server message");
+		throw new ProtocolError(ERROR_INVALID_SERVER_MESSAGE);
 	}
 	return value;
 }
@@ -31,10 +37,10 @@ export function encodeMessage(message: unknown): string {
 	try {
 		encoded = JSON.stringify(message);
 	} catch (error) {
-		throw new ProtocolError("Failed to encode PiTavern message", { cause: error });
+		throw new ProtocolError(ERROR_ENCODE_FAILED, { cause: error });
 	}
 	if (Buffer.byteLength(encoded, "utf8") > MAX_WEBSOCKET_FRAME_BYTES) {
-		throw new ProtocolError("PiTavern WebSocket frame exceeds 1 MiB");
+		throw new ProtocolError(ERROR_WS_FRAME_TOO_LARGE);
 	}
 	return encoded;
 }
@@ -44,7 +50,7 @@ function parseJson(data: RawData): unknown {
 	try {
 		value = JSON.parse(rawDataToString(data));
 	} catch (error) {
-		throw new ProtocolError("Failed to parse PiTavern JSON", { cause: error });
+		throw new ProtocolError(ERROR_PARSE_JSON_FAILED, { cause: error });
 	}
 	return value;
 }

@@ -1,5 +1,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
+import {
+	UI_BOARD_PREFIX,
+	UI_BOARD_VERB_ADD,
+	UI_BOARD_VERB_CLEAR,
+	UI_BOARD_VERB_REMOVE,
+	UI_BOARD_VERB_UPDATE,
+} from "../shared/messages.js";
 
 export function registerRenderers(pi: ExtensionAPI): void {
 	pi.registerEntryRenderer("pi-tavern.creator-display", (entry, _options, theme) => {
@@ -17,15 +24,15 @@ export function registerRenderers(pi: ExtensionAPI): void {
 			// 白板模型（#114）：board 实时提示行（纯展示）。
 			const verb =
 				data.action === "add"
-					? "贴条"
+					? UI_BOARD_VERB_ADD
 					: data.action === "update"
-						? "改条"
+						? UI_BOARD_VERB_UPDATE
 						: data.action === "remove"
-							? "撕条"
-							: "清空白板";
+							? UI_BOARD_VERB_REMOVE
+							: UI_BOARD_VERB_CLEAR;
 			const suffix = data.action === "clear" ? "。" : `：「${data.note?.content ?? ""}」`;
 			const label = data.actor_name ?? data.actor ?? "Character";
-			const prefix = theme.fg("accent", `[白板]`);
+			const prefix = theme.fg("accent", UI_BOARD_PREFIX);
 			box.addChild(new Text(`${prefix} ${label} ${verb}${suffix}`, 0, 0));
 			return box;
 		}

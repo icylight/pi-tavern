@@ -2,6 +2,18 @@ import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 
 import type { TavernController } from "../controller/tavern-controller.js";
 import type { RoundState } from "../data/group-chat-state.js";
+import {
+	UI_CHARACTER_TITLE_MID,
+	UI_CHARACTER_TITLE_PREFIX,
+	UI_CREATOR_TITLE,
+	UI_CREATOR_TITLE_PREFIX,
+	UI_HAND_RAISED_PREFIX,
+	UI_JOINING_GROUP_CHAT,
+	UI_MEMBER_COUNT_UNKNOWN,
+	UI_ONLINE_COUNT_SUFFIX,
+	UI_SPEECH_COUNT_MID,
+	UI_SPEECH_COUNT_PREFIX,
+} from "../shared/messages.js";
 
 /** 页脚状态与底部 widget 共用的固定键。 */
 export const TAVERN_UI_KEY = "pi-tavern";
@@ -21,11 +33,11 @@ export function buildTavernViewModel(controller: TavernController): TavernViewMo
 		case "idle":
 			return { status: null, widgetLines: null };
 		case "joining":
-			return { status: "正在加入群聊…", widgetLines: null };
+			return { status: UI_JOINING_GROUP_CHAT, widgetLines: null };
 		case "creator": {
 			const { runtime } = state;
 			const name = runtime.state.groupChat.name;
-			const status = name ? `Tavern Creator · ${name}` : "Tavern Creator";
+			const status = name ? `${UI_CREATOR_TITLE_PREFIX}${name}` : UI_CREATOR_TITLE;
 			return {
 				status,
 				widgetLines: creatorWidgetLines(runtime.state),
@@ -35,8 +47,8 @@ export function buildTavernViewModel(controller: TavernController): TavernViewMo
 			const { runtime } = state;
 			const groupName = runtime.lastGroupChatState?.group_chat?.name ?? null;
 			const status = groupName
-				? `Tavern Character · ${runtime.character.name} · ${groupName}`
-				: `Tavern Character · ${runtime.character.name}`;
+				? `${UI_CHARACTER_TITLE_PREFIX}${runtime.character.name}${UI_CHARACTER_TITLE_MID}${groupName}`
+				: `${UI_CHARACTER_TITLE_PREFIX}${runtime.character.name}`;
 			return {
 				status,
 				widgetLines: characterWidgetLines(runtime.lastGroupChatState),
@@ -56,7 +68,7 @@ function creatorWidgetLines(state: {
 	const raised = [...state.onlineCharacters.values()]
 		.filter((online) => online.handRaised)
 		.map((online) => online.character.name);
-	const lines = [`${onlineCount} 人在线`];
+	const lines = [`${onlineCount}${UI_ONLINE_COUNT_SUFFIX}`];
 	if (streaming.length > 0) {
 		// #77：语义 = 「正在工作」（run 活跃即亮，User 2026-08-03 拍板）。
 		lines.push(`正在工作：${streaming.join("、")}`);
@@ -64,11 +76,11 @@ function creatorWidgetLines(state: {
 	const round = state.round;
 	if (round) {
 		lines.push(
-			`发言 ${round.usedMessages}/${round.roundMaxMessages} · 剩余 ${round.roundMaxMessages - round.usedMessages}`,
+			`${UI_SPEECH_COUNT_PREFIX}${round.usedMessages}/${round.roundMaxMessages}${UI_SPEECH_COUNT_MID}${round.roundMaxMessages - round.usedMessages}`,
 		);
 	}
 	if (raised.length > 0) {
-		lines.push(`举手：${raised.join("、")}`);
+		lines.push(`${UI_HAND_RAISED_PREFIX}${raised.join("、")}`);
 	}
 	return lines;
 }
@@ -84,9 +96,9 @@ function characterWidgetLines(
 	} | null,
 ): string[] | null {
 	if (!snapshot) {
-		return ["成员数未知"];
+		return [UI_MEMBER_COUNT_UNKNOWN];
 	}
-	const lines = [`${snapshot.online_characters.length + 1} 人在线`];
+	const lines = [`${snapshot.online_characters.length + 1}${UI_ONLINE_COUNT_SUFFIX}`];
 	const streaming = snapshot.online_characters.filter((c) => c.is_streaming).map((c) => c.name);
 	if (streaming.length > 0) {
 		// #77：语义 = 「正在工作」（run 活跃即亮，User 2026-08-03 拍板）。
@@ -94,11 +106,13 @@ function characterWidgetLines(
 	}
 	const round = snapshot.round;
 	if (round) {
-		lines.push(`发言 ${round.used_messages}/${round.round_max_messages} · 剩余 ${round.remaining_messages}`);
+		lines.push(
+			`${UI_SPEECH_COUNT_PREFIX}${round.used_messages}/${round.round_max_messages}${UI_SPEECH_COUNT_MID}${round.remaining_messages}`,
+		);
 	}
 	const raised = snapshot.online_characters.filter((c) => c.hand_raised).map((c) => c.name);
 	if (raised.length > 0) {
-		lines.push(`举手：${raised.join("、")}`);
+		lines.push(`${UI_HAND_RAISED_PREFIX}${raised.join("、")}`);
 	}
 	return lines;
 }

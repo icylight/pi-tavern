@@ -11,6 +11,7 @@ import { removeOwnedActiveDescriptor } from "../data/discovery/active-descriptor
 import type { GroupChatState } from "../data/group-chat-state.js";
 import type { SessionStore } from "../data/session-store.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
+import { ERROR_CREATOR_RUNTIME_NOT_ACTIVE, ERROR_GROUP_CHAT_CLOSED } from "../shared/messages.js";
 import type { ConnectionContext, ConnectionManager } from "./connection-manager.js";
 import { createFromHandoff } from "./creator-factory.js";
 import type { CreatorRuntime, CreatorRuntimeDependencies } from "./creator-runtime.js";
@@ -59,7 +60,7 @@ interface BufferedFrame {
  */
 export async function detachForReload(host: ReloadFlowHost, piSessionId: string): Promise<CreatorReloadHandoff> {
 	if (host.readLifecycle() !== "active") {
-		throw new Error("CreatorRuntime is not active");
+		throw new Error(ERROR_CREATOR_RUNTIME_NOT_ACTIVE);
 	}
 	host.setLifecycle("detaching");
 	host.heartbeatRegistry.stop();
@@ -70,7 +71,7 @@ export async function detachForReload(host: ReloadFlowHost, piSessionId: string)
 		const connection = host.connectionManager.getConnection(socket);
 		if (connection && (!connection.online || connection.sessionId === null)) {
 			host.releaseReservation(connection);
-			socket.close(1001, "Group chat closed");
+			socket.close(1001, ERROR_GROUP_CHAT_CLOSED);
 		}
 	}
 
@@ -122,7 +123,7 @@ export async function detachForReload(host: ReloadFlowHost, piSessionId: string)
 		closedSessionIds,
 		cleanup: async () => {
 			for (const socket of host.connections.values()) {
-				socket.close(1001, "Group chat closed");
+				socket.close(1001, ERROR_GROUP_CHAT_CLOSED);
 			}
 			await closeWebSocketServer(host.webSocketServer);
 			await removeOwnedActiveDescriptor(host.activeDescriptorPath, host.activeDescriptor.instanceId);

@@ -26,6 +26,12 @@ import {
 	HEARTBEAT_TIMEOUT_MS,
 	SHORT_COORDINATION_TIMEOUT_MS,
 } from "../shared/constants.js";
+import {
+	ERROR_GROUP_CHAT_ALREADY_ACTIVE_PREFIX,
+	ERROR_GROUP_CHAT_ALREADY_ACTIVE_SUFFIX,
+	ERROR_SESSION_FILE_MISSING_PREFIX,
+	ERROR_SESSION_FILE_NO_ID_HEADER,
+} from "../shared/messages.js";
 import type { ResumeCreatorRuntimeOptions, StartNewCreatorRuntimeOptions } from "./creator-runtime.js";
 import { CreatorRuntime, type CreatorRuntimeDependencies } from "./creator-runtime.js";
 import { closeWebSocketServer, listenOnLocalhost } from "./ws-utils.js";
@@ -149,7 +155,7 @@ export async function resumeRuntime(
 	// 创建全新随机会话，会导致为幽灵群聊发布 active descriptor。
 	const sessionStat = statSync(options.sessionPath, { throwIfNoEntry: false });
 	if (!sessionStat?.isFile() || sessionStat.size === 0) {
-		throw new Error(`Group chat session file does not exist or is empty: ${options.sessionPath}`);
+		throw new Error(`${ERROR_SESSION_FILE_MISSING_PREFIX}${options.sessionPath}`);
 	}
 	const sessionStore = SessionStore.open(
 		SessionManager,
@@ -160,14 +166,14 @@ export async function resumeRuntime(
 	);
 	const header = sessionStore.getHeader();
 	if (!header?.id) {
-		throw new Error("Group chat session file has no id header");
+		throw new Error(ERROR_SESSION_FILE_NO_ID_HEADER);
 	}
 
 	// 活跃实例排他：已活跃的群聊不可被 resume。
 	const activeDescriptorPath = getActiveDescriptorPath(options.agentDir, cwd, header.id);
 	const existingActive = await readActiveDescriptor(activeDescriptorPath);
 	if (existingActive) {
-		throw new Error(`Group chat ${header.id} is already active; leave the active group chat before resuming`);
+		throw new Error(`${ERROR_GROUP_CHAT_ALREADY_ACTIVE_PREFIX}${header.id}${ERROR_GROUP_CHAT_ALREADY_ACTIVE_SUFFIX}`);
 	}
 
 	// 按文件顺序扫描会话条目重建 PiTavern 扩展状态。

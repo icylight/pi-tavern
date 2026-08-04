@@ -4,6 +4,7 @@ import type { GroupChatState } from "../../data/group-chat-state.js";
 import type { SessionStore } from "../../data/session-store.js";
 import type { ClientMessage } from "../../protocol/messages.js";
 import type { PublicMessageState } from "../../protocol/public-message-state.js";
+import { ERROR_NO_CHAT_HISTORY_FILE, ERROR_NOT_IN_GROUP_CHAT } from "../../shared/messages.js";
 
 /** 查询族消息类型（门面方法各自收窄）。 */
 export type QueryConnectionLike = {
@@ -43,7 +44,7 @@ export class QueryPipeline {
 		message: Extract<ClientMessage, { type: "get_group_chat_state" }>,
 	): void {
 		if (!connection.online || connection.sessionId === null) {
-			this.deps.sendFailure(socket, message.id, "get_group_chat_state", "Character is not in the group chat");
+			this.deps.sendFailure(socket, message.id, "get_group_chat_state", ERROR_NOT_IN_GROUP_CHAT);
 			return;
 		}
 		this.deps.send(socket, {
@@ -61,7 +62,7 @@ export class QueryPipeline {
 		message: Extract<ClientMessage, { type: "get_message_history" }>,
 	): void {
 		if (!connection.online || connection.sessionId === null) {
-			this.deps.sendFailure(socket, message.id, "get_message_history", "Character is not in the group chat");
+			this.deps.sendFailure(socket, message.id, "get_message_history", ERROR_NOT_IN_GROUP_CHAT);
 			return;
 		}
 
@@ -105,7 +106,7 @@ export class QueryPipeline {
 		message: Extract<ClientMessage, { type: "fetch_messages_since" }>,
 	): void {
 		if (!connection.online || connection.sessionId === null) {
-			this.deps.sendFailure(socket, message.id, "fetch_messages_since", "Character is not in the group chat");
+			this.deps.sendFailure(socket, message.id, "fetch_messages_since", ERROR_NOT_IN_GROUP_CHAT);
 			return;
 		}
 
@@ -142,7 +143,7 @@ export class QueryPipeline {
 		message: Extract<ClientMessage, { type: "get_chat_history_file" }>,
 	): void {
 		if (!connection.online || connection.sessionId === null) {
-			this.deps.sendFailure(socket, message.id, "get_chat_history_file", "Character is not in the group chat");
+			this.deps.sendFailure(socket, message.id, "get_chat_history_file", ERROR_NOT_IN_GROUP_CHAT);
 			return;
 		}
 
@@ -150,12 +151,12 @@ export class QueryPipeline {
 		try {
 			path = this.deps.sessionStore.getSessionFilePath();
 		} catch {
-			this.deps.sendFailure(socket, message.id, "get_chat_history_file", "Group chat has no chat history file yet");
+			this.deps.sendFailure(socket, message.id, "get_chat_history_file", ERROR_NO_CHAT_HISTORY_FILE);
 			return;
 		}
 		// 文件在首次持久化后才存在；SessionManager 在文件写入前可能已知路径。
 		if (this.deps.getPersistedCount() === 0) {
-			this.deps.sendFailure(socket, message.id, "get_chat_history_file", "Group chat has no chat history file yet");
+			this.deps.sendFailure(socket, message.id, "get_chat_history_file", ERROR_NO_CHAT_HISTORY_FILE);
 			return;
 		}
 		this.deps.send(socket, {

@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 
 import { type Static, Type } from "typebox";
 import { Compile } from "typebox/compile";
+import { ERROR_ACTIVE_DESCRIPTOR_NOT_OWNED } from "../../shared/messages.js";
 
 export interface ActiveGroupChatDescriptor {
 	instanceId: string;
@@ -111,7 +112,7 @@ export async function readActiveDescriptor(path: string): Promise<ActiveGroupCha
 export async function updateActiveDescriptorName(path: string, instanceId: string, name: string | null): Promise<void> {
 	const descriptor = await readActiveDescriptor(path);
 	if (descriptor?.instanceId !== instanceId) {
-		throw new Error("Active group chat descriptor is no longer owned by this instance");
+		throw new Error(ERROR_ACTIVE_DESCRIPTOR_NOT_OWNED);
 	}
 
 	const temporaryPath = getTemporaryPath(path);

@@ -3,6 +3,7 @@ import type { WebSocketServer } from "ws";
 
 import { decodeClientMessage } from "../protocol/codec.js";
 import type { ClientMessage } from "../protocol/messages.js";
+import { ERROR_BINARY_FRAMES_NOT_SUPPORTED, ERROR_GROUP_CHAT_CLOSED, ERROR_PROTOCOL } from "../shared/messages.js";
 
 export interface ConnectionContext {
 	sessionId: string | null;
@@ -56,7 +57,7 @@ export class ConnectionManager {
 	/** 拆离期间拒绝新连接（detachForReload 使用；attach 时被 removeAllListeners 清除）。 */
 	reject(server: WebSocketServer): void {
 		this.serverHandler = null;
-		this.rejectHandler = (socket) => socket.close(1001, "Group chat closed");
+		this.rejectHandler = (socket) => socket.close(1001, ERROR_GROUP_CHAT_CLOSED);
 		server.on("connection", this.rejectHandler);
 	}
 
@@ -118,18 +119,18 @@ export class ConnectionManager {
 		isBinary: boolean,
 	): Promise<void> {
 		if (isBinary) {
-			socket.close(1002, "Binary frames are not supported");
+			socket.close(1002, ERROR_BINARY_FRAMES_NOT_SUPPORTED);
 			return;
 		}
 		if (!this.options.isActive()) {
-			socket.close(1001, "Group chat closed");
+			socket.close(1001, ERROR_GROUP_CHAT_CLOSED);
 			return;
 		}
 		let message: ClientMessage;
 		try {
 			message = decodeClientMessage(data);
 		} catch {
-			socket.close(1002, "Protocol error");
+			socket.close(1002, ERROR_PROTOCOL);
 			return;
 		}
 		try {

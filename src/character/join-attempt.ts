@@ -8,6 +8,19 @@ import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descrip
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import type { CharacterSummaryWire, ServerMessage } from "../protocol/messages.js";
 import { SHORT_COORDINATION_TIMEOUT_MS } from "../shared/constants.js";
+import {
+	ERROR_BINARY_FRAME_RECEIVED,
+	ERROR_CONNECT_FAILED,
+	ERROR_CONNECTION_TIMED_OUT,
+	ERROR_JOIN_ATTEMPT_CLOSED,
+	ERROR_JOIN_ATTEMPT_TRANSFERRED,
+	ERROR_JOIN_CONNECTION_CLOSED,
+	ERROR_JOIN_CONNECTION_NOT_OPEN,
+	ERROR_REQUEST_TIMED_OUT,
+	ERROR_UNEXPECTED_CLAIM_RESPONSE,
+	ERROR_UNEXPECTED_JOIN_RESPONSE,
+	ERROR_UNEXPECTED_READY_RESPONSE,
+} from "../shared/messages.js";
 import { type CharacterConnectionTransfer, CharacterRuntime } from "./character-runtime.js";
 
 export interface JoinAttemptOptions {
@@ -55,7 +68,7 @@ export class JoinAttempt {
 
 	private readonly onMessage = (data: WebSocket.RawData, isBinary: boolean): void => {
 		if (isBinary) {
-			void this.closeWithError(new Error("Binary PiTavern frame received"));
+			void this.closeWithError(new Error(ERROR_BINARY_FRAME_RECEIVED));
 			return;
 		}
 		let message: ServerMessage;
@@ -78,7 +91,7 @@ export class JoinAttempt {
 	};
 
 	private readonly onClose = (): void => {
-		void this.closeWithError(new Error("PiTavern join connection closed"));
+		void this.closeWithError(new Error(ERROR_JOIN_CONNECTION_CLOSED));
 	};
 
 	private readonly onError = (): void => undefined;
@@ -122,7 +135,7 @@ export class JoinAttempt {
 				session_id: sessionId,
 			});
 			if (response.type !== "response" || response.command !== "join_group_chat") {
-				throw new Error("Unexpected PiTavern join response");
+				throw new Error(ERROR_UNEXPECTED_JOIN_RESPONSE);
 			}
 			if (!response.success) {
 				throw new Error(response.error);
@@ -143,7 +156,7 @@ export class JoinAttempt {
 			character_id: characterId,
 		});
 		if (claimResponse.type !== "response" || claimResponse.command !== "claim_character") {
-			throw new Error("Unexpected PiTavern Character claim response");
+			throw new Error(ERROR_UNEXPECTED_CLAIM_RESPONSE);
 		}
 		if (!claimResponse.success) {
 			throw new Error(claimResponse.error);
@@ -165,7 +178,7 @@ export class JoinAttempt {
 			});
 			const readyResponse = await this.request({ type: "character_ready" });
 			if (readyResponse.type !== "response" || readyResponse.command !== "character_ready") {
-				throw new Error("Unexpected PiTavern Character ready response");
+				throw new Error(ERROR_UNEXPECTED_READY_RESPONSE);
 			}
 			if (!readyResponse.success) {
 				throw new Error(readyResponse.error);
@@ -188,7 +201,7 @@ export class JoinAttempt {
 			session_id: this.sessionId,
 		});
 		if (response.type !== "response" || response.command !== "join_group_chat") {
-			throw new Error("Unexpected PiTavern join response");
+			throw new Error(ERROR_UNEXPECTED_JOIN_RESPONSE);
 		}
 		if (!response.success) {
 			throw new Error(response.error);
@@ -199,7 +212,7 @@ export class JoinAttempt {
 
 	takeConnection(): CharacterConnectionTransfer {
 		if (!this.socket || this.transferred || this.closed) {
-			throw new Error("JoinAttempt connection has already transferred or closed");
+			throw new Error(ERROR_JOIN_ATTEMPT_TRANSFERRED);
 		}
 		const socket = this.socket;
 		this.socket = null;
@@ -228,7 +241,7 @@ export class JoinAttempt {
 				socket.terminate();
 			}
 		}
-		this.rejectPending(new Error("PiTavern join attempt closed"));
+		this.rejectPending(new Error(ERROR_JOIN_ATTEMPT_CLOSED));
 		this.onDisconnected?.();
 	}
 
@@ -236,12 +249,12 @@ export class JoinAttempt {
 		const id = randomUUID();
 		return new Promise<ServerMessage>((resolveRequest, rejectRequest) => {
 			if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-				rejectRequest(new Error("PiTavern join connection is not open"));
+				rejectRequest(new Error(ERROR_JOIN_CONNECTION_NOT_OPEN));
 				return;
 			}
 			const timer = setTimeout(() => {
 				this.pendingRequests.delete(id);
-				const error = new Error("PiTavern request timed out");
+				const error = new Error(ERROR_REQUEST_TIMED_OUT);
 				rejectRequest(error);
 				void this.closeWithError(error);
 			}, this.requestTimeoutMs);
@@ -275,7 +288,7 @@ async function waitForOpen(socket: WebSocket, timeoutMs: number): Promise<void> 
 	await new Promise<void>((resolveOpen, rejectOpen) => {
 		const timer = setTimeout(() => {
 			cleanup();
-			rejectOpen(new Error("PiTavern connection timed out"));
+			rejectOpen(new Error(ERROR_CONNECTION_TIMED_OUT));
 		}, timeoutMs);
 		const onOpen = (): void => {
 			cleanup();
@@ -283,7 +296,7 @@ async function waitForOpen(socket: WebSocket, timeoutMs: number): Promise<void> 
 		};
 		const onError = (): void => {
 			cleanup();
-			rejectOpen(new Error("Failed to connect to PiTavern group chat"));
+			rejectOpen(new Error(ERROR_CONNECT_FAILED));
 		};
 		const cleanup = (): void => {
 			clearTimeout(timer);

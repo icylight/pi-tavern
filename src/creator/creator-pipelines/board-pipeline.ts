@@ -1,8 +1,8 @@
 import type WebSocket from "ws";
-
 import type { BoardStore, BoardWriteOutcome } from "../../data/board-store.js";
 import type { GroupChatState } from "../../data/group-chat-state.js";
 import type { ClientMessage } from "../../protocol/messages.js";
+import { ERROR_NOT_GROUP_MEMBER, ERROR_NOTE_ID_EMPTY } from "../../shared/messages.js";
 
 type BoardWriteMessage = Extract<ClientMessage, { type: "board_write" }>;
 type BoardQueryMessage = Extract<ClientMessage, { type: "board_query" }>;
@@ -56,7 +56,7 @@ export class BoardPipeline {
 		const note = message.action === "clear" ? undefined : message.note;
 		// Arch B3 建议：携带 id 必须非空（空串 = 无 id 语义，协议层拒绝）。
 		if (note?.id !== undefined && note.id === "") {
-			this.deps.sendFailure(socket, message.id, "board_write", "note.id must not be empty");
+			this.deps.sendFailure(socket, message.id, "board_write", ERROR_NOTE_ID_EMPTY);
 			return;
 		}
 		// 增量摘要需要被撕条完整内容（{id, content}——schema 要求 content）；
@@ -109,12 +109,12 @@ export class BoardPipeline {
 		command: "board_write" | "board_query",
 	): string | null {
 		if (!connection.online || connection.sessionId === null) {
-			this.deps.sendFailure(socket, message.id, command, "Character is not a group member");
+			this.deps.sendFailure(socket, message.id, command, ERROR_NOT_GROUP_MEMBER);
 			return null;
 		}
 		const onlineCharacter = this.deps.state.onlineCharacters.get(connection.sessionId);
 		if (!onlineCharacter) {
-			this.deps.sendFailure(socket, message.id, command, "Character is not a group member");
+			this.deps.sendFailure(socket, message.id, command, ERROR_NOT_GROUP_MEMBER);
 			return null;
 		}
 		return onlineCharacter.character.characterId;

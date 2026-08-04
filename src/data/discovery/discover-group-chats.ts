@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 
 import WebSocket from "ws";
 import { SHORT_COORDINATION_TIMEOUT_MS } from "../../shared/constants.js";
+import { ERROR_DISCOVER_ACTIVE_PREFIX } from "../../shared/messages.js";
 import {
 	type ActiveGroupChatDescriptor,
 	getActiveDescriptorDirectory,
@@ -38,7 +39,7 @@ export async function discoverGroupChats(
 		if (isNodeError(error, "ENOENT")) {
 			return [];
 		}
-		throw new Error(`Failed to discover active PiTavern group chats: ${activeDirectory}`, {
+		throw new Error(`${ERROR_DISCOVER_ACTIVE_PREFIX}${activeDirectory}`, {
 			cause: error,
 		});
 	}

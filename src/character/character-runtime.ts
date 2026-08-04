@@ -18,6 +18,27 @@ import {
 	HEARTBEAT_TIMEOUT_MS,
 	SHORT_COORDINATION_TIMEOUT_MS,
 } from "../shared/constants.js";
+import {
+	ERROR_BINARY_FRAME_RECEIVED,
+	ERROR_CHARACTER_RUNTIME_DETACHED,
+	ERROR_CHARACTER_RUNTIME_NOT_ACTIVE,
+	ERROR_CONNECTION_CLOSED,
+	ERROR_CONNECTION_CLOSED_DURING_RELOAD,
+	ERROR_CONNECTION_HAS_BEEN_CLOSED,
+	ERROR_CONNECTION_NOT_OPEN,
+	ERROR_FRAME_TOO_LARGE,
+	ERROR_HEARTBEAT_TIMEOUT,
+	ERROR_REQUEST_TIMED_OUT,
+	ERROR_RUNTIME_ALREADY_ACTIVATED_OR_DISPOSED,
+	ERROR_UNEXPECTED_BOARD_QUERY_RESPONSE,
+	ERROR_UNEXPECTED_BOARD_WRITE_RESPONSE,
+	ERROR_UNEXPECTED_FETCH_RESPONSE,
+	ERROR_UNEXPECTED_HISTORY_RESPONSE,
+	ERROR_UNEXPECTED_LEAVE_RESPONSE,
+	ERROR_UNEXPECTED_SPEAK_RESPONSE,
+	ERROR_UNEXPECTED_STATE_RESPONSE,
+} from "../shared/messages.js";
+
 import { GroupChatInput } from "./group-chat-input.js";
 
 export interface CharacterConnectionTransfer {
@@ -154,7 +175,7 @@ export class CharacterRuntime {
 
 	private handleIncomingData(data: WebSocket.RawData, isBinary: boolean): void {
 		if (isBinary) {
-			this.failConnection(new Error("Binary PiTavern frame received"));
+			this.failConnection(new Error(ERROR_BINARY_FRAME_RECEIVED));
 			return;
 		}
 		let message: ServerMessage;
@@ -168,7 +189,7 @@ export class CharacterRuntime {
 	}
 
 	private readonly onClose = (): void => {
-		this.finishDisconnected(new Error("PiTavern connection closed"));
+		this.finishDisconnected(new Error(ERROR_CONNECTION_CLOSED));
 	};
 
 	private readonly onError = (): void => undefined;
@@ -192,7 +213,7 @@ export class CharacterRuntime {
 
 	activate(transfer: CharacterConnectionTransfer, pi?: ExtensionAPI): void {
 		if (this.socket || this.disconnected) {
-			throw new Error("CharacterRuntime has already been activated or disposed");
+			throw new Error(ERROR_RUNTIME_ALREADY_ACTIVATED_OR_DISPOSED);
 		}
 		this.socket = transfer.socket;
 		this.socket.on("message", this.onMessage);
@@ -302,7 +323,7 @@ export class CharacterRuntime {
 	async getGroupChatState(): Promise<GroupChatStateMessage> {
 		const response = await this.request({ type: "get_group_chat_state" });
 		if (response.type !== "response" || response.command !== "get_group_chat_state") {
-			throw new Error("Unexpected PiTavern state response");
+			throw new Error(ERROR_UNEXPECTED_STATE_RESPONSE);
 		}
 		if (!response.success) {
 			throw new Error(response.error);
@@ -354,7 +375,7 @@ export class CharacterRuntime {
 			throw error;
 		}
 		if (response.type !== "response" || response.command !== "get_message_history") {
-			throw new Error("Unexpected PiTavern history response");
+			throw new Error(ERROR_UNEXPECTED_HISTORY_RESPONSE);
 		}
 		if (!response.success) {
 			throw new Error(response.error);
@@ -396,7 +417,7 @@ export class CharacterRuntime {
 			throw error;
 		}
 		if (response.type !== "response" || response.command !== "fetch_messages_since") {
-			throw new Error("Unexpected PiTavern fetch_messages_since response");
+			throw new Error(ERROR_UNEXPECTED_FETCH_RESPONSE);
 		}
 		if (!response.success) {
 			throw new Error(response.error);
@@ -496,7 +517,7 @@ export class CharacterRuntime {
 		const basedOnSequence = this.loadCursor() ?? 0;
 		const response = await this.request({ type: "speak", content, based_on_sequence: basedOnSequence });
 		if (response.type !== "response" || response.command !== "speak") {
-			throw new Error("Unexpected PiTavern speak response");
+			throw new Error(ERROR_UNEXPECTED_SPEAK_RESPONSE);
 		}
 		if (!response.success) {
 			throw new Error(response.error);
@@ -563,7 +584,7 @@ export class CharacterRuntime {
 			...(note !== undefined ? { note } : {}),
 		});
 		if (response.type !== "response" || response.command !== "board_write") {
-			throw new Error("Unexpected PiTavern board_write response");
+			throw new Error(ERROR_UNEXPECTED_BOARD_WRITE_RESPONSE);
 		}
 		if (!response.success) {
 			throw new Error(response.error);
@@ -575,7 +596,7 @@ export class CharacterRuntime {
 	async boardQuery(): Promise<Record<string, BoardNoteWire[]>> {
 		const response = await this.request({ type: "board_query" });
 		if (response.type !== "response" || response.command !== "board_query") {
-			throw new Error("Unexpected PiTavern board_query response");
+			throw new Error(ERROR_UNEXPECTED_BOARD_QUERY_RESPONSE);
 		}
 		if (!response.success) {
 			throw new Error(response.error);
@@ -600,7 +621,7 @@ export class CharacterRuntime {
 	 */
 	async detachForReload(piSessionId: string): Promise<CharacterReloadHandoff> {
 		if (this.lifecycle !== "active" || !this.socket || this.disconnected) {
-			throw new Error("CharacterRuntime is not active");
+			throw new Error(ERROR_CHARACTER_RUNTIME_NOT_ACTIVE);
 		}
 		this.lifecycle = "detaching";
 		this.stopHeartbeat();
@@ -669,7 +690,7 @@ export class CharacterRuntime {
 	): Promise<CharacterRuntime> {
 		if (handoff.socketClosed) {
 			void handoff.cleanup();
-			throw new Error("Character connection closed during reload");
+			throw new Error(ERROR_CONNECTION_CLOSED_DURING_RELOAD);
 		}
 		let character = handoff.character;
 		try {
@@ -700,7 +721,7 @@ export class CharacterRuntime {
 
 	private activateFromHandoff(handoff: CharacterReloadHandoff, pi?: ExtensionAPI): void {
 		if (this.socket || this.disconnected) {
-			throw new Error("CharacterRuntime has already been activated or disposed");
+			throw new Error(ERROR_RUNTIME_ALREADY_ACTIVATED_OR_DISPOSED);
 		}
 		const socket = handoff.socket;
 		socket.off("message", handoff.bufferingHandlers.message);
@@ -754,7 +775,7 @@ export class CharacterRuntime {
 	private async closePermanently(): Promise<void> {
 		if (this.lifecycle === "detaching") {
 			// close() 与 detachForReload() 是互斥路径。
-			throw new Error("CharacterRuntime has been detached for reload and cannot be closed");
+			throw new Error(ERROR_CHARACTER_RUNTIME_DETACHED);
 		}
 		this.lifecycle = "disposed";
 		this.clearStreamingResetWatchdog();
@@ -766,7 +787,7 @@ export class CharacterRuntime {
 			const response = await this.request({ type: "leave_group_chat" });
 			if (response.type !== "response" || response.command !== "leave_group_chat" || !response.success) {
 				throw new Error(
-					response.type === "response" && !response.success ? response.error : "Unexpected PiTavern leave response",
+					response.type === "response" && !response.success ? response.error : ERROR_UNEXPECTED_LEAVE_RESPONSE,
 				);
 			}
 		} finally {
@@ -778,12 +799,12 @@ export class CharacterRuntime {
 		const id = randomUUID();
 		return new Promise<ServerMessage>((resolveRequest, rejectRequest) => {
 			if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-				rejectRequest(new Error("PiTavern connection is not open"));
+				rejectRequest(new Error(ERROR_CONNECTION_NOT_OPEN));
 				return;
 			}
 			const timer = setTimeout(() => {
 				this.pendingRequests.delete(id);
-				const error = new Error("PiTavern request timed out");
+				const error = new Error(ERROR_REQUEST_TIMED_OUT);
 				rejectRequest(error);
 				this.failConnection(error);
 			}, this.requestTimeoutMs);
@@ -798,11 +819,11 @@ export class CharacterRuntime {
 
 	private send(message: unknown): void {
 		if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-			throw new Error("PiTavern connection is not open");
+			throw new Error(ERROR_CONNECTION_NOT_OPEN);
 		}
 		const encoded = encodeMessage(message);
 		if (Buffer.byteLength(encoded, "utf8") > MAX_WEBSOCKET_FRAME_BYTES) {
-			throw new Error("PiTavern frame exceeds 1 MiB");
+			throw new Error(ERROR_FRAME_TOO_LARGE);
 		}
 		this.socket.send(encoded);
 	}
@@ -834,7 +855,7 @@ export class CharacterRuntime {
 		this.heartbeatTimer = setInterval(() => {
 			if (Date.now() - this.lastPingAt > this.heartbeatTimeoutMs) {
 				// 超时窗口内不给 creator 发 ping：连接处于半开状态。
-				this.failConnection(new Error("PiTavern heartbeat timeout"));
+				this.failConnection(new Error(ERROR_HEARTBEAT_TIMEOUT));
 			}
 		}, this.heartbeatIntervalMs);
 		this.heartbeatTimer.unref?.();
@@ -879,7 +900,7 @@ export class CharacterRuntime {
 				socket.close();
 			}
 		}
-		const disconnectError = error ?? new Error("PiTavern connection has been closed");
+		const disconnectError = error ?? new Error(ERROR_CONNECTION_HAS_BEEN_CLOSED);
 		for (const pending of this.pendingRequests.values()) {
 			clearTimeout(pending.timer);
 			pending.reject(disconnectError);

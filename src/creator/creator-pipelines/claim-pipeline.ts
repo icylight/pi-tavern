@@ -1,8 +1,8 @@
 import type WebSocket from "ws";
-
 import type { CharacterCard, CharacterSummary } from "../../config/character-card.js";
 import type { GroupChatState } from "../../data/group-chat-state.js";
 import type { ClientMessage } from "../../protocol/messages.js";
+import { ERROR_CHARACTER_UNAVAILABLE } from "../../shared/messages.js";
 
 type ClaimCharacterMessage = Extract<ClientMessage, { type: "claim_character" }>;
 
@@ -45,7 +45,7 @@ export class ClaimPipeline {
 			!character ||
 			!this.deps.isCharacterAvailable(message.character_id)
 		) {
-			this.deps.sendFailure(socket, message.id, "claim_character", "Character is no longer available");
+			this.deps.sendFailure(socket, message.id, "claim_character", ERROR_CHARACTER_UNAVAILABLE);
 			return;
 		}
 

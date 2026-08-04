@@ -11,6 +11,7 @@ import type { SessionStore } from "../data/session-store.js";
 import type { ClientMessage } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 import { CHARACTER_REFRESH_TIMEOUT_MS } from "../shared/constants.js";
+import { ERROR_CHARACTER_REFRESH_TIMED_OUT } from "../shared/messages.js";
 import type { RuntimeCloseReason, RuntimeCloseResult } from "../shared/runtime-close.js";
 import { BroadcastHub } from "./broadcast-hub.js";
 import { type ConnectionContext, ConnectionManager } from "./connection-manager.js";
@@ -396,7 +397,7 @@ export class CreatorRuntime {
 					loadPromise,
 					new Promise<never>((_, reject) => {
 						const timer = setTimeout(
-							() => reject(new Error("PiTavern character refresh timed out")),
+							() => reject(new Error(ERROR_CHARACTER_REFRESH_TIMED_OUT)),
 							CHARACTER_REFRESH_TIMEOUT_MS,
 						);
 						timer.unref?.();

@@ -3,23 +3,49 @@ import { Type } from "typebox";
 
 import type { TavernController } from "../controller/tavern-controller.js";
 import type { BoardWriteDataWire } from "../protocol/messages.js";
+import {
+	ERROR_ACCESS_BOARD_FAILED_PREFIX,
+	ERROR_REMOVE_MISSING_NOTE_ID,
+	ERROR_SEND_FAILED_PREFIX,
+	TOOL_BOARD_ACTION_INVALID,
+	TOOL_BOARD_ALL_EMPTY,
+	TOOL_BOARD_ARGS_INVALID,
+	TOOL_BOARD_CHANGED,
+	TOOL_BOARD_CONTENT_NOT_STRING,
+	TOOL_BOARD_DESCRIPTION,
+	TOOL_BOARD_ID_NOT_STRING,
+	TOOL_BOARD_LABEL,
+	TOOL_BOARD_REASON_BOARD_EMPTY,
+	TOOL_BOARD_REASON_LENGTH_EXCEEDED,
+	TOOL_BOARD_REASON_MAX_NOTES,
+	TOOL_BOARD_REASON_NOTE_NOT_FOUND,
+	TOOL_BOARD_REASON_NOTE_UNCHANGED,
+	TOOL_BOARD_RECORDED_PREFIX,
+	TOOL_BOARD_REMOVE_NEEDS_ID,
+	TOOL_BOARD_REMOVE_NO_CONTENT,
+	TOOL_BOARD_UNCHANGED_PREFIX,
+	TOOL_NOT_JOINED_AS_CHARACTER,
+	TOOL_SPEAK_DESCRIPTION,
+	TOOL_SPEAK_LABEL,
+	TOOL_WHOAMI_DESC_PREFIX,
+	TOOL_WHOAMI_DESCRIPTION,
+	TOOL_WHOAMI_ID_PREFIX,
+	TOOL_WHOAMI_LABEL,
+	TOOL_WHOAMI_ROLE_PREFIX,
+} from "../shared/messages.js";
 
 /** 注册 PiTavern 暴露给 pi Agent 的工具（tavern_speak / tavern_whoami）。 */
 export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): void {
 	pi.registerTool({
 		name: "tavern_speak",
-		label: "Tavern Speak",
-		description:
-			"Publish a message to the PiTavern group chat. " +
-			"Only available when joined as a Character. " +
-			"Keep messages concise (under 2000 characters). " +
-			"Long analysis should stay in the private session.",
+		label: TOOL_SPEAK_LABEL,
+		description: TOOL_SPEAK_DESCRIPTION,
 		parameters: Type.Object({ content: Type.String() }, { additionalProperties: false }),
 		execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) => {
 			const state = ctrl.getState();
 			if (state.type !== "character") {
 				return {
-					content: [{ type: "text", text: "Error: You are not currently joined to a group chat as a Character." }],
+					content: [{ type: "text", text: TOOL_NOT_JOINED_AS_CHARACTER }],
 					details: undefined,
 					isError: true,
 				};
@@ -82,7 +108,7 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 					content: [
 						{
 							type: "text",
-							text: `Failed to send message: ${error instanceof Error ? error.message : String(error)}`,
+							text: `${ERROR_SEND_FAILED_PREFIX}${error instanceof Error ? error.message : String(error)}`,
 						},
 					],
 					details: undefined,
@@ -94,22 +120,22 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 
 	/** 白板 reason_code 五码 → 角色可读说明（工具返回用）。 */
 	const boardCodeExplanations: Record<string, string> = {
-		max_notes_exceeded: "已达白板条数上限（默认 5 条）——先撕一条再贴",
-		note_length_exceeded: "超过单条长度上限（默认 140 码点）",
-		note_not_found: "条不存在（已被撕、非本人条或 id 无效）",
-		board_empty: "白板为空",
-		note_unchanged: "内容无变化（幂等）",
+		max_notes_exceeded: TOOL_BOARD_REASON_MAX_NOTES,
+		note_length_exceeded: TOOL_BOARD_REASON_LENGTH_EXCEEDED,
+		note_not_found: TOOL_BOARD_REASON_NOTE_NOT_FOUND,
+		board_empty: TOOL_BOARD_REASON_BOARD_EMPTY,
+		note_unchanged: TOOL_BOARD_REASON_NOTE_UNCHANGED,
 	};
 
 	/** 白板响应四态 → 角色可读文本。 */
 	function formatBoardWriteData(data: BoardWriteDataWire): string {
 		if (data.changed && data.note) {
-			return `已记录（id=${data.note.id}）：${data.note.content}`;
+			return `${TOOL_BOARD_RECORDED_PREFIX}id=${data.note.id}）：${data.note.content}`;
 		}
 		if (data.changed) {
-			return "已生效（白板已更新）";
+			return TOOL_BOARD_CHANGED;
 		}
-		return `未变化（${data.code}）：${boardCodeExplanations[data.code] ?? ""}`;
+		return `${TOOL_BOARD_UNCHANGED_PREFIX}${data.code}）：${boardCodeExplanations[data.code] ?? ""}`;
 	}
 
 	/**
@@ -120,20 +146,20 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 	 */
 	function validateBoardToolParams(params: unknown): string | null {
 		if (typeof params !== "object" || params === null) {
-			return "Error: tavern_board 参数必须是对象（action: set|remove|clear|query）";
+			return TOOL_BOARD_ARGS_INVALID;
 		}
 		const action = (params as { action?: unknown }).action;
 		if (action !== "set" && action !== "remove" && action !== "clear" && action !== "query") {
-			return "Error: tavern_board action 必须是 set|remove|clear|query 之一";
+			return TOOL_BOARD_ACTION_INVALID;
 		}
 		const note = (params as { note?: unknown }).note;
 		if (action === "remove") {
 			// remove 必带 id（与 F1 服务端变体同构）；content 禁止。
 			if (typeof note !== "object" || note === null || typeof (note as { id?: unknown }).id !== "string") {
-				return "Error: remove 必须携带 note.id";
+				return TOOL_BOARD_REMOVE_NEEDS_ID;
 			}
 			if ((note as { content?: unknown }).content !== undefined) {
-				return "Error: remove 不得携带 content（被撕条内容由服务端广播回带）";
+				return TOOL_BOARD_REMOVE_NO_CONTENT;
 			}
 		}
 		if (action === "clear" || action === "query") {
@@ -145,10 +171,10 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 			// set 的 note 字段类型兜底（id/content 若提供必须是字符串）。
 			const n = note as { id?: unknown; content?: unknown };
 			if (n.id !== undefined && typeof n.id !== "string") {
-				return "Error: note.id 必须是字符串";
+				return TOOL_BOARD_ID_NOT_STRING;
 			}
 			if (n.content !== undefined && typeof n.content !== "string") {
-				return "Error: note.content 必须是字符串";
+				return TOOL_BOARD_CONTENT_NOT_STRING;
 			}
 		}
 		return null;
@@ -156,14 +182,8 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 
 	pi.registerTool({
 		name: "tavern_board",
-		label: "Tavern Board",
-		description:
-			"Access the PiTavern whiteboard (per-character notes, visible to the whole group). " +
-			"Only available when joined as a Character. " +
-			"Actions: set (post a new note, or edit an existing one by id), remove (tear off a note by id), " +
-			"clear (empty your own board), query (read all boards). " +
-			"Each character has their own board (max 5 notes, 140 code points each by default); " +
-			"you can only modify your own board. Keep note content concise (under 140 characters).",
+		label: TOOL_BOARD_LABEL,
+		description: TOOL_BOARD_DESCRIPTION,
 		// Function tool schemas must have a top-level JSON Schema type of "object".
 		// Cross-field action/note invariants remain enforced by validateBoardToolParams
 		// before any wire request is sent.
@@ -186,7 +206,7 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 			const state = ctrl.getState();
 			if (state.type !== "character") {
 				return {
-					content: [{ type: "text", text: "Error: You are not currently joined to a group chat as a Character." }],
+					content: [{ type: "text", text: TOOL_NOT_JOINED_AS_CHARACTER }],
 					details: undefined,
 					isError: true,
 				};
@@ -211,7 +231,7 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 						return `${characterId} 的白板：\n${notes.map((n) => `- ${n.content}（id=${n.id}）`).join("\n")}`;
 					});
 					return {
-						content: [{ type: "text", text: lines.length > 0 ? lines.join("\n\n") : "（全员白板均为空）" }],
+						content: [{ type: "text", text: lines.length > 0 ? lines.join("\n\n") : TOOL_BOARD_ALL_EMPTY }],
 						details: { boards },
 					};
 				}
@@ -219,7 +239,7 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 				if (params.action === "remove") {
 					const id = params.note?.id;
 					if (typeof id !== "string") {
-						throw new Error("validated remove request is missing note.id");
+						throw new Error(ERROR_REMOVE_MISSING_NOTE_ID);
 					}
 					result = await state.runtime.boardWrite("remove", { id });
 				} else if (params.action === "clear") {
@@ -238,7 +258,7 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 					content: [
 						{
 							type: "text",
-							text: `Failed to access the board: ${error instanceof Error ? error.message : String(error)}`,
+							text: `${ERROR_ACCESS_BOARD_FAILED_PREFIX}${error instanceof Error ? error.message : String(error)}`,
 						},
 					],
 					details: undefined,
@@ -250,17 +270,14 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 
 	pi.registerTool({
 		name: "tavern_whoami",
-		label: "Tavern Whoami",
-		description:
-			"Report this session's registered Character identity in the PiTavern group chat. " +
-			"Only available when joined as a Character. " +
-			"Returns the same single source of truth (runtime.character) used for identity lines.",
+		label: TOOL_WHOAMI_LABEL,
+		description: TOOL_WHOAMI_DESCRIPTION,
 		parameters: Type.Object({}, { additionalProperties: false }),
 		execute: async () => {
 			const state = ctrl.getState();
 			if (state.type !== "character") {
 				return {
-					content: [{ type: "text", text: "Error: You are not currently joined to a group chat as a Character." }],
+					content: [{ type: "text", text: TOOL_NOT_JOINED_AS_CHARACTER }],
 					details: undefined,
 					isError: true,
 				};
@@ -271,9 +288,9 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 					{
 						type: "text",
 						text:
-							`当前角色：${character.name}\n` +
-							`character_id：${character.characterId}\n` +
-							`描述：${character.description}`,
+							`${TOOL_WHOAMI_ROLE_PREFIX}${character.name}\n` +
+							`${TOOL_WHOAMI_ID_PREFIX}${character.characterId}\n` +
+							`${TOOL_WHOAMI_DESC_PREFIX}${character.description}`,
 					},
 				],
 				details: { name: character.name, character_id: character.characterId, description: character.description },
