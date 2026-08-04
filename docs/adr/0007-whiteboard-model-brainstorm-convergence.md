@@ -27,7 +27,7 @@
 
 ### 3. 协议（契约变更①）：board_write / board_query / board_update
 
-- **board_write**（客户端）= { action: "set"|"remove"|"clear", note?: { id?, content? } }：set 无 id = 贴新条（store 分配稳定条 id）；set 带 id = 改条（edit）；remove 带 id；clear 无参。**不带 actor 字段**——服务端从 session 推导，操作仅作用发送者本人白板；跨角色条 id = 本人板上不存在 = no-op
+- **board_write**（客户端）= { action: "set"|"remove"|"clear", note?: { id?, content? } }：set 无 id = 贴新条（store 分配稳定条 id）；set 带 id = 改条（edit）；remove 带 id；clear 无参。**不带 actor 字段**——服务端从 session 推导，操作仅作用发送者本人白板；跨角色条 id = 本人板上不存在 = no-op。**edit 语义**：edit 不新增条数（5 条上限只约束新贴）但**仍受单条长度上限**（note_length_exceeded 适用 edit）
 - **board_query**（客户端）无参（session 隐含 groupId），响应 = 全量 per-character 条目
 - **board_update**（服务器通知，复用 broadcast() 通道）= { actor, action: "add"|"update"|"remove"|"clear", note: { id, content } }：remove 携带被撕条内容（角色据此知道对方立场变了、不再引用）；clear 无 note。**无 sequence 字段**——不在消息流里、无消息流水位语义；字符侧不得视为水位
 - 响应**三态、success 恒 true**（speak 先例：业务拒绝 = success:true + reason，非协议错误）：
@@ -85,7 +85,7 @@
 | 贴条占发言额度 | 额度管公开发言、白板管状态表达，语义不同；5条/140字上限天然防滥用，无需二次约束 |
 | 超限自动覆盖最旧 / 静默忽略 | 覆盖 = 静默丢立场；静默忽略 = 角色不知道没贴上——均违背「贴不上就明说」的朴素语义 |
 | codec 加 union 兜底变体（本期做） | 本期零收益（旧二进制无容忍 codec 照样断连）；吞错风险（畸形已知消息被吞 = fail-fast 丢失）；违背朴素原则；演进路径不封死（见后续演进注意） |
-| 白板文件写群聊 JSONL | pi session 格式变更（零漂移成本最高）；白板是临时表达渠道非档案，独立文件随群聊关闭即删不污染消息流 |
+| 白板文件写群聊 JSONL | pi session 格式变更（零漂移成本最高）；白板是临时表达渠道非档案，独立文件随群聊删除即删不污染消息流 |
 
 ## 影响面
 
