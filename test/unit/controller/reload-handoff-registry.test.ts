@@ -32,6 +32,7 @@ function creatorHandoff(piSessionId: string, expiresAt: number, cleanup: () => P
 			createdAt: "2026-07-27T00:00:00.000Z",
 			groupMaxMessages: 10,
 		}),
+		boardStore: undefined as never,
 		connections: new Map(),
 		heartbeatStates: new Map(),
 		activeDescriptor: descriptor,

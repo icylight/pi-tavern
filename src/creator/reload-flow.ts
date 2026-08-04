@@ -5,6 +5,7 @@ import type { WebSocketServer } from "ws";
 import type { CharacterCard } from "../config/character-card.js";
 import type { CreatorReloadHandoff } from "../controller/reload-handoff-registry.js";
 import { getReloadHandoffRegistry } from "../controller/reload-handoff-registry.js";
+import type { BoardStore } from "../data/board-store.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
 import { removeOwnedActiveDescriptor } from "../data/discovery/active-descriptor.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
@@ -33,6 +34,7 @@ export interface ReloadFlowHost {
 	persistedCount: number;
 	sessionStore: SessionStore;
 	groupSessionManager: SessionManager;
+	boardStore: BoardStore;
 	deps: {
 		drainTimeoutMs: number;
 		writeFile: (path: string, data: string) => Promise<void>;
@@ -106,6 +108,7 @@ export async function detachForReload(host: ReloadFlowHost, piSessionId: string)
 		webSocketServer: host.webSocketServer,
 		groupSessionManager: host.groupSessionManager,
 		groupChatState: host.state,
+		boardStore: host.boardStore,
 		connections: host.connections,
 		heartbeatStates: host.heartbeatRegistry.snapshot(),
 		activeDescriptor: host.activeDescriptor,

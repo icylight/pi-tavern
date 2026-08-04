@@ -3,6 +3,7 @@ import type WebSocket from "ws";
 import type { WebSocketServer } from "ws";
 
 import type { CharacterCard } from "../config/character-card.js";
+import type { BoardStore } from "../data/board-store.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
 import type { ServerMessage } from "../protocol/messages.js";
@@ -33,6 +34,8 @@ export interface CreatorReloadHandoff {
 	webSocketServer: WebSocketServer;
 	groupSessionManager: SessionManager;
 	groupChatState: GroupChatState;
+	/** 白板模型（#114）：store 实例随 handoff 传递（reload 进程内，缓存存活）。 */
+	boardStore: BoardStore;
 	connections: Map<string, WebSocket>;
 	heartbeatStates: Map<string, HeartbeatStateSnapshot>;
 	activeDescriptor: ActiveGroupChatDescriptor;

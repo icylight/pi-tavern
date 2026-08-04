@@ -27,7 +27,9 @@ describe("board codec（B1，白板模型 #114）", () => {
 		});
 
 		it("set 改条（带 id）与 remove / clear 往返", () => {
-			const edit = decodeClient(encodeMessage({ type: "board_write", action: "set", note: { id: "n1", content: "修改后" } }));
+			const edit = decodeClient(
+				encodeMessage({ type: "board_write", action: "set", note: { id: "n1", content: "修改后" } }),
+			);
 			expect(edit).toEqual({ type: "board_write", action: "set", note: { id: "n1", content: "修改后" } });
 
 			const remove = decodeClient(encodeMessage({ type: "board_write", action: "remove", note: { id: "n1" } }));
@@ -208,7 +210,13 @@ describe("board codec（B1，白板模型 #114）", () => {
 		it("无 sequence 字段：带 sequence 被拒（不在消息流、无水位语义）", () => {
 			expect(() =>
 				decodeServer(
-					encodeMessage({ type: "board_update", actor: "A", action: "add", note: { id: "n1", content: "x" }, sequence: 7 }),
+					encodeMessage({
+						type: "board_update",
+						actor: "A",
+						action: "add",
+						note: { id: "n1", content: "x" },
+						sequence: 7,
+					}),
 				),
 			).toThrow();
 		});

@@ -4,6 +4,7 @@ import type { WebSocketServer } from "ws";
 
 import type { CharacterCard, CharacterSummary } from "../config/character-card.js";
 import type { CreatorReloadHandoff } from "../controller/reload-handoff-registry.js";
+import type { BoardStore } from "../data/board-store.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
 import type { SessionStore } from "../data/session-store.js";
@@ -14,6 +15,7 @@ import type { RuntimeCloseReason, RuntimeCloseResult } from "../shared/runtime-c
 import { BroadcastHub } from "./broadcast-hub.js";
 import { type ConnectionContext, ConnectionManager } from "./connection-manager.js";
 import { buildCreatorDependencies, createNewRuntime, resumeRuntime } from "./creator-factory.js";
+import type { BoardPipeline } from "./creator-pipelines/board-pipeline.js";
 import type { ClaimPipeline } from "./creator-pipelines/claim-pipeline.js";
 import { dispatchClientMessage as dispatchClientMessageFlow } from "./creator-pipelines/dispatch.js";
 import type { JoinPipeline } from "./creator-pipelines/join-pipeline.js";
@@ -105,6 +107,8 @@ export class CreatorRuntime {
 	private readonly claimDeps: ConstructorParameters<typeof ClaimPipeline>[0];
 	private readonly readyDeps: ConstructorParameters<typeof ReadyPipeline>[0];
 	private readonly queryDeps: ConstructorParameters<typeof QueryPipeline>[0];
+	/** 白板模型（#114）：board 管线依赖（pipeline-assembly 装配）。 */
+	private readonly boardDeps: ConstructorParameters<typeof BoardPipeline>[0];
 	/** @internal reload-flow 快照读取；语义不变。 */
 	persistedCount = 0;
 
@@ -148,6 +152,8 @@ export class CreatorRuntime {
 		readonly webSocketServer: WebSocketServer,
 		/** @internal reload-flow 访问；语义不变。 */
 		readonly sessionStore: SessionStore,
+		/** 白板模型（#114）：每角色白板 store（creator-factory 按项目装配，reload 经 handoff 传递）。 */
+		readonly boardStore: BoardStore,
 		readonly state: GroupChatState,
 		readonly activeDescriptor: ActiveGroupChatDescriptor,
 		readonly activeDescriptorPath: string,
@@ -233,6 +239,7 @@ export class CreatorRuntime {
 			publicMessages: this.publicMessages,
 			characters: this.characters,
 			sessionStore: this.sessionStore,
+			boardStore: this.boardStore,
 			persistedCount: {
 				get: () => this.persistedCount,
 				add: (delta) => {
@@ -255,6 +262,7 @@ export class CreatorRuntime {
 		this.claimDeps = assembly.claimDeps;
 		this.readyDeps = assembly.readyDeps;
 		this.queryDeps = assembly.queryDeps;
+		this.boardDeps = assembly.boardDeps;
 
 		this.runtimeFacades = new RuntimeFacades({
 			state: this.state,
@@ -434,6 +442,7 @@ export class CreatorRuntime {
 				claimDeps: this.claimDeps,
 				readyDeps: this.readyDeps,
 				queryDeps: this.queryDeps,
+				boardDeps: this.boardDeps,
 			},
 			socket,
 			connection,
