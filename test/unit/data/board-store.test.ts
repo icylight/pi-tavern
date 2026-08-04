@@ -139,12 +139,12 @@ describe("board-store（B0 契约先行）", () => {
 			});
 		});
 
-		it("ZWJ 序列按码点计：👨👩👧 = 7 码点（20 组 = 140 通过、21 组被拒）", () => {
+		it("ZWJ 序列按码点计：👨👩👧 = 5 码点（UTF-16 8 单位；28 组 = 140 通过、29 组被拒）", () => {
 			const store = createStore(createTemporaryDirectory());
 			const family = "👨\u200d👩\u200d👧";
-			expect([...family].length).toBe(7);
-			expect(store.write("g1", "A", "set", { content: family.repeat(20) }).status).toBe("applied");
-			expect(store.write("g1", "A", "set", { content: family.repeat(21) })).toEqual({
+			expect([...family].length).toBe(5);
+			expect(store.write("g1", "A", "set", { content: family.repeat(28) }).status).toBe("applied");
+			expect(store.write("g1", "A", "set", { content: family.repeat(29) })).toEqual({
 				status: "rejected",
 				code: "note_length_exceeded",
 			});

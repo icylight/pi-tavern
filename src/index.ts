@@ -4,6 +4,7 @@ import { setTestNotify } from "./character/group-chat-input.js";
 import { registerCommands } from "./commands.js";
 import { TavernController } from "./controller/tavern-controller.js";
 import type { CreatorRuntime } from "./creator/creator-runtime.js";
+import { createBoardStore } from "./data/board-store.js";
 import { discoverGroupChats as discoverActiveGroupChats } from "./data/discovery/discover-group-chats.js";
 import {
 	defaultGroupChatSessionIoDependencies,
@@ -64,6 +65,10 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 				sessionManager: piSessionManager,
 			}),
 		deleteGroupChatSession: (path) => deleteGroupChatSessionFile(path),
+		// 白板模型（#114，ADR-0007 契约④）：删除群聊同步清理白板（boards/<groupId>.json）。
+		// 组合根装配行为默认实现（ADR-0005 层方向）；每调用新建 store 实例——删除仅发生在
+		// 非活跃群聊（resumable 语义），无并发写者；B3 活动实例复用同一 store 时另行显式摘除。
+		deleteBoard: (groupId, boardDir) => createBoardStore({ boardDir }).deleteBoard(groupId),
 	});
 	registerRenderers(pi);
 	registerTavernTools(pi, ctrl);
