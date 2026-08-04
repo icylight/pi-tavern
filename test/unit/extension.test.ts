@@ -42,6 +42,7 @@ type SessionHandler = (event: Record<string, unknown>, ctx: ExtensionContext) =>
 
 type CapturedTool = {
 	name: string;
+	parameters: { type?: unknown };
 	execute: (
 		id: string,
 		params: Record<string, unknown>,
@@ -290,6 +291,7 @@ describe("PiTavern extension", () => {
 
 		const tool = tools[1];
 		if (!tool) throw new Error("no tavern_board tool");
+		expect(tool.parameters.type).toBe("object");
 
 		// 非法组合（服务端判别 union 必拒）：remove 缺 id / remove 带 content / clear 带 note
 		const invalid = [

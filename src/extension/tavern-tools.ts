@@ -164,51 +164,24 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 			"clear (empty your own board), query (read all boards). " +
 			"Each character has their own board (max 5 notes, 140 code points each by default); " +
 			"you can only modify your own board. Keep note content concise (under 140 characters).",
-		parameters: Type.Union([
-			Type.Object(
-				{
-					action: Type.Literal("set"),
-					// set：note 全可选——「update 不带 content = note_unchanged」业务幂等保留
-					// （与服务端 board_write set 变体同构，PR #116 F1/F11）。
-					note: Type.Optional(
-						Type.Object(
-							{
-								id: Type.Optional(Type.String()),
-								content: Type.Optional(Type.String()),
-							},
-							{ additionalProperties: false },
-						),
-					),
-				},
-				{ additionalProperties: false },
-			),
-			Type.Object(
-				{
-					action: Type.Literal("remove"),
-					// remove：必带 note.id（无 id = 工具层即拒，不发 wire——避免服务端
-					// fail-close 断连）；content 禁止（被撕条内容由服务端广播回带）。
-					note: Type.Object(
+		// Function tool schemas must have a top-level JSON Schema type of "object".
+		// Cross-field action/note invariants remain enforced by validateBoardToolParams
+		// before any wire request is sent.
+		parameters: Type.Object(
+			{
+				action: Type.Union([Type.Literal("set"), Type.Literal("remove"), Type.Literal("clear"), Type.Literal("query")]),
+				note: Type.Optional(
+					Type.Object(
 						{
-							id: Type.String(),
+							id: Type.Optional(Type.String()),
+							content: Type.Optional(Type.String()),
 						},
 						{ additionalProperties: false },
 					),
-				},
-				{ additionalProperties: false },
-			),
-			Type.Object(
-				{
-					action: Type.Literal("clear"),
-				},
-				{ additionalProperties: false },
-			),
-			Type.Object(
-				{
-					action: Type.Literal("query"),
-				},
-				{ additionalProperties: false },
-			),
-		]),
+				),
+			},
+			{ additionalProperties: false },
+		),
 		execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) => {
 			const state = ctrl.getState();
 			if (state.type !== "character") {
@@ -242,15 +215,20 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 						details: { boards },
 					};
 				}
-				const result =
-					// 窄类型后按变体调用（各分支 TS 收窄：remove 必带 {id}、clear 无参、set 全可选）。
-					params.action === "remove"
-						? await state.runtime.boardWrite("remove", { id: params.note.id })
-						: params.action === "clear"
-							? await state.runtime.boardWrite("clear")
-							: params.note !== undefined
-								? await state.runtime.boardWrite("set", params.note)
-								: await state.runtime.boardWrite("set");
+				let result: BoardWriteDataWire;
+				if (params.action === "remove") {
+					const id = params.note?.id;
+					if (typeof id !== "string") {
+						throw new Error("validated remove request is missing note.id");
+					}
+					result = await state.runtime.boardWrite("remove", { id });
+				} else if (params.action === "clear") {
+					result = await state.runtime.boardWrite("clear");
+				} else if (params.note !== undefined) {
+					result = await state.runtime.boardWrite("set", params.note);
+				} else {
+					result = await state.runtime.boardWrite("set");
+				}
 				return {
 					content: [{ type: "text", text: formatBoardWriteData(result) }],
 					details: { result },
