@@ -44,7 +44,7 @@ type CapturedTool = {
 	name: string;
 	execute: (
 		id: string,
-		params: { content?: string },
+		params: Record<string, unknown>,
 	) => Promise<{
 		content: Array<{ type: string; text: string }>;
 		details?: Record<string, unknown>;
@@ -189,6 +189,7 @@ function createMockCharacterRuntime(speakResult: object): CharacterRuntime {
 		getGroupChatState: vi.fn(),
 		markIncrementPending: vi.fn(),
 		speak: vi.fn(async () => speakResult),
+		boardWrite: vi.fn(),
 	} as unknown as CharacterRuntime;
 }
 
@@ -230,13 +231,14 @@ describe("PiTavern extension", () => {
 		}
 	}, 30_000); // Loader 做了两遍真实发现；并发负载（acceptance 套件）下可能超出 vitest 默认 5s 超时（#32）。按测试扩展逐个说明：对负载敏感，非功能失败；#34（maxWorkers: 2）降低争用，保留此裕量。
 
-	it("registers the tavern_speak and tavern_whoami tools and reports error when not a character", async () => {
+	it("registers the tavern_speak, tavern_board and tavern_whoami tools and reports error when not a character", async () => {
 		const { tools, api } = captureTools();
 		piTavern(api as unknown as ExtensionAPI);
 
-		expect(tools).toHaveLength(2);
+		expect(tools).toHaveLength(3);
 		expect(tools[0]?.name).toBe("tavern_speak");
-		expect(tools[1]?.name).toBe("tavern_whoami");
+		expect(tools[1]?.name).toBe("tavern_board");
+		expect(tools[2]?.name).toBe("tavern_whoami");
 
 		const tool = tools[0];
 		if (!tool) throw new Error("no tool");
@@ -253,7 +255,7 @@ describe("PiTavern extension", () => {
 		const { tools, api } = captureTools();
 		piTavern(api as unknown as ExtensionAPI, controller);
 
-		const tool = tools[1];
+		const tool = tools[2];
 		if (!tool) throw new Error("no whoami tool");
 		expect(tool).toBeDefined();
 		const result = await tool.execute("call-1", {});
@@ -273,11 +275,36 @@ describe("PiTavern extension", () => {
 		const { tools, api } = captureTools();
 		piTavern(api as unknown as ExtensionAPI);
 
-		const tool = tools[1];
+		const tool = tools[2];
 		if (!tool) throw new Error("no whoami tool");
 		const result = await tool.execute("call-1", {});
 		expect(result.isError).toBe(true);
 		expect(result.content[0]?.text).toContain("not currently joined");
+	});
+
+	it("tavern_board 工具参数判别：非法组合工具层即拒——不发 wire 请求、不断连（PR #116 F11）", async () => {
+		const runtime = createMockCharacterRuntime({});
+		const controller = await createCharacterControllerWithRuntime(runtime);
+		const { tools, api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI, controller);
+
+		const tool = tools[1];
+		if (!tool) throw new Error("no tavern_board tool");
+
+		// 非法组合（服务端判别 union 必拒）：remove 缺 id / remove 带 content / clear 带 note
+		const invalid = [
+			{ action: "remove" },
+			{ action: "remove", note: { content: "x" } },
+			{ action: "clear", note: { id: "n1" } },
+		];
+		for (const params of invalid) {
+			const result = await tool.execute("call-f11", params);
+			expect(result.isError).toBe(true);
+		}
+
+		// 错误在工具层拦截：不发 wire 请求（boardWrite 未被调用）、不断连（close 未被调用）
+		expect(runtime.boardWrite).not.toHaveBeenCalled();
+		expect(runtime.close).not.toHaveBeenCalled();
 	});
 
 	it("tavern_speak returns published result when character speaks successfully", async () => {

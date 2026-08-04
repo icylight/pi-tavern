@@ -352,6 +352,13 @@ export class GroupChatInput {
 				return this.runtime.hasPublicMessages;
 			case "message_history":
 				return true;
+			// 白板模型（#114，ADR-0007）：board_update = 环境事件（通知渲染），
+			// 与 group_chat_update（拉取触发）是两套消费语义——进 pendingEvents 批处理，
+			// 绝不挂 incrementPending（board 不在消息流，拉取只会空转）。
+			// 自回显过滤（09:27 版 User 拍板）：写者本人不收自己写的回显（响应已含
+			// 结果、actor 限定本人板——自回显 100% 冗余）；他人更新不受影响。
+			case "board_update":
+				return message.actor !== this.runtime.character.characterId;
 			default:
 				return false;
 		}
@@ -445,6 +452,12 @@ export class GroupChatInput {
 					`[tavern-inject] group=${this.runtime.groupChatId} latest_seq=${sequences[sequences.length - 1]} count=${sequences.length}`,
 				);
 			}
+			// 白板模型（#114）：白板更新事件计数（无 sequence——不在消息流）。
+			// 断言：门闸放行（进批处理）→ 白板桶渲染可达。
+			const boardUpdates = toDeliver.filter((e) => e.type === "board_update").length;
+			if (boardUpdates > 0) {
+				testNotify?.(`[tavern-inject] group=${this.runtime.groupChatId} board_updates=${boardUpdates}`);
+			}
 		}
 
 		// 投递承诺（Arch 竞态审计形状）：入队接受（preflightResult）即 resolve——
@@ -525,6 +538,11 @@ export class GroupChatInput {
 					`[tavern-inject] group=${this.runtime.groupChatId} latest_seq=${sequences[sequences.length - 1]} count=${sequences.length}`,
 				);
 			}
+			// 白板模型（#114）：白板更新事件计数（与 idle flush 同通道）。
+			const boardUpdates = events.filter((e) => e.type === "board_update").length;
+			if (boardUpdates > 0) {
+				testNotify?.(`[tavern-inject] group=${this.runtime.groupChatId} board_updates=${boardUpdates}`);
+			}
 		}
 
 		await this.sendWithDeliveryAck(events, content, groupChatState, latestSequence, "steer");
@@ -556,7 +574,7 @@ export class GroupChatInput {
 		const stateObj = state as {
 			group_chat?: { name?: string | null };
 			round?: { round_max_messages: number; used_messages: number; remaining_messages: number };
-			online_characters?: Array<{ name: string }>;
+			online_characters?: Array<{ character_id?: string; name: string }>;
 		} | null;
 		const name = stateObj?.group_chat?.name;
 		if (name) {
@@ -588,6 +606,27 @@ export class GroupChatInput {
 					parts.push(`${event.character.name} 加入了群聊。`);
 				} else if (event.type === "character_left") {
 					parts.push(`${event.character.name} 离开了群聊。`);
+				}
+			}
+		}
+
+		// 白板更新（#114，ADR-0007）：增量摘要——谁/动作/内容摘要。与
+		// group_chat_update 是两套消费语义（通知渲染 vs 拉取触发）：board_update
+		// 只渲染不进消息流拉取（无 sequence、不挂 incrementPending）。
+		const boardUpdates = events.filter((e) => e.type === "board_update");
+		if (boardUpdates.length > 0) {
+			parts.push("\n白板更新：");
+			const onlineCharacters = stateObj?.online_characters ?? [];
+			for (const event of boardUpdates) {
+				if (event.type !== "board_update") {
+					continue;
+				}
+				const actor = onlineCharacters.find((c) => c.character_id === event.actor)?.name ?? event.actor;
+				if (event.action === "clear") {
+					parts.push(`${actor} 清空白板。`);
+				} else if (event.action === "add" || event.action === "update" || event.action === "remove") {
+					const verb = event.action === "add" ? "贴条" : event.action === "update" ? "改条" : "撕条";
+					parts.push(`${actor} ${verb}：「${event.note?.content ?? ""}」`);
 				}
 			}
 		}

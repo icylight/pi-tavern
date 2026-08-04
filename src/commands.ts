@@ -5,7 +5,12 @@ import type { CharacterRuntime } from "./character/character-runtime.js";
 import { DEFAULT_CONFIG_MAX_MESSAGES, loadTavernConfig, type TavernConfig } from "./config/load-config.js";
 import type { TavernController } from "./controller/tavern-controller.js";
 import type { CreatorRuntime } from "./creator/creator-runtime.js";
-import { type ActiveGroupChatDescriptor, getGroupChatCursorDirectory } from "./data/discovery/active-descriptor.js";
+import type { DeleteBoardResult } from "./data/board-store.js";
+import {
+	type ActiveGroupChatDescriptor,
+	getGroupChatBoardDirectory,
+	getGroupChatCursorDirectory,
+} from "./data/discovery/active-descriptor.js";
 import type { DiscoverGroupChatsOptions } from "./data/discovery/discover-group-chats.js";
 import type { DeleteGroupChatSessionResult, GroupChatSessionSummary } from "./data/group-chat-sessions.js";
 
@@ -16,6 +21,14 @@ export interface RegisterCommandsOptions {
 	discoverGroupChats?: (options: DiscoverGroupChatsOptions) => Promise<ActiveGroupChatDescriptor[]>;
 	listGroupChatSessions?: (agentDir: string, cwd: string) => Promise<GroupChatSessionSummary[]>;
 	deleteGroupChatSession?: (path: string) => Promise<DeleteGroupChatSessionResult>;
+	/**
+	 * 白板模型（#114，ADR-0007 契约④）：删除群聊时同步清理白板文件
+	 * （boards/<groupId>.json）。best-effort：失败仅 warning，不阻塞会话删除主流程。
+	 * boardDir 由调用方按项目传入（index.ts 注册时无 cwd，闭包无法静态绑定）。
+	 * 每调用新建 store 实例 = 无共享缓存；删除仅发生在非活跃群聊（resumable
+	 * 语义），无并发写者，缓存一致性成立（B3 活动实例复用同一 store 时另行显式摘除）。
+	 */
+	deleteBoard?: (groupId: string, boardDir: string) => Promise<DeleteBoardResult>;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	triggerDebounceMs?: number;
 }
@@ -33,6 +46,7 @@ export function registerCommands(
 	// 行为默认实现由组合根（index.ts）装配注入（ADR-0005 层方向，Phase 4）。
 	const listGroupChatSessions = options.listGroupChatSessions;
 	const deleteGroupChatSession = options.deleteGroupChatSession;
+	const deleteBoard = options.deleteBoard;
 
 	pi.registerCommand("tavern-new", {
 		description: "Create a new PiTavern group chat",
@@ -43,6 +57,9 @@ export function registerCommands(
 					cwd: ctx.cwd,
 					agentDir,
 					configMaxMessages: options.configMaxMessages ?? config.configMaxMessages ?? DEFAULT_CONFIG_MAX_MESSAGES,
+					// 白板模型（#114）：白板额度透传（缺省 undefined → store 默认 5/140）。
+					...(config.boardMaxNotes !== undefined ? { boardMaxNotes: config.boardMaxNotes } : {}),
+					...(config.boardMaxNoteLength !== undefined ? { boardMaxNoteLength: config.boardMaxNoteLength } : {}),
 					characters: config.characters,
 				});
 				ctx.ui.notify(
@@ -85,7 +102,15 @@ export function registerCommands(
 					if (!deleteGroupChatSession) {
 						throw new Error("deleteGroupChatSession 未注入（组合根契约违反）");
 					}
-					await runDeleteGroupChatFlow(resumable, ctx.ui.select, ctx.ui.confirm, ctx.ui.notify, deleteGroupChatSession);
+					await runDeleteGroupChatFlow(
+						resumable,
+						ctx.ui.select,
+						ctx.ui.confirm,
+						ctx.ui.notify,
+						deleteGroupChatSession,
+						deleteBoard,
+						getGroupChatBoardDirectory(agentDir, ctx.cwd),
+					);
 					return;
 				}
 				const session = resumable[labels.indexOf(choice)];
@@ -97,6 +122,9 @@ export function registerCommands(
 					agentDir,
 					sessionPath: session.path,
 					configMaxMessages: options.configMaxMessages ?? config.configMaxMessages ?? DEFAULT_CONFIG_MAX_MESSAGES,
+					// 白板模型（#114）：白板额度透传（缺省 undefined → store 默认 5/140）。
+					...(config.boardMaxNotes !== undefined ? { boardMaxNotes: config.boardMaxNotes } : {}),
+					...(config.boardMaxNoteLength !== undefined ? { boardMaxNoteLength: config.boardMaxNoteLength } : {}),
 					characters: config.characters,
 				});
 				ctx.ui.notify(
@@ -351,6 +379,8 @@ async function runDeleteGroupChatFlow(
 	confirm: (title: string, message: string) => Promise<boolean>,
 	notify: (message: string, type?: "info" | "warning" | "error") => void,
 	deleteSession: (path: string) => Promise<DeleteGroupChatSessionResult>,
+	deleteBoard?: (groupId: string, boardDir: string) => Promise<DeleteBoardResult>,
+	boardDir?: string,
 ): Promise<void> {
 	const labels = sessions.map(formatSessionLabel);
 	const choice = await select("Delete group chat history:", labels);
@@ -368,6 +398,24 @@ async function runDeleteGroupChatFlow(
 	const result = await deleteSession(session.path);
 	if (result.ok) {
 		notify(`Deleted group chat history (${result.method})`, "info");
+		// 白板模型（#114，ADR-0007 契约④）：best-effort 同步清理白板——
+		// 失败仅 warning，不阻塞会话删除主流程。
+		if (deleteBoard && boardDir) {
+			try {
+				const boardResult = await deleteBoard(session.groupChatId, boardDir);
+				if (!boardResult.ok) {
+					notify(
+						`Deleted group chat history, but failed to delete its board: ${boardResult.error ?? "unknown error"}`,
+						"warning",
+					);
+				}
+			} catch (error) {
+				notify(
+					`Deleted group chat history, but failed to delete its board: ${error instanceof Error ? error.message : String(error)}`,
+					"warning",
+				);
+			}
+		}
 	} else {
 		notify(`Failed to delete group chat history: ${result.error ?? "unknown error"}`, "error");
 	}
@@ -403,7 +451,7 @@ function formatCreatorStatus(runtime: CreatorRuntime): string {
 	const { groupChat, round, onlineCharacters } = runtime.state;
 	const roundStatus = round ? `${round.usedMessages}/${round.roundMaxMessages} messages used` : "not started";
 
-	return [
+	const lines = [
 		`Group chat: ${groupChat.name ?? groupChat.groupChatId}`,
 		`ID: ${groupChat.groupChatId}`,
 		`Listening: ${runtime.activeDescriptor.host}:${runtime.activeDescriptor.port}`,
@@ -411,7 +459,23 @@ function formatCreatorStatus(runtime: CreatorRuntime): string {
 		`Config max messages: ${runtime.configMaxMessages}`,
 		`Group max messages: ${groupChat.groupMaxMessages}`,
 		`Round: ${roundStatus}`,
-	].join("\n");
+	];
+
+	// 白板模型（#114，ADR-0007）：白板快照小节（纯展示，不扩协议面）——
+	// store 随 runtime 装配（B3），按在线/全员角色名展示条列表。
+	const boards = runtime.boardStore.read(groupChat.groupChatId);
+	const boardCharacters = Object.keys(boards);
+	if (boardCharacters.length > 0) {
+		lines.push("Boards:");
+		for (const characterId of boardCharacters) {
+			const notes = boards[characterId] ?? [];
+			const name = runtime.characters.get(characterId)?.name ?? characterId;
+			lines.push(
+				notes.length === 0 ? `  ${name}: (empty)` : `  ${name}: ${notes.map((n) => `「${n.content}」`).join("、")}`,
+			);
+		}
+	}
+	return lines.join("\n");
 }
 
 function formatCharacterStatus(

@@ -12,7 +12,7 @@ import {
 } from "../controller/reload-handoff-registry.js";
 import { readCursorFile, writeCursorFile } from "../data/cursor-store.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
-import type { GroupChatStateMessage, ServerMessage } from "../protocol/messages.js";
+import type { BoardNoteWire, BoardWriteDataWire, GroupChatStateMessage, ServerMessage } from "../protocol/messages.js";
 import {
 	HEARTBEAT_PING_INTERVAL_MS,
 	HEARTBEAT_TIMEOUT_MS,
@@ -538,6 +538,49 @@ export class CharacterRuntime {
 			handRaised: response.data.hand_raised,
 			round,
 		};
+	}
+
+	/**
+	 * 白板模型（#114，ADR-0007）：board_write——贴/改/撕/清本人板。
+	 * 返回响应 data（四态：changed:true 带/不带 note；changed:false 带告知/拒绝码）。
+	 * 群聊静默：changed:false 不广播 board_update（接口层告知）。
+	 */
+	/**
+	 * 白板写入（#114，F11 收窄）：判别 union 类型——set 带全可选 note（业务幂等
+	 * note_unchanged 保留）、remove 必带 {id}（content 禁）、clear 无参。非法组合
+	 * 在调用侧（工具层/测试）即拒，不发 wire——避免服务端 fail-close 断连。
+	 */
+	async boardWrite(
+		...args:
+			| [action: "set", note?: { id?: string; content?: string }]
+			| [action: "remove", note: { id: string }]
+			| [action: "clear"]
+	): Promise<BoardWriteDataWire> {
+		const [action, note] = args;
+		const response = await this.request({
+			type: "board_write",
+			action,
+			...(note !== undefined ? { note } : {}),
+		});
+		if (response.type !== "response" || response.command !== "board_write") {
+			throw new Error("Unexpected PiTavern board_write response");
+		}
+		if (!response.success) {
+			throw new Error(response.error);
+		}
+		return response.data;
+	}
+
+	/** 白板模型（#114）：board_query——全量 per-character 条目（本人视角）。 */
+	async boardQuery(): Promise<Record<string, BoardNoteWire[]>> {
+		const response = await this.request({ type: "board_query" });
+		if (response.type !== "response" || response.command !== "board_query") {
+			throw new Error("Unexpected PiTavern board_query response");
+		}
+		if (!response.success) {
+			throw new Error(response.error);
+		}
+		return response.data.boards;
 	}
 
 	/**

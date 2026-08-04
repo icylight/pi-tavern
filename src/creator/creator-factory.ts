@@ -7,10 +7,12 @@ import { resolve } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG_MAX_MESSAGES, loadTavernConfig } from "../config/load-config.js";
 import type { CreatorReloadHandoff } from "../controller/reload-handoff-registry.js";
+import { createBoardStore } from "../data/board-store.js";
 import { countPersistedEntries } from "../data/cursor-store.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
 import {
 	getActiveDescriptorPath,
+	getGroupChatBoardDirectory,
 	getGroupChatSessionDirectory,
 	publishActiveDescriptor,
 	readActiveDescriptor,
@@ -72,6 +74,13 @@ export async function createNewRuntime(
 		createdAt,
 		groupMaxMessages: configMaxMessages,
 	});
+	// 白板模型（#114，ADR-0007 契约④）：按项目装配 store（boards/<groupId>.json）。
+	// F4：白板额度透传（未配置 = undefined → store 默认 5/140）。
+	const boardStore = createBoardStore({
+		boardDir: getGroupChatBoardDirectory(options.agentDir, cwd),
+		...(options.boardMaxNotes !== undefined ? { maxNotesPerBoard: options.boardMaxNotes } : {}),
+		...(options.boardMaxNoteLength !== undefined ? { maxNoteLength: options.boardMaxNoteLength } : {}),
+	});
 	const sessionStore = SessionStore.create(
 		SessionManager,
 		cwd,
@@ -95,6 +104,7 @@ export async function createNewRuntime(
 	const runtime = new CreatorRuntime(
 		webSocketServer,
 		sessionStore,
+		boardStore,
 		state,
 		activeDescriptor,
 		activeDescriptorPath,
@@ -233,9 +243,17 @@ export async function resumeRuntime(
 		port: address.port,
 		startedAt,
 	};
+	// 白板模型（#114）：resume 同样按项目装配 store（恢复读取 = 懒加载读 boards 文件）。
+	// F4：白板额度透传（未配置 = undefined → store 默认 5/140）。
+	const boardStore = createBoardStore({
+		boardDir: getGroupChatBoardDirectory(options.agentDir, cwd),
+		...(options.boardMaxNotes !== undefined ? { maxNotesPerBoard: options.boardMaxNotes } : {}),
+		...(options.boardMaxNoteLength !== undefined ? { maxNoteLength: options.boardMaxNoteLength } : {}),
+	});
 	const runtime = new CreatorRuntime(
 		webSocketServer,
 		sessionStore,
+		boardStore,
 		state,
 		activeDescriptor,
 		activeDescriptorPath,
@@ -270,6 +288,7 @@ export function createFromHandoff(
 	return new CreatorRuntime(
 		handoff.webSocketServer,
 		sessionStore,
+		handoff.boardStore,
 		handoff.groupChatState,
 		handoff.activeDescriptor,
 		handoff.activeDescriptorPath,

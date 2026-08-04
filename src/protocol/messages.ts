@@ -93,6 +93,62 @@ export const ClientMessageSchema = Type.Union([
 		},
 		{ additionalProperties: false },
 	),
+	// 白板模型（#114）：board_write = 贴/改/撕/清（PR #116 review 修正：按 action
+	// 判别 union，跨字段不变量 schema 层 fail-close——F1）。不带 actor 字段——
+	// 服务端从 session 推导，操作永远作用于发送者自己的白板（actor 限定本人板）。
+	// set：note 全可选——「update 不带 content = note_unchanged」是契约定义的业务
+	// 幂等（09:26 定案），schema 不得灭掉该告知场景；空串由 store 拦为 noop。
+	Type.Object(
+		{
+			id: RequestIdSchema,
+			type: Type.Literal("board_write"),
+			action: Type.Literal("set"),
+			note: Type.Optional(
+				Type.Object(
+					{
+						id: Type.Optional(Type.String()),
+						content: Type.Optional(Type.String()),
+					},
+					{ additionalProperties: false },
+				),
+			),
+		},
+		{ additionalProperties: false },
+	),
+	// remove：必带 id 定向（无 id = 协议级拒绝而非业务 no-op——P1 fail-close）；
+	// content 禁止（被撕条完整内容由服务端在 board_update 广播中回带）。
+	Type.Object(
+		{
+			id: RequestIdSchema,
+			type: Type.Literal("board_write"),
+			action: Type.Literal("remove"),
+			note: Type.Object(
+				{
+					id: Type.String(),
+				},
+				{ additionalProperties: false },
+			),
+		},
+		{ additionalProperties: false },
+	),
+	// clear：禁携带 note（清空语义无目标条）。
+	Type.Object(
+		{
+			id: RequestIdSchema,
+			type: Type.Literal("board_write"),
+			action: Type.Literal("clear"),
+		},
+		{ additionalProperties: false },
+	),
+	// 白板模型（#114）：board_query 查全量（per-character 条目）。无参——
+	// groupId 由 session 隐含；跨群聊隔离由服务端按 session 关联保证。
+	Type.Object(
+		{
+			id: RequestIdSchema,
+			type: Type.Literal("board_query"),
+		},
+		{ additionalProperties: false },
+	),
 	Type.Object(
 		{
 			id: RequestIdSchema,
@@ -167,6 +223,10 @@ const FailureResponseSchema = Type.Object(
 			Type.Literal("fetch_messages_since"),
 			Type.Literal("get_chat_history_file"),
 			Type.Literal("speak"),
+			// 白板模型（#114）：新消息的失败通道 = union 加新命令成员（合法 union 增量，
+			// speak 先例；旧端对新消息本就 fail-close，兼容性政策覆盖）。
+			Type.Literal("board_write"),
+			Type.Literal("board_query"),
 		]),
 		success: Type.Literal(false),
 		error: Type.String(),
@@ -407,6 +467,116 @@ const SpeakResponseSchema = Type.Union([
 	),
 ]);
 
+// ===== 白板模型（#114，ADR-0007）：board_write / board_query / board_update =====
+
+/** 白板条（wire 形态）：稳定条 id 由 store 分配，remove/edit 按 id 定向。 */
+export const BoardNoteSchema = Type.Object(
+	{
+		id: Type.String(),
+		content: Type.String(),
+	},
+	{ additionalProperties: false },
+);
+
+export type BoardNoteWire = Static<typeof BoardNoteSchema>;
+
+/**
+ * 白板 reason_code 五码（09:24 版定案，取值区分告知/拒绝）：
+ * - 拒绝码（资源约束，未执行）：max_notes_exceeded / note_length_exceeded
+ * - 告知码（幂等成立，changed:false 静默）：note_not_found / board_empty / note_unchanged
+ * 群聊静默规则：所有 changed:false 均不广播 board_update；告知/拒绝差异在接口层可见。
+ */
+export const BoardReasonCodeSchema = Type.Union([
+	Type.Literal("max_notes_exceeded"),
+	Type.Literal("note_length_exceeded"),
+	Type.Literal("note_not_found"),
+	Type.Literal("board_empty"),
+	Type.Literal("note_unchanged"),
+]);
+
+/**
+ * board_write 成功响应 data（嵌套两态，外层 success 恒 true）：
+ * - { changed: true, note? }：有变化；set 新贴/改条回带 { id, content }（id 回带闭环，
+ *   业务规则由 pipeline 保证必带）；remove/clear applied 不带 note
+ * - { changed: false, code }：无变化——五码取值区分告知（幂等）与拒绝（资源约束）
+ * 编解码层排除无意义组合（changed:true 不能带 code 等）。
+ */
+export const BoardWriteDataSchema = Type.Union([
+	Type.Object(
+		{
+			changed: Type.Literal(true),
+			note: Type.Optional(BoardNoteSchema),
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			changed: Type.Literal(false),
+			code: BoardReasonCodeSchema,
+		},
+		{ additionalProperties: false },
+	),
+]);
+
+export type BoardWriteDataWire = Static<typeof BoardWriteDataSchema>;
+
+/** board_write 响应：success 恒 true 业务变体（success:false 协议错误走 FailureResponseSchema）。 */
+export const BoardWriteResponseSchema = Type.Object(
+	{
+		id: RequestIdSchema,
+		type: Type.Literal("response"),
+		command: Type.Literal("board_write"),
+		success: Type.Literal(true),
+		data: BoardWriteDataSchema,
+	},
+	{ additionalProperties: false },
+);
+
+/** board_query 响应：全量 per-character 条目（boards: sender → 条列表）。 */
+export const BoardQueryResponseSchema = Type.Object(
+	{
+		id: RequestIdSchema,
+		type: Type.Literal("response"),
+		command: Type.Literal("board_query"),
+		success: Type.Literal(true),
+		data: Type.Object(
+			{
+				boards: Type.Record(Type.String(), Type.Array(BoardNoteSchema)),
+			},
+			{ additionalProperties: false },
+		),
+	},
+	{ additionalProperties: false },
+);
+
+/**
+ * board_update 服务器通知（复用 broadcast() 通道，不混入 group_chat_update）：
+ * actor + action 四值（set 映射：新贴→add、改条→update）；remove 携带被撕条内容
+ * （增量摘要含删除标记，锚点 2 支撑）；clear 无 note。无 sequence 字段——不在消息流里、
+ * 无消息流水位语义；字符侧不得视为水位（B4 接线约束）。
+ * PR #116 review 修正（F3）：按 action 判别 union——add/update/remove 必带 note
+ * （完整条 {id, content}），clear 禁 note；非法组合 codec 层即拒。
+ */
+export const BoardUpdateSchema = Type.Union([
+	Type.Object(
+		{
+			type: Type.Literal("board_update"),
+			actor: Type.String(),
+			action: Type.Union([Type.Literal("add"), Type.Literal("update"), Type.Literal("remove")]),
+			note: BoardNoteSchema,
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			type: Type.Literal("board_update"),
+			actor: Type.String(),
+			action: Type.Literal("clear"),
+		},
+		{ additionalProperties: false },
+	),
+]);
+
 export const ServerMessageSchema = Type.Union([
 	JoinGroupChatResponseSchema,
 	ClaimCharacterResponseSchema,
@@ -423,6 +593,9 @@ export const ServerMessageSchema = Type.Union([
 	MessageHistorySchema,
 	PublicMessageSchema,
 	GroupChatUpdateSchema,
+	BoardWriteResponseSchema,
+	BoardQueryResponseSchema,
+	BoardUpdateSchema,
 ]);
 
 export type ServerMessage = Static<typeof ServerMessageSchema>;

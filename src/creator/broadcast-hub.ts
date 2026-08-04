@@ -13,7 +13,10 @@ export type FailureCommand =
 	| "get_message_history"
 	| "fetch_messages_since"
 	| "get_chat_history_file"
-	| "speak";
+	| "speak"
+	// 白板模型（#114）：新消息失败通道 = union 加新命令成员（与 messages.ts 同步增量）。
+	| "board_write"
+	| "board_query";
 
 export interface BroadcastHubOptions {
 	/** 群聊状态对象（骨架持有实体，只读引用注入）。 */
