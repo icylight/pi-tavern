@@ -53,7 +53,7 @@ export class BoardPipeline {
 		if (sender === null) {
 			return;
 		}
-		const note = message.note;
+		const note = message.action === "clear" ? undefined : message.note;
 		// Arch B3 建议：携带 id 必须非空（空串 = 无 id 语义，协议层拒绝）。
 		if (note?.id !== undefined && note.id === "") {
 			this.deps.sendFailure(socket, message.id, "board_write", "note.id must not be empty");

@@ -9,6 +9,13 @@ import { type CharacterCard, type CharacterImport, loadCharacterCards } from "./
 export interface TavernConfig {
 	configMaxMessages: number;
 	characters: CharacterCard[];
+	/**
+	 * 白板模型（#114）：白板额度（可选——缺省 = store 默认 5/140，PR #116 F4
+	 * 兑现「可配置」承诺）。装配透传：commands → startNew/resume → creator-factory
+	 * → createBoardStore；未配置时 undefined 走 store 默认。
+	 */
+	boardMaxNotes?: number;
+	boardMaxNoteLength?: number;
 }
 
 export interface LoadTavernConfigOptions {
@@ -20,6 +27,9 @@ const TavernConfigFileSchema = Type.Object(
 	{
 		config_max_messages: Type.Optional(Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
 		characters: Type.Optional(Type.Array(Type.String())),
+		// 白板模型（#114）：白板额度（可选；最小 1——额度 0 无业务意义）。
+		board_max_notes: Type.Optional(Type.Integer({ minimum: 1 })),
+		board_max_note_length: Type.Optional(Type.Integer({ minimum: 1 })),
 	},
 	{ additionalProperties: false },
 );
@@ -44,9 +54,14 @@ export async function loadTavernConfig(options: LoadTavernConfigOptions): Promis
 		...toCharacterImports(projectConfig, projectConfigPath),
 	];
 
+	const boardMaxNotes = projectConfig?.board_max_notes ?? globalConfig?.board_max_notes;
+	const boardMaxNoteLength = projectConfig?.board_max_note_length ?? globalConfig?.board_max_note_length;
+
 	return {
 		configMaxMessages:
 			projectConfig?.config_max_messages ?? globalConfig?.config_max_messages ?? DEFAULT_CONFIG_MAX_MESSAGES,
+		...(boardMaxNotes !== undefined ? { boardMaxNotes } : {}),
+		...(boardMaxNoteLength !== undefined ? { boardMaxNoteLength } : {}),
 		characters: await loadCharacterCards(imports),
 	};
 }

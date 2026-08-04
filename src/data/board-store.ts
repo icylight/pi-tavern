@@ -68,6 +68,9 @@ export interface BoardStoreDependencies {
 	maxNotesPerBoard?: number;
 	/** 单条长度上限（码点，默认 140）。 */
 	maxNoteLength?: number;
+	/** 原子写原语（缺省 node:fs 同步实现；测试注入失败路径——PR #116 F2）。 */
+	writeFile?: (path: string, data: string) => void;
+	renameFile?: (from: string, to: string) => void;
 }
 
 export interface BoardStore {
@@ -95,6 +98,9 @@ export function createBoardStore(deps: BoardStoreDependencies): BoardStore {
 	const warn: (message: string) => void = deps.warn ?? ((message) => console.warn(message));
 	const maxNotesPerBoard = deps.maxNotesPerBoard ?? DEFAULT_MAX_NOTES_PER_BOARD;
 	const maxNoteLength = deps.maxNoteLength ?? DEFAULT_MAX_NOTE_LENGTH;
+	const writeFileAtomic: (path: string, data: string) => void =
+		deps.writeFile ?? ((path, data) => writeFileSync(path, data, "utf8"));
+	const renameFileAtomic: (from: string, to: string) => void = deps.renameFile ?? ((from, to) => renameSync(from, to));
 	mkdirSync(boardDir, { recursive: true });
 
 	/** 内存缓存：groupId → 板内容（懒加载）。 */
@@ -148,17 +154,30 @@ export function createBoardStore(deps: BoardStoreDependencies): BoardStore {
 		return board;
 	}
 
-	/** 原子写：tmp + rename；仅 applied 路径调用。 */
-	function persist(groupId: string): void {
+	/** 原子写：tmp + rename；持久化指定板内容（不读缓存）。 */
+	function persist(groupId: string, board: BoardContents): void {
 		const path = boardFile(groupId);
-		const board = loadBoard(groupId);
 		const payload: Record<string, BoardNote[]> = {};
 		for (const [sender, notes] of board) {
 			payload[sender] = notes.map((note) => ({ id: note.id, content: note.content }));
 		}
 		const tmp = join(boardDir, `.${randomUUID()}.tmp`);
-		writeFileSync(tmp, JSON.stringify(payload), "utf8");
-		renameSync(tmp, path);
+		writeFileAtomic(tmp, JSON.stringify(payload));
+		renameFileAtomic(tmp, path);
+	}
+
+	/**
+	 * copy-on-write 提交（PR #116 review F2：缓存修改不得先于持久化）：
+	 * 构造下一状态（不触碰缓存数组）→ 原子写成功 → 才替换缓存。
+	 * persist 抛错时缓存保持旧态，与磁盘一致（客户端收不到成功、board_query
+	 * 也看不到新态——消除内存/磁盘分叉）。
+	 */
+	function commit(groupId: string, sender: string, nextNotes: BoardNote[]): void {
+		const board = loadBoard(groupId);
+		const next = new Map(board);
+		next.set(sender, nextNotes);
+		persist(groupId, next);
+		cache.set(groupId, next);
 	}
 
 	function boardOf(groupId: string, sender: string): BoardNote[] {
@@ -186,9 +205,16 @@ export function createBoardStore(deps: BoardStoreDependencies): BoardStore {
 				if ([...(note.content as string)].length > maxNoteLength) {
 					return { status: "rejected", code: "note_length_exceeded" };
 				}
-				existing.content = note.content as string;
-				persist(groupId);
-				return { status: "applied", note: { id: existing.id, content: existing.content } };
+				// F5 边缘（文档明示，行为不改）：edit 传空串 content = 落空条
+				// （与「update 不带 content = note_unchanged」不同构——按 PM 裁决
+				// 仅注释留痕，如后续收紧在此改 note_unchanged 即可）。
+				commit(
+					groupId,
+					sender,
+					notes.map((n) => (n.id === note.id ? { id: n.id, content: note.content as string } : n)),
+				);
+				// COW：响应回带新内容（existing 是旧缓存对象，不得引用）。
+				return { status: "applied", note: { id: existing.id, content: note.content as string } };
 			}
 			// 新贴：无内容可贴（undefined 或空串）= 无变化（schema 允许缺省，业务语义幂等）。
 			if (note?.content === undefined || note.content === "") {
@@ -201,8 +227,7 @@ export function createBoardStore(deps: BoardStoreDependencies): BoardStore {
 				return { status: "rejected", code: "max_notes_exceeded" };
 			}
 			const id = randomUUID();
-			notes.push({ id, content: note.content });
-			persist(groupId);
+			commit(groupId, sender, [...notes, { id, content: note.content }]);
 			return { status: "applied", note: { id, content: note.content } };
 		}
 		if (action === "remove") {
@@ -210,16 +235,18 @@ export function createBoardStore(deps: BoardStoreDependencies): BoardStore {
 			if (index === -1) {
 				return { status: "noop", code: "note_not_found" };
 			}
-			notes.splice(index, 1);
-			persist(groupId);
+			commit(
+				groupId,
+				sender,
+				notes.filter((n) => n.id !== note?.id),
+			);
 			return { status: "applied" };
 		}
 		// clear
 		if (notes.length === 0) {
 			return { status: "noop", code: "board_empty" };
 		}
-		notes.length = 0;
-		persist(groupId);
+		commit(groupId, sender, []);
 		return { status: "applied" };
 	}
 

@@ -43,6 +43,26 @@ describe("board codec（B1，白板模型 #114）", () => {
 			expect(() => decodeClient(encodeMessage({ type: "board_write", action: "frobnicate" }))).toThrow();
 		});
 
+		// PR #116 review（F1，2026-08-04）：跨字段契约 fail-close——按 action 判别
+		// 的非法组合在 codec 层即拒（不再落业务 no-op）。
+		describe("按 action 判别的不变量（PR #116 F1）", () => {
+			it("remove 必须带 id：无 id 的 remove 被拒", () => {
+				expect(() => decodeClient(encodeMessage({ type: "board_write", action: "remove" }))).toThrow();
+			});
+
+			it("remove 禁止携带 content（定向撕条只按 id）", () => {
+				expect(() =>
+					decodeClient(encodeMessage({ type: "board_write", action: "remove", note: { id: "n1", content: "内容" } })),
+				).toThrow();
+			});
+
+			it("clear 禁止携带 note", () => {
+				expect(() =>
+					decodeClient(encodeMessage({ type: "board_write", action: "clear", note: { id: "n1" } })),
+				).toThrow();
+			});
+		});
+
 		it("额外字段被拒（closed schema）", () => {
 			expect(() => decodeClient(encodeMessage({ type: "board_write", action: "clear", actor: "A" }))).toThrow();
 		});
@@ -219,6 +239,24 @@ describe("board codec（B1，白板模型 #114）", () => {
 					}),
 				),
 			).toThrow();
+		});
+
+		// PR #116 review（F3，2026-08-04）：board_update 判别 union——
+		// add/update/remove 必带 note、clear 禁 note。
+		describe("按 action 判别的不变量（PR #116 F3）", () => {
+			it("add/update/remove 必须携带 note：缺 note 被拒", () => {
+				for (const action of ["add", "update", "remove"]) {
+					expect(() => decodeServer(encodeMessage({ type: "board_update", actor: "A", action }))).toThrow();
+				}
+			});
+
+			it("clear 禁止携带 note", () => {
+				expect(() =>
+					decodeServer(
+						encodeMessage({ type: "board_update", actor: "A", action: "clear", note: { id: "n1", content: "x" } }),
+					),
+				).toThrow();
+			});
 		});
 	});
 });

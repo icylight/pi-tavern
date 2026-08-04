@@ -75,7 +75,12 @@ export async function createNewRuntime(
 		groupMaxMessages: configMaxMessages,
 	});
 	// 白板模型（#114，ADR-0007 契约④）：按项目装配 store（boards/<groupId>.json）。
-	const boardStore = createBoardStore({ boardDir: getGroupChatBoardDirectory(options.agentDir, cwd) });
+	// F4：白板额度透传（未配置 = undefined → store 默认 5/140）。
+	const boardStore = createBoardStore({
+		boardDir: getGroupChatBoardDirectory(options.agentDir, cwd),
+		...(options.boardMaxNotes !== undefined ? { maxNotesPerBoard: options.boardMaxNotes } : {}),
+		...(options.boardMaxNoteLength !== undefined ? { maxNoteLength: options.boardMaxNoteLength } : {}),
+	});
 	const sessionStore = SessionStore.create(
 		SessionManager,
 		cwd,
@@ -239,7 +244,12 @@ export async function resumeRuntime(
 		startedAt,
 	};
 	// 白板模型（#114）：resume 同样按项目装配 store（恢复读取 = 懒加载读 boards 文件）。
-	const boardStore = createBoardStore({ boardDir: getGroupChatBoardDirectory(options.agentDir, cwd) });
+	// F4：白板额度透传（未配置 = undefined → store 默认 5/140）。
+	const boardStore = createBoardStore({
+		boardDir: getGroupChatBoardDirectory(options.agentDir, cwd),
+		...(options.boardMaxNotes !== undefined ? { maxNotesPerBoard: options.boardMaxNotes } : {}),
+		...(options.boardMaxNoteLength !== undefined ? { maxNoteLength: options.boardMaxNoteLength } : {}),
+	});
 	const runtime = new CreatorRuntime(
 		webSocketServer,
 		sessionStore,

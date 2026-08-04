@@ -93,15 +93,16 @@ export const ClientMessageSchema = Type.Union([
 		},
 		{ additionalProperties: false },
 	),
-	// 白板模型（#114）：board_write = 贴/改/撕/清。set 无 id = 新贴（store 分配稳定条 id）；
-	// set 带 id = 改条（edit）；remove 带 id；clear 无参。不带 actor 字段——服务端从
-	// session 推导，操作永远作用于发送者自己的白板（actor 限定本人板，ADR-0007 §3）。
-	// 跨字段约束（remove 必带 id、set 新贴必带 content 等）由 pipeline 层校验（B3）。
+	// 白板模型（#114）：board_write = 贴/改/撕/清（PR #116 review 修正：按 action
+	// 判别 union，跨字段不变量 schema 层 fail-close——F1）。不带 actor 字段——
+	// 服务端从 session 推导，操作永远作用于发送者自己的白板（actor 限定本人板）。
+	// set：note 全可选——「update 不带 content = note_unchanged」是契约定义的业务
+	// 幂等（09:26 定案），schema 不得灭掉该告知场景；空串由 store 拦为 noop。
 	Type.Object(
 		{
 			id: RequestIdSchema,
 			type: Type.Literal("board_write"),
-			action: Type.Union([Type.Literal("set"), Type.Literal("remove"), Type.Literal("clear")]),
+			action: Type.Literal("set"),
 			note: Type.Optional(
 				Type.Object(
 					{
@@ -111,6 +112,31 @@ export const ClientMessageSchema = Type.Union([
 					{ additionalProperties: false },
 				),
 			),
+		},
+		{ additionalProperties: false },
+	),
+	// remove：必带 id 定向（无 id = 协议级拒绝而非业务 no-op——P1 fail-close）；
+	// content 禁止（被撕条完整内容由服务端在 board_update 广播中回带）。
+	Type.Object(
+		{
+			id: RequestIdSchema,
+			type: Type.Literal("board_write"),
+			action: Type.Literal("remove"),
+			note: Type.Object(
+				{
+					id: Type.String(),
+				},
+				{ additionalProperties: false },
+			),
+		},
+		{ additionalProperties: false },
+	),
+	// clear：禁携带 note（清空语义无目标条）。
+	Type.Object(
+		{
+			id: RequestIdSchema,
+			type: Type.Literal("board_write"),
+			action: Type.Literal("clear"),
 		},
 		{ additionalProperties: false },
 	),
@@ -528,16 +554,28 @@ export const BoardQueryResponseSchema = Type.Object(
  * actor + action 四值（set 映射：新贴→add、改条→update）；remove 携带被撕条内容
  * （增量摘要含删除标记，锚点 2 支撑）；clear 无 note。无 sequence 字段——不在消息流里、
  * 无消息流水位语义；字符侧不得视为水位（B4 接线约束）。
+ * PR #116 review 修正（F3）：按 action 判别 union——add/update/remove 必带 note
+ * （完整条 {id, content}），clear 禁 note；非法组合 codec 层即拒。
  */
-export const BoardUpdateSchema = Type.Object(
-	{
-		type: Type.Literal("board_update"),
-		actor: Type.String(),
-		action: Type.Union([Type.Literal("add"), Type.Literal("update"), Type.Literal("remove"), Type.Literal("clear")]),
-		note: Type.Optional(BoardNoteSchema),
-	},
-	{ additionalProperties: false },
-);
+export const BoardUpdateSchema = Type.Union([
+	Type.Object(
+		{
+			type: Type.Literal("board_update"),
+			actor: Type.String(),
+			action: Type.Union([Type.Literal("add"), Type.Literal("update"), Type.Literal("remove")]),
+			note: BoardNoteSchema,
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			type: Type.Literal("board_update"),
+			actor: Type.String(),
+			action: Type.Literal("clear"),
+		},
+		{ additionalProperties: false },
+	),
+]);
 
 export const ServerMessageSchema = Type.Union([
 	JoinGroupChatResponseSchema,

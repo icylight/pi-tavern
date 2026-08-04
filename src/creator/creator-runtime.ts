@@ -34,6 +34,9 @@ export interface StartNewCreatorRuntimeOptions {
 	cwd: string;
 	agentDir: string;
 	configMaxMessages?: number;
+	/** 白板模型（#114）：白板额度（缺省 = store 默认 5/140，PR #116 F4）。 */
+	boardMaxNotes?: number;
+	boardMaxNoteLength?: number;
 	characters?: CharacterCard[];
 	/**
 	 * #25：角色清单按需刷新（懒刷新）——join/claim/query 前重扫磁盘。
@@ -48,6 +51,9 @@ export interface ResumeCreatorRuntimeOptions {
 	agentDir: string;
 	sessionPath: string;
 	configMaxMessages?: number;
+	/** 白板模型（#114）：白板额度（缺省 = store 默认 5/140，PR #116 F4）。 */
+	boardMaxNotes?: number;
+	boardMaxNoteLength?: number;
 	characters?: CharacterCard[];
 	/** #25：同 StartNewCreatorRuntimeOptions.loadCharacters。 */
 	loadCharacters?: () => Promise<CharacterCard[]>;

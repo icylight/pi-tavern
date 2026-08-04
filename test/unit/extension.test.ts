@@ -274,7 +274,7 @@ describe("PiTavern extension", () => {
 		const { tools, api } = captureTools();
 		piTavern(api as unknown as ExtensionAPI);
 
-		const tool = tools[1];
+		const tool = tools[2];
 		if (!tool) throw new Error("no whoami tool");
 		const result = await tool.execute("call-1", {});
 		expect(result.isError).toBe(true);
