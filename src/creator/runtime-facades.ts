@@ -1,4 +1,3 @@
-import type { DecisionDeclaration } from "../data/decision-store.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
 import { updateActiveDescriptorName } from "../data/discovery/active-descriptor.js";
 import {
@@ -9,7 +8,6 @@ import {
 	setGroupMaxMessages,
 } from "../data/group-chat-state.js";
 import type { SessionStore } from "../data/session-store.js";
-import { DecisionPipeline, type DecisionPipelineResult } from "./creator-pipelines/decision-pipeline.js";
 import { SubmitMessagePipeline } from "./creator-pipelines/submit-message-pipeline.js";
 
 /** 门面 API 访问的骨架窄接口（结构类型；模块不 import CreatorRuntime 类本身）。 */
@@ -20,8 +18,6 @@ export interface RuntimeFacadesHost {
 	activeDescriptorPath: string;
 	persistedCount: { get: () => number; add: (delta: number) => void };
 	submitMessageDeps: ConstructorParameters<typeof SubmitMessagePipeline>[0];
-	/** #107：decision_declare 管线依赖（User Persona 入口复用）。 */
-	decisionDeps: ConstructorParameters<typeof DecisionPipeline>[0];
 	enqueue: <T>(operation: () => T | Promise<T>) => Promise<T>;
 }
 
@@ -109,13 +105,5 @@ export class RuntimeFacades {
 	submitUserPersonaMessage(content: string): Promise<string> {
 		// 请求级管线实例：校验 → 持久化（first-persist/append）→ 提交 → 广播/投影
 		return this.host.enqueue(() => new SubmitMessagePipeline(this.host.submitMessageDeps).runUserPersona(content));
-	}
-
-	/**
-	 * #107：User Persona 决策声明（v1.1「User 关闭 = 最终决定」；替代 closed
-	 * 目标须走此入口——谁决定谁推翻）。
-	 */
-	declareAsUser(decl: Omit<DecisionDeclaration, "decided_by" | "now">): Promise<DecisionPipelineResult> {
-		return this.host.enqueue(() => new DecisionPipeline(this.host.decisionDeps).declareAsUser(decl));
 	}
 }

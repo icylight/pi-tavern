@@ -5,7 +5,7 @@ import type { WebSocketServer } from "ws";
 import type { CharacterCard } from "../config/character-card.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
-import type { DecisionRecordWire, ServerMessage } from "../protocol/messages.js";
+import type { ServerMessage } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 
 /** 私有 globalThis 键，让 reload 后的扩展代码能找到槽位。 */
@@ -41,12 +41,6 @@ export interface CreatorReloadHandoff {
 	characters: CharacterCard[];
 	publicMessages: PublicMessageState[];
 	persistedCount: number;
-	/** #107：决策状态链（reload 接管后原样恢复，C2/T14）。 */
-	decisionRecords: DecisionRecordWire[];
-	/** #107（F4）：决策声明配额计数（reload 不恢复额度——原样传递，防绕过）。 */
-	declareCounts: Map<string, number>;
-	/** 已协商 decision_state_v1 的在线 session；旧 handoff 缺省为空。 */
-	decisionStateSessionIds?: Set<string>;
 
 	bufferedFrames: Map<string, BufferedFrame[]>;
 	bufferingHandlers: Map<string, { message: (data: WebSocket.RawData) => void; close: () => void }>;

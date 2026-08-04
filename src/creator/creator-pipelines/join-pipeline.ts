@@ -9,7 +9,6 @@ type JoinGroupChatMessage = Extract<ClientMessage, { type: "join_group_chat" }>;
 export interface JoinConnectionLike {
 	sessionId: string | null;
 	online: boolean;
-	decisionStateCapable: boolean;
 }
 
 export interface JoinPipelineDependencies {
@@ -47,7 +46,6 @@ export class JoinPipeline {
 
 		// commit：会话归属写入连接上下文（runtime 状态显式读写）
 		connection.sessionId = message.session_id;
-		connection.decisionStateCapable = message.capabilities?.includes("decision_state_v1") ?? false;
 
 		// respond：可用角色快照（排除已预留 + 已在线）
 		this.deps.send(socket, {

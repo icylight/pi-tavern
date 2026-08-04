@@ -63,7 +63,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 				...defaultGroupChatSessionIoDependencies,
 				sessionManager: piSessionManager,
 			}),
-		deleteGroupChatSession: (path, groupChatId) => deleteGroupChatSessionFile(path, undefined, groupChatId),
+		deleteGroupChatSession: (path) => deleteGroupChatSessionFile(path),
 	});
 	registerRenderers(pi);
 	registerTavernTools(pi, ctrl);
