@@ -35,7 +35,7 @@ description: 守护 PiTavern 的需求范围与验收标准，以 docs/acceptanc
 
 ### 工作区纪律（同仓多 session）
 - 动手前先 `git status`：发现他人未提交改动时，不覆盖、不混入自己的产出。
-- **状态确认纪律（2026-08-04 User 指示）**：收到群聊新消息后，先确认仓库状态再行动——`git status` + `git rev-parse HEAD` 确认分支与工作区；引用外部状态（issue 正文、docs、commit）前先核对其**最新版本**（issue 以 GitHub updated_at 为准，docs 以当前工作区内容为准），不基于过期状态发言/裁决/验收（#114 讨论中 Arch/QA 多次读到旧版 issue 正文的教训）。
+- **状态确认纪律（2026-08-04 User 指示）**：收到群聊新消息后，先确认仓库状态再行动——`git status` + `git rev-parse HEAD` 确认分支与工作区；引用外部状态（issue 正文、docs、commit）前先核对其**最新版本**（issue 以 GitHub updated_at 为准，docs 以当前工作区内容为准），不基于过期状态发言/裁决/验收（#114 讨论中 Arch/QA 多次读到旧版 issue 正文的教训）。**引用 issue 统一带 updated_at 时间戳**（2026-08-04 Arch 建议、PM 采纳）：质疑「已改/未改」先报自己读的版本，PM 更新后报时间戳。
 - 各角色只产出自己属主范围内的文件改动到工作区（不自行 git add/commit）；git 写操作（迁分支/commit/push/PR/issue）统一由 PM 执行（2026-08-02 User 指示）；git 只读（status/log/diff）保留用于排查。
 - 需要改动非属主文件：先在群聊声明并等属主确认再动；紧急修复事后补声明。
 
