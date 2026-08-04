@@ -545,10 +545,18 @@ export class CharacterRuntime {
 	 * 返回响应 data（四态：changed:true 带/不带 note；changed:false 带告知/拒绝码）。
 	 * 群聊静默：changed:false 不广播 board_update（接口层告知）。
 	 */
+	/**
+	 * 白板写入（#114，F11 收窄）：判别 union 类型——set 带全可选 note（业务幂等
+	 * note_unchanged 保留）、remove 必带 {id}（content 禁）、clear 无参。非法组合
+	 * 在调用侧（工具层/测试）即拒，不发 wire——避免服务端 fail-close 断连。
+	 */
 	async boardWrite(
-		action: "set" | "remove" | "clear",
-		note?: { id?: string; content?: string },
+		...args:
+			| [action: "set", note?: { id?: string; content?: string }]
+			| [action: "remove", note: { id: string }]
+			| [action: "clear"]
 	): Promise<BoardWriteDataWire> {
+		const [action, note] = args;
 		const response = await this.request({
 			type: "board_write",
 			action,

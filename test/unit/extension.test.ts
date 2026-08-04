@@ -44,7 +44,7 @@ type CapturedTool = {
 	name: string;
 	execute: (
 		id: string,
-		params: { content?: string },
+		params: Record<string, unknown>,
 	) => Promise<{
 		content: Array<{ type: string; text: string }>;
 		details?: Record<string, unknown>;
@@ -189,6 +189,7 @@ function createMockCharacterRuntime(speakResult: object): CharacterRuntime {
 		getGroupChatState: vi.fn(),
 		markIncrementPending: vi.fn(),
 		speak: vi.fn(async () => speakResult),
+		boardWrite: vi.fn(),
 	} as unknown as CharacterRuntime;
 }
 
@@ -279,6 +280,31 @@ describe("PiTavern extension", () => {
 		const result = await tool.execute("call-1", {});
 		expect(result.isError).toBe(true);
 		expect(result.content[0]?.text).toContain("not currently joined");
+	});
+
+	it("tavern_board 工具参数判别：非法组合工具层即拒——不发 wire 请求、不断连（PR #116 F11）", async () => {
+		const runtime = createMockCharacterRuntime({});
+		const controller = await createCharacterControllerWithRuntime(runtime);
+		const { tools, api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI, controller);
+
+		const tool = tools[1];
+		if (!tool) throw new Error("no tavern_board tool");
+
+		// 非法组合（服务端判别 union 必拒）：remove 缺 id / remove 带 content / clear 带 note
+		const invalid = [
+			{ action: "remove" },
+			{ action: "remove", note: { content: "x" } },
+			{ action: "clear", note: { id: "n1" } },
+		];
+		for (const params of invalid) {
+			const result = await tool.execute("call-f11", params);
+			expect(result.isError).toBe(true);
+		}
+
+		// 错误在工具层拦截：不发 wire 请求（boardWrite 未被调用）、不断连（close 未被调用）
+		expect(runtime.boardWrite).not.toHaveBeenCalled();
+		expect(runtime.close).not.toHaveBeenCalled();
 	});
 
 	it("tavern_speak returns published result when character speaks successfully", async () => {
