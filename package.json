@@ -1,9 +1,28 @@
 {
 	"name": "pi-tavern",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Local group chat for independent pi coding agent sessions",
 	"license": "MIT",
 	"type": "module",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/icylight/pi-tavern.git"
+	},
+	"homepage": "https://github.com/icylight/pi-tavern#readme",
+	"bugs": {
+		"url": "https://github.com/icylight/pi-tavern/issues"
+	},
+	"files": [
+		"src",
+		"README.md",
+		"README.en.md",
+		"CHANGELOG.md",
+		"LICENSE"
+	],
+	"publishConfig": {
+		"access": "public",
+		"registry": "https://registry.npmjs.org/"
+	},
 	"engines": {
 		"node": ">=22.19.0"
 	},
