@@ -107,7 +107,6 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 			send: (socket, message) => broadcastHub.send(socket, message),
 			sendFailure: (socket, id, command, reason) => broadcastHub.sendFailure(socket, id, command, reason),
 			broadcast: (message) => broadcastHub.broadcast(message),
-			broadcastGroupChatUpdate: () => broadcastHub.broadcastGroupChatUpdate(),
 			onMembersChanged: () => host.readOnMembersChanged()?.(),
 		},
 		queryDeps: {
@@ -118,7 +117,6 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 			getGroupChatStateMessage: (requestingSessionId) => broadcastHub.getGroupChatStateMessage(requestingSessionId),
 			send: (socket, message) => broadcastHub.send(socket, message),
 			sendFailure: (socket, id, command, reason) => broadcastHub.sendFailure(socket, id, command, reason),
-			broadcastGroupChatUpdate: () => broadcastHub.broadcastGroupChatUpdate(),
 			onMembersChanged: () => host.readOnMembersChanged()?.(),
 		},
 		boardDeps: {

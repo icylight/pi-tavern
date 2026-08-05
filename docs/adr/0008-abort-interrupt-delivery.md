@@ -19,6 +19,8 @@ ADR-0004 确立忙态投递走 pi steer 通道（工具间隙秒级可见、绝�
 
 忙态 + `group_chat_update` 到达 → 先标记未读挂起 → **立即 `session.abort()`**（主触发，无 steer 中间步）→ 等待 `agent_settled` → 按游标拉全未读 → followUp + triggerTurn 唤醒重开。`ctx.isIdle()` 在 abort 前重查 pi 真实状态：若 run 已自然结束、abort 未发出，则立即拉取并由 pi 当前状态触发新 run。重开上下文 = 原上下文 + 全部未读，模型从头生成即见新消息。
 
+触发面收窄（2026-08-05 User 裁决）：`group_chat_update` 只由公共消息成功持久化触发；白板继续使用独立 `board_update`，成员/流式状态不复用该通道。发送者自身回显若被 preview 完整覆盖则直接过滤；窗口有缺口时保守拉取并在正文门闸过滤自身消息。
+
 **steer 退出忙态主链路**（实现形态对齐，2026-08-05 评审修正）：消息在持久化流中，重开 run 按游标拉全未读即可，不需要先经 steer 入队。abort 与 settle 之间禁止拉取并乐观推进游标：上游 abort 会直接结束 agent-loop，不消费其间新入队的 steer；提前推进会让 settle 补拉看不到未读，形成丢失唤醒。
 
 ### 2. 无保护参数

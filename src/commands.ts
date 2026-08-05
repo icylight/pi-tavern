@@ -392,8 +392,8 @@ export function registerCommands(
 					return;
 				}
 				// v0.5 测试缝（QA 红测依赖）：零 LLM 环境下模拟完整生命周期，
-				// 而不是只伪造 isAgentActive。abort 回调会确定性地产生 settle，
-				// 从而验收 abort → settle → followUp 重开顺序；超时则自然 settle。
+				// 而不是只伪造 isAgentActive。窗口内 abort 只记录打断请求，窗口到期
+				// 统一 settle，使验收可构造多条 update 密集打断同一 run，再验证一次拉全。
 				const runtime = state.runtime;
 				const previousAbortAgent = runtime.abortAgent;
 				let finished = false;
@@ -408,7 +408,6 @@ export function registerCommands(
 					runtime.settleRun();
 				};
 				const abortForTest = (): boolean => {
-					finishBusy();
 					return true;
 				};
 				runtime.isAgentActive = true;

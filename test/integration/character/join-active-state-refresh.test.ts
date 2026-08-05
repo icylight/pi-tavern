@@ -82,7 +82,7 @@ describe("A6: join-time active state refresh (#21 成员数未知窗口)", () =>
 		await runtime.close();
 	});
 
-	it("sees the plan-A membership broadcast on its connection (方案 A 广播到达，完整刷新链路落 acceptance)", async () => {
+	it("receives character_joined without a group_chat_update membership wake-up", async () => {
 		const { creator, character } = await startCreator([
 			{ path: "architect.md", content: "---\nname: Architect\ndescription: Architecture\n---\nArchitect prompt" },
 			{ path: "developer.md", content: "---\nname: Developer\ndescription: Writes code\n---\nDeveloper prompt" },
@@ -92,8 +92,7 @@ describe("A6: join-time active state refresh (#21 成员数未知窗口)", () =>
 		await vi.waitFor(() => expect(runtime.lastGroupChatState).not.toBeNull(), { timeout: 2000 });
 		const messagesBefore = runtime.receivedMessages.length;
 
-		// 第二个成员经真实 WS 流程加入：creator 广播
-		// character_joined + group_chat_update (方案 A) to every member.
+		// 第二个成员经真实 WS 流程加入：creator 只广播 character_joined。
 		const second = new WebSocket(
 			`ws://127.0.0.1:${creator.activeDescriptor.port}/${encodeURIComponent(creator.state.groupChat.groupChatId)}/${encodeURIComponent(creator.activeDescriptor.instanceId)}`,
 		);
@@ -105,22 +104,13 @@ describe("A6: join-time active state refresh (#21 成员数未知窗口)", () =>
 		second.send(JSON.stringify({ id: "2", type: "claim_character", character_id: "characters/developer.md" }));
 		second.send(JSON.stringify({ id: "3", type: "character_ready" }));
 
-		// 广播到达既有角色连接：
-		// 成员变化通知通道在无消息时也能工作。
+		// 成员事件仍到达既有角色连接，但不再复用公共消息水位通知。
 		await vi.waitFor(
 			() =>
-				expect(
-					runtime.receivedMessages
-						.slice(messagesBefore)
-						.some((m) => m.type === "group_chat_update" && m.latest_sequence === 0),
-				).toBe(true),
+				expect(runtime.receivedMessages.slice(messagesBefore).some((m) => m.type === "character_joined")).toBe(true),
 			{ timeout: 2000 },
 		);
-
-		// 注：广播触发刷新链路（GroupChatInput 处理器 →
-		// refreshGroupChatState → widget 成员数）需要真实 pi
-		// 上下文（groupChatInput 仅在 pi 存在时挂载）——该
-		// 全链路在验收层覆盖（A4 方案 A 刷新）。
+		expect(runtime.receivedMessages.slice(messagesBefore).some((m) => m.type === "group_chat_update")).toBe(false);
 		second.terminate();
 		await runtime.close();
 	});

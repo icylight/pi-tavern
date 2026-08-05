@@ -322,9 +322,9 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * ISSUE-014/#14 / #21：刷新缓存的群聊状态快照。
-	 * 即使没有新消息到达也保持 TUI widget 最新（成员变化、流式开关、
-	 * 举手）。失败仅影响展示。
+	 * ISSUE-014/#14 / #21：按需刷新缓存的群聊状态快照。v0.5 收窄后成员/
+	 * 流式变化不再广播 group_chat_update；调用点只在消息边界或显式交互刷新，
+	 * 无消息期间不承诺 Character widget 实时。失败仅影响展示。
 	 */
 	async refreshGroupChatState(): Promise<void> {
 		try {
@@ -344,13 +344,8 @@ export class CharacterRuntime {
 		}
 		this.lastGroupChatState = response.data;
 		this.onStateSnapshot?.(response.data);
-		// #77 候选①自愈 + #83 收敛修正（User 2026-08-03 根因）：补偿重发
-		// 保留自愈价值（半开连接点亮丢失盲区），但**仅当服务端快照中本角色
-		// is_streaming == false**（点亮确实丢失）且本地 run 仍活跃时补发一次。
-		// 原无条件补发 + creator 无条件广播（query-pipeline runUpdateCharacterState）
-		// 构成自激循环：updateStreaming(true) → group_chat_update →
-		// getGroupChatState → updateStreaming(true) → …，风暴致 5s 请求超时
-		// failConnection 掉线。状态一致（服务端已 true）后不再补发——循环终止。
+		// 半开连接点亮丢失自愈：仅当快照中本角色仍为 false 且本地 run 活跃
+		// 时补发一次。状态翻转不再广播 group_chat_update，因此不会回接输入链。
 		if (this.isAgentActive) {
 			const self = response.data.online_characters?.find((c) => c.is_self);
 			if (self && !self.is_streaming) {

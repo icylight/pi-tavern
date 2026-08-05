@@ -26,14 +26,13 @@ export interface QueryPipelineDependencies {
 		command: "get_group_chat_state" | "get_message_history" | "fetch_messages_since" | "get_chat_history_file",
 		reason: string,
 	) => void;
-	broadcastGroupChatUpdate: () => void;
 	onMembersChanged: (() => void) | undefined;
 }
 
 /**
  * 查询族门面（短流程：校验 → 快照读 → 响应，≤3 阶段无共享中间态，粒度约束
  * 不建管线）。五个协议消息各对应一个方法；update_character_state 为状态翻转
- * 门面（校验 → 提交 → 广播通知）。只读/显式写 runtime 会话状态（决策 7）。
+ * 门面（校验 → 提交）。只读/显式写 runtime 会话状态（决策 7）。
  */
 export class QueryPipeline {
 	constructor(private readonly deps: QueryPipelineDependencies) {}
@@ -174,18 +173,11 @@ export class QueryPipeline {
 			return;
 		}
 		const onlineCharacter = this.deps.state.onlineCharacters.get(connection.sessionId);
-		// #83（User 2026-08-03 根因）：状态未变化（true→true / false→false）
-		// 直接返回——原实现无条件广播，与 character 侧 getGroupChatState 补偿
-		// 重发构成自激循环（updateStreaming → 广播 → 拉状态 → updateStreaming），
-		// 风暴致 5s 请求超时 failConnection 掉线。状态翻转才广播（TUI 实时性
-		// 不受影响：翻转时仍广播）。
+		// 状态未变化（true→true / false→false）直接返回。
 		if (!onlineCharacter || onlineCharacter.isStreaming === isStreaming) {
 			return;
 		}
 		onlineCharacter.isStreaming = isStreaming;
 		this.deps.onMembersChanged?.();
-		// ISSUE-014/#14（方案 A）：流式翻转是最频繁的成员状态变化——广播更新
-		// 通知使每个角色刷新快照（widget「正在发言」保持实时）。
-		this.deps.broadcastGroupChatUpdate();
 	}
 }

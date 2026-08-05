@@ -108,8 +108,13 @@ export class GroupChatInput {
 				// 闲态：首条标记启动 1s 固定窗口（窗口内并入不重置），到期 1 次触发
 				// 拉全；忙态：置忙态标记，settle 后立即触发（零中间注入红线）。
 				// preview 仅供 TUI（同一数据源，内容不会分叉）。
-				// ISSUE-014/#14（方案 A）：成员/流式变化也走此通道——刷新缓存快照，
-				// 即使拉取结果为空 widget 也保持最新。
+				// v0.5 收窄：group_chat_update 只表示公共消息水位；白板使用独立
+				// board_update，成员/流式状态不再触发本通知。发送者仍会收到广播，
+				// 但完整 preview 足以证明新增窗口全是自身消息时不得 abort/拉取。
+				const cursor = this.runtime.loadCursor() ?? 0;
+				if (message.latest_sequence <= cursor || this.isSelfOnlyUpdate(message, cursor)) {
+					return;
+				}
 				if (this.runtime.isAgentActive) {
 					// v0.5（abort-interrupt-delivery，User 2026-08-04 拍板）：忙态消息到达即 abort——
 					// 先置挂起标记，再终止在途生成；agent_settled 后按游标拉全部未读，
@@ -377,6 +382,27 @@ export class GroupChatInput {
 
 	private isOwnEcho(message: ServerMessage & { type: "public_message" }): boolean {
 		return message.sender.type === "character" && message.sender.character_id === this.runtime.character.characterId;
+	}
+
+	/**
+	 * 自身公共消息回显过滤。只有 preview 完整覆盖 cursor 后的连续窗口，且窗口内
+	 * 全部消息均由自己发送时才跳过；preview 有缺口时仍拉取，避免漏掉被截出窗口
+	 * 的他人消息。
+	 */
+	private isSelfOnlyUpdate(message: Extract<ServerMessage, { type: "group_chat_update" }>, cursor: number): boolean {
+		const unseen = message.preview_messages
+			.filter((preview) => preview.sequence > cursor)
+			.sort((a, b) => a.sequence - b.sequence);
+		const expectedCount = message.latest_sequence - cursor;
+		if (unseen.length !== expectedCount) {
+			return false;
+		}
+		return unseen.every(
+			(preview, index) =>
+				preview.sequence === cursor + index + 1 &&
+				preview.sender.type === "character" &&
+				preview.sender.character_id === this.runtime.character.characterId,
+		);
 	}
 
 	private resetJoinDebounce(): void {

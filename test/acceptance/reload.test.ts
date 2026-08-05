@@ -70,9 +70,8 @@ describe("acceptance: reload keeps confirmed connections and identity", () => {
 		// 一个裸 WebSocket 成员在 reload 期间保持已确认连接：
 		// 其 socket 保持打开并持续接收广播。
 		const member = await joinCharacterWs(descriptor, "ws-session-reload", "characters/reviewer.md");
-		// ISSUE-014/#14 (方案 A): the join itself broadcasts a
-		// group_chat_update——下方谓词按内容匹配 reload 后的
-		// 通知，而非加入时的通知。
+		// 成员加入只更新成员事件与 widget，不会产生
+		// group_chat_update；reload 后的公开消息仍应正常到达。
 		await creator.waitFor(
 			(e) =>
 				e.type === "extension_ui_request" &&

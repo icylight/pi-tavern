@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { PiProcess, waitForDescriptor } from "./pi-process.js";
 
@@ -206,11 +206,44 @@ describe("acceptance: A' v0.5——忙态入队即 abort 重开（可见性 + li
 
 		// ① 忙态 + 连续 5 条消息（密集打断场景）——先等忙态生效，逐条确认发布。
 		await awaitBusy(character, 8000);
+		const checkpoint = character.checkpoint();
 		for (let i = 0; i < 5; i += 1) {
 			await publishMessage(creator, `T2-storm-${i}`);
 		}
 
-		// ② 风暴结束后 agent 最终空闲、队列排空（每轮读取新状态，不能复用旧快照）。
+		// 五次 update 均在同一 busy 窗口内请求 abort；窗口 settle 后必须一次拉全。
+		await vi.waitFor(() => expect(injectLines(character).filter((line) => line.includes("abort=1"))).toHaveLength(5), {
+			timeout: 15_000,
+		});
+		const deliveredBatch = await character.waitForAfter(
+			checkpoint,
+			(e) =>
+				e.type === "extension_ui_request" &&
+				e.method === "notify" &&
+				typeof e.message === "string" &&
+				e.message.includes("latest_seq=5") &&
+				e.message.includes("count=5"),
+			15_000,
+		);
+		expect(deliveredBatch).toBeDefined();
+
+		const messagesId = await character.send({ type: "get_messages" });
+		const messagesResponse = await character.waitFor(
+			(e) => e.id === messagesId && e.type === "response" && e.command === "get_messages",
+			10_000,
+		);
+		const sessionMessages =
+			(messagesResponse.data as { messages?: Array<Record<string, unknown>> } | undefined)?.messages ?? [];
+		const deliveredContents = sessionMessages.flatMap((message) => {
+			if (message.customType !== "pi-tavern.group-chat-input") return [];
+			const details = message.details as { events?: Array<{ type?: string; content?: string }> } | undefined;
+			return (details?.events ?? []).filter((event) => event.type === "public_message").map((event) => event.content);
+		});
+		for (let i = 0; i < 5; i += 1) {
+			expect(deliveredContents.filter((content) => content === `T2-storm-${i}`)).toHaveLength(1);
+		}
+
+		// 风暴内容已全部进入上下文后，再验证 agent 最终空闲、队列排空。
 		const deadline = Date.now() + 15_000;
 		let pending: number | undefined;
 		let isStreaming: boolean | undefined;

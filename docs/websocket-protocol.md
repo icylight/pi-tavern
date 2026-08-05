@@ -833,7 +833,7 @@ User Persona 消息：
 
 #### `group_chat_update`（广播通知形态）
 
-公开消息的广播以通知形式发出，不再逐条推送完整消息；成员/流式状态变化（成员加入/离开、`is_streaming` 翻转、举手）同样复用此通道唤醒角色刷新快照（方案 A，ISSUE-014）：
+公开消息的广播以通知形式发出，不再逐条推送完整消息。v0.5 功能收窄后，本通知只由成功持久化的公开消息触发；白板使用独立 `board_update`，成员与流式状态变化不触发本通知：
 
 ```json
 {
@@ -844,10 +844,11 @@ User Persona 消息：
 }
 ```
 
-- `latest_sequence`：当前最新公开消息序号；角色据此检测缺口（`latest_sequence ≠ 本地游标 + 1` 即应拉取补齐）。无任何公开消息时（群聊刚创建/成员变化先于首条消息）为 `0`、`preview_messages` 为空数组。
+- `latest_sequence`：当前最新公开消息序号；角色据此检测缺口（`latest_sequence ≠ 本地游标 + 1` 即应拉取补齐）。
 - `preview_messages`：最近 3 条公开消息（微信通知形态），与拉取路径同源（同一 `publicMessages` 数据）。
 - 角色在 run 边界（闲态 1s 聚合窗口 / 忙态 settle 后立即）按本 Session 持久化游标执行 `fetch_messages_since` 拉取全部未读（N→1 单次投递），投递仍走 followUp（不打断当前 run）；同时刷新本地群聊状态快照（`get_group_chat_state`）。
-- **双触发语义（方案 A，ISSUE-014）**：除消息变更（公开消息发布）外，成员加入/离开、`is_streaming` 翻转、举手状态变化也会广播 `group_chat_update`。非空群聊中两类触发在负载上不可区分（成员广播同样携带最新 `latest_sequence` 与预览）——这是有意的通道复用（协议格式零变更），消费端依赖「每次 update 拉增量（按序号幂等）+ 刷新快照」自洽，不得按广播触发源或到达顺序作精确断言（测试宜用谓词式断言）。
+- Character 发送者仍接收自己的公开消息通知。消费端在 preview 完整覆盖未读窗口且全部为自身消息时直接过滤，不触发拉取或 abort；preview 有缺口时保守拉取，避免漏掉更早的他人消息。
+- 成员与流式状态继续保存在 creator 权威快照中；Character 通过消息投递边界或显式状态查询取得，不保证无消息时实时刷新。
 
 #### `fetch_messages_since`（增量拉取命令）
 

@@ -57,11 +57,11 @@ function aPublicMessage(senderType: "user_persona", overrides?: Partial<PublicMe
 	} as PublicMessage;
 }
 
-function aGroupChatUpdate(latestSequence: number): ServerMessage {
+function aGroupChatUpdate(latestSequence: number, previewMessages: PublicMessage[] = []): ServerMessage {
 	return {
 		type: "group_chat_update",
 		latest_sequence: latestSequence,
-		preview_messages: [],
+		preview_messages: previewMessages,
 		total_messages: latestSequence,
 	} as unknown as ServerMessage;
 }
@@ -88,6 +88,7 @@ describe("GroupChatInput abort-interrupt-delivery (v0.5)", () => {
 		runtime.isAgentActive = true;
 		const abortAgent = vi.fn(() => true);
 		runtime.abortAgent = abortAgent;
+		const fetchMessagesSince = vi.spyOn(runtime, "fetchMessagesSince");
 
 		const pi = createMockPi();
 		const input = new GroupChatInput(runtime, pi);
@@ -99,7 +100,7 @@ describe("GroupChatInput abort-interrupt-delivery (v0.5)", () => {
 		await vi.advanceTimersByTimeAsync(0);
 
 		expect(pi.sendMessage).not.toHaveBeenCalled();
-		expect(runtime.fetchMessagesSince).not.toHaveBeenCalled();
+		expect(fetchMessagesSince).not.toHaveBeenCalled();
 		expect(runtime.saveCursor).not.toHaveBeenCalled();
 		expect(abortAgent).toHaveBeenCalledTimes(1);
 
@@ -150,6 +151,48 @@ describe("GroupChatInput abort-interrupt-delivery (v0.5)", () => {
 		// 空闲不打断（口径边界：idle 不 abort）。
 		expect(abortAgent).not.toHaveBeenCalled();
 
+		input.stop();
+	});
+
+	it("ignores a state-only update whose waterline is already at the cursor", async () => {
+		const runtime = createMockRuntime();
+		runtime.loadCursor = vi.fn(() => 4);
+		runtime.isAgentActive = true;
+		const abortAgent = vi.fn(() => true);
+		runtime.abortAgent = abortAgent;
+		const fetchMessagesSince = vi.spyOn(runtime, "fetchMessagesSince");
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+		input.start();
+
+		runtime.onEnvironmentMessage?.(aGroupChatUpdate(4));
+
+		expect(abortAgent).not.toHaveBeenCalled();
+		expect(fetchMessagesSince).not.toHaveBeenCalled();
+		expect(pi.sendMessage).not.toHaveBeenCalled();
+		input.stop();
+	});
+
+	it("ignores a fully covered self-only update without aborting the active run", async () => {
+		const runtime = createMockRuntime({ characterId: "dev" });
+		runtime.loadCursor = vi.fn(() => 1);
+		runtime.isAgentActive = true;
+		const abortAgent = vi.fn(() => true);
+		runtime.abortAgent = abortAgent;
+		const fetchMessagesSince = vi.spyOn(runtime, "fetchMessagesSince");
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+		input.start();
+		const ownMessage = aPublicMessage("user_persona", {
+			sequence: 2,
+			sender: { type: "character", character_id: "dev", name: "Developer" },
+		});
+
+		runtime.onEnvironmentMessage?.(aGroupChatUpdate(2, [ownMessage]));
+
+		expect(abortAgent).not.toHaveBeenCalled();
+		expect(fetchMessagesSince).not.toHaveBeenCalled();
+		expect(pi.sendMessage).not.toHaveBeenCalled();
 		input.stop();
 	});
 
