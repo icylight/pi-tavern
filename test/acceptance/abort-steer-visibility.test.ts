@@ -10,26 +10,25 @@ import { PiProcess, waitForDescriptor } from "./pi-process.js";
  * A' abort 打断投递 v0.5——红钉先行（QA 属主，2026-08-04）。
  *
  * 契约源：口径 v0.5（docs/abort-delivery.md，2026-08-05 评审修正）：
- *   「忙态消息到达 → abort → settle → followUp 重开拉全量未读」；
- *   忙态 + 消息到达 → 立即 abort（终止当前 run）→
+ *   「忙态消息到达 → 隐藏 steer 令牌 → 安全边界 abort → settle → followUp 重开拉全量未读」；
+ *   忙态 + 消息到达 → 当前工具未结束时 abort=0 → 下一模型调用前 abort=1 →
  *   agent 转空闲 → followUp 重开带全部未读 → 模型从头生成即见新消息；
  *   无 N/C 保护参数（苍蓝星拍板：不要保护，密集打断）；
  *   livelock 风险已告知，本钉锚定「连续消息下仍能完成作答」。
  *
  * 观察通道：M7 A6——RPC 模式 notify 呈现为 extension_ui_request 事件
  *   （group-chat-input.ts:444-459 的 [tavern-inject] 通知；pi-process 头注），
- *   事件字段 e.message 含 latest_seq/count（投递增量）与 abort=1（打断通知，
- *   实现侧契约点）。
+ *   事件字段 e.message 含 latest_seq/count（投递增量）、abort=0（令牌排队）与
+ *   abort=1 boundary=steer（安全边界打断）。
  *
  * 测试依赖（实现侧须提供，PITAVERTEST=1 门控）：
  *   tavern-test-busy <ms>——无 LLM 环境下模拟 agent_start → abort →
  *   agent_settled 生命周期，使扩展侧「打断后只在 settle 拉取」可确定性构造
  *   （零 LLM 白名单，#52；上游真实 abort/队列保持由 J2 钉覆盖）。
  *
- * 红 = 当前（无 abort 逻辑）：忙态投递后无 abort=1 通知（T1 必红）；
- *   T2/T3 为回归护栏（今日绿，实现后若 livelock/语义破坏则转红）。
+ * T1 锚定精确时序；T2/T3 锚定连续消息收敛与游标语义。
  */
-describe("acceptance: A' v0.5——忙态入队即 abort 重开（可见性 + livelock 锚点 + 语义）", () => {
+describe("acceptance: A'——steer 安全边界 abort 重开（可见性 + 收敛 + 语义）", () => {
 	let index = 0;
 	const roots: string[] = [];
 	const processes: PiProcess[] = [];
@@ -163,7 +162,7 @@ describe("acceptance: A' v0.5——忙态入队即 abort 重开（可见性 + li
 		return (response.data as { pendingMessageCount?: number; isStreaming?: boolean }) ?? {};
 	}
 
-	it("T1（红核）：忙态消息到达即 abort——abort=1 且 settle 后消息可见", async () => {
+	it("T1：通知到达 abort=0，steer 边界 abort=1，settle 后消息可见", async () => {
 		const { creator, root } = await startCreator();
 		const agentDir = join(root, "agent");
 		const projectDir = join(root, "project");
@@ -176,17 +175,31 @@ describe("acceptance: A' v0.5——忙态入队即 abort 重开（可见性 + li
 		const firstPublish = character.checkpoint();
 		await publishMessage(creator, "T1-visibility-check");
 
-		// ③ 断言：首次发布之后出现 abort=1 通知（红：无 abort 逻辑 → 超时抛错）。
-		await character.waitForAfter(
+		// ③ 通知到达只排隐藏令牌，工具边界前不 abort。
+		const queued = await character.waitForAfter(
 			firstPublish,
 			(e) =>
 				e.type === "extension_ui_request" &&
 				e.method === "notify" &&
 				typeof e.message === "string" &&
-				e.message.includes("abort=1"),
+				e.message.includes("abort=0") &&
+				e.message.includes("token=queued"),
 			15_000,
 		);
-		// ④ 打断后消息可见：同一发布检查点之后必须出现 latest_seq 投递通知。
+		// ④ 当前工具批结束后的 context 边界才 abort。
+		const boundary = await character.waitForAfter(
+			firstPublish,
+			(e) =>
+				e.type === "extension_ui_request" &&
+				e.method === "notify" &&
+				typeof e.message === "string" &&
+				e.message.includes("abort=1") &&
+				e.message.includes("boundary=steer"),
+			15_000,
+		);
+		const events = (character as unknown as { events: Array<Record<string, unknown>> }).events;
+		expect(events.indexOf(queued)).toBeLessThan(events.indexOf(boundary));
+		// ⑤ 打断并 settled 后消息可见。
 		await character.waitForAfter(
 			firstPublish,
 			(e) =>
@@ -211,10 +224,22 @@ describe("acceptance: A' v0.5——忙态入队即 abort 重开（可见性 + li
 			await publishMessage(creator, `T2-storm-${i}`);
 		}
 
-		// 五次 update 均在同一 busy 窗口内请求 abort；窗口 settle 后必须一次拉全。
-		await vi.waitFor(() => expect(injectLines(character).filter((line) => line.includes("abort=1"))).toHaveLength(5), {
-			timeout: 15_000,
-		});
+		// 连续消息至少经过一次安全边界打断，且不会超过通知数；同一边界内的
+		// N→1 精确合并由 unit 钉测，RPC 发布确认会让通知跨越多个 run。
+		await vi.waitFor(
+			() => expect(injectLines(character).filter((line) => line.includes("token=queued")).length).toBeGreaterThan(0),
+			{
+				timeout: 15_000,
+			},
+		);
+		await vi.waitFor(
+			() => expect(injectLines(character).filter((line) => line.includes("abort=1")).length).toBeGreaterThan(0),
+			{
+				timeout: 15_000,
+			},
+		);
+		expect(injectLines(character).filter((line) => line.includes("token=queued")).length).toBeLessThanOrEqual(5);
+		expect(injectLines(character).filter((line) => line.includes("abort=1")).length).toBeLessThanOrEqual(5);
 		const deliveredBatch = await character.waitForAfter(
 			checkpoint,
 			(e) =>

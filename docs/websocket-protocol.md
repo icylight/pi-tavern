@@ -580,7 +580,7 @@ Character 加入成功后，群聊创建者自动发送最近 10 条公开消息
 
 群聊状态不主动广播。Character 在以下场景使用 `get_group_chat_state` 主动获取最新快照：
 
-- run 边界（闲态 1s 聚合窗口 / 忙态 update 到达即 abort、settle 后拉取）、准备提交一次 Agent run 或 follow-up 时。
+- run 边界（闲态 1s 聚合窗口 / 忙态隐藏令牌在 steer 安全边界 abort、settle 后拉取）、准备提交一次 Agent run 或 follow-up 时。
 - 用户执行需要展示完整状态的命令时。
 - 其他明确需要刷新本地群聊状态的交互。
 
@@ -592,11 +592,11 @@ Character 成功领取角色后，群聊创建者自动发送 `message_history`�
 
 ### 环境消息聚合与 run 边界投递（#60/#62/#64 pull 模型）
 
-Character 使用固定 1 秒聚合窗口（闲态）合并连续到达的环境消息；忙态 update 到达即 abort，等 agent settle 后拉取并重开：
+Character 使用固定 1 秒聚合窗口（闲态）合并连续到达的公共消息通知；忙态只排隐藏打断令牌，等安全边界 abort、agent settle 后拉取并重开：
 
-1. 收到 `group_chat_update` 通知（水位 + 最近 3 条预览）后，将预览并入待处理批次。
+1. 收到 `group_chat_update` 通知（水位 + 最近 3 条预览）后只记录未读触发；预览不并入 Agent 输入。
 2. 闲态：固定 1s 聚合窗口，窗口内多次变化并入**单次消费**（N→1），不重置计时（#60/#62）。
-3. 忙态：先标记未读挂起并立即 abort；`agent_settled` 后按本 Session 持久化游标 `fetch_messages_since` 拉取全部未读，sequence 过滤天然补洞；密集 update 在同一被打断 run 内合并为 settle 后一次拉全。
+3. 忙态：先标记未读挂起，最多排一个 `pi-tavern.abort-control` 隐藏 steer 令牌；当前工具批结束、下一次模型调用前由 `context` 钩子过滤令牌并调用一次 abort。`agent_settled` 后按本 Session 持久化游标 `fetch_messages_since` 拉取全部未读；密集 update 合并为一个令牌、一次 abort、一次拉全。
 4. 拉取完成后请求最新群聊状态，将批次与状态快照合并提交。
 
 **游标推进 = 投递通道判定**：idle followUp 与非 update 环境事件的忙态 steer 在 sendMessage 调用无同步异常后同步乐观推进；忙态 `group_chat_update` 的 abort 与 settle 之间不投递、不推进，settle 后 followUp 入队才推进。同步抛错不推进 → 后续 update/settle 重投；异步 run 启动失败的既有例外不变。
@@ -604,21 +604,22 @@ Character 使用固定 1 秒聚合窗口（闲态）合并连续到达的环境�
 提交环境批次时：
 
 - 当前 pi Agent 空闲：将环境批次和状态快照合并为一次输入并立即提交（触发新 run）。
-- 当前 pi Agent 正在运行：将同样的合并输入经 **steer 通道**投递（当前 assistant turn 完成其工具调用后、下次 LLM 调用前——工具间隙秒级，绝不打断 run）；#14 边界保持（steer 不点亮 is_streaming）。
-- **v0.5 abort 打断（abort-interrupt-delivery，User 2026-08-04 拍板）**：忙态 `group_chat_update` 到达先标记未读挂起，再调用 pi `ctx.abort()`（经 `runtime.abortAgent` 回调注入，agent_start 事件 ctx 挂接）终止在途生成。主链等待 `agent_settled` 后拉取全部未读，经 followUp + triggerTurn 唤醒新 run；abort 与 settle 之间不进入 steer、不推进游标。回调先用 `ctx.isIdle()` 重查 pi 真状态，若 run 已自然结束则立即走竞态兜底投递。无 N/C 保护（User 拍板密集打断；livelock 由验收锚定「连续消息下完成作答」）。副作用重复风险按 User 拍板接受，实测出现按异常流程上报。观察通道：abort 决策经 `[tavern-inject] abort=1` 通知；零 LLM 生命周期测试缝 = `/tavern-test-busy <ms>`（PITAVERN_TEST 门控）。
+- 当前 pi Agent 正在运行：公共群消息正文不进入 steer；白板等非消息流输入仍按其独立语义在 run 边界投递。
+- **安全边界 abort（ADR-0008）**：忙态 `group_chat_update` 到达只置未读标记并排隐藏空令牌，群消息正文不进入 steer。令牌在工具批完成后的 `context` 钩子中被过滤，且仅当前 runtime 仍有待打断状态时调用 `ctx.abort()`。主链等待 `agent_settled` 后拉全未读，经 followUp + triggerTurn 唤醒新 run。观察通道依次为 `[tavern-inject] abort=0 token=queued` 与 `abort=1 boundary=steer`。
 
-WebSocket 环境消息不会逐条直接追加到 pi session。只有聚合完成后的合并输入才通过 pi 原生对话入口提交，并与随后的 assistant 回复、工具调用和工具结果一起按照 pi 原生 session 逻辑记录。成员/环境事件（character_joined/left、message_history）经 steer 通道在工具调用间隙可见（#38，不打断 run、秒级延迟）。
+WebSocket 环境消息不会逐条直接追加到 pi session。Agent 输入只包含公共群消息、白板更新及加入时的公共历史；`character_joined`、`character_left` 与流式状态变化不进入 Agent 输入。隐藏打断令牌作为内部 custom message 记录在 session JSONL，但始终从模型上下文过滤。
 
 聚合批次适用于：
 
-- `message_history`
+- 加入时 `message_history` 中的公共历史
 - User Persona 的公开消息
 - 其他 Character 的公开消息
-- 已经产生公开消息的群聊中的成员加入和离开环境事件
 
 以下消息不进入环境批次，也不重置聚合窗口计时：
 
 - Character 自己公开消息的回传确认
+- Character 加入与离开事件
+- 流式状态变化
 - 普通请求响应
 
 `get_group_chat_state` 响应不独立触发 Agent，而是作为触发它的环境批次的最新快照。聚合窗口本身不修改 `is_streaming`；该字段始终跟随当前 pi Agent 的原生状态（#14 watchdog 兜底）。聚合批次只是短暂的消息合并机制，不替代 pi-coding-agent 的 follow-up queue。闲态窗口固定为 1 秒，不提供配置项。

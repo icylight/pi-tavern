@@ -47,6 +47,8 @@ idle
 - 已启用群聊输入模块和 `tavern_speak`。
 - 主动离开、WebSocket 断开、心跳超时、群聊关闭或 pi session 切换时，完成对应清理并回到 `idle`。
 
+`character` 内部可短暂持有“未读待拉取 / 隐藏打断令牌已排队 / 已请求 abort”运行标记；它们不是新的顶层状态。忙态公共消息通知最多排一个隐藏 steer 令牌，令牌在当前工具批完成后的 context 边界才 abort。`agent_settled` 清除打断标记、拉全未读并通过 followUp 重开。历史令牌只保留在 session 记录中，始终从模型上下文过滤。
+
 ## 不使用的状态
 
 首版不定义以下扩展状态：

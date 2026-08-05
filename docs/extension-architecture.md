@@ -746,7 +746,9 @@ CharacterRuntime 的永久关闭顺序：
 7. 丢弃尚未提交的 `pendingEvents`；
 8. 使 `PiRuntimeBindings` 失效。
 
-`user_leave`、`session_change` 和 `quit` 尽力发送 `leave_group_chat`。`socket_closed`、`heartbeat_timeout`、`group_chat_closed` 和 `reload_timeout` 不等待离开响应，直接执行本地清理。当前 Agent run 不 abort，已经提交给 pi session 或 follow-up queue 的内容继续由 pi 管理。
+`user_leave`、`session_change` 和 `quit` 尽力发送 `leave_group_chat`。`socket_closed`、`heartbeat_timeout`、`group_chat_closed` 和 `reload_timeout` 不等待离开响应，直接执行本地清理。离开流程本身不 abort 当前 Agent run，已经提交给 pi session 或 follow-up queue 的内容继续由 pi 管理。
+
+公共群消息的忙态投递遵循 ADR-0008：`GroupChatInput` 只维护未读与令牌单飞行状态，群消息正文不进入 steer；`agent-lifecycle` 的 context 钩子过滤 `pi-tavern.abort-control`，并仅在当前输入实例仍待打断时调用 `ctx.abort()`。settled 后由 `GroupChatInput` 按 Session 游标拉全，通过 followUp 重开。该依赖保持窄接口：生命周期接线只调用输入实例的令牌消费方法，不持有消息拉取或游标实现。
 
 CreatorRuntime 的永久关闭顺序：
 

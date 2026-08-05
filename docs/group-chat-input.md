@@ -9,7 +9,7 @@
 ```text
 group_chat_update 通知（广播唤醒：水位 + 最近 3 条预览，不注入）
         ↓
-run 边界：闲态 ≤1s 聚合窗口（N→1）/ 忙态 update 到达即 abort、settle 后一次拉全
+run 边界：闲态 ≤1s 聚合窗口（N→1）/ 忙态排一个隐藏令牌，在 steer 安全边界 abort
         ↓
 fetch_messages_since(本 Session 持久化游标)（扩展机械拉取，sequence 过滤天然补洞）
         ↓
@@ -20,8 +20,8 @@ fetch_messages_since(本 Session 持久化游标)（扩展机械拉取，sequenc
 当前 pi Agent / pi session
 ```
 
-- 公开消息走「通知 + 增量拉取」：广播只携带最新序号与最近 3 条预览，完整增量由角色主动拉取；忙态先 abort，等待 settle 后拉全并通过 followUp 重开。abort 与 settle 之间不投递、不推进游标。
-- `group_chat_update` 只由公开消息触发；白板走独立 `board_update`；成员与流式状态变化不再唤醒 Agent。join 批次（`message_history` + 成员事件）仍保留 1 秒合并防抖。
+- 公开消息走「通知 + 增量拉取」：广播只携带最新序号与最近 3 条预览，完整增量由角色主动拉取；忙态只把隐藏令牌放入 steer 队列，正文不入队。令牌在当前工具批结束、下一次模型调用前触发 abort；settle 后拉全并通过 followUp 重开。
+- `group_chat_update` 只由公开消息触发；白板走独立 `board_update`；成员与流式状态变化不再唤醒 Agent，也不进入 Agent 输入。加入时的 `message_history` 只展开公共历史消息。
 - 游标（上次成功投递的最后一条 message sequence）本地持久化（`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>/<session_id>.json`，**游标跟随 Session**），投递成功后更新，重启不丢；同群聊多角色互不共用游标文件。**旧版群聊级单文件（`cursors/<group_chat_id>.json`）废弃不读**（值无 Session 身份，回退采用会跳过消息）；新 Session 无独立游标时从完整历史分页重新拉取。
 - 一个防抖批次只生成一条输入。单个 WebSocket 消息不直接追加到 pi session。
 
@@ -118,7 +118,7 @@ Tester 加入了群聊。
 - 消息正文、成员变化、状态快照和 PiTavern 控制说明使用明确分段。
 - `content` 不直接 dump WebSocket JSON。
 - Character Markdown 不进入 `content`；它在领取时加载一次，并作为加入期间稳定的 system prompt 扩展。
-- Character 自己公开消息的广播回显不进入防抖批次：preview 完整覆盖的纯自身窗口在拉取前过滤，混合/缺口窗口在拉取结果中继续过滤 `isOwnEcho`。
+- Character 自己公开消息的广播回显不进入防抖批次：preview 完整覆盖的纯自身窗口在拉取前过滤；preview 不完整且含自身消息时不排打断令牌，只在自然 settle 后拉取；拉取结果继续过滤 `isOwnEcho`，纯自身窗口只推进水位、不生成输入。
 - 普通请求响应和手动状态请求不生成群聊输入。
 - `content` 只服务 Agent 上下文，不作为公共群聊历史或协议数据。
 

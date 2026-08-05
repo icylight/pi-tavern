@@ -33,14 +33,21 @@ const JOIN_BATCH_DEBOUNCE_MS = 1000;
  */
 const TRIGGER_DEBOUNCE_MS = 1000;
 
+/**
+ * 忙态安全边界打断令牌。令牌作为隐藏 custom message 经 steer 排队，在下一次
+ * provider 请求前由 context 钩子消费；session JSONL 保留记录，但模型上下文
+ * 始终过滤该类型。
+ */
+export const ABORT_CONTROL_CUSTOM_TYPE = "pi-tavern.abort-control";
+
 export class GroupChatInput {
 	private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 	private debounceDueAt: number | null = null;
 	/** #64：闲态触发窗口定时器（fixed 1s，窗口内并入不重置；零交接字段）。 */
 	private idleWindowTimer: ReturnType<typeof setTimeout> | null = null;
 	/**
-	 * ISSUE-013 A1/A2：待投递窗口。持有 join/成员事件（经 debounce 合并，避免
-	 * join 拆散）以及因 Agent turn 运行中而等待的增量。
+	 * ISSUE-013 A1/A2：待投递窗口。持有加入时的公共历史与白板更新（经
+	 * debounce 合并），以及因 Agent turn 运行中而等待的非群消息流输入。
 	 */
 	private pendingEvents: ServerMessage[] = [];
 	private handler: ((message: ServerMessage) => void) | undefined;
@@ -55,20 +62,24 @@ export class GroupChatInput {
 	 * stale 拒绝恢复也走同一标记。
 	 */
 	private incrementPending = false;
+	/** 当前 run 是否已有一个安全边界打断令牌排队。 */
+	private abortTokenQueued = false;
+	/** 当前 run 是否已经在安全边界请求过 abort。 */
+	private abortRequested = false;
 
 	constructor(
 		private readonly runtime: CharacterRuntime,
 		private readonly pi: ExtensionAPI,
 		private readonly triggerDebounceMs: number = TRIGGER_DEBOUNCE_MS,
 	) {
-		// ISSUE-038（口径 A + steer）修订（#64 pull 模型）：run 不再接受任何
-		// 中间投递。运行中到达的 update 只置忙态标记（零中间注入红线）；settle
-		// = 忙态触发点——立即消费拉全（游标单调不重不漏，消费即拉全，无需尾部
-		// 补拉窗口）。
+		// 公共群消息正文不在 run 中投递。运行中到达的 update 只置忙态标记并
+		// 按需排隐藏令牌；settle = 正文拉取触发点。
 		this.onSettled = () => {
 			if (this.stopped) {
 				return;
 			}
+			this.abortTokenQueued = false;
+			this.abortRequested = false;
 			if (this.incrementPending) {
 				this.incrementPending = false;
 				void this.pullIncrement();
@@ -112,25 +123,19 @@ export class GroupChatInput {
 				// board_update，成员/流式状态不再触发本通知。发送者仍会收到广播，
 				// 但完整 preview 足以证明新增窗口全是自身消息时不得 abort/拉取。
 				const cursor = this.runtime.loadCursor() ?? 0;
-				if (message.latest_sequence <= cursor || this.isSelfOnlyUpdate(message, cursor)) {
+				const selfPreview = this.classifySelfPreview(message, cursor);
+				if (message.latest_sequence <= cursor || selfPreview === "complete-self-only") {
 					return;
 				}
 				if (this.runtime.isAgentActive) {
-					// v0.5（abort-interrupt-delivery，User 2026-08-04 拍板）：忙态消息到达即 abort——
-					// 先置挂起标记，再终止在途生成；agent_settled 后按游标拉全部未读，
-					// 只经 followUp + triggerTurn 重开。不能在 abort 与 settle 之间先拉取并
-					// steer：上游 abort 会结束本轮而不消费 steer，若同时推进游标会丢失唤醒。
-					// 观察通道：abort 决策经 [tavern-inject] abort=1 通知（QA 红测契约点，M7 A6 同款）。
+					// 忙态只置未读标记，不提前拉取正文。可确认含他人消息时，最多排队
+					// 一个隐藏 steer 令牌；令牌在工具批结束后的 context 安全边界消费，
+					// 才 abort 当前 run。preview 不完整且含自身回显时无法证明他人消息
+					// 归属，只保留待拉取状态，让当前 run 自然 settled 后补拉，避免自身
+					// 连续发言造成自打断。
 					this.incrementPending = true;
-					const abortRequested = this.runtime.abortAgent?.() ?? false;
-					if (process.env.PITAVERN_TEST === "1") {
-						testNotify?.(`[tavern-inject] group=${this.runtime.groupChatId} abort=${abortRequested ? 1 : 0}`);
-					}
-					if (!abortRequested) {
-						// runtime 标志尚忙、但 pi 已经 idle（或 abort 能力尚未注入）的竞态：
-						// 不会再有 settle 可等，立即拉取；flush 会按 pi 当前状态启动新 run。
-						this.incrementPending = false;
-						void this.pullIncrement();
+					if (selfPreview !== "incomplete-with-self") {
+						this.queueAbortControlToken();
 					}
 				} else {
 					this.armIdleWindow();
@@ -182,6 +187,10 @@ export class GroupChatInput {
 					// 忙态 steer 入队成功 = 投递成功 → saveCursor；失败不推进，
 					// settle 兜底重投——A5 强化实现）。
 					await this.deliver(messages, page.latestSequence);
+				} else if (page.messages.some((message) => message.type === "public_message")) {
+					// 拉取窗口只有自身回显时不生成 Agent 输入，但仍消费对应水位；否则
+					// preview 超限的连续自身消息会在每次 settle 被永久重拉。
+					this.runtime.saveCursor(page.latestSequence);
 				}
 			} while (this.refetchRequested && !this.stopped);
 		} catch {
@@ -193,9 +202,9 @@ export class GroupChatInput {
 	}
 
 	/**
-	 * ISSUE-013 A1/A2 + ISSUE-038：统一投递窗口。将增量与待处理的 join/成员
-	 * 事件合并，保证顺序（事件先到，消息更新）。Agent 运行中事件经 steer
-	 * 通道投递（口径 A）——在下一个工具调用间隙可见，绝不打断 run。
+	 * ISSUE-013 A1/A2 + ISSUE-038：统一投递窗口。将增量与待处理的加入公共
+	 * 历史/白板事件合并并保证顺序。公共消息增量在 settled 后走 followUp；
+	 * 白板等独立事件在活跃 run 中仍可走其既有 steer 通道。
 	 */
 	private async deliver(messages: ServerMessage[], latestSequence: number): Promise<void> {
 		if (this.stopped) {
@@ -257,6 +266,53 @@ export class GroupChatInput {
 		this.clearDebounce();
 		this.cancelIdleWindow();
 		this.pendingEvents = [];
+		this.abortTokenQueued = false;
+		this.abortRequested = false;
+	}
+
+	/**
+	 * context 钩子在令牌进入下一次模型调用前调用。仅当前输入实例仍有未读待拉取、
+	 * run 仍活跃且令牌尚未消费时请求一次 abort；历史令牌不会再次打断。
+	 */
+	consumeAbortControlToken(abort: () => void): boolean {
+		if (
+			this.stopped ||
+			!this.abortTokenQueued ||
+			this.abortRequested ||
+			!this.incrementPending ||
+			!this.runtime.isAgentActive
+		) {
+			return false;
+		}
+		this.abortTokenQueued = false;
+		this.abortRequested = true;
+		abort();
+		if (process.env.PITAVERN_TEST === "1") {
+			testNotify?.(`[tavern-inject] group=${this.runtime.groupChatId} abort=1 boundary=steer`);
+		}
+		return true;
+	}
+
+	private queueAbortControlToken(): void {
+		if (this.stopped || this.abortTokenQueued || this.abortRequested) {
+			return;
+		}
+		this.abortTokenQueued = true;
+		try {
+			this.pi.sendMessage(
+				{
+					customType: ABORT_CONTROL_CUSTOM_TYPE,
+					content: "",
+					display: false,
+				},
+				{ triggerTurn: true, deliverAs: "steer" },
+			);
+			if (process.env.PITAVERN_TEST === "1") {
+				testNotify?.(`[tavern-inject] group=${this.runtime.groupChatId} abort=0 token=queued`);
+			}
+		} catch {
+			this.abortTokenQueued = false;
+		}
 	}
 
 	/**
@@ -363,9 +419,6 @@ export class GroupChatInput {
 		switch (message.type) {
 			case "public_message":
 				return !this.isOwnEcho(message);
-			case "character_joined":
-			case "character_left":
-				return this.runtime.hasPublicMessages;
 			case "message_history":
 				return true;
 			// 白板模型（#114，ADR-0007）：board_update = 环境事件（通知渲染），
@@ -389,20 +442,30 @@ export class GroupChatInput {
 	 * 全部消息均由自己发送时才跳过；preview 有缺口时仍拉取，避免漏掉被截出窗口
 	 * 的他人消息。
 	 */
-	private isSelfOnlyUpdate(message: Extract<ServerMessage, { type: "group_chat_update" }>, cursor: number): boolean {
+	private classifySelfPreview(
+		message: Extract<ServerMessage, { type: "group_chat_update" }>,
+		cursor: number,
+	): "complete-self-only" | "incomplete-with-self" | "external" {
 		const unseen = message.preview_messages
 			.filter((preview) => preview.sequence > cursor)
 			.sort((a, b) => a.sequence - b.sequence);
 		const expectedCount = message.latest_sequence - cursor;
 		if (unseen.length !== expectedCount) {
-			return false;
+			return unseen.some(
+				(preview) =>
+					preview.sender.type === "character" && preview.sender.character_id === this.runtime.character.characterId,
+			)
+				? "incomplete-with-self"
+				: "external";
 		}
 		return unseen.every(
 			(preview, index) =>
 				preview.sequence === cursor + index + 1 &&
 				preview.sender.type === "character" &&
 				preview.sender.character_id === this.runtime.character.characterId,
-		);
+		)
+			? "complete-self-only"
+			: "external";
 	}
 
 	private resetJoinDebounce(): void {

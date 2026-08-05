@@ -1,70 +1,57 @@
-# ADR-0008：忙态打断投递——abort + settle 后 followUp 重开（#64 投递机制演进）
+# ADR-0008：以隐藏 steer 令牌在安全边界打断并重开
 
-- 状态：**Accepted**（2026-08-04，苍蓝星拍板 v0.5 定稿；实现中，分支 `feat/abort-interrupt-delivery` @ main 9fa950a）
-- 决策者：苍蓝星（拍板）、PM（需求口径 docs/abort-delivery.md）、Arch（架构评审）、Dev（实现）、QA（红测先行/验收）
-- 关联：ADR-0004（steer 投递，本 ADR 为其盲区补丁）、#64（pull 模型 / 运行中零注入）、ISSUE-038（口径 A + steer 双通道）、M7 A6（steer 观察通道）、pi SDK `session.abort()`（sdk.md:107）；验收先例 test/acceptance/j2-rpc-abort-no-loss.test.ts
+- 状态：**Accepted（2026-08-05 安全边界修正）**
+- 关联：ADR-0004、#64 pull 模型、`feat/abort-interrupt-delivery`
+- 契约影响：wire schema 与持久化 schema 零改动
 
 ## 背景
 
-ADR-0004 确立忙态投递走 pi steer 通道（工具间隙秒级可见、绝不打断 run）。实测残留两个问题：
+忙态角色收到新的公共群消息后，需要放弃基于旧上下文继续生成的回复，并在看到全部未读后重开。先前实现于通知到达时直接 `ctx.abort()`，可能中止仍在执行的工具；密集通知还会对同一 run 重复 abort，扩大副作用工具重复执行与 livelock 风险。
 
-1. **收到与响应分离**：steer 注入上下文后，模型仍顺着旧思路写完当前回复，而非立即响应新消息；
-2. **纯生成段盲区**：无工具间隙时 steer 事件入队但不注入，要等 run 结束才可见（首局海龟汤实测分钟级滞后）。
+pi agent-loop 会在当前工具批完成后读取 steer 队列，并在下一次模型调用前把队列消息加入上下文；`context` 扩展钩子随后在 provider 请求前执行。这个位置是无需自行判断工具相位的安全边界。
 
-苍蓝星拍板（2026-08-04）：「需要打断」「不要保护，就是要密集打断」——以 abort 终止当前 run、带新消息重开，实现可见性与响应合一。
+## 决策
 
-## 决策（口径 v0.5 最终）
+1. 忙态 `group_chat_update` 只置“未读待拉取”标记，不拉取群消息正文。
+2. 可确认含他人公共消息时，最多向 steer 队列放一个 `pi-tavern.abort-control` custom message：`display:false`、正文为空。
+3. `context` 钩子始终从模型上下文过滤所有该类型令牌。令牌作为内部记录保留在 pi session JSONL，这是已接受的取舍。
+4. 仅当当前 Character 的输入管线仍有待打断状态、run 仍活跃且本 run 尚未请求 abort 时，令牌在该边界调用一次 `ctx.abort()`。
+5. `agent_settled` 后按本 Session 游标拉取全部未读，过滤自身回显，通过 followUp + triggerTurn 重开；游标只在投递成功或拉取窗口确认全为自身回显时推进。
+6. 密集通知合并为一个令牌、一次 abort、settled 后一次拉全。群消息正文从不进入 steer 队列。
 
-### 1. 触发与流程
+## 自身回显
 
-忙态 + `group_chat_update` 到达 → 先标记未读挂起 → **立即 `session.abort()`**（主触发，无 steer 中间步）→ 等待 `agent_settled` → 按游标拉全未读 → followUp + triggerTurn 唤醒重开。`ctx.isIdle()` 在 abort 前重查 pi 真实状态：若 run 已自然结束、abort 未发出，则立即拉取并由 pi 当前状态触发新 run。重开上下文 = 原上下文 + 全部未读，模型从头生成即见新消息。
+- preview 完整覆盖未读窗口且全部为自身消息：直接忽略，不排令牌、不拉取。
+- preview 不完整且含自身消息：无法证明截断部分是否夹有他人消息，只保留未读标记，不排令牌；当前 run 自然 settled 后拉取，避免连续超过 preview 上限的自身消息触发自打断。
+- 完整混合窗口或可确认的他人消息：正常排令牌。
+- 拉取窗口全为自身回显：不生成 Agent 输入，但推进到窗口最新水位，避免永久重拉。
 
-触发面收窄（2026-08-05 User 裁决）：`group_chat_update` 只由公共消息成功持久化触发；白板继续使用独立 `board_update`，成员/流式状态不复用该通道。发送者自身回显若被 preview 完整覆盖则直接过滤；窗口有缺口时保守拉取并在正文门闸过滤自身消息。
+## 通知与 Agent 输入范围
 
-**steer 退出忙态主链路**（实现形态对齐，2026-08-05 评审修正）：消息在持久化流中，重开 run 按游标拉全未读即可，不需要先经 steer 入队。abort 与 settle 之间禁止拉取并乐观推进游标：上游 abort 会直接结束 agent-loop，不消费其间新入队的 steer；提前推进会让 settle 补拉看不到未读，形成丢失唤醒。
+`group_chat_update` 只由公共消息成功持久化触发。白板继续使用独立 `board_update` 并可进入 Agent 输入；加入时 `message_history` 只展开公共历史。`character_joined`、`character_left` 与流式状态变化只服务运行时状态或界面，不唤醒 Agent、不进入 Agent 输入。wire schema 保持不变。
 
-### 2. 无保护参数
+## 时序
 
-无 N/C 冷却、无次数上限（苍蓝星明确否决保护）。livelock 风险（消息频率 > 单轮完成时间时 run 难完成作答）已尽责告知，QA 红测锚定「消息风暴后 agent 转空闲、队列排空、游标不丢」；若实测卡死，届时苍蓝星再议。
+```text
+公共消息通知到达
+  → 未读标记=true，隐藏令牌最多排一个（当前工具仍执行，abort=0）
+  → 当前工具批完成
+  → agent-loop 消费 steer 令牌
+  → context 过滤令牌，并在待打断状态下 ctx.abort()（abort=1）
+  → agent_settled
+  → fetch_messages_since(持久化游标)
+  → followUp + triggerTurn 重开
+```
 
-### 3. 语义边界
+## 结果与取舍
 
-- ① 忙态消息到达即打断（无 steer 中间步；settle 后 followUp 重开）；
-- ② idle 不打断（followUp 自然触发，现有路径不变）；
-- ③ 被打断的在途输出不发布群聊（无半截消息）；
-- ④ 游标单调、消息不重不漏（现有游标/持久化语义不变，零 wire、零持久化改动）；
-- ⑤ **不做工具执行相位判断**：苍蓝星判定 steer 投递位置不会遇上工具执行中断，相位判断被否决；残余风险（工具执行中 abort → 在途工具结果丢失 → 重开可能重复执行副作用工具）以 QA 红测 b 锚点（副作用重复检测）+ 异常上报流程兜底，实测出现即上报再议。
+- 副作用工具不会被通知到达异步打断；工具结果先完成，再在模型边界终止旧 run。
+- 公共消息仍以持久消息流和 Session 游标为唯一正文来源，不会因 abort 丢失或提前推进。
+- 隐藏令牌会增加 session JSONL 内部记录，但不会展示，也不会进入任何后续模型上下文。
+- 若 run 在令牌消费前因其他原因 settle，settle 路径仍拉取未读；残留令牌在后续 context 中只被过滤，不会因历史记录再次打断。
 
-### 4. 与 #64 的关系
+## 验证锚点
 
-投递机制演进：从「运行中零注入、绝不打断」（steer 工具间隙投递）演进为「打断 + 重开」路径——不向在途生成注入，而是终止当前 run、以含全部未读的上下文重开一轮。可见性与响应合一，以牺牲在途推理与回复连续性为代价（苍蓝星拍板接受）。
-
-## 否决的替代方案
-
-| 方案 | 否决理由 |
-| --- | --- |
-| N/C 保护参数（生成超时 + 打断冷却） | 苍蓝星否决（「不要保护，就是要密集打断」） |
-| 工具执行相位判断（tool_execution_start/end 事件） | 苍蓝星否决（判定 steer 位置碰不到工具执行；经验路径 + b 锚点兜底） |
-| 软修 2（run 起点「从简尽快」提示，压缩窗口） | 不满足「需要打断」拍板；降级为配套项 |
-| 运行中注入（mid-generation injection） | pi 无此 API——生成中不可注入；abort 是平台唯一支持的打断路径 |
-
-## 验收锚点
-
-QA 红测 `abort-steer-visibility`（留痕 @ 9fa950a@acceptance，feat/abort-interrupt-delivery）：
-- T1 可见性（红已证：忙态入队后 abort 通知缺席——打断逻辑未实现时的红钉有效性证明；形态无关断言：abort=1 通知存在 + 打断后消息可见）；
-- T2 风暴排空（消息风暴后 agent 转空闲、队列排空、游标不丢——livelock 锚点）；
-- T3 游标语义（单调、不重不漏）；
-- b 副作用锚点（工具执行中被打断后无副作用重复执行）；
-- 恢复质量（重开后正常作答，基线对照）。
-
-## 测试缝（实现侧，PITAVERTEST 门控）
-
-- `/tavern-test-busy <ms>` 命令（commands.ts + shared/messages.ts 常量）：无 LLM 环境模拟 agent_start → abort → agent_settled 生命周期，使扩展侧时序可确定性验收；上游真实 abort 后队列保持由 J2 钉覆盖；
-- `abort=1` 观察通知：忙态分支 abort 决策处 `[tavern-inject] abort=1`（M7 A6 同款通道），验收可断言打断发生。
-
-## 关联文档同步
-
-- `docs/abort-delivery.md`：需求口径（PM 属主，v0.5 已定稿）；
-- `docs/runtime-state-machine.md`：生命周期新增「打断态」（Dev 属主）；
-- `docs/extension-architecture.md` 投递章节：abort 决策 + 重开流程（Dev 属主）；
-- 边界交互：#66 wedged watchdog 与 abort 时序（abort 后 settle 事件到达处理）、#14 agent_end 看门狗共存（评审重点）。
+- unit：到达时零拉取/零 abort；context 边界一次 abort；历史令牌过滤；密集通知 N→1；自身回显超 preview 不打断；settled 拉全与游标单调。
+- integration：成员/流式变化不产生公共消息通知或 Agent 输入；白板仍投递；自身与混合窗口正确。
+- acceptance：观察 `abort=0 token=queued → abort=1 boundary=steer → settled → latest_seq/count`；连续消息最终收敛且无 livelock。

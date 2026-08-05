@@ -172,7 +172,7 @@ sequenceDiagram
 - `character_ready` 成功后没有额外的等待或激活状态；公开发送是否被接受只由当前 `roundMaxMessages` 判断。
 - 群聊创建者和加入方 pi 都显示连接成功通知。
 - Character 完成 `character_ready` 后，加入事件向包括新成员在内的全部在线 Character 广播。群聊已有公开消息时该事件作为公共环境事件参与 1 秒防抖。
-- 群聊尚无公开消息时，加入和离开广播只用于界面通知，不进入环境批次，也不触发 pi Agent；第一条 User Persona 消息落盘后，后续成员事件才参与防抖。
+- 加入和离开广播只用于运行时状态与界面，不进入 Agent 输入，也不触发 pi Agent；加入时的公共历史仍通过 `message_history` 注入。
 - 加入方保持普通 pi-coding-agent 界面，显示群聊、角色、生成状态和连接通知。
 - 群聊创建者只接收角色 pi 当前 Agent 的原生 `isStreaming` 布尔状态，不接收触发来源、用户终端输入内容或其他 session 细节。
 - 加入方仍可在自己的 pi 终端中正常交互。

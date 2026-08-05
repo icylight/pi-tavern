@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { ABORT_CONTROL_CUSTOM_TYPE } from "../../../src/character/group-chat-input.js";
 import { wireAgentLifecycle } from "../../../src/extension/agent-lifecycle.js";
 
 /**
@@ -46,50 +47,50 @@ describe("wireAgentLifecycle #90 W1-a agent_start 续命", () => {
 	});
 });
 
-describe("wireAgentLifecycle v0.5 abort-interrupt-delivery", () => {
-	it("agent_start 时注入 ctx.abort 且每次重新赋值（新 run 新 ctx）", () => {
-		// v0.5（苍蓝星拍板）：abort 能力经 agent_start 事件 ctx 注入 runtime——
-		// 群聊投递链 deliverSteer 入队后调用；abort 后重开 run 再次 agent_start，
-		// abortAgent 必须指向新 run 的 ctx（旧 ctx.abort 不再生效）。
-		const handlers = new Map<string, (event?: unknown, ctx?: { abort?: () => void; isIdle?: () => boolean }) => void>();
+describe("wireAgentLifecycle steer 安全边界打断", () => {
+	it("context 始终过滤历史令牌，且仅有待打断状态时 abort", () => {
+		const handlers = new Map<string, (event?: never, ctx?: { abort: () => void }) => unknown>();
 		const pi = {
-			on: vi.fn(
-				(event: string, handler: (event?: unknown, ctx?: { abort?: () => void; isIdle?: () => boolean }) => void) => {
-					handlers.set(event, handler);
-				},
-			),
+			on: vi.fn((event: string, handler: (event?: never, ctx?: { abort: () => void }) => unknown) => {
+				handlers.set(event, handler);
+			}),
 		};
+		let boundaryAbort: (() => void) | undefined;
+		const consumeAbortControlToken = vi.fn((abort: () => void) => {
+			boundaryAbort = abort;
+			return true;
+		});
 		const runtime = {
 			isAgentActive: false,
+			groupChatInput: { consumeAbortControlToken },
 			updateStreaming: vi.fn(),
 			armRunWedgedWatchdog: vi.fn(),
 			clearStreamingResetWatchdog: vi.fn(),
 			armStreamingResetWatchdog: vi.fn(),
 			settleRun: vi.fn(),
-			abortAgent: undefined as (() => boolean) | undefined,
 		};
-		const ctrl = {
-			getState: vi.fn(() => ({ type: "character", runtime })),
-		};
+		const getState = vi.fn<() => unknown>(() => ({ type: "character", runtime }));
+		const ctrl = { getState };
 
 		wireAgentLifecycle(pi as never, ctrl as never);
 
-		const ctx1 = { abort: vi.fn(), isIdle: vi.fn(() => false) };
-		handlers.get("agent_start")?.(undefined, ctx1);
-		expect(runtime.abortAgent).toBeDefined();
-		expect(runtime.abortAgent?.()).toBe(true);
-		expect(ctx1.abort).toHaveBeenCalledTimes(1);
+		const abort = vi.fn();
+		const token = { role: "custom", customType: ABORT_CONTROL_CUSTOM_TYPE, content: "", display: false };
+		const publicInput = { role: "custom", customType: "pi-tavern.group-chat-input", content: "群消息", display: true };
+		const result = handlers.get("context")?.({ messages: [token, publicInput] } as never, { abort }) as {
+			messages: Array<{ customType: string }>;
+		};
 
-		// 新 run（abort → 重开）→ 新 ctx → abortAgent 重新赋值。
-		const ctx2 = { abort: vi.fn(), isIdle: vi.fn(() => false) };
-		handlers.get("agent_start")?.(undefined, ctx2);
-		expect(runtime.abortAgent?.()).toBe(true);
-		expect(ctx2.abort).toHaveBeenCalledTimes(1);
-		expect(ctx1.abort).toHaveBeenCalledTimes(1);
+		expect(consumeAbortControlToken).toHaveBeenCalledTimes(1);
+		expect(boundaryAbort).toBeDefined();
+		boundaryAbort?.();
+		expect(abort).toHaveBeenCalledTimes(1);
+		expect(result.messages).toEqual([publicInput]);
 
-		// runtime 标志尚未收敛但 pi 已 idle 时不发送无效 abort，让输入管线走兜底投递。
-		ctx2.isIdle.mockReturnValue(true);
-		expect(runtime.abortAgent?.()).toBe(false);
-		expect(ctx2.abort).toHaveBeenCalledTimes(1);
+		consumeAbortControlToken.mockClear();
+		getState.mockReturnValue({ type: "idle" });
+		const historical = handlers.get("context")?.({ messages: [token] } as never, { abort }) as { messages: unknown[] };
+		expect(consumeAbortControlToken).not.toHaveBeenCalled();
+		expect(historical.messages).toEqual([]);
 	});
 });

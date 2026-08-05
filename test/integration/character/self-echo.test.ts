@@ -144,14 +144,11 @@ describe("#68 self-echo", () => {
 
 		// 忙态：run 活跃（isAgentActive=true，模拟 agent_start 后）。
 		runtime.isAgentActive = true;
-		const abortAgent = vi.fn(() => true);
-		runtime.abortAgent = abortAgent;
 		const result = await runtime.speak("busy message");
 		expect(result.published).toBe(true);
 
-		// 忙态回声在水位门闸直接过滤：零 abort、零拉取、run 保持活跃。
+		// 忙态回声在水位门闸直接过滤：零令牌、零拉取、run 保持活跃。
 		await new Promise((resolve) => setTimeout(resolve, 1_000));
-		expect(abortAgent).not.toHaveBeenCalled();
 		expect(sendMessage).not.toHaveBeenCalled();
 		expect(runtime.isAgentActive).toBe(true);
 	});

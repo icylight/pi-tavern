@@ -391,28 +391,19 @@ export function registerCommands(
 					ctx.ui.notify(NOTIFY_USAGE_TEST_BUSY, "error");
 					return;
 				}
-				// v0.5 测试缝（QA 红测依赖）：零 LLM 环境下模拟完整生命周期，
-				// 而不是只伪造 isAgentActive。窗口内 abort 只记录打断请求，窗口到期
-				// 统一 settle，使验收可构造多条 update 密集打断同一 run，再验证一次拉全。
+				// 安全边界验收缝：先模拟 runtime 忙态；隐藏令牌触发的真实 pi run
+				// 会经过 context 钩子完成边界 abort，定时器保留自然 settle 兜底。
 				const runtime = state.runtime;
-				const previousAbortAgent = runtime.abortAgent;
 				let finished = false;
 				let timer: ReturnType<typeof setTimeout>;
 				const finishBusy = (): void => {
 					if (finished) return;
 					finished = true;
 					clearTimeout(timer);
-					if (runtime.abortAgent === abortForTest) {
-						runtime.abortAgent = previousAbortAgent;
-					}
 					runtime.settleRun();
-				};
-				const abortForTest = (): boolean => {
-					return true;
 				};
 				runtime.isAgentActive = true;
 				runtime.updateStreaming(true);
-				runtime.abortAgent = abortForTest;
 				timer = setTimeout(finishBusy, ms);
 				ctx.ui.notify(`[tavern-test-busy] busy=${ms}ms`, "info");
 			},

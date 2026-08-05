@@ -4,11 +4,8 @@ import type { CharacterRuntime } from "../../../src/character/character-runtime.
 import { GroupChatInput } from "../../../src/character/group-chat-input.js";
 import type { PublicMessage, ServerMessage } from "../../../src/protocol/messages.js";
 
-// #85 J1 钉测（QA，2026-08-03）：长工具循环忙态投递回归。
-// 场景：run 活跃（长工具循环）中，每轮工具调用间隙收到一条群聊通知——
-// 忙态契约要求立即拉取 + steer 投递 + 游标推进，全程无重复无遗漏。
-// 与 T2（两轮）的区别：N=25 轮压力形态，验证长循环下逐轮投递不退化。
-// 绿 = 现有实现钉住；红基线 = 循环投递路径任一环断裂（重复/遗漏/游标回退）。
+// #85 J1 长工具循环回归：密集通知只排一个隐藏令牌；安全边界 abort 后，
+// settled 一次拉全并通过 followUp 重开，最终无重复无遗漏。
 
 function createMockRuntime(
 	overrides: {
@@ -62,7 +59,7 @@ describe("GroupChatInput #85 J1 长工具循环忙态投递回归", () => {
 		vi.useRealTimers();
 	});
 
-	it("J1: 25 轮忙态通知逐轮拉取+steer 投递，无重复无遗漏、游标单调、settle 幂等", async () => {
+	it("J1: 25 轮忙态通知合并为一个令牌，settled 一次拉全且无重复遗漏", async () => {
 		vi.useFakeTimers();
 
 		const N = 25;
@@ -91,7 +88,7 @@ describe("GroupChatInput #85 J1 长工具循环忙态投递回归", () => {
 		input.start();
 		const handler = runtime.onEnvironmentMessage ?? (() => {});
 
-		// 长工具循环：每轮通知到达（工具调用间隙）→ flush 微任务（本轮拉取+投递完成）。
+		// 长工具循环期间密集到达 25 条通知：不提前拉正文。
 		for (let k = 1; k <= N; k += 1) {
 			latestSeq = 6 + k;
 			handler({
@@ -100,36 +97,25 @@ describe("GroupChatInput #85 J1 长工具循环忙态投递回归", () => {
 				preview_messages: [],
 				total_messages: latestSeq,
 			} as unknown as ServerMessage);
-			await vi.advanceTimersByTimeAsync(0);
 		}
 
-		// ① 每轮一次独立拉取，since 严格递增无重叠（游标单调的前提）。
-		expect(fetchSinceCalls).toEqual(Array.from({ length: N }, (_, i) => 6 + i));
-
-		// ② 每轮一次 steer 投递，序列恰好为 [6+k]——全程无重复无遗漏。
-		expect(pi.sendMessage).toHaveBeenCalledTimes(N);
-		const calls = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls as [unknown, unknown][];
-		const delivered: number[] = [];
-		calls.forEach(([payload, options], index) => {
-			const message = payload as { details: { events: Array<{ sequence?: number }> } };
-			const sequences = message.details.events.map((e) => e.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
-			expect(sequences).toEqual([7 + index]);
-			expect((options as { deliverAs: string }).deliverAs).toBe("steer");
-			delivered.push(...(sequences as number[]));
-		});
-		// 全局投递序列 = [7..31]：无重复、无遗漏。
-		expect(delivered).toEqual(Array.from({ length: N }, (_, i) => 7 + i));
-		expect(new Set(delivered).size).toBe(N);
-
-		// ③ 游标单调推进 N 次：6→7→…→31。
-		const saved = (runtime.saveCursor as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0] as number);
-		expect(saved).toEqual(Array.from({ length: N }, (_, i) => 7 + i));
-
-		// ④ settle 幂等：游标已在最新，补拉为空 → 无额外投递。
+		expect(fetchSinceCalls).toEqual([]);
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+		expect(input.consumeAbortControlToken(vi.fn())).toBe(true);
 		runtime.isAgentActive = false;
 		runtime.onAgentSettled?.();
 		await vi.advanceTimersByTimeAsync(0);
-		expect(pi.sendMessage).toHaveBeenCalledTimes(N);
+
+		expect(fetchSinceCalls).toEqual([6]);
+		expect(pi.sendMessage).toHaveBeenCalledTimes(2);
+		const delivery = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[1] as [unknown, unknown];
+		const message = delivery[0] as { details: { events: Array<{ sequence?: number }> } };
+		const delivered = message.details.events.map((event) => event.sequence);
+		expect(delivered).toEqual(Array.from({ length: N }, (_, index) => 7 + index));
+		expect(new Set(delivered).size).toBe(N);
+		expect((delivery[1] as { deliverAs: string }).deliverAs).toBe("followUp");
+		expect(runtime.saveCursor).toHaveBeenCalledOnce();
+		expect(runtime.saveCursor).toHaveBeenCalledWith(6 + N);
 		expect(cursor).toBe(6 + N);
 
 		input.stop();
