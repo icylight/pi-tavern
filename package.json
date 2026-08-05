@@ -1,7 +1,6 @@
 {
 	"name": "pi-tavern",
 	"version": "0.1.0",
-	"private": true,
 	"description": "Local group chat for independent pi coding agent sessions",
 	"license": "MIT",
 	"type": "module",
@@ -43,5 +42,12 @@
 		"typebox": "1.1.38",
 		"typescript": "5.9.3",
 		"vitest": "4.1.9"
-	}
+	},
+	"keywords": [
+		"pi-package",
+		"pi-extension",
+		"group-chat",
+		"agent",
+		"collaboration"
+	]
 }
