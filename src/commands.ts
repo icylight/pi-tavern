@@ -391,14 +391,30 @@ export function registerCommands(
 					ctx.ui.notify(NOTIFY_USAGE_TEST_BUSY, "error");
 					return;
 				}
-				// v0.5 测试缝（QA 红测依赖）：无 LLM 环境下挂起 agent 活跃态（模拟忙态），
-				// 使群聊输入走忙态路径（到达即 abort）。N ms 后复位。
-				state.runtime.isAgentActive = true;
-				state.runtime.updateStreaming(true);
-				setTimeout(() => {
-					state.runtime.isAgentActive = false;
-					state.runtime.updateStreaming(false);
-				}, ms);
+				// v0.5 测试缝（QA 红测依赖）：零 LLM 环境下模拟完整生命周期，
+				// 而不是只伪造 isAgentActive。abort 回调会确定性地产生 settle，
+				// 从而验收 abort → settle → followUp 重开顺序；超时则自然 settle。
+				const runtime = state.runtime;
+				const previousAbortAgent = runtime.abortAgent;
+				let finished = false;
+				let timer: ReturnType<typeof setTimeout>;
+				const finishBusy = (): void => {
+					if (finished) return;
+					finished = true;
+					clearTimeout(timer);
+					if (runtime.abortAgent === abortForTest) {
+						runtime.abortAgent = previousAbortAgent;
+					}
+					runtime.settleRun();
+				};
+				const abortForTest = (): boolean => {
+					finishBusy();
+					return true;
+				};
+				runtime.isAgentActive = true;
+				runtime.updateStreaming(true);
+				runtime.abortAgent = abortForTest;
+				timer = setTimeout(finishBusy, ms);
 				ctx.ui.notify(`[tavern-test-busy] busy=${ms}ms`, "info");
 			},
 		});

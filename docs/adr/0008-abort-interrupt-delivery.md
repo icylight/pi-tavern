@@ -1,4 +1,4 @@
-# ADR-0008：忙态打断投递——steer 入队即 abort + followUp 重开（#64 投递机制演进）
+# ADR-0008：忙态打断投递——abort + settle 后 followUp 重开（#64 投递机制演进）
 
 - 状态：**Accepted**（2026-08-04，苍蓝星拍板 v0.5 定稿；实现中，分支 `feat/abort-interrupt-delivery` @ main 9fa950a）
 - 决策者：苍蓝星（拍板）、PM（需求口径 docs/abort-delivery.md）、Arch（架构评审）、Dev（实现）、QA（红测先行/验收）
@@ -17,9 +17,9 @@ ADR-0004 确立忙态投递走 pi steer 通道（工具间隙秒级可见、绝�
 
 ### 1. 触发与流程
 
-忙态 + `group_chat_update` 到达 → **立即 `session.abort()`**（主触发，无 steer 中间步）→ 拉取 → flush 重查：run 已空闲 → followUp + triggerTurn 唤醒重开（重开 run 按游标拉全未读）；abort 未生效（run 未终止）→ steer 入队兜底（消息经 pi steer 队列在 abort 后处理）。重开上下文 = 原上下文 + 全部未读，模型从头生成即见新消息。
+忙态 + `group_chat_update` 到达 → 先标记未读挂起 → **立即 `session.abort()`**（主触发，无 steer 中间步）→ 等待 `agent_settled` → 按游标拉全未读 → followUp + triggerTurn 唤醒重开。`ctx.isIdle()` 在 abort 前重查 pi 真实状态：若 run 已自然结束、abort 未发出，则立即拉取并由 pi 当前状态触发新 run。重开上下文 = 原上下文 + 全部未读，模型从头生成即见新消息。
 
-**steer 退出忙态主链路**（实现形态对齐，2026-08-04 Dev/PM 确认）：消息在持久化流中，重开 run 按游标拉全未读即可，不需要先经 steer 入队——v0.5 的「deliverSteer 后立即 abort」简化为「到达即 abort」，steer 仅作 abort 未生效时的兜底通道。
+**steer 退出忙态主链路**（实现形态对齐，2026-08-05 评审修正）：消息在持久化流中，重开 run 按游标拉全未读即可，不需要先经 steer 入队。abort 与 settle 之间禁止拉取并乐观推进游标：上游 abort 会直接结束 agent-loop，不消费其间新入队的 steer；提前推进会让 settle 补拉看不到未读，形成丢失唤醒。
 
 ### 2. 无保护参数
 
@@ -27,7 +27,7 @@ ADR-0004 确立忙态投递走 pi steer 通道（工具间隙秒级可见、绝�
 
 ### 3. 语义边界
 
-- ① 忙态消息到达即打断（无 steer 中间步；abort 未生效时 steer 入队兜底）；
+- ① 忙态消息到达即打断（无 steer 中间步；settle 后 followUp 重开）；
 - ② idle 不打断（followUp 自然触发，现有路径不变）；
 - ③ 被打断的在途输出不发布群聊（无半截消息）；
 - ④ 游标单调、消息不重不漏（现有游标/持久化语义不变，零 wire、零持久化改动）；
@@ -57,7 +57,7 @@ QA 红测 `abort-steer-visibility`（留痕 @ 9fa950a@acceptance，feat/abort-in
 
 ## 测试缝（实现侧，PITAVERTEST 门控）
 
-- `/tavern-test-busy <ms>` 命令（commands.ts + shared/messages.ts 常量）：挂起 isAgentActive + updateStreaming N ms 后复位——无 LLM 环境模拟忙态，使 abort 分支可执行；
+- `/tavern-test-busy <ms>` 命令（commands.ts + shared/messages.ts 常量）：无 LLM 环境模拟 agent_start → abort → agent_settled 生命周期，使扩展侧时序可确定性验收；上游真实 abort 后队列保持由 J2 钉覆盖；
 - `abort=1` 观察通知：忙态分支 abort 决策处 `[tavern-inject] abort=1`（M7 A6 同款通道），验收可断言打断发生。
 
 ## 关联文档同步

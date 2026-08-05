@@ -10,16 +10,16 @@
 
 ## 2. 决策
 
-苍蓝星拍板（2026-08-04）：**忙态到达即 abort**。steer 退出打断主链路，仅作 abort 未生效时的兜底。
+苍蓝星拍板（2026-08-04）：**忙态到达即 abort**。steer 退出打断主链路；abort 与 settle 之间不拉取、不推进游标。
 
 ## 3. 需求口径（vFinal）
 
 | 项 | 值 |
 | --- | --- |
 | 触发 | 忙态 + 消息到达 → 立即 `session.abort()` |
-| 重开 | abort → agent 空闲 → followUp + triggerTurn 唤醒新 run → 按游标拉全部未读 |
+| 重开 | abort → agent settle/空闲 → 按游标拉全部未读 → followUp + triggerTurn 唤醒新 run |
 | 参数 | 无（不要 N/C 冷却、不要相位判断） |
-| 兜底 | abort 未生效时消息走 steer 入队（pi 队列自动处理） |
+| 兜底 | `ctx.isIdle()` 表明 abort 未发出时立即拉取；由 pi 当前真实状态选择投递并触发 run |
 | 风险 | livelock（密集打断）→ QA 红测锚定 |
 
 ## 4. 验收锚点
@@ -32,7 +32,7 @@
 ## 5. 影响面
 
 - 代码：`src/character/group-chat-input.ts`（到达即 abort）、`character-runtime.ts`（abortAgent 注入）、`agent-lifecycle.ts`（ctx.abort 挂接）
-- 测试缝：`/tavern-test-busy`（忙态模拟）+ `[tavern-inject] abort=1` 通知（M7 A6 风格）
+- 测试缝：`/tavern-test-busy`（零 LLM 生命周期模拟）+ `[tavern-inject] abort=1` 通知（M7 A6 风格）
 - 契约：零 wire、零持久化
 
 ## 6. 分工

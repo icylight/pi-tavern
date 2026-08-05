@@ -86,7 +86,7 @@ describe("GroupChatInput abort-interrupt-delivery (v0.5)", () => {
 			totalMessages: 2,
 		}));
 		runtime.isAgentActive = true;
-		const abortAgent = vi.fn();
+		const abortAgent = vi.fn(() => true);
 		runtime.abortAgent = abortAgent;
 
 		const pi = createMockPi();
@@ -94,16 +94,24 @@ describe("GroupChatInput abort-interrupt-delivery (v0.5)", () => {
 		input.start();
 		const handler = runtime.onEnvironmentMessage ?? (() => {});
 
-		// 忙态：update 到达 → 立即 abort（主触发点）→ 立即拉取 → 投递（steer）。
+		// 忙态：update 到达 → 立即 abort；abort 与 settle 之间不得拉取/推进游标。
 		handler(aGroupChatUpdate(2));
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(pi.sendMessage).not.toHaveBeenCalled();
+		expect(runtime.fetchMessagesSince).not.toHaveBeenCalled();
+		expect(runtime.saveCursor).not.toHaveBeenCalled();
+		expect(abortAgent).toHaveBeenCalledTimes(1);
+
+		// 真实生命周期在 abort 完成后发 agent_settled；此时才拉全并 followUp 重开。
+		runtime.isAgentActive = false;
+		runtime.onAgentSettled?.();
 		await vi.advanceTimersByTimeAsync(0);
 
 		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, { deliverAs?: string }];
-		// 拉取完成时 abort 尚未生效（单测无真实 agent）→ 仍走 steer 通道。
-		expect(call[1]?.deliverAs).toBe("steer");
-		// v0.5：忙态到达即 abort，恰好一次（无冷却、无双触发）。
-		expect(abortAgent).toHaveBeenCalledTimes(1);
+		expect(call[1]?.deliverAs).toBe("followUp");
+		expect(runtime.saveCursor).toHaveBeenCalledWith(2);
 
 		input.stop();
 	});
@@ -124,7 +132,7 @@ describe("GroupChatInput abort-interrupt-delivery (v0.5)", () => {
 		}));
 		// 闲态（agent 空闲）：走 idle 路径（debounce → followUp），不 abort。
 		runtime.isAgentActive = false;
-		const abortAgent = vi.fn();
+		const abortAgent = vi.fn(() => true);
 		runtime.abortAgent = abortAgent;
 
 		const pi = createMockPi();
@@ -160,7 +168,7 @@ describe("GroupChatInput abort-interrupt-delivery (v0.5)", () => {
 			totalMessages: 2,
 		}));
 		runtime.isAgentActive = true;
-		const abortAgent = vi.fn();
+		const abortAgent = vi.fn(() => true);
 		runtime.abortAgent = abortAgent;
 
 		const pi = createMockPi();
@@ -176,11 +184,22 @@ describe("GroupChatInput abort-interrupt-delivery (v0.5)", () => {
 
 		// 每次忙态到达恰好一次 abort（无冷却、无双触发）。
 		expect(abortAgent).toHaveBeenCalledTimes(2);
+		// 两次 update 在同一被打断 run 内合并，settle 前不拉取、不推进游标。
+		expect(runtime.fetchMessagesSince).not.toHaveBeenCalled();
+		expect(runtime.saveCursor).not.toHaveBeenCalled();
+
+		runtime.isAgentActive = false;
+		runtime.onAgentSettled?.();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, { deliverAs?: string }];
+		expect(call[1]?.deliverAs).toBe("followUp");
+		expect(runtime.saveCursor).toHaveBeenCalledWith(2);
 
 		input.stop();
 	});
 
-	it("tolerates abortAgent not injected (undefined) without throwing", async () => {
+	it("falls back to immediate delivery when abort was not requested", async () => {
 		vi.useFakeTimers();
 
 		let cursor = 0;
@@ -195,8 +214,8 @@ describe("GroupChatInput abort-interrupt-delivery (v0.5)", () => {
 			totalMessages: 1,
 		}));
 		runtime.isAgentActive = true;
-		// abortAgent 未注入（undefined）：防御性 optional chaining，不抛错。
-		runtime.abortAgent = undefined;
+		// pi 已经 idle、runtime 标志尚未 settle 的竞态：abort 回调明确返回 false。
+		runtime.abortAgent = vi.fn(() => false);
 
 		const pi = createMockPi();
 		const input = new GroupChatInput(runtime, pi);
@@ -207,7 +226,7 @@ describe("GroupChatInput abort-interrupt-delivery (v0.5)", () => {
 		await vi.advanceTimersByTimeAsync(0);
 
 		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
-		// 无异常即通过。
+		expect(runtime.saveCursor).toHaveBeenCalledWith(1);
 
 		input.stop();
 	});

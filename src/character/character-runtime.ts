@@ -140,15 +140,16 @@ export class CharacterRuntime {
 	}
 	/**
 	 * v0.5（abort-interrupt-delivery）：pi 扩展 abort 能力注入（苍蓝星 2026-08-04 拍板）。
-	 * agent_start 事件 ctx 的 abort() 在此挂接——群聊投递链（deliverSteer 入队后）
-	 * 调用以终止在途生成，使消息立即可见（abort → agent 空闲 → steer 队列内容
-	 * 触发重开）。回调注入（依赖注入窄接口化），不 import pi 类型。
+	 * agent_start 事件 ctx 的 abort() 在此挂接。返回值表示本次是否确实向活跃
+	 * run 发出了 abort：true 时输入管线等待 agent_settled 后再拉取并 followUp
+	 * 重开；false 时说明 pi 已空闲，输入管线直接走竞态兜底投递。
+	 * 回调注入（依赖注入窄接口化），不 import pi 类型。
 	 */
-	private _abortAgent: (() => void) | undefined;
-	get abortAgent(): (() => void) | undefined {
+	private _abortAgent: (() => boolean) | undefined;
+	get abortAgent(): (() => boolean) | undefined {
 		return this._abortAgent;
 	}
-	set abortAgent(callback: (() => void) | undefined) {
+	set abortAgent(callback: (() => boolean) | undefined) {
 		this._abortAgent = callback;
 	}
 	/** #66：run wedged 强制收敛已执行标记（下一 run agent_start 时重置）。 */

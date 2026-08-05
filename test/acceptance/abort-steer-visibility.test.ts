@@ -9,9 +9,8 @@ import { PiProcess, waitForDescriptor } from "./pi-process.js";
 /**
  * A' abort 打断投递 v0.5——红钉先行（QA 属主，2026-08-04）。
  *
- * 契约源：口径 v0.5（docs/abort-delivery.md，2026-08-04 定稿；实现形态两种皆可：
- *   「忙态消息到达 → deliverSteer 入队 → 立即 abort」或简化版「到达即 abort →
- *   followUp 重开拉全量未读」——本钉断言形态无关：打断通知 + 打断后可见）——
+ * 契约源：口径 v0.5（docs/abort-delivery.md，2026-08-05 评审修正）：
+ *   「忙态消息到达 → abort → settle → followUp 重开拉全量未读」；
  *   忙态 + 消息到达 → 立即 abort（终止当前 run）→
  *   agent 转空闲 → followUp 重开带全部未读 → 模型从头生成即见新消息；
  *   无 N/C 保护参数（苍蓝星拍板：不要保护，密集打断）；
@@ -23,8 +22,9 @@ import { PiProcess, waitForDescriptor } from "./pi-process.js";
  *   实现侧契约点）。
  *
  * 测试依赖（实现侧须提供，PITAVERTEST=1 门控）：
- *   tavern-test-busy <ms>——无 LLM 环境下挂起 agent 活跃态（模拟忙态），
- *   使「忙态 + 入队 + 打断」路径可确定性构造（零 LLM 白名单，#52）。
+ *   tavern-test-busy <ms>——无 LLM 环境下模拟 agent_start → abort →
+ *   agent_settled 生命周期，使扩展侧「打断后只在 settle 拉取」可确定性构造
+ *   （零 LLM 白名单，#52；上游真实 abort/队列保持由 J2 钉覆盖）。
  *
  * 红 = 当前（无 abort 逻辑）：忙态投递后无 abort=1 通知（T1 必红）；
  *   T2/T3 为回归护栏（今日绿，实现后若 livelock/语义破坏则转红）。
@@ -154,7 +154,16 @@ describe("acceptance: A' v0.5——忙态入队即 abort 重开（可见性 + li
 		throw new Error(`busy hook 未在 30s 内生效（prompt 队列被阻塞？）`);
 	}
 
-	it("T1（红核）：忙态消息入队即 abort——abort=1 通知存在且先有投递通知", async () => {
+	async function readState(character: PiProcess): Promise<{ pendingMessageCount?: number; isStreaming?: boolean }> {
+		const id = await character.send({ type: "get_state" });
+		const response = await character.waitFor(
+			(e) => e.id === id && e.type === "response" && e.command === "get_state",
+			10_000,
+		);
+		return (response.data as { pendingMessageCount?: number; isStreaming?: boolean }) ?? {};
+	}
+
+	it("T1（红核）：忙态消息到达即 abort——abort=1 且 settle 后消息可见", async () => {
 		const { creator, root } = await startCreator();
 		const agentDir = join(root, "agent");
 		const projectDir = join(root, "project");
@@ -163,12 +172,9 @@ describe("acceptance: A' v0.5——忙态入队即 abort 重开（可见性 + li
 		// ① 构造忙态（busy 窗口 8s）——等生效确认再发布，消除竞态。
 		await awaitBusy(character, 8000);
 
-		// ② 窗口内两次发布（间隔 3s）：busy 自激的 abort→重启循环存在瞬时 idle 间隙，
-		// 双发覆盖间隙，任一条在忙态到达即触发 abort 即通过。
+		// ② 忙态窗口内发布；检查点必须早于发布，避免错过快速的 abort/投递通知。
 		const firstPublish = character.checkpoint();
 		await publishMessage(creator, "T1-visibility-check");
-		await new Promise((resolveWait) => setTimeout(resolveWait, 3_000));
-		await publishMessage(creator, "T1-visibility-check-2");
 
 		// ③ 断言：首次发布之后出现 abort=1 通知（红：无 abort 逻辑 → 超时抛错）。
 		await character.waitForAfter(
@@ -180,10 +186,9 @@ describe("acceptance: A' v0.5——忙态入队即 abort 重开（可见性 + li
 				e.message.includes("abort=1"),
 			15_000,
 		);
-		// ④ 打断后消息可见：重开拉取产生 latest_seq 投递通知（晚于发布后 abort）。
-		const checkpoint = character.checkpoint();
+		// ④ 打断后消息可见：同一发布检查点之后必须出现 latest_seq 投递通知。
 		await character.waitForAfter(
-			checkpoint,
+			firstPublish,
 			(e) =>
 				e.type === "extension_ui_request" &&
 				e.method === "notify" &&
@@ -205,21 +210,21 @@ describe("acceptance: A' v0.5——忙态入队即 abort 重开（可见性 + li
 			await publishMessage(creator, `T2-storm-${i}`);
 		}
 
-		// ② 风暴结束后 agent 最终空闲、队列排空（实现若 livelock，此断言红）。
-		const id = await character.send({ type: "get_state" });
+		// ② 风暴结束后 agent 最终空闲、队列排空（每轮读取新状态，不能复用旧快照）。
 		const deadline = Date.now() + 15_000;
 		let pending: number | undefined;
+		let isStreaming: boolean | undefined;
 		for (;;) {
-			const events = (character as unknown as { events: Array<Record<string, unknown>> }).events;
-			const hit = events.find((e) => e.id === id && e.type === "response" && e.command === "get_state");
-			if (hit) {
-				pending = (hit.data as { pendingMessageCount?: number })?.pendingMessageCount;
-				if (pending === 0) {
-					break;
-				}
+			const state = await readState(character);
+			pending = state.pendingMessageCount;
+			isStreaming = state.isStreaming;
+			if (pending === 0 && isStreaming === false) {
+				break;
 			}
 			if (Date.now() > deadline) {
-				throw new Error(`T2 red: 连续消息后队列未排空（pendingMessageCount=${String(pending)}）——livelock 风险锚点`);
+				throw new Error(
+					`T2 red: 连续消息后未收敛（pendingMessageCount=${String(pending)}, isStreaming=${String(isStreaming)}）——livelock 风险锚点`,
+				);
 			}
 			await new Promise((resolveWait) => setTimeout(resolveWait, 200));
 		}
@@ -232,29 +237,46 @@ describe("acceptance: A' v0.5——忙态入队即 abort 重开（可见性 + li
 		const character = await startCharacter(agentDir, projectDir);
 
 		await awaitBusy(character, 5000);
+		const checkpoint = character.checkpoint();
 		await publishMessage(creator, "T3-once");
 
 		// 等投递通知出现（RPC notify 事件通道）。
-		const checkpoint = character.checkpoint();
 		await character.waitForAfter(
 			checkpoint,
 			(e) =>
 				e.type === "extension_ui_request" &&
 				e.method === "notify" &&
 				typeof e.message === "string" &&
-				e.message.includes("[tavern-inject]"),
+				e.message.includes("[tavern-inject]") &&
+				e.message.includes("latest_seq"),
 			10_000,
 		);
 
 		const sequences = injectLines(character)
 			.map((line) => Number(line.match(/latest_seq=(\d+)/)?.[1] ?? NaN))
 			.filter((n) => !Number.isNaN(n));
-		// 游标单调（只增不减）。
+		expect(sequences.length).toBeGreaterThan(0);
+		// 游标单调（只增不减），且本场景唯一消息只投递一次。
 		for (let i = 1; i < sequences.length; i += 1) {
 			expect(sequences[i] ?? 0).toBeGreaterThanOrEqual(sequences[i - 1] ?? 0);
 		}
-		// 无半截输出（发布内容完整、无截断标记）。
-		const stderrAll = injectLines(character).join("\n");
-		expect(stderrAll).not.toMatch(/T3-once[\s\S]{0,20}…\s*$/);
+		const injected = injectLines(character).filter((line) => line.includes("latest_seq"));
+		expect(injected).toHaveLength(1);
+		expect(injected[0]).toContain("count=1");
+
+		// 读取真实 pi session 上下文，确认公共消息正文完整进入一次 custom message。
+		const id = await character.send({ type: "get_messages" });
+		const response = await character.waitFor(
+			(e) => e.id === id && e.type === "response" && e.command === "get_messages",
+			10_000,
+		);
+		const messages = ((response.data as { messages?: Array<Record<string, unknown>> })?.messages ?? []).filter(
+			(message) => message.customType === "pi-tavern.group-chat-input",
+		);
+		const delivered = messages.flatMap((message) => {
+			const details = message.details as { events?: Array<{ type?: string; content?: string }> } | undefined;
+			return details?.events ?? [];
+		});
+		expect(delivered.filter((event) => event.type === "public_message" && event.content === "T3-once")).toHaveLength(1);
 	});
 });

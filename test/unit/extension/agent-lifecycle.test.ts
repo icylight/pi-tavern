@@ -51,11 +51,13 @@ describe("wireAgentLifecycle v0.5 abort-interrupt-delivery", () => {
 		// v0.5（苍蓝星拍板）：abort 能力经 agent_start 事件 ctx 注入 runtime——
 		// 群聊投递链 deliverSteer 入队后调用；abort 后重开 run 再次 agent_start，
 		// abortAgent 必须指向新 run 的 ctx（旧 ctx.abort 不再生效）。
-		const handlers = new Map<string, (event?: unknown, ctx?: { abort?: () => void }) => void>();
+		const handlers = new Map<string, (event?: unknown, ctx?: { abort?: () => void; isIdle?: () => boolean }) => void>();
 		const pi = {
-			on: vi.fn((event: string, handler: (event?: unknown, ctx?: { abort?: () => void }) => void) => {
-				handlers.set(event, handler);
-			}),
+			on: vi.fn(
+				(event: string, handler: (event?: unknown, ctx?: { abort?: () => void; isIdle?: () => boolean }) => void) => {
+					handlers.set(event, handler);
+				},
+			),
 		};
 		const runtime = {
 			isAgentActive: false,
@@ -64,7 +66,7 @@ describe("wireAgentLifecycle v0.5 abort-interrupt-delivery", () => {
 			clearStreamingResetWatchdog: vi.fn(),
 			armStreamingResetWatchdog: vi.fn(),
 			settleRun: vi.fn(),
-			abortAgent: undefined as (() => void) | undefined,
+			abortAgent: undefined as (() => boolean) | undefined,
 		};
 		const ctrl = {
 			getState: vi.fn(() => ({ type: "character", runtime })),
@@ -72,17 +74,22 @@ describe("wireAgentLifecycle v0.5 abort-interrupt-delivery", () => {
 
 		wireAgentLifecycle(pi as never, ctrl as never);
 
-		const ctx1 = { abort: vi.fn() };
+		const ctx1 = { abort: vi.fn(), isIdle: vi.fn(() => false) };
 		handlers.get("agent_start")?.(undefined, ctx1);
 		expect(runtime.abortAgent).toBeDefined();
-		runtime.abortAgent?.();
+		expect(runtime.abortAgent?.()).toBe(true);
 		expect(ctx1.abort).toHaveBeenCalledTimes(1);
 
 		// 新 run（abort → 重开）→ 新 ctx → abortAgent 重新赋值。
-		const ctx2 = { abort: vi.fn() };
+		const ctx2 = { abort: vi.fn(), isIdle: vi.fn(() => false) };
 		handlers.get("agent_start")?.(undefined, ctx2);
-		runtime.abortAgent?.();
+		expect(runtime.abortAgent?.()).toBe(true);
 		expect(ctx2.abort).toHaveBeenCalledTimes(1);
 		expect(ctx1.abort).toHaveBeenCalledTimes(1);
+
+		// runtime 标志尚未收敛但 pi 已 idle 时不发送无效 abort，让输入管线走兜底投递。
+		ctx2.isIdle.mockReturnValue(true);
+		expect(runtime.abortAgent?.()).toBe(false);
+		expect(ctx2.abort).toHaveBeenCalledTimes(1);
 	});
 });

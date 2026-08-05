@@ -20,9 +20,17 @@ export function wireAgentLifecycle(pi: ExtensionAPI, ctrl: TavernController): vo
 		const state = ctrl.getState();
 		if (state.type === "character") {
 			// v0.5（abort-interrupt-delivery）：把 pi 的 abort 能力注入 runtime——
-			// 群聊投递链 deliverSteer 入队后调用（苍蓝星 2026-08-04 拍板：密集打断）。
+			// 群聊 update 到达时调用（苍蓝星 2026-08-04 拍板：密集打断）。
 			// 每次 agent_start 重新赋值（新事件 ctx；abort 后重开 run 会再次触发）。
-			state.runtime.abortAgent = () => ctx.abort();
+			// isIdle 重查闭合 runtime 标志与 pi 真状态之间的 settle 竞态：只有
+			// pi 确实仍在运行时才报告“已请求 abort”。
+			state.runtime.abortAgent = () => {
+				if (ctx.isIdle()) {
+					return false;
+				}
+				ctx.abort();
+				return true;
+			};
 			// M7（ISSUE-012/#24）：标记 run 活跃，使 group_chat_update 拉取排队
 			// 而不是打断当前轮次。
 			state.runtime.isAgentActive = true;
