@@ -17,9 +17,10 @@ export function setTestNotify(notify: ((message: string) => void) | undefined): 
 export interface GroupChatInputReloadSnapshot {
 	pendingEvents: ServerMessage[];
 	debounceDueAt: number | null;
-	idleWindowDueAt: number | null;
-	idleWindowAbortEligible: boolean;
-	incrementPending: boolean;
+	/** 可选仅为兼容新字段加入前创建的进程内 handoff。 */
+	idleWindowDueAt?: number | null | undefined;
+	idleWindowAbortEligible?: boolean | undefined;
+	incrementPending?: boolean | undefined;
 }
 
 /**
@@ -352,13 +353,17 @@ export class GroupChatInput {
 				}, remaining);
 			}
 		}
-		if (snapshot.incrementPending) {
+		// 跨版本 reload：旧代码生成的 handoff 没有以下新字段。此时无法知道
+		// detach 前属于忙态未读还是闲态窗口，保守地按持久化游标补拉一次；
+		// 无未读时为空操作，重复可接受但跳过不可接受。
+		const legacyUnreadState = snapshot.incrementPending === undefined;
+		if (snapshot.incrementPending === true || legacyUnreadState) {
 			// reload 已终止旧 run；原忙态未读现在可立即按游标拉全并 followUp 重开。
 			void this.pullIncrement();
 			return;
 		}
-		if (snapshot.idleWindowDueAt !== null) {
-			this.idleWindowAbortEligible = snapshot.idleWindowAbortEligible;
+		if (snapshot.idleWindowDueAt !== null && snapshot.idleWindowDueAt !== undefined) {
+			this.idleWindowAbortEligible = snapshot.idleWindowAbortEligible ?? false;
 			this.scheduleIdleWindow(Math.max(0, snapshot.idleWindowDueAt - Date.now()));
 		}
 	}

@@ -287,6 +287,24 @@ describe("GroupChatInput steer 安全边界打断", () => {
 		resumed.stop();
 	});
 
+	it("跨版本 reload 对缺少新字段的 legacy handoff 保守补拉一次", async () => {
+		vi.useFakeTimers();
+		const runtime = createMockRuntime();
+		runtime.fetchMessagesSince = vi.fn(async () => ({
+			messages: [],
+			latestSequence: 0,
+			totalMessages: 0,
+		}));
+		const input = new GroupChatInput(runtime, createMockPi());
+		input.start();
+
+		input.restoreFromReload({ pendingEvents: [], debounceDueAt: null });
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(runtime.fetchMessagesSince).toHaveBeenCalledOnce();
+		input.stop();
+	});
+
 	it("成员变化不进入 Agent 输入，白板更新仍正常投递", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime();

@@ -1164,6 +1164,7 @@ interface BufferedFrame {
 
 - `idleWindowDueAt` 仍在未来时，只等待原固定窗口的剩余时间；已经过期时在接管后的下一个 tick 消费；
 - `incrementPending` 为 `true` 时，旧 run 已随 reload 结束，新 Runtime 不再等待 settled，立即从持久化游标拉取全部未读正文；
+- 跨版本 reload 取得不含上述新字段的 legacy handoff 时，保守地按持久化游标补拉一次；无未读时为空操作；
 - 恢复不调用群聊状态接口推导 `latest_sequence`；该字段不属于 `get_group_chat_state` 响应。
 
 如果 `socketClosed` 为 `true`，新 Runtime 不恢复 `character`，而是执行正常断线清理并进入 `idle`。
