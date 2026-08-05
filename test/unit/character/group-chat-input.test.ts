@@ -1111,44 +1111,57 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	// #64（QA 建议防回归）：reload 恢复路径再评估派生标记——游标 < 状态 latest_sequence
-	// 时重挂闲态窗口（窗口 ≤1s 瞬态可重置，最坏触发延迟）；到期 1 次拉全不丢。
-	// 当前代码 restoreFromReload 无再评估（标记概念不存在），必红。
-	it("#64 RED: restore after reload re-derives the unread marker and re-arms the idle window", async () => {
+	it("reload preserves the idle window deadline and abort eligibility", async () => {
 		vi.useFakeTimers();
 
-		const runtime = createMockRuntime({
-			getGroupChatState: async () => ({
-				latest_sequence: 7,
-				preview_messages: [],
-				total_messages: 7,
-			}),
-		});
+		const runtime = createMockRuntime({ getGroupChatState: async () => ({}) });
 		const fetchMock = vi.fn(async (since: number) => ({
-			messages: [5, 6, 7].filter((seq) => seq > since).map((seq) => aPublicMessage("user_persona", { sequence: seq })),
-			latestSequence: 7,
-			totalMessages: 7,
+			messages: [5].filter((seq) => seq > since).map((seq) => aPublicMessage("user_persona", { sequence: seq })),
+			latestSequence: 5,
+			totalMessages: 5,
 		}));
 		runtime.fetchMessagesSince = fetchMock;
 		runtime.loadCursor = vi.fn(() => 4);
 		runtime.saveCursor = vi.fn();
 
-		const pi = createMockPi();
-		const input = new GroupChatInput(runtime, pi);
+		const input = new GroupChatInput(runtime, createMockPi());
 		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+		handler({
+			type: "group_chat_update",
+			latest_sequence: 5,
+			preview_messages: [aPublicMessage("user_persona", { sequence: 5 })],
+			total_messages: 5,
+		} as unknown as ServerMessage);
+		await vi.advanceTimersByTimeAsync(400);
 
-		// reload 恢复（无 pendingEvents；窗口由再评估重挂）。
-		input.restoreFromReload({ pendingEvents: [], debounceDueAt: null });
+		const snapshot = input.snapshotForReload();
+		expect(snapshot.idleWindowAbortEligible).toBe(true);
+		input.stop();
 
-		// 窗口未到期：0 拉取。
-		await vi.advanceTimersByTimeAsync(999);
+		const resumedPi = createMockPi();
+		const resumed = new GroupChatInput(runtime, resumedPi);
+		resumed.start();
+		resumed.restoreFromReload(snapshot);
+		runtime.isAgentActive = true;
+
+		// 继承原窗口剩余的 600ms，而不是重新等待完整 1s。
+		await vi.advanceTimersByTimeAsync(599);
+		expect(fetchMock).toHaveBeenCalledTimes(0);
+		expect(resumedPi.sendMessage).not.toHaveBeenCalled();
+
+		// reload 后窗口转忙，保留的 external 证据使其排安全边界令牌。
+		await vi.advanceTimersByTimeAsync(1);
+		expect(resumedPi.sendMessage).toHaveBeenCalledTimes(1);
+		expect(resumed.consumeAbortControlToken(vi.fn())).toBe(true);
 		expect(fetchMock).toHaveBeenCalledTimes(0);
 
-		// 到期：1 次拉全（含 reload 期间到达的消息）。
-		await vi.advanceTimersByTimeAsync(1);
+		runtime.isAgentActive = false;
+		runtime.onAgentSettled?.();
+		await vi.advanceTimersByTimeAsync(0);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		expect(fetchMock.mock.calls[0]?.[0]).toBe(4);
 
-		input.stop();
+		resumed.stop();
 	});
 });

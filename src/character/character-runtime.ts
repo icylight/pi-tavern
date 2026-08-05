@@ -612,7 +612,7 @@ export class CharacterRuntime {
 	/**
 	 * 为 reload 拆离 runtime：停止输入管线与心跳，在存活 socket 上缓冲
 	 * reload 窗口帧，并发布一次性交接。连接、Character 身份、未冲刷的
-	 * 环境事件与 debounce 截止时刻都保留给新 runtime。
+	 * 环境事件、未读标记与各触发窗口截止时刻都保留给新 runtime。
 	 */
 	async detachForReload(piSessionId: string): Promise<CharacterReloadHandoff> {
 		if (this.lifecycle !== "active" || !this.socket || this.disconnected) {
@@ -620,7 +620,13 @@ export class CharacterRuntime {
 		}
 		this.lifecycle = "detaching";
 		this.stopHeartbeat();
-		const snapshot = this.groupChatInput?.snapshotForReload() ?? { pendingEvents: [], debounceDueAt: null };
+		const snapshot = this.groupChatInput?.snapshotForReload() ?? {
+			pendingEvents: [],
+			debounceDueAt: null,
+			idleWindowDueAt: null,
+			idleWindowAbortEligible: false,
+			incrementPending: false,
+		};
 		this.groupChatInput?.stop();
 		this.groupChatInput = undefined;
 
@@ -653,6 +659,9 @@ export class CharacterRuntime {
 			...(this.cursorStorePath !== undefined ? { cursorStorePath: this.cursorStorePath } : {}),
 			pendingEvents: snapshot.pendingEvents,
 			debounceDueAt: snapshot.debounceDueAt,
+			idleWindowDueAt: snapshot.idleWindowDueAt,
+			idleWindowAbortEligible: snapshot.idleWindowAbortEligible,
+			incrementPending: snapshot.incrementPending,
 			lastPingAt: this.lastPingAt,
 			bufferedFrames,
 			bufferingHandlers: handlers,
@@ -670,7 +679,7 @@ export class CharacterRuntime {
 
 	/**
 	 * 接管 character 交接：用新处理器重新挂接存活 socket，恢复心跳跟踪与
-	 * 环境输入管线（含其挂起事件与 debounce 截止时刻），然后按到达顺序
+	 * 环境输入管线（含挂起事件、未读标记与触发窗口），然后按到达顺序
 	 * 重放缓冲帧。reload 窗口期间断线的成员走正常断线清理。
 	 *
 	 * ISSUE-005：reload 时重新从磁盘读角色卡，因此加入期间对卡片的编辑
@@ -735,6 +744,9 @@ export class CharacterRuntime {
 			this.groupChatInput.restoreFromReload({
 				pendingEvents: handoff.pendingEvents,
 				debounceDueAt: handoff.debounceDueAt,
+				idleWindowDueAt: handoff.idleWindowDueAt,
+				idleWindowAbortEligible: handoff.idleWindowAbortEligible,
+				incrementPending: handoff.incrementPending,
 			});
 		}
 

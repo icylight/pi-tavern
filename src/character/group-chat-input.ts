@@ -17,6 +17,9 @@ export function setTestNotify(notify: ((message: string) => void) | undefined): 
 export interface GroupChatInputReloadSnapshot {
 	pendingEvents: ServerMessage[];
 	debounceDueAt: number | null;
+	idleWindowDueAt: number | null;
+	idleWindowAbortEligible: boolean;
+	incrementPending: boolean;
 }
 
 /**
@@ -43,8 +46,9 @@ export const ABORT_CONTROL_CUSTOM_TYPE = "pi-tavern.abort-control";
 export class GroupChatInput {
 	private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 	private debounceDueAt: number | null = null;
-	/** #64：闲态触发窗口定时器（fixed 1s，窗口内并入不重置；零交接字段）。 */
+	/** #64：闲态触发窗口定时器（fixed 1s，窗口内并入不重置；reload 本地交接）。 */
 	private idleWindowTimer: ReturnType<typeof setTimeout> | null = null;
+	private idleWindowDueAt: number | null = null;
 	/** 闲态窗口内是否已有通知可确认包含他人公共消息。 */
 	private idleWindowAbortEligible = false;
 	/**
@@ -325,6 +329,9 @@ export class GroupChatInput {
 		return {
 			pendingEvents: [...this.pendingEvents],
 			debounceDueAt: this.debounceDueAt,
+			idleWindowDueAt: this.idleWindowDueAt,
+			idleWindowAbortEligible: this.idleWindowAbortEligible,
+			incrementPending: this.incrementPending,
 		};
 	}
 
@@ -345,10 +352,15 @@ export class GroupChatInput {
 				}, remaining);
 			}
 		}
-		// #64：派生再评估——reload 后若有未读（latest_sequence > 游标）则重挂
-		// 新窗口（fresh 1s，零交接字段；窗口瞬态可重置）。状态不可得时保持
-		// 静默，由下次事件/组装边界拉全兜底（不丢，仅延迟）。
-		void this.reEvaluateUnread();
+		if (snapshot.incrementPending) {
+			// reload 已终止旧 run；原忙态未读现在可立即按游标拉全并 followUp 重开。
+			void this.pullIncrement();
+			return;
+		}
+		if (snapshot.idleWindowDueAt !== null) {
+			this.idleWindowAbortEligible = snapshot.idleWindowAbortEligible;
+			this.scheduleIdleWindow(Math.max(0, snapshot.idleWindowDueAt - Date.now()));
+		}
 	}
 
 	/**
@@ -366,8 +378,14 @@ export class GroupChatInput {
 		if (this.idleWindowTimer !== null) {
 			return;
 		}
+		this.scheduleIdleWindow(this.triggerDebounceMs);
+	}
+
+	private scheduleIdleWindow(delayMs: number): void {
+		this.idleWindowDueAt = Date.now() + delayMs;
 		this.idleWindowTimer = setTimeout(() => {
 			this.idleWindowTimer = null;
+			this.idleWindowDueAt = null;
 			const shouldAbort = this.idleWindowAbortEligible;
 			this.idleWindowAbortEligible = false;
 			if (this.stopped) {
@@ -384,7 +402,7 @@ export class GroupChatInput {
 				return;
 			}
 			void this.pullIncrement();
-		}, this.triggerDebounceMs);
+		}, delayMs);
 	}
 
 	private cancelIdleWindow(): void {
@@ -392,39 +410,8 @@ export class GroupChatInput {
 			clearTimeout(this.idleWindowTimer);
 			this.idleWindowTimer = null;
 		}
+		this.idleWindowDueAt = null;
 		this.idleWindowAbortEligible = false;
-	}
-
-	/**
-	 * #64：派生标记再评估——未读 ⟺ latest_sequence > 已见游标（单一事实来源，
-	 * 不携带不落盘）。reload/崩溃恢复路径共用：重 join 拉状态后派生求值，
-	 * 有未读则重挂新窗口（闲态）或置忙态标记（活跃）。
-	 */
-	private async reEvaluateUnread(): Promise<void> {
-		if (this.stopped) {
-			return;
-		}
-		try {
-			const state = (await this.runtime.getGroupChatState()) as { latest_sequence?: number } | null;
-			if (!state || this.stopped) {
-				return;
-			}
-			const latest = state.latest_sequence;
-			if (typeof latest !== "number") {
-				return;
-			}
-			const cursor = this.runtime.loadCursor() ?? 0;
-			if (latest <= cursor) {
-				return;
-			}
-			if (this.runtime.isAgentActive) {
-				this.incrementPending = true;
-			} else {
-				this.armIdleWindow();
-			}
-		} catch {
-			// 状态不可得：保持静默，由下次事件/组装边界兜底（不丢，仅延迟）。
-		}
 	}
 
 	hasPendingBatch(): boolean {

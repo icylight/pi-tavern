@@ -65,6 +65,9 @@ export interface CharacterReloadHandoff {
 	cursorStorePath?: string;
 	pendingEvents: ServerMessage[];
 	debounceDueAt: number | null;
+	idleWindowDueAt: number | null;
+	idleWindowAbortEligible: boolean;
+	incrementPending: boolean;
 	lastPingAt: number;
 
 	bufferedFrames: BufferedFrame[];

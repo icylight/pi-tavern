@@ -88,7 +88,7 @@ async function settleJoin(runtime: CharacterRuntime, pi: ExtensionAPI): Promise<
 	while (sendMessage.mock.calls.length === 0 && Date.now() < deadline) {
 		await new Promise((resolve) => setTimeout(resolve, 25));
 	}
-	// join 后存在二次投递窗口（reEvaluateUnread 1s 窗口）：等待稳定后再清计数。
+	// join 后环境批次仍有 1s 合并窗口：等待稳定后再清计数。
 	await new Promise((resolve) => setTimeout(resolve, 1_500));
 	runtime.saveCursor(1);
 	sendMessage.mockClear();

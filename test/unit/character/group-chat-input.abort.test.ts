@@ -248,6 +248,45 @@ describe("GroupChatInput steer 安全边界打断", () => {
 		input.stop();
 	});
 
+	it("reload 后立即消费旧 run 留下的忙态未读", async () => {
+		vi.useFakeTimers();
+		let cursor = 0;
+		const runtime = createMockRuntime();
+		runtime.isAgentActive = true;
+		runtime.loadCursor = vi.fn(() => cursor);
+		runtime.saveCursor = vi.fn((value: number) => {
+			cursor = value;
+		});
+		runtime.fetchMessagesSince = vi.fn(async () => ({
+			messages: [publicMessage(1)],
+			latestSequence: 1,
+			totalMessages: 1,
+		}));
+		const input = new GroupChatInput(runtime, createMockPi());
+		input.start();
+		runtime.onEnvironmentMessage?.(update(1, [publicMessage(1)]));
+
+		const snapshot = input.snapshotForReload();
+		expect(snapshot.incrementPending).toBe(true);
+		input.stop();
+
+		// reload 终止旧 run；新 runtime 接管时处于 idle，应直接拉全，不再等待通知。
+		runtime.isAgentActive = false;
+		const resumedPi = createMockPi();
+		const resumed = new GroupChatInput(runtime, resumedPi);
+		resumed.start();
+		resumed.restoreFromReload(snapshot);
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(runtime.fetchMessagesSince).toHaveBeenCalledOnce();
+		expect(cursor).toBe(1);
+		expect(resumedPi.sendMessage).toHaveBeenCalledOnce();
+		expect((resumedPi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({
+			deliverAs: "followUp",
+		});
+		resumed.stop();
+	});
+
 	it("成员变化不进入 Agent 输入，白板更新仍正常投递", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime();
