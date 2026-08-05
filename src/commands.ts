@@ -391,8 +391,9 @@ export function registerCommands(
 					ctx.ui.notify(NOTIFY_USAGE_TEST_BUSY, "error");
 					return;
 				}
-				// 安全边界验收缝：先模拟 runtime 忙态；隐藏令牌触发的真实 pi run
-				// 会经过 context 钩子完成边界 abort，定时器保留自然 settle 兜底。
+				// 进程验收缝：模拟 Tavern runtime 忙态；隐藏令牌触发的真实 pi run
+				// 会经过 context 钩子完成 abort，定时器保留自然 settle 兜底。
+				// 真实工具批的安全边界由 integration agent-loop 钉覆盖。
 				const runtime = state.runtime;
 				let finished = false;
 				let timer: ReturnType<typeof setTimeout>;
