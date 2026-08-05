@@ -45,6 +45,8 @@ export class GroupChatInput {
 	private debounceDueAt: number | null = null;
 	/** #64：闲态触发窗口定时器（fixed 1s，窗口内并入不重置；零交接字段）。 */
 	private idleWindowTimer: ReturnType<typeof setTimeout> | null = null;
+	/** 闲态窗口内是否已有通知可确认包含他人公共消息。 */
+	private idleWindowAbortEligible = false;
 	/**
 	 * ISSUE-013 A1/A2：待投递窗口。持有加入时的公共历史与白板更新（经
 	 * debounce 合并），以及因 Agent turn 运行中而等待的非群消息流输入。
@@ -138,7 +140,7 @@ export class GroupChatInput {
 						this.queueAbortControlToken();
 					}
 				} else {
-					this.armIdleWindow();
+					this.armIdleWindow(selfPreview === "external");
 				}
 				void this.runtime.refreshGroupChatState();
 				return;
@@ -351,21 +353,34 @@ export class GroupChatInput {
 
 	/**
 	 * #64：闲态触发窗口（固定 1s，窗口内并入不重置）。窗口到期派生判定：
-	 * run 已活跃（窗口开启期间他源启动的 run）→ 交忙态（settle 触发），
-	 * 不触发、不拉取（零中间注入红线）；仍空闲 → 消费拉全。
+	 * run 已活跃（窗口开启期间他源启动的 run）→ 交忙态；已确认含他人消息时
+	 * 排隐藏令牌，否则自然等待 settle。正文均不提前拉取；仍空闲 → 消费拉全。
 	 */
-	private armIdleWindow(): void {
-		if (this.stopped || this.idleWindowTimer !== null) {
+	private armIdleWindow(abortEligible = false): void {
+		if (this.stopped) {
+			return;
+		}
+		// 固定窗口内通知不重置计时，但保留“至少一条可确认含他人消息”的证据。
+		// 若窗口期间由其他来源启动 run，到期后据此决定是否安全打断。
+		this.idleWindowAbortEligible ||= abortEligible;
+		if (this.idleWindowTimer !== null) {
 			return;
 		}
 		this.idleWindowTimer = setTimeout(() => {
 			this.idleWindowTimer = null;
+			const shouldAbort = this.idleWindowAbortEligible;
+			this.idleWindowAbortEligible = false;
 			if (this.stopped) {
 				return;
 			}
 			if (this.runtime.isAgentActive) {
-				// 窗口到期遇活跃 run：交忙态（settle 后立即消费）。
+				// 窗口期间由其他来源启动了 run：交忙态。已确认含他人消息时补排
+				// 隐藏令牌，避免新 run 在未见该消息的旧上下文上继续；preview 不完整
+				// 且含自身消息时仍自然 settled，避免自身回显误打断。
 				this.incrementPending = true;
+				if (shouldAbort) {
+					this.queueAbortControlToken();
+				}
 				return;
 			}
 			void this.pullIncrement();
@@ -377,6 +392,7 @@ export class GroupChatInput {
 			clearTimeout(this.idleWindowTimer);
 			this.idleWindowTimer = null;
 		}
+		this.idleWindowAbortEligible = false;
 	}
 
 	/**

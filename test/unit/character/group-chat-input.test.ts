@@ -1058,13 +1058,9 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	// #64：切换语义（Arch 最终定案：run 开始即取消窗口，不 flush）：窗口开启中 run 开始 →
-	// 窗口取消；到期时段 0 触发；该 run 组装拉全已覆盖窗口消息（fetch-all since 光标 =
-	// 防悬置机制依据，message-fetch 集成面钉测）；窗口消息未被吞——settle 后残余未读
-	// 恰好 1 次拉全（游标门控）。当前代码无此形态，必红。
-	// 注：组装拉全覆盖窗口消息的语义由 message-fetch 集成面钉测（fetch since 光标 = 全量未读），
-	// 本 unit 断言取消 + 不丢不重两个可观测点。
-	it("#64 RED: window expiry is suppressed while a run is active; settle triggers afterwards", async () => {
+	// v0.5 安全边界修正：窗口开启中若由他源启动 run，已确认含他人消息的窗口
+	// 到期时转为忙态隐藏令牌；正文仍不在 run 中拉取，settled 后一次拉全。
+	it("idle window expiry queues an abort token when another source starts a run", async () => {
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({ getGroupChatState: async () => ({}) });
@@ -1094,18 +1090,20 @@ describe("GroupChatInput", () => {
 		// 窗口开启中 run 从他源启动（如用户直聊）。
 		runtime.isAgentActive = true;
 
-		// 窗口到期：不得触发（run 内零注入红线）。
+		// 窗口到期：正文不拉取，只排一个隐藏安全边界令牌。
 		await vi.advanceTimersByTimeAsync(1000);
 		expect(fetchMock).toHaveBeenCalledTimes(0);
-		expect(pi.sendMessage).toHaveBeenCalledTimes(0);
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+		expect(input.consumeAbortControlToken(vi.fn())).toBe(true);
 
 		// settle：忙态规则，0 延迟触发 1 次拉全。
+		runtime.isAgentActive = false;
 		runtime.onAgentSettled?.();
 		await vi.advanceTimersByTimeAsync(0);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		expect(fetchMock.mock.calls[0]?.[0]).toBe(4); // 拉取范围 = 光标后全量（含窗口内消息）
 		// 防悬置：窗口内消息未被吞——送达内容含 seq 5。
-		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
+		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[1] as [unknown, unknown];
 		const message = call[0] as { details: { events: Array<{ sequence?: number }> } };
 		const sequences = message.details.events.map((e) => e.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
 		expect(sequences).toEqual([5]);

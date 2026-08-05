@@ -169,6 +169,85 @@ describe("GroupChatInput steer 安全边界打断", () => {
 		input.stop();
 	});
 
+	it("闲态窗口内启动 run：已确认他人消息时到期补排令牌", async () => {
+		vi.useFakeTimers();
+		let cursor = 0;
+		const runtime = createMockRuntime("dev");
+		runtime.loadCursor = vi.fn(() => cursor);
+		runtime.saveCursor = vi.fn((value: number) => {
+			cursor = value;
+		});
+		runtime.fetchMessagesSince = vi.fn(async () => ({
+			messages: [publicMessage(1)],
+			latestSequence: 1,
+			totalMessages: 1,
+		}));
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi, 1000);
+		input.start();
+
+		// 通知到达时 idle，只开启固定窗口；窗口期间由私有提示等来源启动 run。
+		runtime.onEnvironmentMessage?.(update(1, [publicMessage(1)]));
+		expect(pi.sendMessage).not.toHaveBeenCalled();
+		runtime.isAgentActive = true;
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(runtime.fetchMessagesSince).not.toHaveBeenCalled();
+		expect(pi.sendMessage).toHaveBeenCalledOnce();
+		expect(pi.sendMessage).toHaveBeenCalledWith(
+			{ customType: ABORT_CONTROL_CUSTOM_TYPE, content: "", display: false },
+			{ triggerTurn: true, deliverAs: "steer" },
+		);
+		expect(input.consumeAbortControlToken(vi.fn())).toBe(true);
+
+		runtime.isAgentActive = false;
+		runtime.onAgentSettled?.();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(runtime.fetchMessagesSince).toHaveBeenCalledOnce();
+		expect(cursor).toBe(1);
+		expect(pi.sendMessage).toHaveBeenCalledTimes(2);
+		input.stop();
+	});
+
+	it("闲态窗口内启动 run：preview 不完整且含自身消息时不误打断", async () => {
+		vi.useFakeTimers();
+		let cursor = 0;
+		const runtime = createMockRuntime("dev");
+		runtime.loadCursor = vi.fn(() => cursor);
+		runtime.saveCursor = vi.fn((value: number) => {
+			cursor = value;
+		});
+		runtime.fetchMessagesSince = vi.fn(async () => ({
+			messages: [publicMessage(1), ...[2, 3, 4].map((sequence) => publicMessage(sequence, "dev"))],
+			latestSequence: 4,
+			totalMessages: 4,
+		}));
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi, 1000);
+		input.start();
+
+		runtime.onEnvironmentMessage?.(
+			update(
+				4,
+				[2, 3, 4].map((sequence) => publicMessage(sequence, "dev")),
+			),
+		);
+		runtime.isAgentActive = true;
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(pi.sendMessage).not.toHaveBeenCalled();
+		expect(input.consumeAbortControlToken(vi.fn())).toBe(false);
+		runtime.isAgentActive = false;
+		runtime.onAgentSettled?.();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(runtime.fetchMessagesSince).toHaveBeenCalledOnce();
+		expect(cursor).toBe(4);
+		expect(pi.sendMessage).toHaveBeenCalledOnce();
+		expect((pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({ deliverAs: "followUp" });
+		input.stop();
+	});
+
 	it("成员变化不进入 Agent 输入，白板更新仍正常投递", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime();
