@@ -74,6 +74,8 @@ describe("acceptance: #38 live steer delivery during a run (T4)", () => {
 				PITAVERN_AUTO_JOIN: "1",
 				PITAVERN_CHARACTER: "architect",
 				PITAVERN_GROUP_CHAT: descriptor.groupChatId,
+				// #115 验证：短 auto-join 延迟（默认 3000，测试用短值 ≥50ms）。
+				PITAVERN_AUTO_JOIN_DELAY_MS: "100",
 			},
 		});
 		processes.push(headless);
@@ -127,6 +129,9 @@ describe("acceptance: #38 live steer delivery during a run (T4)", () => {
 				e.type === "extension_ui_request" && e.method === "notify" && e.message === "User Persona message published",
 		);
 
+		// #115 实测打点：mid 发布确认 → 游标 2（拉取+投递耗时），
+		// 与症状基线（15-20s / 60s+）对比；30s 上界仅防 flake。
+		const publishAt = Date.now();
 		// 轮询光标：消息有界送达——mid 消息在 30s 内到达上下文（光标 → 2）。
 		// #52 重基线（User 批准，2026-08-02）：不再断言「光标 2 时 run 仍活跃」
 		// （no-key 自动化下 run 毫秒级结束，该属性不可演练——Arch 评审确认漂移）；
@@ -143,6 +148,7 @@ describe("acceptance: #38 live steer delivery during a run (T4)", () => {
 			}
 			await new Promise((resolveWait) => setTimeout(resolveWait, 25));
 		}
+		console.log(`[live-delivery] publish→cursor2 实测 ${Date.now() - publishAt}ms`);
 
 		// run 不被中断（M7 A5 保持，可观测语义）：agent_settled 正常触发、
 		// widget 状态机一致（streaming 曾点亮 → 最终熄灭，不悬挂）。
