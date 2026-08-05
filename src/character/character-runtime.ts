@@ -158,6 +158,12 @@ export class CharacterRuntime {
 	 */
 	private staleRecoveryKey: string | null = null;
 	private staleRecoveryCount = 0;
+	/**
+	 * #128：speak 被「未读先读」阻止后置位（首拒已 markIncrementPending）。
+	 * 游标追平后下次 speak 判定通过即复位；置位期间重复 speak 只返回短告知，
+	 * 不重复标记（风暴场景防刷）。
+	 */
+	private unreadBlockNotified = false;
 	private closePromise: Promise<void> | null = null;
 	private disconnected = false;
 	private lastPingAt = 0;
@@ -503,7 +509,32 @@ export class CharacterRuntime {
 		missingTo?: number;
 		autoRecover?: boolean;
 		round?: { roundMaxMessages: number; usedMessages: number; remainingMessages: number };
+		/** #128：未读先读阻止（first = 首拒，已安排拉取；unreadCount/unreadExact = 告知条数）。 */
+		first?: boolean;
+		unreadCount?: number;
+		unreadExact?: boolean;
 	}> {
+		// #128：未读先读——发言前若有已证明的他人未读，不发布、不耗配额、不举手。
+		// 本地判定（零协议变更，Arch 评审 ②）：判定后直接返回、不发请求；拉取注入
+		// 走既有 markIncrementPending → settle 拉全 → followUp 重开的两段式链路。
+		// 水位未知（reload 后）时放行；截断窗口含自身回显时按 #128 定稿保守阻止。
+		// 其余无法证明他人未读的场景放行，由服务端 stale 拒绝兜底。
+		const unread = this.groupChatInput?.unreadOthersProven();
+		if (unread?.shouldBlock) {
+			const first = !this.unreadBlockNotified;
+			if (first) {
+				this.unreadBlockNotified = true;
+				this.markIncrementPending();
+			}
+			return {
+				published: false,
+				reason: "unread_first",
+				first,
+				...(unread.count > 0 ? { unreadCount: unread.count } : {}),
+				unreadExact: unread.exact,
+			};
+		}
+		this.unreadBlockNotified = false;
 		// ISSUE-013 B1：客户端始终携带自己的投递游标（最后一条成功投递的
 		// sequence——A5：只能由投递路径推进）。客户端不会自行推进游标；
 		// 服务端把请求者自己的消息排除在 stale 检查之外（B6），

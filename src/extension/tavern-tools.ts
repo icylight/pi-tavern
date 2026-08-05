@@ -66,6 +66,31 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 						details: undefined,
 					};
 				}
+				if (result.reason === "unread_first") {
+					// #128：未读先读（两段式，B3 零动摇）——本地判定、不耗配额、不举手。
+					// 首拒已安排 settle 拉全（markIncrementPending）；重复调用只短告知
+					//（风暴场景防刷）。告知无预览（苍蓝星选 A）：只含未读条数。
+					const countText =
+						result.unreadCount !== undefined
+							? result.unreadExact
+								? `有未读 ${result.unreadCount} 条`
+								: `有至少 ${result.unreadCount} 条未读`
+							: "有未读消息";
+					const body = result.first
+						? `${countText}，请先阅读再决定是否发言。未读已安排拉取，注入后将自动重新决策。`
+						: `未读拉取中，请等待新信息到达后再决定。`;
+					return {
+						content: [
+							{
+								type: "text",
+								text:
+									`Message NOT published: ${body} ` +
+									`Your message was not counted against the round quota and no hand was raised.`,
+							},
+						],
+						details: undefined,
+					};
+				}
 				if (result.reason === "stale") {
 					// ISSUE-013 B3（最终版，按 User「怎么简单怎么来」）：不在工具内拉取、
 					// 无缓存、无截断——只标记既有 A2 增量待投递并返回简短提示。settle

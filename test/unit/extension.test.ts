@@ -376,6 +376,26 @@ describe("PiTavern extension", () => {
 		expect(result.content[0]?.text).toContain("round limit reached");
 	});
 
+	it("#128 tavern_speak 未读先读：未知数量使用通用告知，不伪造至少 0 条", async () => {
+		const controller = await createCharacterController({
+			published: false,
+			reason: "unread_first",
+			first: true,
+			unreadExact: false,
+		});
+
+		const { tools, api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI, controller);
+
+		const tool = tools[0];
+		if (!tool) throw new Error("no tool");
+		const result = await tool.execute("call-unread-first", { content: "Need more context" });
+		expect(result.content[0]?.text).toContain("有未读消息");
+		expect(result.content[0]?.text).not.toContain("至少 0 条");
+		expect(result.content[0]?.text).toContain("not counted against the round quota");
+		expect(result.content[0]?.text).toContain("no hand was raised");
+	});
+
 	it("ISSUE-013 B3: stale speak flags the increment; notice only, no in-tool pull", async () => {
 		const runtime = createMockCharacterRuntime({
 			published: false,
