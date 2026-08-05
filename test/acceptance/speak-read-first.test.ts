@@ -83,8 +83,8 @@ describe("acceptance: #128 speak-read-first 链路前提（水位记录 + 拉取
 		);
 		await pollSessionCursor(cursorDir, groupChatId, 1, 30_000, "cursor seq 1");
 
-		// 轮 2-4：连续注入他人未读，每轮断言游标限期内追平（<5s 无停滞，
-		// #115 判据同款；30s 上界仅防 flake）。
+		// 轮 2-4：连续注入他人未读，每轮断言游标在 5s 内追平（#115 判据同款）。
+		// poll 的 30s 只负责在严重故障时给出明确超时；下面的断言才是验收界限。
 		for (let seq = 2; seq <= 4; seq += 1) {
 			const publishAt = Date.now();
 			await creator.runCommand(`/tavern-test-message round ${seq}`);
@@ -93,7 +93,9 @@ describe("acceptance: #128 speak-read-first 链路前提（水位记录 + 拉取
 					e.type === "extension_ui_request" && e.method === "notify" && e.message === "User Persona message published",
 			);
 			await pollSessionCursor(cursorDir, groupChatId, seq, 30_000, `cursor seq ${seq}`);
-			console.log(`[srf] round ${seq}: publish→cursor 实测 ${Date.now() - publishAt}ms`);
+			const elapsedMs = Date.now() - publishAt;
+			console.log(`[srf] round ${seq}: publish→cursor 实测 ${elapsedMs}ms`);
+			expect(elapsedMs).toBeLessThan(5_000);
 		}
 
 		// 追平稳态：水位 = 游标 = 4，进程存活无异常。

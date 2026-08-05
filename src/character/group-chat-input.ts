@@ -461,24 +461,37 @@ export class GroupChatInput {
 	 *
 	 * 返回 undefined = 水位未知（reload 后、join 早期）→ 不阻塞（服务端 stale
 	 * 兜底，Arch ①/③ 口径）；count = 已证明的他人未读条数（preview 截断时给出
-	 * 下界），exact = preview 是否完整覆盖 cursor 后窗口。阻塞条件 = count > 0。
+	 * 下界），exact = preview 是否完整覆盖 cursor 后窗口。阻塞条件除 count > 0
+	 * 外，还包括「截断窗口含自身回显」这一发送者未知场景（#128 定稿要求保守阻止）。
 	 */
-	unreadOthersProven(): { count: number; exact: boolean } | undefined {
+	unreadOthersProven(): { shouldBlock: boolean; count: number; exact: boolean } | undefined {
 		const update = this.latestGroupChatUpdate;
 		if (update === null) {
 			return undefined;
 		}
 		const cursor = this.runtime.loadCursor() ?? 0;
 		if (update.latest_sequence <= cursor) {
-			return { count: 0, exact: true };
+			return { shouldBlock: false, count: 0, exact: true };
 		}
 		const unseen = update.preview_messages.filter((preview) => preview.sequence > cursor);
 		const expected = update.latest_sequence - cursor;
+		const exact = unseen.length === expected;
 		const otherUnseen = unseen.filter(
 			(preview) =>
 				preview.sender.type !== "character" || preview.sender.character_id !== this.runtime.character.characterId,
 		);
-		return { count: otherUnseen.length, exact: unseen.length === expected };
+		const containsSelf = unseen.some(
+			(preview) =>
+				preview.sender.type === "character" && preview.sender.character_id === this.runtime.character.characterId,
+		);
+		return {
+			// preview 被截断且含自身回显时，缺口中的发送者未知。按 #128 定稿
+			// 保守阻止，由 settle 拉全后再决策；此时 count 只表示已明确看到的
+			// 他人消息数，可能为 0，调用方不得把 0 表述为精确数量。
+			shouldBlock: otherUnseen.length > 0 || (!exact && containsSelf),
+			count: otherUnseen.length,
+			exact,
+		};
 	}
 
 	/**

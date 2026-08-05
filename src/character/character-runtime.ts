@@ -517,9 +517,10 @@ export class CharacterRuntime {
 		// #128：未读先读——发言前若有已证明的他人未读，不发布、不耗配额、不举手。
 		// 本地判定（零协议变更，Arch 评审 ②）：判定后直接返回、不发请求；拉取注入
 		// 走既有 markIncrementPending → settle 拉全 → followUp 重开的两段式链路。
-		// 水位未知（reload 后）或无法证明他人未读时放行——服务端 stale 拒绝兜底。
+		// 水位未知（reload 后）时放行；截断窗口含自身回显时按 #128 定稿保守阻止。
+		// 其余无法证明他人未读的场景放行，由服务端 stale 拒绝兜底。
 		const unread = this.groupChatInput?.unreadOthersProven();
-		if (unread !== undefined && unread.count > 0) {
+		if (unread?.shouldBlock) {
 			const first = !this.unreadBlockNotified;
 			if (first) {
 				this.unreadBlockNotified = true;
@@ -529,7 +530,7 @@ export class CharacterRuntime {
 				published: false,
 				reason: "unread_first",
 				first,
-				unreadCount: unread.count,
+				...(unread.count > 0 ? { unreadCount: unread.count } : {}),
 				unreadExact: unread.exact,
 			};
 		}

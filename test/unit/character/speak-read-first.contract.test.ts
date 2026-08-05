@@ -6,8 +6,8 @@ import type { PublicMessage, ServerMessage } from "../../../src/protocol/message
 
 /**
  * #128 契约测试（Arch 属主，与 Dev 实现侧测试互补）。
- * 覆盖评审确认的边界：截断窗口全自身 → count=0 + exact:false → 放行（不误堵，
- * 服务端 stale 兜底）；混合窗口只数他人；旧帧水位知识不残留（新帧覆盖旧帧）。
+ * 覆盖评审确认的边界：截断窗口全自身 → 数量未知但保守阻止；混合窗口只数
+ * 明确可见的他人消息；旧帧水位知识不残留（新帧覆盖旧帧）。
  */
 
 function createMockRuntime(
@@ -70,12 +70,12 @@ function aGroupChatUpdate(overrides: {
 }
 
 describe("契约：#128 unreadOthersProven 边界（Arch 属主）", () => {
-	it("截断窗口全自身 → count=0 + exact:false → 不阻塞（stale 兜底，不误堵）", () => {
+	it("截断窗口全自身 → count=0 + exact:false，但按定稿保守阻止", () => {
 		const runtime = createMockRuntime({ loadCursor: () => 1, characterId: "arch" });
 		const input = new GroupChatInput(runtime, createMockPi());
 		input.start();
 		// 水位 5，游标 1，但 preview（最近 3 条）全为自身回显——截断导致
-		// 更早窗口是否有他人消息不可知 → 保守语义 = 无法证明他人未读 → 放行。
+		// 更早窗口是否有他人消息不可知 → 按 #128 定稿保守阻止，拉全后再决策。
 		runtime.onEnvironmentMessage?.(
 			aGroupChatUpdate({
 				latestSequence: 5,
@@ -86,7 +86,7 @@ describe("契约：#128 unreadOthersProven 边界（Arch 属主）", () => {
 				],
 			}),
 		);
-		expect(input.unreadOthersProven()).toEqual({ count: 0, exact: false });
+		expect(input.unreadOthersProven()).toEqual({ shouldBlock: true, count: 0, exact: false });
 		input.stop();
 	});
 
@@ -100,7 +100,7 @@ describe("契约：#128 unreadOthersProven 边界（Arch 属主）", () => {
 				previews: [aPublicMessage(4, "character", "arch"), aPublicMessage(5, "character", "qa")],
 			}),
 		);
-		expect(input.unreadOthersProven()).toEqual({ count: 1, exact: true });
+		expect(input.unreadOthersProven()).toEqual({ shouldBlock: true, count: 1, exact: true });
 		input.stop();
 	});
 
@@ -112,13 +112,13 @@ describe("契约：#128 unreadOthersProven 边界（Arch 属主）", () => {
 		runtime.onEnvironmentMessage?.(
 			aGroupChatUpdate({ latestSequence: 6, previews: [aPublicMessage(6, "user_persona")] }),
 		);
-		expect(input.unreadOthersProven()).toEqual({ count: 1, exact: true });
+		expect(input.unreadOthersProven()).toEqual({ shouldBlock: true, count: 1, exact: true });
 		// 新帧：水位 6 不变但 preview 全自身（他人消息已读/投递后水位知识刷新）
 		runtime.onEnvironmentMessage?.(
 			aGroupChatUpdate({ latestSequence: 6, previews: [aPublicMessage(6, "character", "arch")] }),
 		);
 		// 游标仍 5 → preview 内自身消息不算未读 → count=0
-		expect(input.unreadOthersProven()).toEqual({ count: 0, exact: true });
+		expect(input.unreadOthersProven()).toEqual({ shouldBlock: false, count: 0, exact: true });
 		input.stop();
 	});
 
@@ -127,7 +127,7 @@ describe("契约：#128 unreadOthersProven 边界（Arch 属主）", () => {
 		const input = new GroupChatInput(runtime, createMockPi());
 		input.start();
 		runtime.onEnvironmentMessage?.(aGroupChatUpdate({ latestSequence: 5, previews: [] }));
-		expect(input.unreadOthersProven()).toEqual({ count: 0, exact: false });
+		expect(input.unreadOthersProven()).toEqual({ shouldBlock: false, count: 0, exact: false });
 		input.stop();
 	});
 });
