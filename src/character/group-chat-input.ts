@@ -73,6 +73,13 @@ export class GroupChatInput {
 	private abortTokenQueued = false;
 	/** 当前 run 是否已经在安全边界请求过 abort。 */
 	private abortRequested = false;
+	/**
+	 * #128：最近一帧 group_chat_update 的完整水位知识（latest_sequence +
+	 * preview）。speak 前置「未读先读」判定以此推导——单一事实源 = 投递游标 +
+	 * 最新水位，不引入独立计数器（reload 不携带水位，未知即不阻塞，服务端
+	 * stale 兜底）。只存最新一帧：update 是累积水位，新帧包含旧帧信息。
+	 */
+	private latestGroupChatUpdate: Extract<ServerMessage, { type: "group_chat_update" }> | null = null;
 
 	constructor(
 		private readonly runtime: CharacterRuntime,
@@ -129,6 +136,8 @@ export class GroupChatInput {
 				// v0.5 收窄：group_chat_update 只表示公共消息水位；白板使用独立
 				// board_update，成员/流式状态不再触发本通知。发送者仍会收到广播，
 				// 但完整 preview 足以证明新增窗口全是自身消息时不得 abort/拉取。
+				// #128：先记录水位知识（即使早退也要刷新——后续 speak 判定据此推导）。
+				this.latestGroupChatUpdate = message;
 				const cursor = this.runtime.loadCursor() ?? 0;
 				const selfPreview = this.classifySelfPreview(message, cursor);
 				if (message.latest_sequence <= cursor || selfPreview === "complete-self-only") {
@@ -443,6 +452,33 @@ export class GroupChatInput {
 
 	private isOwnEcho(message: ServerMessage & { type: "public_message" }): boolean {
 		return message.sender.type === "character" && message.sender.character_id === this.runtime.character.characterId;
+	}
+
+	/**
+	 * #128：speak 前置「未读先读」判定——推导式计数（Arch 评审 ①：单一事实源
+	 * = 投递游标 + 最新水位，不维护独立计数器，reload/重连无状态同步风险）。
+	 * 语义与服务端 stale 判定同源：自身回显排除在未读之外。
+	 *
+	 * 返回 undefined = 水位未知（reload 后、join 早期）→ 不阻塞（服务端 stale
+	 * 兜底，Arch ①/③ 口径）；count = 已证明的他人未读条数（preview 截断时给出
+	 * 下界），exact = preview 是否完整覆盖 cursor 后窗口。阻塞条件 = count > 0。
+	 */
+	unreadOthersProven(): { count: number; exact: boolean } | undefined {
+		const update = this.latestGroupChatUpdate;
+		if (update === null) {
+			return undefined;
+		}
+		const cursor = this.runtime.loadCursor() ?? 0;
+		if (update.latest_sequence <= cursor) {
+			return { count: 0, exact: true };
+		}
+		const unseen = update.preview_messages.filter((preview) => preview.sequence > cursor);
+		const expected = update.latest_sequence - cursor;
+		const otherUnseen = unseen.filter(
+			(preview) =>
+				preview.sender.type !== "character" || preview.sender.character_id !== this.runtime.character.characterId,
+		);
+		return { count: otherUnseen.length, exact: unseen.length === expected };
 	}
 
 	/**
