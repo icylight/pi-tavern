@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { ABORT_CONTROL_CUSTOM_TYPE } from "../../../src/character/group-chat-input.js";
 import { wireAgentLifecycle } from "../../../src/extension/agent-lifecycle.js";
 
 /**
@@ -43,5 +44,53 @@ describe("wireAgentLifecycle #90 W1-a agent_start 续命", () => {
 		expect(runtime.updateStreaming).toHaveBeenCalledWith(true);
 		expect(runtime.clearStreamingResetWatchdog).toHaveBeenCalledTimes(1);
 		expect(runtime.armRunWedgedWatchdog).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("wireAgentLifecycle steer 安全边界打断", () => {
+	it("context 始终过滤历史令牌，且仅有待打断状态时 abort", () => {
+		const handlers = new Map<string, (event?: never, ctx?: { abort: () => void }) => unknown>();
+		const pi = {
+			on: vi.fn((event: string, handler: (event?: never, ctx?: { abort: () => void }) => unknown) => {
+				handlers.set(event, handler);
+			}),
+		};
+		let boundaryAbort: (() => void) | undefined;
+		const consumeAbortControlToken = vi.fn((abort: () => void) => {
+			boundaryAbort = abort;
+			return true;
+		});
+		const runtime = {
+			isAgentActive: false,
+			groupChatInput: { consumeAbortControlToken },
+			updateStreaming: vi.fn(),
+			armRunWedgedWatchdog: vi.fn(),
+			clearStreamingResetWatchdog: vi.fn(),
+			armStreamingResetWatchdog: vi.fn(),
+			settleRun: vi.fn(),
+		};
+		const getState = vi.fn<() => unknown>(() => ({ type: "character", runtime }));
+		const ctrl = { getState };
+
+		wireAgentLifecycle(pi as never, ctrl as never);
+
+		const abort = vi.fn();
+		const token = { role: "custom", customType: ABORT_CONTROL_CUSTOM_TYPE, content: "", display: false };
+		const publicInput = { role: "custom", customType: "pi-tavern.group-chat-input", content: "群消息", display: true };
+		const result = handlers.get("context")?.({ messages: [token, publicInput] } as never, { abort }) as {
+			messages: Array<{ customType: string }>;
+		};
+
+		expect(consumeAbortControlToken).toHaveBeenCalledTimes(1);
+		expect(boundaryAbort).toBeDefined();
+		boundaryAbort?.();
+		expect(abort).toHaveBeenCalledTimes(1);
+		expect(result.messages).toEqual([publicInput]);
+
+		consumeAbortControlToken.mockClear();
+		getState.mockReturnValue({ type: "idle" });
+		const historical = handlers.get("context")?.({ messages: [token] } as never, { abort }) as { messages: unknown[] };
+		expect(consumeAbortControlToken).not.toHaveBeenCalled();
+		expect(historical.messages).toEqual([]);
 	});
 });

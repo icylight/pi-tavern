@@ -13,9 +13,8 @@ import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
  *
  * 契约（#64 pull 模型 + #38 steer 修订）：自己 speak 成功后，服务端广播
  * group_chat_update（发送者也收，websocket-protocol §广播语义）→ 拉取结果
- * 经 isOwnEcho 过滤（group-chat-input.ts isEnvironmentEvent）→ 空结果提前
- * 短路（pullIncrement L168 messages.length>0 才 deliver；deliver L192 空则
- * return）→ 回声不产生任何投递、不触发新 run、不推进游标（B6：游标停在
+ * 在 group_chat_update 水位门闸直接过滤；回声不产生任何投递、不触发新 run、
+ * 不推进游标（B6：游标停在
  * 己消息前由后续投递推进）。
  *
  * 钉测面（A1/A2/A4）：
@@ -93,7 +92,7 @@ async function joinCharacter(
 async function settleJoin(runtime: CharacterRuntime, pi: ExtensionAPI): Promise<void> {
 	const sendMessage = pi.sendMessage as ReturnType<typeof vi.fn>;
 	await waitFor(() => sendMessage.mock.calls.length > 0, 5_000);
-	// join 后存在二次投递窗口（reEvaluateUnread 1s 窗口）：等待稳定后再清计数，
+	// join 后环境批次仍有 1s 合并窗口：等待稳定后再清计数，
 	// 避免迟到投递污染回声断言。
 	await new Promise((resolve) => setTimeout(resolve, 1_500));
 	runtime.saveCursor(1);
@@ -148,7 +147,7 @@ describe("#68 self-echo", () => {
 		const result = await runtime.speak("busy message");
 		expect(result.published).toBe(true);
 
-		// 忙态回声 → pullIncrement 立即拉取 → 全过滤空 → 零 steer 投递；run 保持活跃。
+		// 忙态回声在水位门闸直接过滤：零令牌、零拉取、run 保持活跃。
 		await new Promise((resolve) => setTimeout(resolve, 1_000));
 		expect(sendMessage).not.toHaveBeenCalled();
 		expect(runtime.isAgentActive).toBe(true);

@@ -1,6 +1,6 @@
 # ADR-0003：is_streaming 语义收敛与 group_chat_update 双触发（#14 / 方案 A）
 
-- 状态：**Accepted**（2026-08-02，落 feat/tui-widget-accuracy 分支，PR 待合并）
+- 状态：**Accepted，决策 3/4 已被 v0.5 功能收窄取代**（2026-08-05：`group_chat_update` 恢复为仅公共消息通知）
 - 决策者：架构师（评审/契约定稿）、开发工程师（实现）、产品经理（#14 口径裁决、谓词式断言裁决）、测试工程师（验收 A1-A6）
 - 关联：ISSUE-014 / GitHub #14（正在发言状态）、#12/#20/#21（TUI 呈现）、websocket-protocol.md 双触发注记（c57e28e）；延续 ADR-0002 的 CPU 敏感约束
 
@@ -32,9 +32,13 @@
 
 ### 3. group_chat_update 双触发语义（方案 A，通道复用）
 
+> **v0.5 超驰（2026-08-05，User 裁决）**：本节不再适用。`group_chat_update` 只由公共消息触发；白板使用独立 `board_update`；成员加入/离开与 `is_streaming` 翻转不再广播该通知。Character 无消息时的成员/流式快照不保证实时刷新，以显式状态查询或下一次消息投递为准。
+
 成员加入/离开、`is_streaming` 翻转、举手状态变化均复用 M7 的 `group_chat_update` 广播（原仅消息发布触发）。**非空群聊中两类触发负载不可区分**（成员广播同样携带最新 `latest_sequence` 与 preview）——这是有意的通道复用（协议格式零变更），消费端靠「每次 update 拉增量（按序号幂等）+ 刷新快照」自洽。无公开消息时广播 `latest_sequence=0`、`preview_messages=[]`。
 
 ### 4. 谓词式断言测试契约
+
+> **v0.5 超驰**：双触发已移除，测试应精确断言成员/流式变化不产生 `group_chat_update`，公开消息通知按目标 sequence 断言。
 
 `group_chat_update` 不得按广播触发源或到达顺序作精确断言（两类触发不可区分）；测试用谓词式断言（等快照满足条件：指定 sequence 出现、成员表含/不含某成员、preview 内容匹配）。PM 裁决为 A 组验收适配统一标准，QA 执行（断言强度不降反升）。
 

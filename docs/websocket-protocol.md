@@ -580,7 +580,7 @@ Character 加入成功后，群聊创建者自动发送最近 10 条公开消息
 
 群聊状态不主动广播。Character 在以下场景使用 `get_group_chat_state` 主动获取最新快照：
 
-- run 边界（闲态 1s 聚合窗口 / 忙态 update 到达即拉取 + settle 兜底）、准备提交一次 Agent run 或 follow-up 时。
+- run 边界（闲态 1s 聚合窗口 / 忙态隐藏令牌在 steer 安全边界 abort、settle 后拉取）、准备提交一次 Agent run 或 follow-up 时。
 - 用户执行需要展示完整状态的命令时。
 - 其他明确需要刷新本地群聊状态的交互。
 
@@ -592,32 +592,34 @@ Character 成功领取角色后，群聊创建者自动发送 `message_history`�
 
 ### 环境消息聚合与 run 边界投递（#60/#62/#64 pull 模型）
 
-Character 使用固定 1 秒聚合窗口（闲态）合并连续到达的环境消息；忙态 update 到达即拉取（单飞行锁，在途合并），经 steer 通道在工具间隙投递（User 2026-08-02 拍板恢复 #38 口径 A，解除 #64 零中间注入红线）：
+Character 使用固定 1 秒聚合窗口（闲态）合并连续到达的公共消息通知；忙态只排隐藏打断令牌，等安全边界 abort、agent settle 后拉取并重开：
 
-1. 收到 `group_chat_update` 通知（水位 + 最近 3 条预览）后，将预览并入待处理批次。
+1. 收到 `group_chat_update` 通知（水位 + 最近 3 条预览）后只记录未读触发；预览不并入 Agent 输入。
 2. 闲态：固定 1s 聚合窗口，窗口内多次变化并入**单次消费**（N→1），不重置计时（#60/#62）。
-3. 忙态：**立即消费**（无窗口、无有界延迟设计）；消费 = 按本 Session 持久化游标 `fetch_messages_since` 拉取全部未读，sequence 过滤天然补洞；settle 仍补拉全兜底（游标幂等，不丢不重）。
+3. 忙态：先标记未读挂起，最多排一个 `pi-tavern.abort-control` 隐藏 steer 令牌；当前工具批结束、下一次模型调用前由 `context` 钩子过滤令牌并调用一次 abort。`agent_settled` 后按本 Session 持久化游标 `fetch_messages_since` 拉取全部未读；密集 update 合并为一个令牌、一次 abort、一次拉全。
 4. 拉取完成后请求最新群聊状态，将批次与状态快照合并提交。
 
-**游标推进 = 双通道判定**（Arch 契约，2026-08-02）：idle followUp 与忙态 steer 在 sendMessage 调用无同步异常后**同步乐观推进**（followUp/steer 入队即推进；triggerTurn 调用后即推进——不 await run 完成，防飞行锁持有整个 run 阻断忙态秒级投递）；同步抛错不推进 → settle 兜底重投；**异步 run 启动失败（无模型/无 key 等 pi 环境不可用）丢面 = 与 wedged 救援同类例外**，与改造前长期语义一致（QA 钉注明）。
+**游标推进 = 投递通道判定**：idle followUp 与非 update 环境事件的忙态 steer 在 sendMessage 调用无同步异常后同步乐观推进；忙态 `group_chat_update` 的 abort 与 settle 之间不投递、不推进，settle 后 followUp 入队才推进。同步抛错不推进 → 后续 update/settle 重投；异步 run 启动失败的既有例外不变。
 
 提交环境批次时：
 
 - 当前 pi Agent 空闲：将环境批次和状态快照合并为一次输入并立即提交（触发新 run）。
-- 当前 pi Agent 正在运行：将同样的合并输入经 **steer 通道**投递（当前 assistant turn 完成其工具调用后、下次 LLM 调用前——工具间隙秒级，绝不打断 run）；#14 边界保持（steer 不点亮 is_streaming）。
+- 当前 pi Agent 正在运行：公共群消息正文不进入 steer；白板等非消息流输入仍按其独立语义在 run 边界投递。
+- **安全边界 abort（ADR-0008）**：忙态 `group_chat_update` 到达只置未读标记并排隐藏空令牌，群消息正文不进入 steer。令牌在工具批完成后的 `context` 钩子中被过滤，且仅当前 runtime 仍有待打断状态时调用 `ctx.abort()`。主链等待 `agent_settled` 后拉全未读，经 followUp + triggerTurn 唤醒新 run。观察通道依次为 `[tavern-inject] abort=0 token=queued` 与 `abort=1 boundary=steer`。
 
-WebSocket 环境消息不会逐条直接追加到 pi session。只有聚合完成后的合并输入才通过 pi 原生对话入口提交，并与随后的 assistant 回复、工具调用和工具结果一起按照 pi 原生 session 逻辑记录。成员/环境事件（character_joined/left、message_history）经 steer 通道在工具调用间隙可见（#38，不打断 run、秒级延迟）。
+WebSocket 环境消息不会逐条直接追加到 pi session。Agent 输入只包含公共群消息、白板更新及加入时的公共历史；`character_joined`、`character_left` 与流式状态变化不进入 Agent 输入。隐藏打断令牌作为内部 custom message 记录在 session JSONL，但始终从模型上下文过滤。
 
 聚合批次适用于：
 
-- `message_history`
+- 加入时 `message_history` 中的公共历史
 - User Persona 的公开消息
 - 其他 Character 的公开消息
-- 已经产生公开消息的群聊中的成员加入和离开环境事件
 
 以下消息不进入环境批次，也不重置聚合窗口计时：
 
 - Character 自己公开消息的回传确认
+- Character 加入与离开事件
+- 流式状态变化
 - 普通请求响应
 
 `get_group_chat_state` 响应不独立触发 Agent，而是作为触发它的环境批次的最新快照。聚合窗口本身不修改 `is_streaming`；该字段始终跟随当前 pi Agent 的原生状态（#14 watchdog 兜底）。聚合批次只是短暂的消息合并机制，不替代 pi-coding-agent 的 follow-up queue。闲态窗口固定为 1 秒，不提供配置项。
@@ -832,7 +834,7 @@ User Persona 消息：
 
 #### `group_chat_update`（广播通知形态）
 
-公开消息的广播以通知形式发出，不再逐条推送完整消息；成员/流式状态变化（成员加入/离开、`is_streaming` 翻转、举手）同样复用此通道唤醒角色刷新快照（方案 A，ISSUE-014）：
+公开消息的广播以通知形式发出，不再逐条推送完整消息。v0.5 功能收窄后，本通知只由成功持久化的公开消息触发；白板使用独立 `board_update`，成员与流式状态变化不触发本通知：
 
 ```json
 {
@@ -843,10 +845,11 @@ User Persona 消息：
 }
 ```
 
-- `latest_sequence`：当前最新公开消息序号；角色据此检测缺口（`latest_sequence ≠ 本地游标 + 1` 即应拉取补齐）。无任何公开消息时（群聊刚创建/成员变化先于首条消息）为 `0`、`preview_messages` 为空数组。
+- `latest_sequence`：当前最新公开消息序号；角色据此检测缺口（`latest_sequence ≠ 本地游标 + 1` 即应拉取补齐）。
 - `preview_messages`：最近 3 条公开消息（微信通知形态），与拉取路径同源（同一 `publicMessages` 数据）。
 - 角色在 run 边界（闲态 1s 聚合窗口 / 忙态 settle 后立即）按本 Session 持久化游标执行 `fetch_messages_since` 拉取全部未读（N→1 单次投递），投递仍走 followUp（不打断当前 run）；同时刷新本地群聊状态快照（`get_group_chat_state`）。
-- **双触发语义（方案 A，ISSUE-014）**：除消息变更（公开消息发布）外，成员加入/离开、`is_streaming` 翻转、举手状态变化也会广播 `group_chat_update`。非空群聊中两类触发在负载上不可区分（成员广播同样携带最新 `latest_sequence` 与预览）——这是有意的通道复用（协议格式零变更），消费端依赖「每次 update 拉增量（按序号幂等）+ 刷新快照」自洽，不得按广播触发源或到达顺序作精确断言（测试宜用谓词式断言）。
+- Character 发送者仍接收自己的公开消息通知。消费端在 preview 完整覆盖未读窗口且全部为自身消息时直接过滤，不触发拉取或 abort；preview 有缺口时保守拉取，避免漏掉更早的他人消息。
+- 成员与流式状态继续保存在 creator 权威快照中；Character 通过消息投递边界或显式状态查询取得，不保证无消息时实时刷新。
 
 #### `fetch_messages_since`（增量拉取命令）
 

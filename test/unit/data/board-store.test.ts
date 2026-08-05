@@ -139,7 +139,7 @@ describe("board-store（B0 契约先行）", () => {
 				status: "noop",
 				code: "note_unchanged",
 			});
-			expect(store.read("g1")["A"]).toHaveLength(5);
+			expect(store.read("g1").A).toHaveLength(5);
 		});
 
 		it("140 码点通过、141 码点被拒（note_length_exceeded）", () => {

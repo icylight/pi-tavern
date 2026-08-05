@@ -36,7 +36,6 @@ export interface ReadyPipelineDependencies {
 	send: (socket: WebSocket, message: unknown) => void;
 	sendFailure: (socket: WebSocket, id: string | undefined, command: "character_ready", reason: string) => void;
 	broadcast: (message: unknown) => void;
-	broadcastGroupChatUpdate: () => void;
 	onMembersChanged: (() => void) | undefined;
 }
 
@@ -44,7 +43,8 @@ export interface ReadyPipelineDependencies {
  * character_ready 门面（短流程：阶段多为发送顺序而非 IO 管线）。阶段：
  * validate（预留有效性）→ commit 在线态 → 响应 + 历史窗口 → 广播序列。
  * 历史窗口先于 character_joined 广播（新角色处理自己 join 事件时
- * hasPublicMessages 已为 true）；成员变化经 M7 通道通知（ISSUE-014/#14 方案 A）。
+ * hasPublicMessages 已为 true）。成员变化只保留 character_joined 事件；
+ * group_chat_update 收窄为公共消息水位通知。
  */
 export class ReadyPipeline {
 	constructor(private readonly deps: ReadyPipelineDependencies) {}
@@ -116,8 +116,5 @@ export class ReadyPipeline {
 			character: this.deps.toCharacterSummaryMessage(character),
 		});
 		this.deps.onMembersChanged?.();
-		// ISSUE-014/#14（方案 A）：成员变化也经 M7 通知通道唤醒角色，使即使
-		// 没有新消息到达时其 widget 快照也刷新。
-		this.deps.broadcastGroupChatUpdate();
 	}
 }

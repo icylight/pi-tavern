@@ -91,6 +91,7 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 6. **A6 统一逻辑（可测性契约，QA 二评补充已采纳）**：投递时经 `PITAVERN_TEST=1` testNotify 注入 `latest_sequence` + 投递消息数，验收断言与 TUI 预览同源（同一消息数据）；
 7. **A7 边界**：无游标 join 走现有全量分页；单飞行锁防并发竞态；自己的 echo 仍过滤；`message_history`/`get_message_history` 回归不破坏。
 8. **A8 游标 Session 隔离（2026-08-02 User 指示）**：同群聊多 Session 游标文件互异（`cursors/<groupId>/<sessionId>.json`）；A 推进游标不影响 B；旧群聊级文件保守回退为起点（只读不写不删）、save 只写新路径；reload 后同 session 游标接续（QA integration 四项：隔离/旧兼容/并发写/重启恢复）。
+9. **A9 steer 安全边界打断（2026-08-05 修正）**：忙态通知只排一个隐藏空令牌，正文不入 steer、通知到达时不 abort；当前工具批完成、令牌在下一模型调用前消费时才 abort。密集通知 N→1；settled 后一次拉全并 followUp 重开；历史令牌不进模型上下文；成员/流式变化不产生 Agent 输入，白板投递保持。
 
 验收方式：`npm run test:acceptance -- --all` 全绿 + 上述断言存在且非空 + 单测/check 全绿 + 协议与持久化文档无语义分歧。
 

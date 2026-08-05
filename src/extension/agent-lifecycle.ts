@@ -1,9 +1,29 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-
+import { ABORT_CONTROL_CUSTOM_TYPE } from "../character/group-chat-input.js";
 import type { TavernController } from "../controller/tavern-controller.js";
 
 /** 接线 pi Agent 生命周期事件（run 状态/流式汇报/Character 系统提示词注入）。 */
 export function wireAgentLifecycle(pi: ExtensionAPI, ctrl: TavernController): void {
+	// 隐藏打断令牌只负责在 steer 安全边界唤起 context 钩子。所有历史令牌都从
+	// 模型上下文过滤；只有当前 CharacterRuntime 的输入管线仍持有待打断状态时，
+	// 才在这一边界 abort 当前 run。
+	pi.on("context", (event, ctx) => {
+		const hasAbortControlToken = event.messages.some(
+			(message) => message.role === "custom" && message.customType === ABORT_CONTROL_CUSTOM_TYPE,
+		);
+		if (hasAbortControlToken) {
+			const state = ctrl.getState();
+			if (state.type === "character") {
+				state.runtime.groupChatInput?.consumeAbortControlToken(() => ctx.abort());
+			}
+		}
+		return {
+			messages: event.messages.filter(
+				(message) => !(message.role === "custom" && message.customType === ABORT_CONTROL_CUSTOM_TYPE),
+			),
+		};
+	});
+
 	// 在线时把角色卡 Markdown 注入为系统提示词扩展
 	pi.on("before_agent_start", (event) => {
 		const state = ctrl.getState();

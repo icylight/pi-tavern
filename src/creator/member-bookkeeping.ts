@@ -80,8 +80,6 @@ export class MemberBookkeeping {
 			});
 		}
 		this.options.readOnMembersChanged()?.();
-		// ISSUE-014/#14（方案 A）：离开也刷新其他成员的 widget。
-		this.options.broadcastHub.broadcastGroupChatUpdate();
 	}
 
 	getAvailableCharacters(): CharacterCard[] {

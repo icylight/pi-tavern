@@ -377,8 +377,10 @@ resources.
 - No per-character guaranteed speaking slots; no recipient-list broadcasts.
 - The public-message preview carried by notifications is not injected directly
   into Agent context. The extension fetches full bodies; idle delivery uses a
-  fixed aggregation window, busy delivery uses steer between tool calls, and
-  `settle` performs an idempotent catch-up pull.
+  fixed aggregation window. While busy, the extension queues one hidden steer
+  interrupt token; it aborts only after the current tool batch and before the
+  next model call. After settle, unread messages are fetched once and reopened
+  through follow-up.
 - Messages are capped at 64 KiB; the first history page at join carries at
   most 100 messages, and the extension keeps paging when older messages
   exist.

@@ -5,7 +5,7 @@ import { GroupChatInput } from "../../../src/character/group-chat-input.js";
 import type { PublicMessage, ServerMessage } from "../../../src/protocol/messages.js";
 
 // #83 会话侧投递挂起形态（PM 领办：13:44-48 Dev 会话零投递 8 分钟 → 会话侧链路）：
-// 忙态拉取挂起（fetchMessagesSince 永不 resolve = WS 请求挂起的极端形态）时，
+// settled 后拉取挂起（fetchMessagesSince 永不 resolve = WS 请求挂起的极端形态）时，
 // 单飞行锁（fetchInFlight）不得并发拉取（S1）；挂起 resolve 后必须自愈——
 // refetchRequested 补拉 + 投递（S2，锁不死、不丢）。
 // 红绿：f2ac85f（#73 忙态立即拉取 + 单飞行锁）预期绿；d5aa913（Phase 3 忙态
@@ -85,17 +85,20 @@ describe("GroupChatInput #83 会话侧投递挂起（单飞行锁形态）", () 
 		expect(handler).toBeDefined();
 		expect(release).toBeDefined();
 
-		// 忙态 update 到达 → 立即拉取（挂起中）
+		// 忙态 update 先排安全边界令牌，边界 abort 并 settled 后才开始拉取。
 		handler?.(aGroupChatUpdate(6));
+		expect(input.consumeAbortControlToken(vi.fn())).toBe(true);
+		runtime.isAgentActive = false;
+		runtime.onAgentSettled?.();
 		await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
 
-		// 拉取挂起期间到达的后续 update：单飞行 → 不并发拉取、不投递
-		handler?.(aGroupChatUpdate(7));
-		handler?.(aGroupChatUpdate(8));
+		// 拉取挂起期间再次请求消费：单飞行 → 不并发拉取、不投递。
+		input.markIncrementPending();
+		runtime.onAgentSettled?.();
 		await Promise.resolve();
 		await Promise.resolve();
 		expect(fetch).toHaveBeenCalledTimes(1);
-		expect(pi.sendMessage).not.toHaveBeenCalled();
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
 
 		release?.();
 		input.stop();
@@ -124,16 +127,19 @@ describe("GroupChatInput #83 会话侧投递挂起（单飞行锁形态）", () 
 		expect(release).toBeDefined();
 
 		handler?.(aGroupChatUpdate(6));
+		expect(input.consumeAbortControlToken(vi.fn())).toBe(true);
+		runtime.isAgentActive = false;
+		runtime.onAgentSettled?.();
 		await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-		// 挂起期间到达的 update → 置 refetchRequested
-		handler?.(aGroupChatUpdate(7));
+		// 挂起期间再次请求消费 → 置 refetchRequested。
+		input.markIncrementPending();
+		runtime.onAgentSettled?.();
 		// 释放挂起 → 第一次拉取完成投递 [6]，do-while 见 refetchRequested 补拉
 		release?.();
-		await vi.waitFor(() => expect(pi.sendMessage).toHaveBeenCalled());
-		expect(fetch).toHaveBeenCalledTimes(2);
-		expect(pi.sendMessage).toHaveBeenCalledWith(
+		await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+		expect(pi.sendMessage).toHaveBeenLastCalledWith(
 			expect.objectContaining({ details: expect.objectContaining({ character_id: "dev" }) }),
-			expect.objectContaining({ deliverAs: "steer" }),
+			expect.objectContaining({ deliverAs: "followUp" }),
 		);
 		expect(runtime.saveCursor).toHaveBeenCalledWith(6);
 
@@ -154,6 +160,8 @@ describe("GroupChatInput #83 会话侧投递挂起（单飞行锁形态）", () 
 		expect(handler).toBeDefined();
 
 		handler?.(aGroupChatUpdate(6));
+		runtime.isAgentActive = false;
+		runtime.onAgentSettled?.();
 		await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
 		await vi.waitFor(() => expect(pi.sendMessage).toHaveBeenCalled());
 

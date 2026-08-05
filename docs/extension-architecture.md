@@ -746,7 +746,9 @@ CharacterRuntime 的永久关闭顺序：
 7. 丢弃尚未提交的 `pendingEvents`；
 8. 使 `PiRuntimeBindings` 失效。
 
-`user_leave`、`session_change` 和 `quit` 尽力发送 `leave_group_chat`。`socket_closed`、`heartbeat_timeout`、`group_chat_closed` 和 `reload_timeout` 不等待离开响应，直接执行本地清理。当前 Agent run 不 abort，已经提交给 pi session 或 follow-up queue 的内容继续由 pi 管理。
+`user_leave`、`session_change` 和 `quit` 尽力发送 `leave_group_chat`。`socket_closed`、`heartbeat_timeout`、`group_chat_closed` 和 `reload_timeout` 不等待离开响应，直接执行本地清理。离开流程本身不 abort 当前 Agent run，已经提交给 pi session 或 follow-up queue 的内容继续由 pi 管理。
+
+公共群消息的忙态投递遵循 ADR-0008：`GroupChatInput` 只维护未读与令牌单飞行状态，群消息正文不进入 steer；`agent-lifecycle` 的 context 钩子过滤 `pi-tavern.abort-control`，并仅在当前输入实例仍待打断时调用 `ctx.abort()`。settled 后由 `GroupChatInput` 按 Session 游标拉全，通过 followUp 重开。该依赖保持窄接口：生命周期接线只调用输入实例的令牌消费方法，不持有消息拉取或游标实现。
 
 CreatorRuntime 的永久关闭顺序：
 
@@ -1100,15 +1102,18 @@ interface CharacterReloadHandoff {
   groupChatId: string;
   socket: WebSocket;
   character: LoadedCharacter;
+  cursorStorePath?: string;
 
   pendingEvents: GroupChatEnvironmentEvent[];
   debounceDueAt: number | null;
-  pendingStateRequestId: string | null;
+  idleWindowDueAt: number | null;
+  idleWindowAbortEligible: boolean;
+  incrementPending: boolean;
 
   bufferedFrames: BufferedFrame[];
   socketClosed: boolean;
 
-  heartbeatState: HeartbeatState;
+  lastPingAt: number;
   expiresAt: number;
 }
 
@@ -1120,17 +1125,21 @@ interface BufferedFrame {
 
 - `piSessionId` 限制只有相同 pi session 的新 Runtime 可以接管；
 - `socket`、`groupChatId` 和 `character` 保持原连接、群聊身份及已缓存的 Character prompt；
+- `cursorStorePath` 保持当前 pi session 的独立游标文件；
 - `pendingEvents` 保存尚未提交给 pi 的环境事件；
 - `debounceDueAt` 保存原 1 秒防抖截止时间；
-- `pendingStateRequestId` 允许新 Runtime 识别 reload 前已经发出的群聊状态请求响应；
+- `idleWindowDueAt` 和 `idleWindowAbortEligible` 保存闲态固定窗口的原截止时间及已确认含他人消息的打断证据；
+- `incrementPending` 保存旧 run 忙态期间已经收到但尚未拉取的群消息通知；
 - reload 窗口收到的 frame 按 `receivedAt` 暂存；
 - `socketClosed` 记录 reload 窗口内连接是否已经断开；
-- `heartbeatState` 保存最后一次收到创建者心跳的时间。
+- `lastPingAt` 保存最后一次收到创建者心跳的时间。
+
+以上未读标记与窗口字段都是进程内 handoff 的本地瞬态，不写入 session 游标文件，也不改变 WebSocket wire schema。
 
 旧 CharacterRuntime 交接时：
 
 1. 停止旧防抖和心跳计时器；
-2. 保存未提交事件、防抖截止时间和未完成状态请求标识；
+2. 保存未提交事件、防抖截止时间、闲态窗口和忙态未读标记；
 3. 移除旧 WebSocket handler，安装只负责暂存 frame 和记录连接关闭的 handoff handler；
 4. 清除对旧 pi API 的引用；
 5. 发布一次性 handoff。
@@ -1143,13 +1152,20 @@ interface BufferedFrame {
 4. 恢复 Character prompt 和 `tavern_speak`；
 5. 使用保存的心跳状态重新建立心跳检测；
 6. 按 `receivedAt` 顺序处理暂存 frame；
-7. 恢复环境防抖。
+7. 恢复环境防抖和闲态窗口；若旧 run 留有忙态未读，则立即按游标拉全并以 follow-up 重开。
 
 防抖恢复规则：
 
 - `debounceDueAt` 仍在未来时，只等待剩余时间；
 - `debounceDueAt` 已经过期时，接管完成后立即处理；
 - reload 窗口收到新的环境消息时，以最后一条消息的 `receivedAt` 重新计算 1 秒截止时间。
+
+群消息触发恢复规则：
+
+- `idleWindowDueAt` 仍在未来时，只等待原固定窗口的剩余时间；已经过期时在接管后的下一个 tick 消费；
+- `incrementPending` 为 `true` 时，旧 run 已随 reload 结束，新 Runtime 不再等待 settled，立即从持久化游标拉取全部未读正文；
+- 跨版本 reload 取得不含上述新字段的 legacy handoff 时，保守地按持久化游标补拉一次；无未读时为空操作；
+- 恢复不调用群聊状态接口推导 `latest_sequence`；该字段不属于 `get_group_chat_state` 响应。
 
 如果 `socketClosed` 为 `true`，新 Runtime 不恢复 `character`，而是执行正常断线清理并进入 `idle`。
 

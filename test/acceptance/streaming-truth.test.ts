@@ -211,7 +211,7 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 			60_000,
 		);
 
-		// 方案 A 广播在窗口期内到达观察者。
+		// 公开群消息会在窗口期内触发 group_chat_update。
 		const updateFrames = observer.allFrames().filter((m) => m.type === "group_chat_update");
 		expect(updateFrames.length).toBeGreaterThan(0);
 

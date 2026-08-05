@@ -65,6 +65,10 @@ export interface CharacterReloadHandoff {
 	cursorStorePath?: string;
 	pendingEvents: ServerMessage[];
 	debounceDueAt: number | null;
+	/** 可选仅为兼容这些字段加入前创建的跨版本 reload handoff。 */
+	idleWindowDueAt?: number | null | undefined;
+	idleWindowAbortEligible?: boolean | undefined;
+	incrementPending?: boolean | undefined;
 	lastPingAt: number;
 
 	bufferedFrames: BufferedFrame[];

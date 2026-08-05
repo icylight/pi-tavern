@@ -110,8 +110,8 @@ export class BroadcastHub {
 	broadcastGroupChatUpdate(): void {
 		const messages = this.options.readPublicMessages();
 		const latest = messages[messages.length - 1];
-		// ISSUE-014/#14（方案 A）：成员/流式变化可能先于任何公开消息到达——
-		// 仍广播（latest_sequence 0、空 preview），使角色唤醒并刷新快照。
+		// 防御性保留空消息形态；正常调用点仅在公共消息成功持久化后到达，
+		// 因此不会用本通知承载成员、流式状态或白板变化。
 		if (!latest) {
 			this.broadcast({
 				type: "group_chat_update",

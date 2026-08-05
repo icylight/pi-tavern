@@ -263,6 +263,10 @@ export const CMD_DESC_TEST_MESSAGE = "[test] Publish a User Persona message as t
 export const CMD_DESC_TEST_RELOAD = "[test] Trigger a real pi reload to exercise the handoff";
 /** tavern-test-whoami 命令描述（测试）。 */
 export const CMD_DESC_TEST_WHOAMI = "[test] Report the registered character identity (ISSUE-007 observation channel)";
+/** tavern-test-busy 命令描述（测试，v0.5 abort-interrupt-delivery）。 */
+export const CMD_DESC_TEST_BUSY = "[test] Hold the agent busy state for N ms (simulate busy run without LLM)";
+/** tavern-test-busy 用法提示（测试）。 */
+export const NOTIFY_USAGE_TEST_BUSY = "Usage: /tavern-test-busy <ms>";
 /** tavern-leave 命令描述。 */
 export const CMD_DESC_LEAVE = "Close or leave the current PiTavern group chat";
 

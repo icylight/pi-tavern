@@ -21,6 +21,7 @@ import {
 	CMD_DESC_RESUME,
 	CMD_DESC_SET_MAX,
 	CMD_DESC_STATUS,
+	CMD_DESC_TEST_BUSY,
 	CMD_DESC_TEST_MESSAGE,
 	CMD_DESC_TEST_RELOAD,
 	CMD_DESC_TEST_WHOAMI,
@@ -57,6 +58,7 @@ import {
 	NOTIFY_RESUMED_PREFIX,
 	NOTIFY_USAGE_NAME,
 	NOTIFY_USAGE_SET_MAX,
+	NOTIFY_USAGE_TEST_BUSY,
 	SELECT_CHOOSE_CHARACTER,
 	SELECT_CHOOSE_GROUP_CHAT,
 	SELECT_DELETE_HISTORY_CHOICE,
@@ -374,6 +376,37 @@ export function registerCommands(
 					`[tavern-test-whoami] name=${character.name} character_id=${character.characterId} description=${character.description}`,
 					"info",
 				);
+			},
+		});
+		pi.registerCommand("tavern-test-busy", {
+			description: CMD_DESC_TEST_BUSY,
+			handler: async (args, ctx) => {
+				const state = controller.getState();
+				if (state.type !== "character") {
+					ctx.ui.notify(NOTIFY_NOT_IN_CHARACTER_STATE, "error");
+					return;
+				}
+				const ms = Number(args.trim());
+				if (!Number.isSafeInteger(ms) || ms < 0) {
+					ctx.ui.notify(NOTIFY_USAGE_TEST_BUSY, "error");
+					return;
+				}
+				// 进程验收缝：模拟 Tavern runtime 忙态；隐藏令牌触发的真实 pi run
+				// 会经过 context 钩子完成 abort，定时器保留自然 settle 兜底。
+				// 真实工具批的安全边界由 integration agent-loop 钉覆盖。
+				const runtime = state.runtime;
+				let finished = false;
+				let timer: ReturnType<typeof setTimeout>;
+				const finishBusy = (): void => {
+					if (finished) return;
+					finished = true;
+					clearTimeout(timer);
+					runtime.settleRun();
+				};
+				runtime.isAgentActive = true;
+				runtime.updateStreaming(true);
+				timer = setTimeout(finishBusy, ms);
+				ctx.ui.notify(`[tavern-test-busy] busy=${ms}ms`, "info");
 			},
 		});
 	}
