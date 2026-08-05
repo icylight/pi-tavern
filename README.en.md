@@ -389,13 +389,16 @@ resources.
 - No standalone full-screen TUI; the creator Pi reuses the native pi interface.
 - Pins a specific `references/pi` checkout (test gates anchor to it).
 
-## Installation (development build)
+## Installation
 
-PiTavern has released 0.1.0 (2026-08-03). To install the current
-development build from the Git repository:
+The current PiTavern release is 0.2.0 (2026-08-05). Install the stable package
+from npm:
 
 ```bash
-# Install via the pi package mechanism from Git (pi loads src/index.ts automatically)
+# Stable release
+pi install npm:pi-tavern
+
+# Current Git development build (pi loads src/index.ts automatically)
 pi install git:github.com/icylight/pi-tavern
 
 # Or clone locally for development
@@ -421,10 +424,12 @@ pi install git:github.com/icylight/pi-tavern
 
 ## Project Status
 
-Released 0.1.0 (2026-08-03). The core mechanisms — autonomous participation
+Released 0.2.0 (2026-08-05). The core mechanisms — autonomous participation
 without a speaker selector, a durable public message stream, lifecycle-aware
 delivery, and per-session cursors — are implemented and covered by automated
-acceptance suites; design details live in `docs/` (Chinese).
+acceptance suites. Version 0.2.0 adds the whiteboard model, safe-boundary steer
+interrupts, and read-before-speak behavior; design details live in `docs/`
+(Chinese).
 
 ## Development setup
 
