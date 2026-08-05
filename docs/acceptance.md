@@ -161,3 +161,10 @@ cd references/pi && npm ci && npm run generate-models --workspace packages/ai
 3. **R3 归档**：refactor-plan.md 状态行更新为「已完成（Phase 1–5 收口归档）」与 ADR-0005 Accepted 一致；creator-runtime 518 行口径注记（427 → 518 = +92 功能回填 #79/#83，结构未变）；
 4. **R4 门禁留痕**：发布前全量门禁 + check 全绿 V0 留痕（命令 | 结果 | hash@层，见 #88 评论区）；
 5. **R5 检查单**：README/README.en 与现状核对完成（架构/命令/场景章节一致；差异 = 版本引用已修正 + health 命令补充）。
+
+## 0.2.0 npm 发布（#124，分支 chore/issue-124-npm-publish）
+
+1. **N1 manifest 与版本一致**：`package.json`、`package-lock.json` 根包版本均为 0.2.0；包名 `pi-tavern`；保留 `pi.extensions=["./src/index.ts"]` 与 `pi-package` keyword；repository/homepage/bugs 指向 `icylight/pi-tavern`，registry 固定为公开 npm。
+2. **N2 tarball 最小化**：`npm pack --dry-run --ignore-scripts --json` 只包含运行所需的 `src/` 与 README/CHANGELOG/LICENSE；不得包含 `references/`、`test/`、内部 `docs/`、角色卡、开发脚本、Husky 或 AGENTS.md。
+3. **N3 发布前门禁**：干净 release commit 上串行执行 `npm run test:full` 与 `npm run check`，按 V0 格式记录 HEAD/tree、`references/pi`、Node、命令和结果；随后 `npm publish --dry-run` 通过。
+4. **N4 发布后可用**：`npm view pi-tavern@0.2.0` 的 latest/keywords/pi manifest 正确；`pi -e npm:pi-tavern@0.2.0` 加载无错误；`https://pi.dev/packages/pi-tavern` 可见后方可关闭 #124。

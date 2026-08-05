@@ -263,12 +263,15 @@ flowchart LR
 - 固定 `references/pi` 版本（测试门禁锚定）。
 - 角色卡是用户定义的文件，可以任意命名职位——示例中的名称只是建议。
 
-## 安装（开发版本）
+## 安装
 
-PiTavern 已发布 0.1.0 正式版（2026-08-03）。要从当前 Git 仓库安装开发版：
+PiTavern 当前正式版为 0.2.0（2026-08-05）。推荐从 npm 安装：
 
 ```bash
-# 通过 pi package 机制从 Git 安装（pi 将自动加载 src/index.ts 扩展）
+# 正式版
+pi install npm:pi-tavern
+
+# 当前 Git 开发版（pi 将自动加载 src/index.ts 扩展）
 pi install git:github.com/icylight/pi-tavern
 
 # 或克隆到本地自行开发
@@ -285,7 +288,7 @@ pi install git:github.com/icylight/pi-tavern
 
 ## 项目状态
 
-已发布 0.1.0（2026-08-03）。核心机制——无发言者选择器的自主参与、公共持久消息流、生命周期感知投递、每 Session 独立游标——已实现并通过自动化验收；设计细节见 `docs/`（中文）。
+已发布 0.2.0（2026-08-05）。核心机制——无发言者选择器的自主参与、公共持久消息流、生命周期感知投递、每 Session 独立游标——已实现并通过自动化验收；0.2.0 增加白板模型、steer 安全边界打断与发言前未读先读。设计细节见 `docs/`（中文）。
 
 ## 开发设置
 
