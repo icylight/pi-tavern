@@ -27,6 +27,13 @@
 
 可选用自动化工具辅助（pangu.js、autocorrect），但以人工审查为准。
 
+## package.json prepare 红线（2026-08-06 四方收敛）
+
+- `scripts.prepare` 的语义是**纯 husky 开发便利**（初始化 git hooks），不得混入构建/生成等必须步骤。
+- 现状容错形态：`"prepare": "husky || echo \"husky init skipped/inactive\" >&2 || true"`——pi 从 git 安装包时跑 `npm install --omit=dev`（不装 devDependencies，husky 为 devDep），prepare 在安装时必执行；`|| true` 保证 husky 缺失时静默跳过不报错（本地开发有 husky 时正常初始化 hooks）。
+- **红线**：若未来 prepare 需要承担构建/生成（必须步骤），必须撤销 `|| true` 容错或拆分为 `prepare:dev`/`prepare:build`，不得让必须步骤被静默吞掉。
+- 配套依赖归属红线：**运行期 import 的包一律进 `dependencies`，且不得同列 `devDependencies`**（双列会导致 lockfile 打 `dev: true` 标记，`--omit=dev` 安装时被跳过 → 装成功启动崩；typebox 双列教训 2026-08-06，vscode-jsonrpc 同规）。
+
 ## 自定义 JSON
 
 PiTavern 自己定义的 JSON 对象字段名统一使用 `snake_case`：

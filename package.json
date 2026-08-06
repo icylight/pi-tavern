@@ -36,7 +36,7 @@
 		"format": "biome check --write .",
 		"lint:layers": "node scripts/lint-layers.mjs",
 		"health": "node scripts/health.mjs",
-		"prepare": "husky || true"
+		"prepare": "husky || echo \"husky init skipped/inactive\" >&2 || true"
 	},
 	"pi": {
 		"extensions": [
