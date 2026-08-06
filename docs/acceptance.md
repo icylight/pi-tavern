@@ -6,9 +6,9 @@ M6 验证只有真实进程边界才能观察的行为：多个真实 pi 进程�
 
 ```bash
 # 测试默认不跑（门卫机制）：显式指定目标——只跑改动到的文件
-npm run test:acceptance -- headless.test.ts      # 单文件/目录
-npm run test:acceptance -- --all                 # acceptance 全量（日常复核）
-npm run test:full                                # 三层串行全量（收口验收证据）
+npm run test:acceptance -- headless.test.ts # 单文件/目录
+npm run test:acceptance -- --all # acceptance 全量（日常复核）
+npm run test:full # 三层串行全量（收口验收证据）
 ```
 
 套件位于 `test/acceptance/`，通过 `vitest.acceptance.config.ts` 独立配置，**不纳入日常默认测试**（真实 pi 进程启动慢，完整跑约 1-2 分钟；门卫机制下所有测试层均须显式指定目标才执行）。
@@ -28,14 +28,14 @@ npm run test:full                                # 三层串行全量（收口�
 ### 身份一致性（ISSUE-003 修复验收）
 通讯错位根因：群聊广播无收件人标记，session 会把发给别人的指令当成自己的；且存在注入 persona 与注册身份不一致的 session。修复后必须满足：
 
-1. **身份行注入**：`group-chat-input` 注入内容必须包含显式身份行，**最终格式（2026-08-01 三方终裁）**：「你的当前角色：{persona 名}（character_id={characterId}，注册名={name}）」——persona 名与注册名当前同源（均取 `runtime.character.name`），但契约保留显式三字段，验收用例（edd30c3）按此格式解析；使 session 能区分「发给我的」与「广播」；
+1. **身份行注入**：`group-chat-input` 注入内容必须包含显式身份行，**最终格式（三方终裁）**：「你的当前角色：{persona 名}（character_id={characterId}，注册名={name}）」——persona 名与注册名当前同源（均取 `runtime.character.name`），但契约保留显式三字段，验收用例（edd30c3）按此格式解析；使 session 能区分「发给我的」与「广播」；
 2. **注册/注入一致**：端到端断言注入 persona 名 == creator 在线注册名；不一致时 join 流程必须失败或明确提示，不得静默错配；
 3. **speaker 一致**：speak-order 断言每条消息的 sender 与消息来源 session 的注入 persona 一致（内容作者一致性）；
 4. **并发不串**：两个 character 同时 join（现有 ecd7e6a 并发场景）时注册身份互不串扰，群聊中每个注册名只对应一个注入 persona。
 
 验收方式：`npm run test:acceptance -- --all` 全绿 + 上述断言存在且非空（不接受仅靠人工检查）。
 
-### 身份可查询状态（ISSUE-007，2026-08-01 PM 设计）
+### 身份可查询状态（ISSUE-007，PM 设计）
 
 模型对自身身份必须有确定性查证通道，不依赖提示文本是否被读到：
 
@@ -43,9 +43,9 @@ npm run test:full                                # 三层串行全量（收口�
 2. **可用范围**：仅 character 状态可用；creator/idle 状态返回明确错误（与 tavern_speak 同模式），不泄露其他角色信息；
 3. **确定性验收**：单测直接调用 handler 断言返回值 == runtime.character（三态：character 正常返回 / creator、idle 明确错误 / 逐字段一致）；验收层经 PITAVERN_TEST 观察通道（同 ISSUE-003 模式：测试命令直接触发 handler 或 notify 工具清单，RPC 模式无 LLM 无法真实调工具）断言工具存在且响应与注册记录一致——不依赖 LLM 是否读了提示；返回字段命名与身份行契约共用（name / character_id），避免两套解析；
 4. **被动层保留**：群聊输入身份行（三字段）不变，继续每轮告知（兜底）；
-5. **ISSUE-006 统一裁决（User 2026-08-01「统一」）**：006 并入本需求，不独立实施；frontmatter `identity` 字段与 system prompt 每轮注入取消，身份感知由身份行（被动告知）+ whoami（主动查证）统一承担。
+5. **ISSUE-006 统一裁决（User「统一」）**：006 并入本需求，不独立实施；frontmatter `identity` 字段与 system prompt 每轮注入取消，身份感知由身份行（被动告知）+ whoami（主动查证）统一承担。
 
-### reload 角色卡刷新（ISSUE-005，2026-08-01 派工）
+### reload 角色卡刷新（ISSUE-005，派工）
 
 character session 已 join 后修改角色卡文件，reload 后注入内容必须反映新卡：
 
@@ -56,7 +56,7 @@ character session 已 join 后修改角色卡文件，reload 后注入内容必�
 
 验收方式：`npm run test:acceptance -- --all` 全绿 + 新增 reload 身份刷新用例。
 
-### TUI 发言次数显示（ISSUE-001，2026-08-01 User 指示）
+### TUI 发言次数显示（ISSUE-001
 
 TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，必须显示当前角色的发言额度使用情况：
 
@@ -67,7 +67,7 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 
 验收方式：`npm run check` 零告警 + 手动验收（真实群聊中开启轮次观察 widget 三态：轮次中/发言后递增/无轮次）。纯 UI 呈现层，不改协议/持久化/schema。
 
-### 群聊历史可查（ISSUE-008，2026-08-01 验收，修复分支 fix/issue-008-group-chat-history）
+### 群聊历史可查（ISSUE-008，验收，修复分支 fix/issue-008-group-chat-history）
 
 服务端 join 时仅推送最近 10 条公开消息（`slice(-10)`）；协议已定义 cursor 分页（`message_history` 带 `cursor`/`has_more`，`get_message_history` 服务端已实现），但客户端从未发送该命令 → 历史 >10 条时更早消息不可查。修复：客户端收到 `has_more=true` 时按 cursor 循环拉取剩余历史并注入群聊输入。
 
@@ -79,31 +79,31 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 
 实现：`CharacterRuntime.fetchMessageHistoryPage(cursor)` + `GroupChatInput` has_more 循环（fire-and-forget，首屏不阻塞）。验收证据：验收套件 7 文件 12 用例全绿（含 history-paging）、单测 176/176、check 零告警。已知边界：RPC 模式输入不可直接观察，全量注入断言由单测 A3 + 恢复场景兜底。
 
-### 新消息获取推拉混合（ISSUE-012 / GitHub #24，2026-08-01 需求，方案已冻结，分支 feat/new-message-fetch）
+### 新消息获取推拉混合（ISSUE-012 / GitHub #24，需求，方案已冻结，分支 feat/new-message-fetch）
 
 需求与冻结方案见 `docs/new-message-fetch.md`。交互由「服务端推送 + 固定 1 秒防抖」改为推送+拉取混合（微信模型）：广播通知化 + 角色主动增量拉取 + 游标本地持久化 + 缺口检测，不打断当前 run。
 
-1. **A1 增量拉取（闲态窗口 / 忙态 settle 触发，契约修订 #64，2026-08-02）**：**闲态**（无 run）收到 `group_chat_update` → 首条标记启动 ≤1s 固定窗口聚合，窗口内 N 条并入（不重置）→ 到期恰好 1 次拉全未读 + 1 次投递（单测 fake timers 精确控时断言）；**忙态**（run 活跃）→ 零中间注入，settle 后立即触发 1 次拉全（N→1，无串行风暴）；窗口仅存于无 run 态，run 开始即取消窗口；
+1. **A1 增量拉取（闲态窗口 / 忙态 settle 触发，契约修订 #64）**：**闲态**（无 run）收到 `group_chat_update` → 首条标记启动 ≤1s 固定窗口聚合，窗口内 N 条并入（不重置）→ 到期恰好 1 次拉全未读 + 1 次投递（单测 fake timers 精确控时断言）；**忙态**（run 活跃）→ 零中间注入，settle 后立即触发 1 次拉全（N→1，无串行风暴）；窗口仅存于无 run 态，run 开始即取消窗口；
 2. **A2 游标持久化**：收消息 → 游标落盘 → 重启角色进程 → 游标保留、增量从游标后开始（reload.test.ts 先例复用）；投递失败游标不动；
 3. **A3 不重不漏/顺序一致**：固定序列场景断言拉取内容 = 游标后全部、无重复、严格递增；
 4. **A4 缺口天然补齐**：消费点拉全未读（sequence > 游标 全量），控制广播（跳过序号/丢帧模拟）→ 拉取天然补齐，不永久丢失；
 5. **A5 run 状态信号（可测性契约，QA 二评降级口径已裁定）**：**单测层（主验证）**：注入 run 状态信号，断言 `isAgentActive` 活跃时拉取完成→排队、`onAgentSettled` → 立即投递（≤5s）；**验收层**：RPC 无真实 run（已知边界）→ 降级为「收到通知后投递发生 + 进程稳定」烟雾；**isAgentActive 无 run 时视为空闲（false）→ 立即投递**（否则 RPC 模式永远排队，Dev 必须明确该语义）；
 6. **A6 统一逻辑（可测性契约，QA 二评补充已采纳）**：投递时经 `PITAVERN_TEST=1` testNotify 注入 `latest_sequence` + 投递消息数，验收断言与 TUI 预览同源（同一消息数据）；
 7. **A7 边界**：无游标 join 走现有全量分页；单飞行锁防并发竞态；自己的 echo 仍过滤；`message_history`/`get_message_history` 回归不破坏。
-8. **A8 游标 Session 隔离（2026-08-02 User 指示）**：同群聊多 Session 游标文件互异（`cursors/<groupId>/<sessionId>.json`）；A 推进游标不影响 B；旧群聊级文件保守回退为起点（只读不写不删）、save 只写新路径；reload 后同 session 游标接续（QA integration 四项：隔离/旧兼容/并发写/重启恢复）。
-9. **A9 steer 安全边界打断（2026-08-05 修正）**：忙态通知只排一个隐藏空令牌，正文不入 steer、通知到达时不 abort；当前工具批完成、令牌在下一模型调用前消费时才 abort。密集通知 N→1；settled 后一次拉全并 followUp 重开；历史令牌不进模型上下文；成员/流式变化不产生 Agent 输入，白板投递保持。
+8. **A8 游标 Session 隔离**：同群聊多 Session 游标文件互异（`cursors/<groupId>/<sessionId>.json`）；A 推进游标不影响 B；旧群聊级文件保守回退为起点（只读不写不删）、save 只写新路径；reload 后同 session 游标接续（QA integration 四项：隔离/旧兼容/并发写/重启恢复）。
+9. **A9 steer 安全边界打断（修正）**：忙态通知只排一个隐藏空令牌，正文不入 steer、通知到达时不 abort；当前工具批完成、令牌在下一模型调用前消费时才 abort。密集通知 N→1；settled 后一次拉全并 followUp 重开；历史令牌不进模型上下文；成员/流式变化不产生 Agent 输入，白板投递保持。
 
 验收方式：`npm run test:acceptance -- --all` 全绿 + 上述断言存在且非空 + 单测/check 全绿 + 协议与持久化文档无语义分歧。
 
-### 仓库健康度检查（#87，2026-08-03 PM 布置，分支 feat/health-check）
+### 仓库健康度检查（#87，PM 布置，分支 feat/health-check）
 
-`npm run health` 纯本地手动命令，聚合三项检查：依赖漏洞（npm audit）/ 凭据扫描（gitleaks，承接 #53）/ 卫生自查（自制零依赖脚本，复用 lint-layers.mjs 先例）。不做 CI 集成与 pre-commit 钩子（User 拍板：CI 花钱不做；项目无 .github/workflows）。
+`npm run health` 纯本地手动命令，聚合三项检查：依赖漏洞（npm audit）/ 凭据扫描（gitleaks，承接 #53）/ 卫生自查（自制零依赖脚本，复用 lint-layers.mjs 先例）。不做 CI 集成与 pre-commit 钩子（拍板：CI 花钱不做；项目无 .github/workflows）。
 
 1. **H1 一键可跑与退出码**：`npm run health` 无参数可跑；退出码 0 = 全绿、非 0 = 有发现；子检查失败不吞错（输出明确标注失败项）；
 2. **H2 输出留痕稳定**：三项检查输出为可断言文本格式（固定前缀 + 汇总行），重复运行输出结构稳定（供对比留痕）；
-3. **H3 凭据检出**：人造测试密钥样本（gitleaks 规则可识别格式）→ 检出且退出码非 0；真实仓库扫描复核无真实凭据（Arch 2026-08-02 审查结论）；
+3. **H3 凭据检出**：人造测试密钥样本（gitleaks 规则可识别格式）→ 检出且退出码非 0；真实仓库扫描复核无真实凭据（Arch 审查结论）；
 4. **H4 卫生检出**：人造样本（未提交改动 / 超大文件）→ 卫生脚本列出检出项。
-### TUI 工作状态指示（#90，2026-08-03 PM 布置，分支 fix/issue-90-working-indicator）
+### TUI 工作状态指示（#90，PM 布置，分支 fix/issue-90-working-indicator）
 
 根因：5s 显示 watchdog 与 #81「run 活跃即亮」语义冲突——agent_end 布防后毫秒级 continue → agent_start 再亮但不清除定时器，5s 到强制 updateStreaming(false) 误灭灯。修复：① agent_start 时 clearStreamingResetWatchdog（续命）② watchdog 回调加 isAgentActive 守卫（双保险）。
 
@@ -142,9 +142,9 @@ cd references/pi && npm ci && npm run generate-models --workspace packages/ai
 
 1. 安装依赖与前置条件（同上）。
 2. 打开两个终端，各启动一个开发 pi：
-   ```bash
-   scripts/pi-dev.sh --mode rpc
-   ```
+```bash
+scripts/pi-dev.sh --mode rpc
+```
 3. 终端 A：输入 `/tavern-new`，记下输出的群聊地址。
 4. 终端 B：输入 `/tavern-join`，选择群聊与 Character，确认加入成功（创建者显示在线人数增加）。
 5. 终端 B：`/tavern-leave`；终端 A：`/tavern-leave`。
@@ -152,7 +152,7 @@ cd references/pi && npm ci && npm run generate-models --workspace packages/ai
 
 如条件允许，将 `npm run test:acceptance -- --all` 原样在 macOS 上运行即为平台一致性自动化验证。
 
-## 0.1.0 发布定型（#88，2026-08-03 PM 布置，分支 docs/release-0.1.0）
+## 0.1.0 发布定型（#88，PM 布置，分支 docs/release-0.1.0）
 
 发布前收尾（M0-M7 全完成 + 五层重构 Phase 5 收口 #75；version 0.0.0 → 0.1.0）：
 
