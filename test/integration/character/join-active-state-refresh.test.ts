@@ -100,9 +100,16 @@ describe("A6: join-time active state refresh (#21 成员数未知窗口)", () =>
 			second.once("open", () => resolve());
 			second.once("error", reject);
 		});
-		second.send(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "session-2" } }));
 		second.send(
-			JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "characters/developer.md" } }),
+			JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "session-2" } }),
+		);
+		second.send(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: "2",
+				method: "claim_character",
+				params: { character_id: "characters/developer.md" },
+			}),
 		);
 		second.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
 

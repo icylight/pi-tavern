@@ -243,9 +243,7 @@ describe("B3 白板管线（#114，integration）", () => {
 		});
 		const r2 = await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "w2");
 		expect((r2.result as Record<string, unknown>).changed).toBe(true);
-		const u2 = await peer.waitFor(
-			(m) => isBoardUpdate(m) && (m.params as Record<string, unknown>).action === "update",
-		);
+		const u2 = await peer.waitFor((m) => isBoardUpdate(m) && (m.params as Record<string, unknown>).action === "update");
 		expect((u2.params as Record<string, unknown>).note).toEqual({ id: note1.id, content: "改后" });
 
 		// remove → 广播携带被撕条完整内容（id + content）；响应不带 note
@@ -258,9 +256,7 @@ describe("B3 白板管线（#114，integration）", () => {
 		const r3 = await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "w3");
 		expect((r3.result as Record<string, unknown>).changed).toBe(true);
 		expect((r3.result as Record<string, unknown>).note).toBeUndefined();
-		const u3 = await peer.waitFor(
-			(m) => isBoardUpdate(m) && (m.params as Record<string, unknown>).action === "remove",
-		);
+		const u3 = await peer.waitFor((m) => isBoardUpdate(m) && (m.params as Record<string, unknown>).action === "remove");
 		expect((u3.params as Record<string, unknown>).note).toEqual({ id: note1.id, content: "改后" });
 
 		// 再贴一张 → clear（非空板 applied，广播无 note）
@@ -275,9 +271,7 @@ describe("B3 白板管线（#114，integration）", () => {
 		const r5 = await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "w5");
 		expect((r5.result as Record<string, unknown>).changed).toBe(true);
 		expect((r5.result as Record<string, unknown>).note).toBeUndefined();
-		const u5 = await peer.waitFor(
-			(m) => isBoardUpdate(m) && (m.params as Record<string, unknown>).action === "clear",
-		);
+		const u5 = await peer.waitFor((m) => isBoardUpdate(m) && (m.params as Record<string, unknown>).action === "clear");
 		expect((u5.params as Record<string, unknown>).note).toBeUndefined();
 
 		// wire 层即时广播：5 次 applied → 5 条 board_update（顺序一致，无合并）

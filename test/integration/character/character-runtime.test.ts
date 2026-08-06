@@ -76,7 +76,9 @@ describe("M7 message fetch (ISSUE-012)", () => {
 		// 缺口修复：跳过某条消息的游标仍会返回其后的
 		// 每一条消息（服务端按序号过滤，无窗口限制）。
 		const gapHealed = await runtime.fetchMessagesSince(0);
-		expect(gapHealed?.messages.map((m) => (m as { params?: { sequence?: number } }).params?.sequence)).toEqual([1, 2, 3]);
+		expect(gapHealed?.messages.map((m) => (m as { params?: { sequence?: number } }).params?.sequence)).toEqual([
+			1, 2, 3,
+		]);
 
 		// 最新消息之后没有新内容。
 		const empty = await runtime.fetchMessagesSince(3);

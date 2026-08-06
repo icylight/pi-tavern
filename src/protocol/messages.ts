@@ -130,10 +130,7 @@ export const ClientMessageSchema = Type.Union([
 			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
 			method: Type.Literal(METHOD_FETCH_MESSAGES_SINCE),
-			params: Type.Object(
-				{ since_sequence: Type.Integer({ minimum: 0 }) },
-				{ additionalProperties: false },
-			),
+			params: Type.Object({ since_sequence: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
 		},
 		{ additionalProperties: false },
 	),
@@ -683,7 +680,13 @@ export type ServerMessage = Static<typeof ServerMessageSchema>;
 export type PublicMessage = Static<typeof PublicMessageSchema>;
 
 export type CharacterSummaryWire = Static<typeof CharacterSummarySchema>;
-export type JoinGroupChatSuccess = Extract<ServerMessage, { result: { available_characters: CharacterSummaryMessage[] } }>;
-export type ClaimCharacterSuccess = Extract<ServerMessage, { result: { character: Static<typeof ClaimedCharacterSchema> } }>;
+export type JoinGroupChatSuccess = Extract<
+	ServerMessage,
+	{ result: { available_characters: CharacterSummaryMessage[] } }
+>;
+export type ClaimCharacterSuccess = Extract<
+	ServerMessage,
+	{ result: { character: Static<typeof ClaimedCharacterSchema> } }
+>;
 export type GroupChatStateSuccess = Extract<ServerMessage, { result: { group_chat: unknown } }>;
 export type GroupChatStateMessage = GroupChatStateSuccess["result"];

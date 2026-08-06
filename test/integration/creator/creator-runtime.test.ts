@@ -314,7 +314,9 @@ describe("CreatorRuntime", () => {
 		await waitForOpen(client);
 		client.send(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "s1" } }));
 		await waitForMessage(client, "response");
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }));
+		client.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }),
+		);
 		await waitForMessage(client, "response");
 		client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
 		await waitForMessage(client, "response");
@@ -526,10 +528,14 @@ describe("CreatorRuntime", () => {
 		await waitForOpen(client);
 
 		// join_group_chat（加入群聊）
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "session-1" } }));
+		client.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "session-1" } }),
+		);
 		await waitForMessage(client, "response");
 		// claim_character（认领角色）
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }));
+		client.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }),
+		);
 		await waitForMessage(client, "response");
 		// character_ready（角色就绪）
 		client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
@@ -607,7 +613,9 @@ describe("CreatorRuntime", () => {
 		await waitForOpen(client);
 		client.send(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "s1" } }));
 		await waitForMessage(client, "response");
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }));
+		client.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }),
+		);
 		await waitForMessage(client, "response");
 		client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
 		await waitForMessage(client, "response");
@@ -706,9 +714,13 @@ describe("CreatorRuntime", () => {
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
 		await waitForOpen(client);
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "session-1" } }));
+		client.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "session-1" } }),
+		);
 		await waitForMessage(client, "response");
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }));
+		client.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }),
+		);
 		await waitForMessage(client, "response");
 		client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
 		await waitForMessage(client, "response");
@@ -722,7 +734,7 @@ describe("CreatorRuntime", () => {
 		const speakResponse = await waitForMessage(client, "response");
 
 		expect(speakResponse.result).toBeUndefined();
-		expect(((speakResponse.error as { message: string }).message)).toContain("exceeds 64 KiB");
+		expect((speakResponse.error as { message: string }).message).toContain("exceeds 64 KiB");
 
 		client.close();
 		await runtime.close();
@@ -749,9 +761,13 @@ describe("CreatorRuntime", () => {
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
 		await waitForOpen(client);
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "session-1" } }));
+		client.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "session-1" } }),
+		);
 		await waitForMessage(client, "response");
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }));
+		client.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }),
+		);
 		await waitForMessage(client, "response");
 		client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
 		await waitForMessage(client, "response");
@@ -781,9 +797,11 @@ describe("CreatorRuntime", () => {
 		const senderEcho = receivedMessages.find(
 			(m) =>
 				m.method === "group_chat_update" &&
-				((m.params as Record<string, unknown>).preview_messages as Array<{ params?: { content?: unknown; sequence?: unknown; timestamp?: unknown; event_id?: unknown } }>).some(
-					(p) => (p.params as Record<string, unknown>).content === "My public reply",
-				),
+				(
+					(m.params as Record<string, unknown>).preview_messages as Array<{
+						params?: { content?: unknown; sequence?: unknown; timestamp?: unknown; event_id?: unknown };
+					}>
+				).some((p) => (p.params as Record<string, unknown>).content === "My public reply"),
 		);
 		expect(senderEcho).toBeDefined();
 
@@ -835,9 +853,16 @@ describe("CreatorRuntime", () => {
 
 		// 广播时间戳与持久化条目时间戳一致（M7：
 		// 预览携带持久化后的消息字段）。
-		const echoPreview = ((senderEcho as Record<string, unknown>).params as Record<string, unknown>).preview_messages as Array<{ params?: { content?: unknown; sequence?: unknown; timestamp?: unknown; event_id?: unknown } }>;
+		const echoPreview = ((senderEcho as Record<string, unknown>).params as Record<string, unknown>)
+			.preview_messages as Array<{
+			params?: { content?: unknown; sequence?: unknown; timestamp?: unknown; event_id?: unknown };
+		}>;
 		expect(echoPreview.at(-1)?.params?.timestamp).toBe(publicEntry.timestamp);
-		expect((publicEntry?.details as Record<string, unknown>).round).toEqual({ round_max_messages: 20, used_messages: 1, remaining_messages: 19 });
+		expect((publicEntry?.details as Record<string, unknown>).round).toEqual({
+			round_max_messages: 20,
+			used_messages: 1,
+			remaining_messages: 19,
+		});
 		expect(typeof (publicEntry?.details as Record<string, unknown>).sequence).toBe("number");
 		// details 不得再携带时间戳（BC-19）
 		expect(publicEntry.details.timestamp).toBeUndefined();
@@ -868,9 +893,13 @@ describe("CreatorRuntime", () => {
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
 		await waitForOpen(client);
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "session-1" } }));
+		client.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "session-1" } }),
+		);
 		await waitForMessage(client, "response");
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }));
+		client.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }),
+		);
 		await waitForMessage(client, "response");
 		client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
 		await waitForMessage(client, "response");
@@ -896,7 +925,7 @@ describe("CreatorRuntime", () => {
 
 		// 响应表明失败
 		expect(speakResponse.result).toBeUndefined();
-		expect(((speakResponse.error as { message: string }).message)).toContain("disk full");
+		expect((speakResponse.error as { message: string }).message).toContain("disk full");
 
 		// 持久化失败后状态不得变更
 		expect(runtime.state.round?.usedMessages).toBe(roundBefore?.usedMessages ?? 0);
@@ -928,7 +957,9 @@ describe("CreatorRuntime", () => {
 		await waitForOpen(client);
 		client.send(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "s1" } }));
 		await waitForMessage(client, "response");
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }));
+		client.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }),
+		);
 		await waitForMessage(client, "response");
 		client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
 		await waitForMessage(client, "response");
@@ -1109,7 +1140,9 @@ describe("CreatorRuntime", () => {
 		await waitForOpen(client);
 		client.send(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "s1" } }));
 		await waitForMessage(client, "response");
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }));
+		client.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }),
+		);
 		await waitForMessage(client, "response");
 		client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
 		await waitForMessage(client, "response");
@@ -1132,16 +1165,18 @@ describe("CreatorRuntime", () => {
 		client.send(JSON.stringify({ jsonrpc: "2.0", id: "4", method: "speak", params: { content: "Triggers fatal" } }));
 		const fatalResponse = await waitForMessage(client, "response");
 		expect(fatalResponse.result).toBeUndefined();
-		expect(((fatalResponse.error as { message: string }).message)).toContain("ersistence recovery failed");
+		expect((fatalResponse.error as { message: string }).message).toContain("ersistence recovery failed");
 
 		// 状态不变
 		expect(runtime.state.round?.usedMessages).toBe(roundBefore?.usedMessages);
 
 		// 后续发言同样被拒绝（handleSpeak 中的 assertWritable）
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "5", method: "speak", params: { content: "Should be rejected" } }));
+		client.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "5", method: "speak", params: { content: "Should be rejected" } }),
+		);
 		const rejectedResponse = await waitForMessage(client, "response");
 		expect(rejectedResponse.result).toBeUndefined();
-		expect(((rejectedResponse.error as { message: string }).message)).toContain("ersistence is broken");
+		expect((rejectedResponse.error as { message: string }).message).toContain("ersistence is broken");
 
 		client.close();
 		await runtime.close();
@@ -1169,9 +1204,13 @@ describe("CreatorRuntime", () => {
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
 		await waitForOpen(client);
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "session-1" } }));
+		client.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "session-1" } }),
+		);
 		await waitForMessage(client, "response");
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }));
+		client.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }),
+		);
 		await waitForMessage(client, "response");
 		client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
 		await waitForMessage(client, "response");
@@ -1228,9 +1267,13 @@ describe("CreatorRuntime", () => {
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
 		await waitForOpen(client);
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "session-1" } }));
+		client.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "session-1" } }),
+		);
 		await waitForMessage(client, "response");
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }));
+		client.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "dev" } }),
+		);
 		await waitForMessage(client, "response");
 		client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
 
@@ -1249,8 +1292,8 @@ describe("CreatorRuntime", () => {
 		const history = await historyPromise;
 		const historyParams = history.params as Record<string, unknown>;
 		expect(historyParams.messages).toHaveLength(2);
-		expect(((historyParams.messages as Array<{ params?: { content: string } }>)[0]?.params)?.content).toBe("First");
-		expect(((historyParams.messages as Array<{ params?: { content: string } }>)[1]?.params)?.content).toBe("Second");
+		expect((historyParams.messages as Array<{ params?: { content: string } }>)[0]?.params?.content).toBe("First");
+		expect((historyParams.messages as Array<{ params?: { content: string } }>)[1]?.params?.content).toBe("Second");
 		expect(historyParams.total_messages).toBe(2);
 		expect(historyParams.has_more).toBe(false);
 		expect(historyParams.cursor).toBeNull();
@@ -1475,7 +1518,9 @@ describe("CreatorRuntime", () => {
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
 		await waitForOpen(stranger);
-		stranger.send(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "session-9" } }));
+		stranger.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "session-9" } }),
+		);
 		await waitForMessage(stranger, "response");
 		stranger.send(JSON.stringify({ jsonrpc: "2.0", id: "2", method: "get_chat_history_file" }));
 		const rejected = await waitForMessage(stranger, "response");
@@ -1615,9 +1660,11 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 		await runtime.submitUserPersonaMessage("Round start");
 		const roundStartNotification = await roundStartPromise;
 		expect(
-			((roundStartNotification.params as Record<string, unknown>).preview_messages as Array<{ params?: { content?: unknown; sequence?: unknown; timestamp?: unknown; event_id?: unknown } }>)
-				.at(-1)
-				?.params?.content,
+			(
+				(roundStartNotification.params as Record<string, unknown>).preview_messages as Array<{
+					params?: { content?: unknown; sequence?: unknown; timestamp?: unknown; event_id?: unknown };
+				}>
+			).at(-1)?.params?.content,
 		).toBe("Round start");
 
 		// 失败成员的 socket 无法再投递任何内容——包括
@@ -1630,11 +1677,15 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 		});
 
 		const broadcastPromise = waitForMessage(memberB, "group_chat_update");
-		memberA.send(JSON.stringify({ jsonrpc: "2.0", id: "s1", method: "speak", params: { content: "committed anyway" } }));
+		memberA.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "s1", method: "speak", params: { content: "committed anyway" } }),
+		);
 
 		// 已提交的消息广播给健康成员……
 		const broadcast = await broadcastPromise;
-		const preview = (broadcast.params as Record<string, unknown>).preview_messages as Array<{ params?: { content?: unknown; sequence?: unknown; timestamp?: unknown; event_id?: unknown } }>;
+		const preview = (broadcast.params as Record<string, unknown>).preview_messages as Array<{
+			params?: { content?: unknown; sequence?: unknown; timestamp?: unknown; event_id?: unknown };
+		}>;
 		expect(preview.at(-1)?.params?.content).toBe("committed anyway");
 		expect(preview.at(-1)?.params?.sequence).toBe(2);
 		// ……且会话文件保留已持久化的消息（无回滚）。
@@ -1837,7 +1888,9 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
 		await waitForOpen(pendingClient);
-		pendingClient.send(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "session-pending" } }));
+		pendingClient.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "session-pending" } }),
+		);
 		await waitForMessage(pendingClient, "response");
 
 		const handoff = await runtime.detachForReload("pi-session-1");
@@ -1868,9 +1921,11 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 		// （用户 persona 消息不消耗轮次配额，因此发言后 usedMessages 为 1。）
 		const publicMessage = await waitForMessage(memberB, "group_chat_update");
 		expect(
-			((publicMessage.params as Record<string, unknown>).preview_messages as Array<{ params?: { content?: unknown; sequence?: unknown; timestamp?: unknown; event_id?: unknown } }>)
-				.at(-1)
-				?.params?.content,
+			(
+				(publicMessage.params as Record<string, unknown>).preview_messages as Array<{
+					params?: { content?: unknown; sequence?: unknown; timestamp?: unknown; event_id?: unknown };
+				}>
+			).at(-1)?.params?.content,
 		).toBe("During reload");
 		expect(taken.state.round?.usedMessages).toBe(1);
 
@@ -1878,9 +1933,11 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 		memberB.send(JSON.stringify({ jsonrpc: "2.0", id: "r2", method: "speak", params: { content: "After reload" } }));
 		const afterReload = await waitForMessage(memberA, "group_chat_update");
 		expect(
-			((afterReload.params as Record<string, unknown>).preview_messages as Array<{ params?: { content?: unknown; sequence?: unknown; timestamp?: unknown; event_id?: unknown } }>)
-				.at(-1)
-				?.params?.content,
+			(
+				(afterReload.params as Record<string, unknown>).preview_messages as Array<{
+					params?: { content?: unknown; sequence?: unknown; timestamp?: unknown; event_id?: unknown };
+				}>
+			).at(-1)?.params?.content,
 		).toBe("After reload");
 
 		await taken.close();
@@ -1930,7 +1987,14 @@ describe("ISSUE-013 B2: speak staleness check", () => {
 		await runtime.submitUserPersonaMessage("two");
 
 		// 用过期的 based_on_sequence（0 < 最新 2）发言。
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "s1", method: "speak", params: { content: "Stale reply", based_on_sequence: 0 } }));
+		client.send(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: "s1",
+				method: "speak",
+				params: { content: "Stale reply", based_on_sequence: 0 },
+			}),
+		);
 		const staleResponse = await waitForMessage(client, "response");
 
 		expect(staleResponse.error).toBeUndefined();
@@ -1946,7 +2010,14 @@ describe("ISSUE-013 B2: speak staleness check", () => {
 		expect(runtime.state.onlineCharacters.get("session-stale")?.handRaised).toBe(false);
 
 		// 过期消息未被发布：下一个序号仍为 3。
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "s2", method: "speak", params: { content: "Fresh reply", based_on_sequence: 2 } }));
+		client.send(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: "s2",
+				method: "speak",
+				params: { content: "Fresh reply", based_on_sequence: 2 },
+			}),
+		);
 		const freshResponse = await waitForMessage(client, "response");
 		expect(freshResponse.result).toMatchObject({
 			published: true,
@@ -1985,7 +2056,14 @@ describe("ISSUE-013 B2: speak staleness check", () => {
 		expect(legacyResponse.result).toMatchObject({ published: true, sequence: 2 });
 
 		// 当前客户端发送 based_on_sequence == 最新：发布成功。
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "l2", method: "speak", params: { content: "Current reply", based_on_sequence: 2 } }));
+		client.send(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: "l2",
+				method: "speak",
+				params: { content: "Current reply", based_on_sequence: 2 },
+			}),
+		);
 		const currentResponse = await waitForMessage(client, "response");
 		expect(currentResponse.result).toMatchObject({ published: true, sequence: 3 });
 
@@ -1997,7 +2075,14 @@ describe("ISSUE-013 B2: speak staleness check", () => {
 		await runtime.submitUserPersonaMessage("two");
 
 		// 边界：based_on_sequence 落后于另一发送者的最新序号即为过期。
-		client.send(JSON.stringify({ jsonrpc: "2.0", id: "l3", method: "speak", params: { content: "Behind reply", based_on_sequence: 2 } }));
+		client.send(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: "l3",
+				method: "speak",
+				params: { content: "Behind reply", based_on_sequence: 2 },
+			}),
+		);
 		const behindResponse = await waitForMessage(client, "response");
 		expect(behindResponse.result).toEqual({
 			published: false,
@@ -2047,8 +2132,7 @@ function waitForMessage(socket: WebSocket, expected: string): Promise<Record<str
 		const onMessage = (data: WebSocket.RawData) => {
 			const message = JSON.parse(data.toString()) as Record<string, unknown>;
 			// #119 M1：响应帧判别 = result/error 信封；通知按 method 判别。
-			const matches =
-				expected === "response" ? "result" in message || "error" in message : message.method === expected;
+			const matches = expected === "response" ? "result" in message || "error" in message : message.method === expected;
 			if (matches) {
 				clearTimeout(timeout);
 				socket.off("message", onMessage);
@@ -2070,9 +2154,13 @@ async function joinCharacter(
 		{ autoPong: options.autoPong ?? true },
 	);
 	await waitForOpen(client);
-	client.send(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: sessionId } }));
+	client.send(
+		JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: sessionId } }),
+	);
 	await waitForMessage(client, "response");
-	client.send(JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: characterId } }));
+	client.send(
+		JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: characterId } }),
+	);
 	await waitForMessage(client, "response");
 	client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
 	// 在等待响应之前注册 message_history 监听器：

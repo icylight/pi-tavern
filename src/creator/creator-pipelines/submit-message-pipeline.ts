@@ -1,7 +1,7 @@
 import type WebSocket from "ws";
 import { type GroupChatState, setHandRaised } from "../../data/group-chat-state.js";
 import { formatEntryContent, type SessionHeaderLike, type SessionStore } from "../../data/session-store.js";
-import { JSONRPC_VERSION, type ClientMessage } from "../../protocol/messages.js";
+import { type ClientMessage, JSONRPC_VERSION } from "../../protocol/messages.js";
 import type { PublicMessageState } from "../../protocol/public-message-state.js";
 import {
 	ERROR_CODE_MESSAGE_TOO_LARGE,
@@ -131,7 +131,12 @@ export class SubmitMessagePipeline {
 		try {
 			this.deps.sessionStore.assertWritable();
 		} catch (error) {
-			this.deps.sendFailure(socket, message.id, ERROR_CODE_PERSIST_FAILED, error instanceof Error ? error.message : String(error));
+			this.deps.sendFailure(
+				socket,
+				message.id,
+				ERROR_CODE_PERSIST_FAILED,
+				error instanceof Error ? error.message : String(error),
+			);
 			return;
 		}
 		if (!canPublish) {
@@ -184,7 +189,12 @@ export class SubmitMessagePipeline {
 			);
 		} catch (error) {
 			const reportError = this.deps.sessionStore.recoverFromFailedAppendAndCatch(error);
-			this.deps.sendFailure(socket, message.id, ERROR_CODE_PERSIST_FAILED, `${ERROR_PERSIST_FAILED_PREFIX}${reportError.message}`);
+			this.deps.sendFailure(
+				socket,
+				message.id,
+				ERROR_CODE_PERSIST_FAILED,
+				`${ERROR_PERSIST_FAILED_PREFIX}${reportError.message}`,
+			);
 			return;
 		}
 

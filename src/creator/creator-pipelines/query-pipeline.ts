@@ -2,7 +2,7 @@ import type WebSocket from "ws";
 import { decodeCursor, encodeCursor } from "../../data/cursor-store.js";
 import type { GroupChatState } from "../../data/group-chat-state.js";
 import type { SessionStore } from "../../data/session-store.js";
-import { JSONRPC_VERSION, type ClientMessage } from "../../protocol/messages.js";
+import { type ClientMessage, JSONRPC_VERSION } from "../../protocol/messages.js";
 import type { PublicMessageState } from "../../protocol/public-message-state.js";
 import {
 	ERROR_CODE_NO_CHAT_HISTORY,
@@ -27,12 +27,7 @@ export interface QueryPipelineDependencies {
 	/** 群聊状态快照构造（runtime 方法注入：group_chat/round/online_characters 装配）。 */
 	getGroupChatStateMessage: (requestingSessionId: string) => unknown;
 	send: (socket: WebSocket, message: unknown) => void;
-	sendFailure: (
-		socket: WebSocket,
-		id: string | undefined,
-		code: ProtocolErrorCode,
-		reason: string,
-	) => void;
+	sendFailure: (socket: WebSocket, id: string | undefined, code: ProtocolErrorCode, reason: string) => void;
 	onMembersChanged: (() => void) | undefined;
 }
 
@@ -74,7 +69,10 @@ export class QueryPipeline {
 		// 新消息不会使其移位。
 		// 注：分页大小保持 10（增量分页粒度）；只有 join 推送窗口用
 		// JOIN_HISTORY_LIMIT（User 2026-08-01）。
-		const cursorSeq = message.params.cursor === undefined || message.params.cursor === null ? null : decodeCursor(message.params.cursor);
+		const cursorSeq =
+			message.params.cursor === undefined || message.params.cursor === null
+				? null
+				: decodeCursor(message.params.cursor);
 		const page =
 			cursorSeq === null
 				? this.deps.publicMessages.slice(-10)
@@ -86,13 +84,13 @@ export class QueryPipeline {
 			...(message.id !== undefined ? { id: message.id } : {}),
 			jsonrpc: JSONRPC_VERSION,
 			result: {
-				messages: page.map( (m) => ({
+				messages: page.map((m) => ({
 					jsonrpc: JSONRPC_VERSION,
 					method: METHOD_PUBLIC_MESSAGE,
 					params: {
 						event_id: m.event_id,
-					sequence: m.sequence,
-					timestamp: m.timestamp,
+						sequence: m.sequence,
+						timestamp: m.timestamp,
 						sender: m.sender,
 						content: m.content,
 						round: m.round,
@@ -125,13 +123,13 @@ export class QueryPipeline {
 			...(message.id !== undefined ? { id: message.id } : {}),
 			jsonrpc: JSONRPC_VERSION,
 			result: {
-				messages: increment.map( (m) => ({
+				messages: increment.map((m) => ({
 					jsonrpc: JSONRPC_VERSION,
 					method: METHOD_PUBLIC_MESSAGE,
 					params: {
 						event_id: m.event_id,
-					sequence: m.sequence,
-					timestamp: m.timestamp,
+						sequence: m.sequence,
+						timestamp: m.timestamp,
 						sender: m.sender,
 						content: m.content,
 						round: m.round,

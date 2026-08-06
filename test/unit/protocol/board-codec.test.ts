@@ -204,9 +204,7 @@ describe("board codec（B1，白板模型 #114，新信封 #119 M1）", () => {
 		});
 
 		it("changed:false 必须携带 code", () => {
-			expect(() =>
-				decodeServer(encodeMessage({ jsonrpc: "2.0", id: "r6", result: { changed: false } })),
-			).toThrow();
+			expect(() => decodeServer(encodeMessage({ jsonrpc: "2.0", id: "r6", result: { changed: false } }))).toThrow();
 		});
 
 		it("协议级失败走 error（NOT_IN_GROUP 码，message 原样保留）", () => {
@@ -284,9 +282,7 @@ describe("board codec（B1，白板模型 #114，新信封 #119 M1）", () => {
 			it("add/update/remove 必须携带 note：缺 note 被拒", () => {
 				for (const action of ["add", "update", "remove"]) {
 					expect(() =>
-						decodeServer(
-							encodeMessage({ jsonrpc: "2.0", method: "board_update", params: { actor: "A", action } }),
-						),
+						decodeServer(encodeMessage({ jsonrpc: "2.0", method: "board_update", params: { actor: "A", action } })),
 					).toThrow();
 				}
 			});

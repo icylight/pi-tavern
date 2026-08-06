@@ -285,11 +285,7 @@ describe("concurrent speaks keep creator order + round quota (integration)", () 
 			method: "speak",
 			params: { content: "four", based_on_sequence: 4 },
 		});
-		const fourth = await memberA.waitFor(
-			(m) => ("result" in m || "error" in m) && m.id === "s4",
-			10_000,
-			baselineA,
-		);
+		const fourth = await memberA.waitFor((m) => ("result" in m || "error" in m) && m.id === "s4", 10_000, baselineA);
 		expect(fourth.error).toBeUndefined();
 		const fourthResult = fourth.result as Record<string, unknown>;
 		expect(fourthResult.published).toBe(false);

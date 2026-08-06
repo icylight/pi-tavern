@@ -1,7 +1,7 @@
 import type WebSocket from "ws";
 import type { CharacterCard, CharacterSummary } from "../../config/character-card.js";
 import type { GroupChatState } from "../../data/group-chat-state.js";
-import { JSONRPC_VERSION, type ClientMessage } from "../../protocol/messages.js";
+import { type ClientMessage, JSONRPC_VERSION } from "../../protocol/messages.js";
 import {
 	ERROR_CHARACTER_UNAVAILABLE,
 	ERROR_CODE_CHARACTER_UNAVAILABLE,

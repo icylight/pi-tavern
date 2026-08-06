@@ -85,9 +85,18 @@ async function joinCharacter(runtime: CreatorRuntime, sessionId: string): Promis
 	);
 	sockets.push(client);
 	await waitForOpen(client);
-	client.send(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: sessionId } }));
+	client.send(
+		JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: sessionId } }),
+	);
 	await waitForMessage(client, "response");
-	client.send(JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: "characters/dev.md" } }));
+	client.send(
+		JSON.stringify({
+			jsonrpc: "2.0",
+			id: "2",
+			method: "claim_character",
+			params: { character_id: "characters/dev.md" },
+		}),
+	);
 	await waitForMessage(client, "response");
 	client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
 	await waitForMessage(client, "response");

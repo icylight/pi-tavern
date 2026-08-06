@@ -462,7 +462,10 @@ export class GroupChatInput {
 	}
 
 	private isOwnEcho(message: Extract<ServerMessage, { method: "public_message" }>): boolean {
-		return message.params.sender.type === "character" && message.params.sender.character_id === this.runtime.character.characterId;
+		return (
+			message.params.sender.type === "character" &&
+			message.params.sender.character_id === this.runtime.character.characterId
+		);
 	}
 
 	/**
@@ -753,7 +756,9 @@ export class GroupChatInput {
 		}
 
 		// 新消息
-		const messages = events.filter((e) => "method" in e && (e.method === METHOD_PUBLIC_MESSAGE || e.method === METHOD_MESSAGE_HISTORY));
+		const messages = events.filter(
+			(e) => "method" in e && (e.method === METHOD_PUBLIC_MESSAGE || e.method === METHOD_MESSAGE_HISTORY),
+		);
 		if (messages.length > 0) {
 			parts.push("\n新消息：");
 			for (const message of messages) {
@@ -763,13 +768,17 @@ export class GroupChatInput {
 					// timestamp 为 ISO 字符串（creator 侧 toISOString 填充），
 					// 解析失败时静默降级为不带时间渲染，不阻塞消息展示。
 					const when = formatMessageTime(message.params.timestamp, now);
-					parts.push(when ? `${sender}（${when}）:\n${message.params.content}` : `${sender}:\n${message.params.content}`);
+					parts.push(
+						when ? `${sender}（${when}）:\n${message.params.content}` : `${sender}:\n${message.params.content}`,
+					);
 				}
 			}
 		}
 
 		// 成员变化
-		const memberChanges = events.filter((e) => "method" in e && (e.method === METHOD_CHARACTER_JOINED || e.method === METHOD_CHARACTER_LEFT));
+		const memberChanges = events.filter(
+			(e) => "method" in e && (e.method === METHOD_CHARACTER_JOINED || e.method === METHOD_CHARACTER_LEFT),
+		);
 		if (memberChanges.length > 0) {
 			parts.push("\n成员变化：");
 			for (const event of memberChanges) {
@@ -795,7 +804,11 @@ export class GroupChatInput {
 				const actor = onlineCharacters.find((c) => c.character_id === event.params.actor)?.name ?? event.params.actor;
 				if (event.params.action === "clear") {
 					parts.push(`${actor} 清空白板。`);
-				} else if (event.params.action === "add" || event.params.action === "update" || event.params.action === "remove") {
+				} else if (
+					event.params.action === "add" ||
+					event.params.action === "update" ||
+					event.params.action === "remove"
+				) {
 					const verb = event.params.action === "add" ? "贴条" : event.params.action === "update" ? "改条" : "撕条";
 					parts.push(`${actor} ${verb}：「${event.params.note?.content ?? ""}」`);
 				}

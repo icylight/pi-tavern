@@ -12,7 +12,13 @@ import {
 } from "../controller/reload-handoff-registry.js";
 import { readCursorFile, writeCursorFile } from "../data/cursor-store.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
-import { JSONRPC_VERSION, type BoardNoteWire, type BoardWriteDataWire, type GroupChatStateMessage, type ServerMessage } from "../protocol/messages.js";
+import {
+	type BoardNoteWire,
+	type BoardWriteDataWire,
+	type GroupChatStateMessage,
+	JSONRPC_VERSION,
+	type ServerMessage,
+} from "../protocol/messages.js";
 import {
 	HEARTBEAT_PING_INTERVAL_MS,
 	HEARTBEAT_TIMEOUT_MS,
@@ -20,18 +26,6 @@ import {
 } from "../shared/constants.js";
 import {
 	ERROR_BINARY_FRAME_RECEIVED,
-	METHOD_BOARD_QUERY,
-	METHOD_BOARD_WRITE,
-	METHOD_FETCH_MESSAGES_SINCE,
-	METHOD_GET_GROUP_CHAT_STATE,
-	METHOD_GET_MESSAGE_HISTORY,
-	METHOD_GROUP_CHAT_CLOSED,
-	METHOD_GROUP_CHAT_UPDATE,
-	METHOD_LEAVE_GROUP_CHAT,
-	METHOD_MESSAGE_HISTORY,
-	METHOD_PUBLIC_MESSAGE,
-	METHOD_SPEAK,
-	METHOD_UPDATE_CHARACTER_STATE,
 	ERROR_CHARACTER_RUNTIME_DETACHED,
 	ERROR_CHARACTER_RUNTIME_NOT_ACTIVE,
 	ERROR_CONNECTION_CLOSED,
@@ -49,6 +43,18 @@ import {
 	ERROR_UNEXPECTED_LEAVE_RESPONSE,
 	ERROR_UNEXPECTED_SPEAK_RESPONSE,
 	ERROR_UNEXPECTED_STATE_RESPONSE,
+	METHOD_BOARD_QUERY,
+	METHOD_BOARD_WRITE,
+	METHOD_FETCH_MESSAGES_SINCE,
+	METHOD_GET_GROUP_CHAT_STATE,
+	METHOD_GET_MESSAGE_HISTORY,
+	METHOD_GROUP_CHAT_CLOSED,
+	METHOD_GROUP_CHAT_UPDATE,
+	METHOD_LEAVE_GROUP_CHAT,
+	METHOD_MESSAGE_HISTORY,
+	METHOD_PUBLIC_MESSAGE,
+	METHOD_SPEAK,
+	METHOD_UPDATE_CHARACTER_STATE,
 } from "../shared/messages.js";
 
 import { GroupChatInput } from "./group-chat-input.js";
@@ -555,7 +561,10 @@ export class CharacterRuntime {
 		// 因此游标停在自己已发布的消息之前永远不会导致误拒。
 		// 旧版服务端忽略该字段。
 		const basedOnSequence = this.loadCursor() ?? 0;
-		const response = await this.request({ method: METHOD_SPEAK, params: { content, based_on_sequence: basedOnSequence } });
+		const response = await this.request({
+			method: METHOD_SPEAK,
+			params: { content, based_on_sequence: basedOnSequence },
+		});
 		if ("error" in response) {
 			throw new Error(response.error.message);
 		}
@@ -821,10 +830,20 @@ export class CharacterRuntime {
 	get hasPublicMessages(): boolean {
 		return this.receivedMessages.some((m) => {
 			if ("method" in m && m.method === METHOD_PUBLIC_MESSAGE) return true;
-			if ("method" in m && m.method === METHOD_MESSAGE_HISTORY && Array.isArray(m.params.messages) && m.params.messages.length > 0) {
+			if (
+				"method" in m &&
+				m.method === METHOD_MESSAGE_HISTORY &&
+				Array.isArray(m.params.messages) &&
+				m.params.messages.length > 0
+			) {
 				return true;
 			}
-			if ("method" in m && m.method === METHOD_GROUP_CHAT_UPDATE && Array.isArray(m.params.preview_messages) && m.params.preview_messages.length > 0) {
+			if (
+				"method" in m &&
+				m.method === METHOD_GROUP_CHAT_UPDATE &&
+				Array.isArray(m.params.preview_messages) &&
+				m.params.preview_messages.length > 0
+			) {
 				return true;
 			}
 			return false;

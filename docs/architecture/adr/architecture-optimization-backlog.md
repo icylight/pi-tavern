@@ -17,6 +17,9 @@
 | broadcast(message: unknown) 签名收窄为 ServerMessage | 2026-08-06 M3：4 处旧信封构造因宽类型逃过 tsc，wire 形状错误编译期不可见 | 签名改 ServerMessage（或联合类型），tsc 直接捕获 wire 形状漂移；codec 层钉测兜底保持 | 待内嵌 |
 | dispatch 注册表 handler 样板收敛 | 2026-08-06 M2 评审 B 级：12 处 key-mismatch 双保险检查重复 | handler 工厂函数生成（key + method 断言单点），注册表声明式 | 待内嵌 |
 | commands.ts 5 个 UI 格式化函数下沉 ui/ 域 | 2026-08-06 静态分析：adapter 层混入展示格式化 | 纯移动（formatSessionLabel/formatCreatorStatus/formatCharacterStatus 等），低风险 | 待内嵌 |
+| saveCursor 内存先行 vs 磁盘失败不一致窗口 | 2026-08-06 QA 静态分析：语义幂等可接受 | 留注释说明窗口语义即可 | 待内嵌 |
+| refreshGroupChatState catch{} 副作用重评注记 | 2026-08-06 QA 静态分析：当前纯展示安全 | 未来引入副作用时重评；补注释 | 待内嵌 |
+| usage-scenarios/interaction-model 等大文档内容过时核对 | 2026-08-06 docs 重组遗留注记（PM）：本次只归类未重写 | 内容核对另排，过期章节更新或归档 | 待内嵌 |
 
 ## 已落地
 

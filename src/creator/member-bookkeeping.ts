@@ -2,8 +2,8 @@ import type WebSocket from "ws";
 
 import type { CharacterCard, CharacterSummary } from "../config/character-card.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
-import { ERROR_READY_TIMEOUT, METHOD_CHARACTER_LEFT } from "../shared/messages.js";
 import { JSONRPC_VERSION } from "../protocol/messages.js";
+import { ERROR_READY_TIMEOUT, METHOD_CHARACTER_LEFT } from "../shared/messages.js";
 import type { BroadcastHub } from "./broadcast-hub.js";
 import type { ConnectionContext } from "./connection-manager.js";
 import type { HeartbeatRegistry } from "./heartbeat-registry.js";

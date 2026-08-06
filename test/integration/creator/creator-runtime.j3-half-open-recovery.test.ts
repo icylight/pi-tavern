@@ -58,9 +58,13 @@ async function joinCharacter(
 		{ autoPong: options.autoPong ?? true },
 	);
 	await waitForOpen(client);
-	client.send(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: sessionId } }));
+	client.send(
+		JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: sessionId } }),
+	);
 	await waitForMessage(client, "response");
-	client.send(JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: characterId } }));
+	client.send(
+		JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: characterId } }),
+	);
 	await waitForMessage(client, "response");
 	client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
 	const historyPromise = waitForMessage(client, "message_history");
@@ -70,9 +74,10 @@ async function joinCharacter(
 }
 
 function historySequences(messageHistory: Record<string, unknown>): number[] {
-	const messages = ((messageHistory.params as Record<string, unknown>).messages as Array<{
-		params?: { sequence?: number };
-	}>) ?? [];
+	const messages =
+		((messageHistory.params as Record<string, unknown>).messages as Array<{
+			params?: { sequence?: number };
+		}>) ?? [];
 	return messages.map((m) => m.params?.sequence ?? -1);
 }
 
@@ -117,9 +122,8 @@ describe("CreatorRuntime #85 J3 半开断连恢复一致性", () => {
 		// （M7 A3/A4 已钉），creator 侧只验证广播恢复。
 		runtime.submitUserPersonaMessage("after-reconnect");
 		const update = await waitForMessage(revived, "group_chat_update", 5000);
-		const preview = (
-			(update.params as Record<string, unknown>).preview_messages as Array<{ params?: { sequence?: number } }>
-		) ?? [];
+		const preview =
+			((update.params as Record<string, unknown>).preview_messages as Array<{ params?: { sequence?: number } }>) ?? [];
 		expect(preview.map((m) => m.params?.sequence)).toContain(3);
 
 		healthy.close();

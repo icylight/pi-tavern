@@ -167,7 +167,9 @@ describe("PiTavern protocol codec", () => {
 			),
 		).toEqual({ jsonrpc: "2.0", id: "req-3", method: "get_message_history", params: { cursor: null } });
 		expect(
-			decodeClientMessage(Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: "req-4", method: "get_chat_history_file" }))),
+			decodeClientMessage(
+				Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: "req-4", method: "get_chat_history_file" })),
+			),
 		).toEqual({ jsonrpc: "2.0", id: "req-4", method: "get_chat_history_file" });
 	});
 

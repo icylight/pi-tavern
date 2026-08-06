@@ -48,12 +48,12 @@ function aPublicMessage(senderType: "user_persona", overrides?: Partial<PublicMe
 		method: "public_message",
 		params: {
 			event_id: "evt-1",
-		sequence: 1,
-		timestamp: "2026-01-01T00:00:00.000Z",
-		sender: { type: senderType },
-		content: "Hello",
-		round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
-		...overrides,
+			sequence: 1,
+			timestamp: "2026-01-01T00:00:00.000Z",
+			sender: { type: senderType },
+			content: "Hello",
+			round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
+			...overrides,
 		},
 	} as PublicMessage;
 }
@@ -324,9 +324,9 @@ describe("GroupChatInput", () => {
 			method: "message_history",
 			params: {
 				messages: [aPublicMessage("user_persona", { sequence: 1, content: "First" })],
-			cursor: null,
-			has_more: false,
-			total_messages: 1,
+				cursor: null,
+				has_more: false,
+				total_messages: 1,
 			},
 		});
 		handler(aCharacterJoined());
@@ -395,9 +395,9 @@ describe("GroupChatInput", () => {
 			method: "message_history",
 			params: {
 				messages: firstPage,
-			cursor: "cursor-20",
-			has_more: true,
-			total_messages: 20,
+				cursor: "cursor-20",
+				has_more: true,
+				total_messages: 20,
 			},
 		} as unknown as ServerMessage);
 
@@ -408,7 +408,9 @@ describe("GroupChatInput", () => {
 		await vi.advanceTimersByTimeAsync(2000);
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
 		const message = call[0] as { details: { events: Array<{ params?: { sequence?: number } }> } };
-		const sequences = message.details.events.map((e) => ((e as { params?: { sequence?: number } }).params)?.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
+		const sequences = message.details.events
+			.map((e) => (e as { params?: { sequence?: number } }).params?.sequence)
+			.sort((a, b) => (a ?? 0) - (b ?? 0));
 		// 全部 20 条消息（两页）都在。
 		expect(sequences).toHaveLength(20);
 		expect(sequences[0]).toBe(1);
@@ -441,9 +443,9 @@ describe("GroupChatInput", () => {
 			method: "message_history",
 			params: {
 				messages: page,
-			cursor: "stuck-cursor",
-			has_more: true,
-			total_messages: 3,
+				cursor: "stuck-cursor",
+				has_more: true,
+				total_messages: 3,
 			},
 		} as unknown as ServerMessage);
 		await vi.advanceTimersByTimeAsync(0);
@@ -477,9 +479,9 @@ describe("GroupChatInput", () => {
 			method: "message_history",
 			params: {
 				messages: [aPublicMessage("user_persona", { sequence: 1 }), aPublicMessage("user_persona", { sequence: 2 })],
-			cursor: null,
-			has_more: false,
-			total_messages: 2,
+				cursor: null,
+				has_more: false,
+				total_messages: 2,
 			},
 		} as unknown as ServerMessage);
 		await vi.advanceTimersByTimeAsync(2000);
@@ -514,8 +516,8 @@ describe("GroupChatInput", () => {
 			method: "group_chat_update",
 			params: {
 				latest_sequence: 5,
-			preview_messages: [aPublicMessage("user_persona", { sequence: 5 })],
-			total_messages: 5,
+				preview_messages: [aPublicMessage("user_persona", { sequence: 5 })],
+				total_messages: 5,
 			},
 		} as unknown as ServerMessage);
 
@@ -559,8 +561,8 @@ describe("GroupChatInput", () => {
 			method: "group_chat_update",
 			params: {
 				latest_sequence: 5,
-			preview_messages: [aPublicMessage("user_persona", { sequence: 5 })],
-			total_messages: 5,
+				preview_messages: [aPublicMessage("user_persona", { sequence: 5 })],
+				total_messages: 5,
 			},
 		} as unknown as ServerMessage);
 		// #64：闲态 1s 触发窗口到期后拉取。
@@ -568,7 +570,9 @@ describe("GroupChatInput", () => {
 
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
 		const message = call[0] as { details: { events: Array<{ sequence?: number }> } };
-		const sequences = message.details.events.map((e) => ((e as { params?: { sequence?: number } }).params)?.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
+		const sequences = message.details.events
+			.map((e) => (e as { params?: { sequence?: number } }).params?.sequence)
+			.sort((a, b) => (a ?? 0) - (b ?? 0));
 		expect(sequences).toEqual([2, 3, 4, 5]);
 		expect(runtime.saveCursor).toHaveBeenCalledWith(5);
 
@@ -609,8 +613,8 @@ describe("GroupChatInput", () => {
 			method: "group_chat_update",
 			params: {
 				latest_sequence: 7,
-			preview_messages: [],
-			total_messages: 7,
+				preview_messages: [],
+				total_messages: 7,
 			},
 		} as unknown as ServerMessage);
 		// run 活跃期间只排隐藏令牌；安全边界 abort、settled 后再拉取。
@@ -671,8 +675,8 @@ describe("GroupChatInput", () => {
 			method: "group_chat_update",
 			params: {
 				latest_sequence: 9,
-			preview_messages: [],
-			total_messages: 9,
+				preview_messages: [],
+				total_messages: 9,
 			},
 		} as unknown as ServerMessage);
 		// 忙态先排令牌；安全边界 abort、settled 后一次拉全并 followUp 重开。
@@ -686,7 +690,9 @@ describe("GroupChatInput", () => {
 		expect(pi.sendMessage).toHaveBeenCalledTimes(2);
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[1] as [unknown, unknown];
 		const message = call[0] as { details: { events: Array<{ sequence?: number }> } };
-		const sequences = message.details.events.map((e) => ((e as { params?: { sequence?: number } }).params)?.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
+		const sequences = message.details.events
+			.map((e) => (e as { params?: { sequence?: number } }).params?.sequence)
+			.sort((a, b) => (a ?? 0) - (b ?? 0));
 		expect(sequences).toEqual([7, 8, 9]);
 		expect(cursor).toBe(9);
 
@@ -738,8 +744,8 @@ describe("GroupChatInput", () => {
 			method: "group_chat_update",
 			params: {
 				latest_sequence: 7,
-			preview_messages: [],
-			total_messages: 7,
+				preview_messages: [],
+				total_messages: 7,
 			},
 		} as unknown as ServerMessage);
 		handler({
@@ -747,8 +753,8 @@ describe("GroupChatInput", () => {
 			method: "group_chat_update",
 			params: {
 				latest_sequence: 9,
-			preview_messages: [],
-			total_messages: 9,
+				preview_messages: [],
+				total_messages: 9,
 			},
 		} as unknown as ServerMessage);
 		// 两条通知合并为一个令牌，settled 后一次拉全 [7,8,9]。
@@ -762,9 +768,9 @@ describe("GroupChatInput", () => {
 		expect(runtime.saveCursor).toHaveBeenCalledWith(9);
 		expect(pi.sendMessage).toHaveBeenCalledTimes(2);
 		const delivery = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[1] as [unknown, unknown];
-		const delivered = (delivery[0] as { details: { events: Array<{ params?: { sequence?: number } }> } }).details.events.map(
-			(event) => event.params?.sequence,
-		);
+		const delivered = (
+			delivery[0] as { details: { events: Array<{ params?: { sequence?: number } }> } }
+		).details.events.map((event) => event.params?.sequence);
 		expect(delivered).toEqual([7, 8, 9]);
 		expect((delivery[1] as { deliverAs: string }).deliverAs).toBe("followUp");
 
@@ -814,8 +820,8 @@ describe("GroupChatInput", () => {
 			method: "group_chat_update",
 			params: {
 				latest_sequence: 1,
-			preview_messages: [],
-			total_messages: 1,
+				preview_messages: [],
+				total_messages: 1,
 			},
 		} as unknown as ServerMessage);
 		// 忙态：立即拉取 + 立即 steer 投递。
@@ -857,8 +863,8 @@ describe("GroupChatInput", () => {
 			method: "group_chat_update",
 			params: {
 				latest_sequence: 1,
-			preview_messages: [],
-			total_messages: 1,
+				preview_messages: [],
+				total_messages: 1,
 			},
 		} as unknown as ServerMessage);
 		runtime.isAgentActive = false;
@@ -872,8 +878,8 @@ describe("GroupChatInput", () => {
 			method: "group_chat_update",
 			params: {
 				latest_sequence: 2,
-			preview_messages: [],
-			total_messages: 2,
+				preview_messages: [],
+				total_messages: 2,
 			},
 		} as unknown as ServerMessage);
 		await vi.advanceTimersByTimeAsync(1000);
@@ -911,8 +917,8 @@ describe("GroupChatInput", () => {
 				method: "group_chat_update",
 				params: {
 					latest_sequence: seq,
-				preview_messages: [aPublicMessage("user_persona", { sequence: seq })],
-				total_messages: seq,
+					preview_messages: [aPublicMessage("user_persona", { sequence: seq })],
+					total_messages: seq,
 				},
 			} as unknown as ServerMessage);
 		}
@@ -925,7 +931,9 @@ describe("GroupChatInput", () => {
 
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[1] as [unknown, unknown];
 		const message = call[0] as { details: { events: Array<{ sequence?: number }> } };
-		const sequences = message.details.events.map((e) => ((e as { params?: { sequence?: number } }).params)?.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
+		const sequences = message.details.events
+			.map((e) => (e as { params?: { sequence?: number } }).params?.sequence)
+			.sort((a, b) => (a ?? 0) - (b ?? 0));
 		expect(sequences).toEqual([5, 6, 7]); // 一次投递、保序、不重不漏
 
 		input.stop();
@@ -954,8 +962,8 @@ describe("GroupChatInput", () => {
 			method: "group_chat_update",
 			params: {
 				latest_sequence: 5,
-			preview_messages: [aPublicMessage("user_persona", { sequence: 5 })],
-			total_messages: 5,
+				preview_messages: [aPublicMessage("user_persona", { sequence: 5 })],
+				total_messages: 5,
 			},
 		} as unknown as ServerMessage);
 		// 窗口内：0 拉取；到期：1 次拉全 + 1 次投递（≤1s 延迟）。
@@ -998,8 +1006,8 @@ describe("GroupChatInput", () => {
 				method: "group_chat_update",
 				params: {
 					latest_sequence: seq,
-				preview_messages: [],
-				total_messages: seq,
+					preview_messages: [],
+					total_messages: seq,
 				},
 			} as unknown as ServerMessage);
 		}
@@ -1047,8 +1055,8 @@ describe("GroupChatInput", () => {
 				method: "group_chat_update",
 				params: {
 					latest_sequence: seq,
-				preview_messages: [],
-				total_messages: seq,
+					preview_messages: [],
+					total_messages: seq,
 				},
 			} as unknown as ServerMessage);
 		}
@@ -1097,8 +1105,8 @@ describe("GroupChatInput", () => {
 				method: "group_chat_update",
 				params: {
 					latest_sequence: seq,
-				preview_messages: [],
-				total_messages: seq,
+					preview_messages: [],
+					total_messages: seq,
 				},
 			} as unknown as ServerMessage);
 		}
@@ -1149,8 +1157,8 @@ describe("GroupChatInput", () => {
 			method: "group_chat_update",
 			params: {
 				latest_sequence: 5,
-			preview_messages: [],
-			total_messages: 5,
+				preview_messages: [],
+				total_messages: 5,
 			},
 		} as unknown as ServerMessage);
 
@@ -1172,7 +1180,9 @@ describe("GroupChatInput", () => {
 		// 防悬置：窗口内消息未被吞——送达内容含 seq 5。
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[1] as [unknown, unknown];
 		const message = call[0] as { details: { events: Array<{ sequence?: number }> } };
-		const sequences = message.details.events.map((e) => ((e as { params?: { sequence?: number } }).params)?.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
+		const sequences = message.details.events
+			.map((e) => (e as { params?: { sequence?: number } }).params?.sequence)
+			.sort((a, b) => (a ?? 0) - (b ?? 0));
 		expect(sequences).toEqual([5]);
 
 		input.stop();
@@ -1199,8 +1209,8 @@ describe("GroupChatInput", () => {
 			method: "group_chat_update",
 			params: {
 				latest_sequence: 5,
-			preview_messages: [aPublicMessage("user_persona", { sequence: 5 })],
-			total_messages: 5,
+				preview_messages: [aPublicMessage("user_persona", { sequence: 5 })],
+				total_messages: 5,
 			},
 		} as unknown as ServerMessage);
 		await vi.advanceTimersByTimeAsync(400);

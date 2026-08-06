@@ -1,6 +1,6 @@
 import { NotificationType, RequestType } from "vscode-jsonrpc";
 import type WebSocket from "ws";
-
+import type { ClientMessage } from "../../protocol/messages.js";
 import {
 	METHOD_BOARD_QUERY,
 	METHOD_BOARD_WRITE,
@@ -15,7 +15,6 @@ import {
 	METHOD_SPEAK,
 	METHOD_UPDATE_CHARACTER_STATE,
 } from "../../shared/messages.js";
-import type { ClientMessage } from "../../protocol/messages.js";
 import type { ConnectionContext } from "../connection-manager.js";
 import { BoardPipeline } from "./board-pipeline.js";
 import { ClaimPipeline } from "./claim-pipeline.js";

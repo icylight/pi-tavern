@@ -1,6 +1,6 @@
 import type WebSocket from "ws";
 import type { CharacterCard, CharacterSummary } from "../../config/character-card.js";
-import { JSONRPC_VERSION, type ClientMessage } from "../../protocol/messages.js";
+import { type ClientMessage, JSONRPC_VERSION } from "../../protocol/messages.js";
 import {
 	ERROR_ALREADY_IN_GROUP_CHAT,
 	ERROR_CODE_ALREADY_IN_GROUP,

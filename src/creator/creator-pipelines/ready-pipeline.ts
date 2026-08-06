@@ -2,7 +2,7 @@ import type WebSocket from "ws";
 import type { CharacterCard, CharacterSummary } from "../../config/character-card.js";
 import { encodeCursor } from "../../data/cursor-store.js";
 import type { GroupChatState } from "../../data/group-chat-state.js";
-import { JSONRPC_VERSION, type ClientMessage } from "../../protocol/messages.js";
+import { type ClientMessage, JSONRPC_VERSION } from "../../protocol/messages.js";
 import type { PublicMessageState } from "../../protocol/public-message-state.js";
 import { JOIN_HISTORY_LIMIT } from "../../shared/constants.js";
 import {

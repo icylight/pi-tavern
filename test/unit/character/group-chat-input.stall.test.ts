@@ -51,11 +51,11 @@ function aPublicMessage(sequence: number): ServerMessage {
 		method: "public_message",
 		params: {
 			event_id: `evt-${sequence}`,
-		sequence,
-		timestamp: "2026-01-01T00:00:00.000Z",
-		sender: { type: "user_persona" },
-		content: `Msg ${sequence}`,
-		round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
+			sequence,
+			timestamp: "2026-01-01T00:00:00.000Z",
+			sender: { type: "user_persona" },
+			content: `Msg ${sequence}`,
+			round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
 		},
 	} as unknown as PublicMessage as ServerMessage;
 }

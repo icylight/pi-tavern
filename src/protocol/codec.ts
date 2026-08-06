@@ -1,5 +1,5 @@
-import type { Message } from "vscode-jsonrpc";
 import { Compile } from "typebox/compile";
+import type { Message } from "vscode-jsonrpc";
 import type { RawData } from "ws";
 import {
 	ERROR_ENCODE_FAILED,

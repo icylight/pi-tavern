@@ -1,7 +1,7 @@
 import type WebSocket from "ws";
 import type { BoardStore, BoardWriteOutcome } from "../../data/board-store.js";
 import type { GroupChatState } from "../../data/group-chat-state.js";
-import { JSONRPC_VERSION, type ClientMessage } from "../../protocol/messages.js";
+import { type ClientMessage, JSONRPC_VERSION } from "../../protocol/messages.js";
 import {
 	ERROR_CODE_INVALID_NOTE_ID,
 	ERROR_CODE_NOT_IN_GROUP,
@@ -67,7 +67,12 @@ export class BoardPipeline {
 			message.params.action === "remove" && note?.id
 				? this.deps.boardStore.read(this.deps.state.groupChat.groupChatId)[sender]?.find((n) => n.id === note.id)
 				: undefined;
-		const outcome = this.deps.boardStore.write(this.deps.state.groupChat.groupChatId, sender, message.params.action, note);
+		const outcome = this.deps.boardStore.write(
+			this.deps.state.groupChat.groupChatId,
+			sender,
+			message.params.action,
+			note,
+		);
 		this.deps.send(socket, this.toWriteResponse(message.id, outcome));
 		if (outcome.status === "applied") {
 			// 增量摘要：remove 携带被撕条完整内容；clear 无 note。

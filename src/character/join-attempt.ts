@@ -6,13 +6,10 @@ import WebSocket from "ws";
 import { type ClaimedCharacter, loadClaimedCharacter } from "../config/character-card.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
-import { JSONRPC_VERSION, type CharacterSummaryWire, type ServerMessage } from "../protocol/messages.js";
+import { type CharacterSummaryWire, JSONRPC_VERSION, type ServerMessage } from "../protocol/messages.js";
 import { SHORT_COORDINATION_TIMEOUT_MS } from "../shared/constants.js";
 import {
 	ERROR_BINARY_FRAME_RECEIVED,
-	METHOD_CHARACTER_READY,
-	METHOD_CLAIM_CHARACTER,
-	METHOD_JOIN_GROUP_CHAT,
 	ERROR_CONNECT_FAILED,
 	ERROR_CONNECTION_TIMED_OUT,
 	ERROR_JOIN_ATTEMPT_CLOSED,
@@ -23,6 +20,9 @@ import {
 	ERROR_UNEXPECTED_CLAIM_RESPONSE,
 	ERROR_UNEXPECTED_JOIN_RESPONSE,
 	ERROR_UNEXPECTED_READY_RESPONSE,
+	METHOD_CHARACTER_READY,
+	METHOD_CLAIM_CHARACTER,
+	METHOD_JOIN_GROUP_CHAT,
 } from "../shared/messages.js";
 import { type CharacterConnectionTransfer, CharacterRuntime } from "./character-runtime.js";
 
@@ -143,7 +143,9 @@ export class JoinAttempt {
 			if (!("result" in response)) {
 				throw new Error(ERROR_UNEXPECTED_JOIN_RESPONSE);
 			}
-			attempt.availableCharacters.push(...(response.result as { available_characters: CharacterSummaryWire[] }).available_characters);
+			attempt.availableCharacters.push(
+				...(response.result as { available_characters: CharacterSummaryWire[] }).available_characters,
+			);
 			return attempt;
 		} catch (error) {
 			if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
@@ -166,7 +168,13 @@ export class JoinAttempt {
 		}
 
 		try {
-			const claimed = toClaimedCharacter((claimResponse.result as { character: { character_id: string; name: string; description: string; path: string } }).character);
+			const claimed = toClaimedCharacter(
+				(
+					claimResponse.result as {
+						character: { character_id: string; name: string; description: string; path: string };
+					}
+				).character,
+			);
 			const character = await loadClaimedCharacter(claimed);
 			const runtime = CharacterRuntime.prepare({
 				groupChatId: this.descriptor.groupChatId,
@@ -209,7 +217,11 @@ export class JoinAttempt {
 		if (!("result" in response)) {
 			throw new Error(ERROR_UNEXPECTED_JOIN_RESPONSE);
 		}
-		this.availableCharacters.splice(0, this.availableCharacters.length, ...(response.result as { available_characters: CharacterSummaryWire[] }).available_characters);
+		this.availableCharacters.splice(
+			0,
+			this.availableCharacters.length,
+			...(response.result as { available_characters: CharacterSummaryWire[] }).available_characters,
+		);
 		return this.availableCharacters;
 	}
 

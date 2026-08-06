@@ -168,7 +168,8 @@ describe("#68 self-echo", () => {
 
 		await waitFor(() => sendMessage.mock.calls.length > 0);
 		const delivered = sendMessage.mock.calls[0]?.[0] as { details?: { events?: Array<{ sequence?: number }> } };
-		const sequences = delivered?.details?.events?.map((e) => (e as { params?: { sequence?: number } }).params?.sequence) ?? [];
+		const sequences =
+			delivered?.details?.events?.map((e) => (e as { params?: { sequence?: number } }).params?.sequence) ?? [];
 		expect(sequences).toContain(3);
 		expect(sequences).not.toContain(2);
 	});
