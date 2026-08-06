@@ -120,8 +120,9 @@ describe("JoinAttempt and CharacterRuntime", () => {
 
 		await vi.waitFor(() => expect(disconnected).toHaveBeenCalledTimes(1));
 		expect(runtime.receivedMessages).toContainEqual({
-			type: "group_chat_closed",
-			group_chat_id: creator.state.groupChat.groupChatId,
+			jsonrpc: "2.0",
+			method: "group_chat_closed",
+			params: { group_chat_id: creator.state.groupChat.groupChatId },
 		});
 	});
 
@@ -184,8 +185,11 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		expect(
 			taken.receivedMessages.some(
 				(m) =>
-					m.type === "group_chat_update" &&
-					(m.preview_messages as Record<string, unknown>[]).some((p) => p.content === "Hello during reload"),
+					"method" in m &&
+					m.method === "group_chat_update" &&
+					((m.params as Record<string, unknown>).preview_messages as Record<string, unknown>[]).some(
+						(p) => (p.params as Record<string, unknown>).content === "Hello during reload",
+					),
 			),
 		).toBe(true);
 
@@ -195,8 +199,11 @@ describe("JoinAttempt and CharacterRuntime", () => {
 			expect(
 				taken.receivedMessages.some(
 					(m) =>
-						m.type === "group_chat_update" &&
-						(m.preview_messages as Record<string, unknown>[]).some((p) => p.content === "Hello after reload"),
+						"method" in m &&
+						m.method === "group_chat_update" &&
+						((m.params as Record<string, unknown>).preview_messages as Record<string, unknown>[]).some(
+							(p) => (p.params as Record<string, unknown>).content === "Hello after reload",
+						),
 				),
 			).toBe(true),
 		);

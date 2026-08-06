@@ -140,14 +140,18 @@ describe("acceptance: identity consistency (ISSUE-003)", () => {
 			client.socket.once("error", (error) => rejectOpen(error));
 		});
 
-		client.send({ id: "1", type: "join_group_chat", session_id: "ghost-session" });
-		await client.waitFor((m) => m.type === "response" && m.command === "join_group_chat");
+		client.send({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "ghost-session" } });
+		await client.waitFor((m) => m.id === "1" && "result" in m);
 
 		// 角色卡 "characters/ghost.md" 不在 tavern.json 中：creator
 		// 必须拒绝该认领，而非接纳未知身份。
-		client.send({ id: "2", type: "claim_character", character_id: "characters/ghost.md" });
-		const claim = await client.waitFor((m) => m.type === "response" && m.command === "claim_character");
-		expect(claim.success).toBe(false);
+		client.send({
+			jsonrpc: "2.0",
+			id: "2",
+			method: "claim_character",
+			params: { character_id: "characters/ghost.md" },
+		});
+		const claim = await client.waitFor((m) => m.id === "2" && "error" in m);
 		expect(String(claim.error)).toContain("no longer available");
 
 		// 幽灵卡从未成为成员：creator 仍显示 3 人在线。

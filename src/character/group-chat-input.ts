@@ -1,5 +1,13 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ServerMessage } from "../protocol/messages.js";
+import {
+	METHOD_BOARD_UPDATE,
+	METHOD_CHARACTER_JOINED,
+	METHOD_CHARACTER_LEFT,
+	METHOD_GROUP_CHAT_UPDATE,
+	METHOD_MESSAGE_HISTORY,
+	METHOD_PUBLIC_MESSAGE,
+} from "../shared/messages.js";
 import type { CharacterRuntime } from "./character-runtime.js";
 
 /**
@@ -79,7 +87,7 @@ export class GroupChatInput {
 	 * 最新水位，不引入独立计数器（reload 不携带水位，未知即不阻塞，服务端
 	 * stale 兜底）。只存最新一帧：update 是累积水位，新帧包含旧帧信息。
 	 */
-	private latestGroupChatUpdate: Extract<ServerMessage, { type: "group_chat_update" }> | null = null;
+	private latestGroupChatUpdate: Extract<ServerMessage, { method: "group_chat_update" }> | null = null;
 
 	constructor(
 		private readonly runtime: CharacterRuntime,
@@ -105,14 +113,14 @@ export class GroupChatInput {
 
 	start(): void {
 		this.handler = (message: ServerMessage) => {
-			if (message.type === "message_history" && Array.isArray(message.messages)) {
+			if ("method" in message && message.method === METHOD_MESSAGE_HISTORY && Array.isArray(message.params.messages)) {
 				// join 时快照：展开为单个 public_message 事件。
 				// ISSUE-008：has_more 时通过 cursor 分页剩余历史，避免丢失更早消息。
 				// M7：持久化光标优先——回归的 character 从上次投递位置差量同步，
 				// 而不是重读历史。
 				const before = this.pendingEvents.length;
-				for (const m of message.messages) {
-					if (m && typeof m === "object" && "type" in m && m.type === "public_message") {
+				for (const m of message.params.messages) {
+					if (m && typeof m === "object" && "method" in m && m.method === METHOD_PUBLIC_MESSAGE) {
 						if (!this.isEnvironmentEvent(m as ServerMessage)) continue;
 						this.pendingEvents.push(m as ServerMessage);
 					}
@@ -123,12 +131,12 @@ export class GroupChatInput {
 				}
 				// 分页刻意 fire-and-forget：下方已排定的 flush 携带第一页；更早的
 				// 页到达后追加，由随后的 debounce 一并 flush。
-				if (message.has_more) {
-					this.pageOlderHistory(message.cursor).catch(() => undefined);
+				if (message.params.has_more) {
+					this.pageOlderHistory(message.params.cursor).catch(() => undefined);
 				}
 				return;
 			}
-			if (message.type === "group_chat_update") {
+			if ("method" in message && message.method === METHOD_GROUP_CHAT_UPDATE) {
 				// #64（pull 模型）：广播 = 纯标记（水位），消费 = run 边界拉全未读。
 				// 闲态：首条标记启动 1s 固定窗口（窗口内并入不重置），到期 1 次触发
 				// 拉全；忙态：置忙态标记，settle 后立即触发（零中间注入红线）。
@@ -140,7 +148,7 @@ export class GroupChatInput {
 				this.latestGroupChatUpdate = message;
 				const cursor = this.runtime.loadCursor() ?? 0;
 				const selfPreview = this.classifySelfPreview(message, cursor);
-				if (message.latest_sequence <= cursor || selfPreview === "complete-self-only") {
+				if (message.params.latest_sequence <= cursor || selfPreview === "complete-self-only") {
 					return;
 				}
 				if (this.runtime.isAgentActive) {
@@ -193,7 +201,7 @@ export class GroupChatInput {
 				}
 				const messages: ServerMessage[] = [];
 				for (const m of page.messages) {
-					if (m && typeof m === "object" && "type" in m && m.type === "public_message") {
+					if (m && typeof m === "object" && "method" in m && m.method === METHOD_PUBLIC_MESSAGE) {
 						if (!this.isEnvironmentEvent(m as ServerMessage)) continue;
 						messages.push(m as ServerMessage);
 					}
@@ -203,7 +211,7 @@ export class GroupChatInput {
 					// 忙态 steer 入队成功 = 投递成功 → saveCursor；失败不推进，
 					// settle 兜底重投——A5 强化实现）。
 					await this.deliver(messages, page.latestSequence);
-				} else if (page.messages.some((message) => message.type === "public_message")) {
+				} else if (page.messages.some((message) => "method" in message && message.method === METHOD_PUBLIC_MESSAGE)) {
 					// 拉取窗口只有自身回显时不生成 Agent 输入，但仍消费对应水位；否则
 					// preview 超限的连续自身消息会在每次 settle 被永久重拉。
 					this.runtime.saveCursor(page.latestSequence);
@@ -256,7 +264,7 @@ export class GroupChatInput {
 					return;
 				}
 				for (const m of page.messages) {
-					if (m && typeof m === "object" && "type" in m && m.type === "public_message") {
+					if (m && typeof m === "object" && "method" in m && m.method === METHOD_PUBLIC_MESSAGE) {
 						if (!this.isEnvironmentEvent(m as ServerMessage)) continue;
 						this.pendingEvents.push(m as ServerMessage);
 					}
@@ -433,25 +441,28 @@ export class GroupChatInput {
 	}
 
 	private isEnvironmentEvent(message: ServerMessage): boolean {
-		switch (message.type) {
-			case "public_message":
+		if (!("method" in message)) {
+			return false;
+		}
+		switch (message.method) {
+			case METHOD_PUBLIC_MESSAGE:
 				return !this.isOwnEcho(message);
-			case "message_history":
+			case METHOD_MESSAGE_HISTORY:
 				return true;
 			// 白板模型（#114，ADR-0007）：board_update = 环境事件（通知渲染），
 			// 与 group_chat_update（拉取触发）是两套消费语义——进 pendingEvents 批处理，
 			// 绝不挂 incrementPending（board 不在消息流，拉取只会空转）。
 			// 自回显过滤（09:27 版 User 拍板）：写者本人不收自己写的回显（响应已含
 			// 结果、actor 限定本人板——自回显 100% 冗余）；他人更新不受影响。
-			case "board_update":
-				return message.actor !== this.runtime.character.characterId;
+			case METHOD_BOARD_UPDATE:
+				return message.params.actor !== this.runtime.character.characterId;
 			default:
 				return false;
 		}
 	}
 
-	private isOwnEcho(message: ServerMessage & { type: "public_message" }): boolean {
-		return message.sender.type === "character" && message.sender.character_id === this.runtime.character.characterId;
+	private isOwnEcho(message: Extract<ServerMessage, { method: "public_message" }>): boolean {
+		return message.params.sender.type === "character" && message.params.sender.character_id === this.runtime.character.characterId;
 	}
 
 	/**
@@ -470,19 +481,21 @@ export class GroupChatInput {
 			return undefined;
 		}
 		const cursor = this.runtime.loadCursor() ?? 0;
-		if (update.latest_sequence <= cursor) {
+		if (update.params.latest_sequence <= cursor) {
 			return { shouldBlock: false, count: 0, exact: true };
 		}
-		const unseen = update.preview_messages.filter((preview) => preview.sequence > cursor);
-		const expected = update.latest_sequence - cursor;
+		const unseen = update.params.preview_messages.filter((preview) => preview.params.sequence > cursor);
+		const expected = update.params.latest_sequence - cursor;
 		const exact = unseen.length === expected;
 		const otherUnseen = unseen.filter(
 			(preview) =>
-				preview.sender.type !== "character" || preview.sender.character_id !== this.runtime.character.characterId,
+				preview.params.sender.type !== "character" ||
+				preview.params.sender.character_id !== this.runtime.character.characterId,
 		);
 		const containsSelf = unseen.some(
 			(preview) =>
-				preview.sender.type === "character" && preview.sender.character_id === this.runtime.character.characterId,
+				preview.params.sender.type === "character" &&
+				preview.params.sender.character_id === this.runtime.character.characterId,
 		);
 		return {
 			// preview 被截断且含自身回显时，缺口中的发送者未知。按 #128 定稿
@@ -500,26 +513,27 @@ export class GroupChatInput {
 	 * 的他人消息。
 	 */
 	private classifySelfPreview(
-		message: Extract<ServerMessage, { type: "group_chat_update" }>,
+		message: Extract<ServerMessage, { method: "group_chat_update" }>,
 		cursor: number,
 	): "complete-self-only" | "incomplete-with-self" | "external" {
-		const unseen = message.preview_messages
-			.filter((preview) => preview.sequence > cursor)
-			.sort((a, b) => a.sequence - b.sequence);
-		const expectedCount = message.latest_sequence - cursor;
+		const unseen = message.params.preview_messages
+			.filter((preview) => preview.params.sequence > cursor)
+			.sort((a, b) => a.params.sequence - b.params.sequence);
+		const expectedCount = message.params.latest_sequence - cursor;
 		if (unseen.length !== expectedCount) {
 			return unseen.some(
 				(preview) =>
-					preview.sender.type === "character" && preview.sender.character_id === this.runtime.character.characterId,
+					preview.params.sender.type === "character" &&
+					preview.params.sender.character_id === this.runtime.character.characterId,
 			)
 				? "incomplete-with-self"
 				: "external";
 		}
 		return unseen.every(
 			(preview, index) =>
-				preview.sequence === cursor + index + 1 &&
-				preview.sender.type === "character" &&
-				preview.sender.character_id === this.runtime.character.characterId,
+				preview.params.sequence === cursor + index + 1 &&
+				preview.params.sender.type === "character" &&
+				preview.params.sender.character_id === this.runtime.character.characterId,
 		)
 			? "complete-self-only"
 			: "external";
@@ -601,8 +615,8 @@ export class GroupChatInput {
 			// M7 A6 观察通道：经 notify 重发已投递增量，验收套件可断言到达
 			// agent 上下文的内容与通知源一致（同一数据）。
 			const sequences = toDeliver
-				.filter((e) => e.type === "public_message")
-				.map((e) => e.sequence)
+				.filter((e) => "method" in e && e.method === METHOD_PUBLIC_MESSAGE)
+				.map((e) => e.params.sequence)
 				.sort((a, b) => a - b);
 			if (sequences.length > 0) {
 				testNotify?.(
@@ -611,7 +625,7 @@ export class GroupChatInput {
 			}
 			// 白板模型（#114）：白板更新事件计数（无 sequence——不在消息流）。
 			// 断言：门闸放行（进批处理）→ 白板桶渲染可达。
-			const boardUpdates = toDeliver.filter((e) => e.type === "board_update").length;
+			const boardUpdates = toDeliver.filter((e) => "method" in e && e.method === METHOD_BOARD_UPDATE).length;
 			if (boardUpdates > 0) {
 				testNotify?.(`[tavern-inject] group=${this.runtime.groupChatId} board_updates=${boardUpdates}`);
 			}
@@ -687,8 +701,8 @@ export class GroupChatInput {
 			// M7 A6 观察通道（与 idle flush 相同）：验收中断言 steer 投递的
 			// 增量已到达 agent 上下文。
 			const sequences = events
-				.filter((e) => e.type === "public_message")
-				.map((e) => e.sequence)
+				.filter((e) => "method" in e && e.method === METHOD_PUBLIC_MESSAGE)
+				.map((e) => e.params.sequence)
 				.sort((a, b) => a - b);
 			if (sequences.length > 0) {
 				testNotify?.(
@@ -696,7 +710,7 @@ export class GroupChatInput {
 				);
 			}
 			// 白板模型（#114）：白板更新事件计数（与 idle flush 同通道）。
-			const boardUpdates = events.filter((e) => e.type === "board_update").length;
+			const boardUpdates = events.filter((e) => "method" in e && e.method === METHOD_BOARD_UPDATE).length;
 			if (boardUpdates > 0) {
 				testNotify?.(`[tavern-inject] group=${this.runtime.groupChatId} board_updates=${boardUpdates}`);
 			}
@@ -739,30 +753,30 @@ export class GroupChatInput {
 		}
 
 		// 新消息
-		const messages = events.filter((e) => e.type === "public_message" || e.type === "message_history");
+		const messages = events.filter((e) => "method" in e && (e.method === METHOD_PUBLIC_MESSAGE || e.method === METHOD_MESSAGE_HISTORY));
 		if (messages.length > 0) {
 			parts.push("\n新消息：");
 			for (const message of messages) {
-				if (message.type === "public_message") {
-					const sender = message.sender.type === "user_persona" ? "User Persona" : message.sender.name;
+				if ("method" in message && message.method === METHOD_PUBLIC_MESSAGE) {
+					const sender = message.params.sender.type === "user_persona" ? "User Persona" : message.params.sender.name;
 					// #104：每条消息带发言时间 + 距当前注入时点的间隔（相对时间）。
 					// timestamp 为 ISO 字符串（creator 侧 toISOString 填充），
 					// 解析失败时静默降级为不带时间渲染，不阻塞消息展示。
-					const when = formatMessageTime(message.timestamp, now);
-					parts.push(when ? `${sender}（${when}）:\n${message.content}` : `${sender}:\n${message.content}`);
+					const when = formatMessageTime(message.params.timestamp, now);
+					parts.push(when ? `${sender}（${when}）:\n${message.params.content}` : `${sender}:\n${message.params.content}`);
 				}
 			}
 		}
 
 		// 成员变化
-		const memberChanges = events.filter((e) => e.type === "character_joined" || e.type === "character_left");
+		const memberChanges = events.filter((e) => "method" in e && (e.method === METHOD_CHARACTER_JOINED || e.method === METHOD_CHARACTER_LEFT));
 		if (memberChanges.length > 0) {
 			parts.push("\n成员变化：");
 			for (const event of memberChanges) {
-				if (event.type === "character_joined") {
-					parts.push(`${event.character.name} 加入了群聊。`);
-				} else if (event.type === "character_left") {
-					parts.push(`${event.character.name} 离开了群聊。`);
+				if ("method" in event && event.method === METHOD_CHARACTER_JOINED) {
+					parts.push(`${event.params.character.name} 加入了群聊。`);
+				} else if ("method" in event && event.method === METHOD_CHARACTER_LEFT) {
+					parts.push(`${event.params.character.name} 离开了群聊。`);
 				}
 			}
 		}
@@ -770,20 +784,20 @@ export class GroupChatInput {
 		// 白板更新（#114，ADR-0007）：增量摘要——谁/动作/内容摘要。与
 		// group_chat_update 是两套消费语义（通知渲染 vs 拉取触发）：board_update
 		// 只渲染不进消息流拉取（无 sequence、不挂 incrementPending）。
-		const boardUpdates = events.filter((e) => e.type === "board_update");
+		const boardUpdates = events.filter((e) => "method" in e && e.method === METHOD_BOARD_UPDATE);
 		if (boardUpdates.length > 0) {
 			parts.push("\n白板更新：");
 			const onlineCharacters = stateObj?.online_characters ?? [];
 			for (const event of boardUpdates) {
-				if (event.type !== "board_update") {
+				if (!("method" in event) || event.method !== METHOD_BOARD_UPDATE) {
 					continue;
 				}
-				const actor = onlineCharacters.find((c) => c.character_id === event.actor)?.name ?? event.actor;
-				if (event.action === "clear") {
+				const actor = onlineCharacters.find((c) => c.character_id === event.params.actor)?.name ?? event.params.actor;
+				if (event.params.action === "clear") {
 					parts.push(`${actor} 清空白板。`);
-				} else if (event.action === "add" || event.action === "update" || event.action === "remove") {
-					const verb = event.action === "add" ? "贴条" : event.action === "update" ? "改条" : "撕条";
-					parts.push(`${actor} ${verb}：「${event.note?.content ?? ""}」`);
+				} else if (event.params.action === "add" || event.params.action === "update" || event.params.action === "remove") {
+					const verb = event.params.action === "add" ? "贴条" : event.params.action === "update" ? "改条" : "撕条";
+					parts.push(`${actor} ${verb}：「${event.params.note?.content ?? ""}」`);
 				}
 			}
 		}

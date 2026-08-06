@@ -42,38 +42,42 @@ function createMockPi(): ExtensionAPI {
 	} as unknown as ExtensionAPI;
 }
 
-function aPublicMessage(senderType: "user_persona", overrides?: Partial<PublicMessage>): PublicMessage {
+function aPublicMessage(senderType: "user_persona", overrides?: Partial<PublicMessage["params"]>): PublicMessage {
 	return {
-		type: "public_message",
-		event_id: "evt-1",
+		jsonrpc: "2.0",
+		method: "public_message",
+		params: {
+			event_id: "evt-1",
 		sequence: 1,
 		timestamp: "2026-01-01T00:00:00.000Z",
 		sender: { type: senderType },
 		content: "Hello",
 		round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
 		...overrides,
+		},
 	} as PublicMessage;
 }
 
-function aCharacterPublicMessage(characterId: string, overrides?: Partial<PublicMessage>): ServerMessage {
+function aCharacterPublicMessage(characterId: string, overrides?: Partial<PublicMessage["params"]>): ServerMessage {
 	return aPublicMessage("user_persona", {
 		sender: { type: "character", character_id: characterId, name: "Dev" },
 		...overrides,
-	} as Partial<PublicMessage>) as ServerMessage;
+	} as Partial<PublicMessage["params"]>) as ServerMessage;
 }
 
 function aCharacterJoined(): ServerMessage {
 	return {
-		type: "character_joined",
-		character: { character_id: "tester", name: "Tester", description: "Tests" },
+		jsonrpc: "2.0",
+		method: "character_joined",
+		params: { character: { character_id: "tester", name: "Tester", description: "Tests" } },
 	} as ServerMessage;
 }
 
 function aCharacterLeft(): ServerMessage {
 	return {
-		type: "character_left",
-		character: { character_id: "tester", name: "Tester", description: "Tests" },
-		reason: "left",
+		jsonrpc: "2.0",
+		method: "character_left",
+		params: { character: { character_id: "tester", name: "Tester", description: "Tests" }, reason: "left" },
 	} as ServerMessage;
 }
 
@@ -204,13 +208,13 @@ describe("GroupChatInput", () => {
 
 		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
-		const message = call[0] as { details: { events: Array<{ content: string }> } };
+		const message = call[0] as { details: { events: Array<{ params: { content: string } }> } };
 		const events = message.details.events;
 
 		// 仅 2 个事件：他人消息和 user persona（自己的回声已被过滤）
 		expect(events).toHaveLength(2);
-		expect(events[0]?.content).toBe("Other's message");
-		expect(events[1]?.content).toBe("User says");
+		expect((events[0]?.params as Record<string, unknown>)?.content).toBe("Other's message");
+		expect((events[1]?.params as Record<string, unknown>)?.content).toBe("User says");
 
 		input.stop();
 	});
@@ -227,17 +231,23 @@ describe("GroupChatInput", () => {
 
 		// 自己的 board_update 回显（actor = 本角色）——响应已含结果，过滤
 		handler({
-			type: "board_update",
-			actor: "dev",
-			action: "add",
-			note: { id: "n1", content: "我的条" },
+			jsonrpc: "2.0",
+			method: "board_update",
+			params: {
+				actor: "dev",
+				action: "add",
+				note: { id: "n1", content: "我的条" },
+			},
 		} as ServerMessage);
 		// 他人的 board_update——照常进批处理（门闸放行）
 		handler({
-			type: "board_update",
-			actor: "other",
-			action: "remove",
-			note: { id: "n2", content: "别人的条" },
+			jsonrpc: "2.0",
+			method: "board_update",
+			params: {
+				actor: "other",
+				action: "remove",
+				note: { id: "n2", content: "别人的条" },
+			},
 		} as ServerMessage);
 
 		await vi.advanceTimersByTimeAsync(1000);
@@ -249,7 +259,7 @@ describe("GroupChatInput", () => {
 
 		// 仅 1 个事件：他人的更新（自己的回显已被过滤）
 		expect(events).toHaveLength(1);
-		expect(events[0]?.actor).toBe("other");
+		expect((events[0]?.params as Record<string, unknown>)?.actor).toBe("other");
 
 		input.stop();
 	});
@@ -310,11 +320,14 @@ describe("GroupChatInput", () => {
 		// character_joined；两者必须与历史事件一起落在同一首批，
 		// 且历史事件在 join 事件之前（websocket-protocol.md 顺序）。
 		handler({
-			type: "message_history",
-			messages: [aPublicMessage("user_persona", { sequence: 1, content: "First" })],
+			jsonrpc: "2.0",
+			method: "message_history",
+			params: {
+				messages: [aPublicMessage("user_persona", { sequence: 1, content: "First" })],
 			cursor: null,
 			has_more: false,
 			total_messages: 1,
+			},
 		});
 		handler(aCharacterJoined());
 
@@ -322,10 +335,10 @@ describe("GroupChatInput", () => {
 
 		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
-		const message = call[0] as { details: { events: Array<{ type: string; sequence?: number }> } };
+		const message = call[0] as { details: { events: Array<{ params?: { sequence?: number } }> } };
 		const events = message.details.events;
-		expect(events.map((e) => e.type)).toEqual(["public_message"]);
-		expect(events[0]?.sequence).toBe(1);
+		expect(events.map((e) => (e as Record<string, unknown>).method)).toEqual(["public_message"]);
+		expect((events[0]?.params as Record<string, unknown>)?.sequence).toBe(1);
 
 		input.stop();
 	});
@@ -378,11 +391,14 @@ describe("GroupChatInput", () => {
 		const handler = runtime.onEnvironmentMessage ?? (() => {});
 
 		handler({
-			type: "message_history",
-			messages: firstPage,
+			jsonrpc: "2.0",
+			method: "message_history",
+			params: {
+				messages: firstPage,
 			cursor: "cursor-20",
 			has_more: true,
 			total_messages: 20,
+			},
 		} as unknown as ServerMessage);
 
 		// 让 fire-and-forget 分页完成，然后 flush。
@@ -391,8 +407,8 @@ describe("GroupChatInput", () => {
 
 		await vi.advanceTimersByTimeAsync(2000);
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
-		const message = call[0] as { details: { events: Array<{ type: string; sequence?: number }> } };
-		const sequences = message.details.events.map((e) => e.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
+		const message = call[0] as { details: { events: Array<{ params?: { sequence?: number } }> } };
+		const sequences = message.details.events.map((e) => ((e as { params?: { sequence?: number } }).params)?.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
 		// 全部 20 条消息（两页）都在。
 		expect(sequences).toHaveLength(20);
 		expect(sequences[0]).toBe(1);
@@ -421,11 +437,14 @@ describe("GroupChatInput", () => {
 		const handler = runtime.onEnvironmentMessage ?? (() => {});
 
 		handler({
-			type: "message_history",
-			messages: page,
+			jsonrpc: "2.0",
+			method: "message_history",
+			params: {
+				messages: page,
 			cursor: "stuck-cursor",
 			has_more: true,
 			total_messages: 3,
+			},
 		} as unknown as ServerMessage);
 		await vi.advanceTimersByTimeAsync(0);
 
@@ -454,11 +473,14 @@ describe("GroupChatInput", () => {
 		const handler = runtime.onEnvironmentMessage ?? (() => {});
 
 		handler({
-			type: "message_history",
-			messages: [aPublicMessage("user_persona", { sequence: 1 }), aPublicMessage("user_persona", { sequence: 2 })],
+			jsonrpc: "2.0",
+			method: "message_history",
+			params: {
+				messages: [aPublicMessage("user_persona", { sequence: 1 }), aPublicMessage("user_persona", { sequence: 2 })],
 			cursor: null,
 			has_more: false,
 			total_messages: 2,
+			},
 		} as unknown as ServerMessage);
 		await vi.advanceTimersByTimeAsync(2000);
 
@@ -488,10 +510,13 @@ describe("GroupChatInput", () => {
 		const handler = runtime.onEnvironmentMessage ?? (() => {});
 
 		handler({
-			type: "group_chat_update",
-			latest_sequence: 5,
+			jsonrpc: "2.0",
+			method: "group_chat_update",
+			params: {
+				latest_sequence: 5,
 			preview_messages: [aPublicMessage("user_persona", { sequence: 5 })],
 			total_messages: 5,
+			},
 		} as unknown as ServerMessage);
 
 		// 窗口未到期：不拉取（广播 = 纯标记，不走 1s join debounce）。
@@ -530,17 +555,20 @@ describe("GroupChatInput", () => {
 		const handler = runtime.onEnvironmentMessage ?? (() => {});
 
 		handler({
-			type: "group_chat_update",
-			latest_sequence: 5,
+			jsonrpc: "2.0",
+			method: "group_chat_update",
+			params: {
+				latest_sequence: 5,
 			preview_messages: [aPublicMessage("user_persona", { sequence: 5 })],
 			total_messages: 5,
+			},
 		} as unknown as ServerMessage);
 		// #64：闲态 1s 触发窗口到期后拉取。
 		await vi.advanceTimersByTimeAsync(1000);
 
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
 		const message = call[0] as { details: { events: Array<{ sequence?: number }> } };
-		const sequences = message.details.events.map((e) => e.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
+		const sequences = message.details.events.map((e) => ((e as { params?: { sequence?: number } }).params)?.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
 		expect(sequences).toEqual([2, 3, 4, 5]);
 		expect(runtime.saveCursor).toHaveBeenCalledWith(5);
 
@@ -577,10 +605,13 @@ describe("GroupChatInput", () => {
 		// 运行中成员加入，然后消息通知到达。
 		handler(aCharacterJoined());
 		handler({
-			type: "group_chat_update",
-			latest_sequence: 7,
+			jsonrpc: "2.0",
+			method: "group_chat_update",
+			params: {
+				latest_sequence: 7,
 			preview_messages: [],
 			total_messages: 7,
+			},
 		} as unknown as ServerMessage);
 		// run 活跃期间只排隐藏令牌；安全边界 abort、settled 后再拉取。
 		await vi.advanceTimersByTimeAsync(0);
@@ -591,8 +622,8 @@ describe("GroupChatInput", () => {
 		expect(runtime.fetchMessagesSince).toHaveBeenCalledWith(6);
 		expect(pi.sendMessage).toHaveBeenCalledTimes(2);
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[1] as [unknown, unknown];
-		const message = call[0] as { details: { events: Array<{ type: string; sequence?: number }> } };
-		expect(message.details.events.map((e) => e.type)).toEqual(["public_message"]);
+		const message = call[0] as { details: { events: Array<{ params?: { sequence?: number } }> } };
+		expect(message.details.events.map((e) => (e as Record<string, unknown>).method)).toEqual(["public_message"]);
 		const options = call[1] as { deliverAs: string };
 		expect(options.deliverAs).toBe("followUp");
 
@@ -636,10 +667,13 @@ describe("GroupChatInput", () => {
 
 		// 7..9 的通知在运行中到达。
 		handler({
-			type: "group_chat_update",
-			latest_sequence: 9,
+			jsonrpc: "2.0",
+			method: "group_chat_update",
+			params: {
+				latest_sequence: 9,
 			preview_messages: [],
 			total_messages: 9,
+			},
 		} as unknown as ServerMessage);
 		// 忙态先排令牌；安全边界 abort、settled 后一次拉全并 followUp 重开。
 		await vi.advanceTimersByTimeAsync(0);
@@ -652,7 +686,7 @@ describe("GroupChatInput", () => {
 		expect(pi.sendMessage).toHaveBeenCalledTimes(2);
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[1] as [unknown, unknown];
 		const message = call[0] as { details: { events: Array<{ sequence?: number }> } };
-		const sequences = message.details.events.map((e) => e.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
+		const sequences = message.details.events.map((e) => ((e as { params?: { sequence?: number } }).params)?.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
 		expect(sequences).toEqual([7, 8, 9]);
 		expect(cursor).toBe(9);
 
@@ -700,16 +734,22 @@ describe("GroupChatInput", () => {
 
 		// 运行中两条带间隔的通知（7，然后 9）。
 		handler({
-			type: "group_chat_update",
-			latest_sequence: 7,
+			jsonrpc: "2.0",
+			method: "group_chat_update",
+			params: {
+				latest_sequence: 7,
 			preview_messages: [],
 			total_messages: 7,
+			},
 		} as unknown as ServerMessage);
 		handler({
-			type: "group_chat_update",
-			latest_sequence: 9,
+			jsonrpc: "2.0",
+			method: "group_chat_update",
+			params: {
+				latest_sequence: 9,
 			preview_messages: [],
 			total_messages: 9,
+			},
 		} as unknown as ServerMessage);
 		// 两条通知合并为一个令牌，settled 后一次拉全 [7,8,9]。
 		await vi.advanceTimersByTimeAsync(0);
@@ -722,8 +762,8 @@ describe("GroupChatInput", () => {
 		expect(runtime.saveCursor).toHaveBeenCalledWith(9);
 		expect(pi.sendMessage).toHaveBeenCalledTimes(2);
 		const delivery = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[1] as [unknown, unknown];
-		const delivered = (delivery[0] as { details: { events: Array<{ sequence?: number }> } }).details.events.map(
-			(event) => event.sequence,
+		const delivered = (delivery[0] as { details: { events: Array<{ params?: { sequence?: number } }> } }).details.events.map(
+			(event) => event.params?.sequence,
 		);
 		expect(delivered).toEqual([7, 8, 9]);
 		expect((delivery[1] as { deliverAs: string }).deliverAs).toBe("followUp");
@@ -770,10 +810,13 @@ describe("GroupChatInput", () => {
 		input.start();
 		const handler = runtime.onEnvironmentMessage ?? (() => {});
 		handler({
-			type: "group_chat_update",
-			latest_sequence: 1,
+			jsonrpc: "2.0",
+			method: "group_chat_update",
+			params: {
+				latest_sequence: 1,
 			preview_messages: [],
 			total_messages: 1,
+			},
 		} as unknown as ServerMessage);
 		// 忙态：立即拉取 + 立即 steer 投递。
 		await vi.advanceTimersByTimeAsync(0);
@@ -810,10 +853,13 @@ describe("GroupChatInput", () => {
 
 		// settle 触发的消费在途（fetch 未完成）时，新 update 到达。
 		handler({
-			type: "group_chat_update",
-			latest_sequence: 1,
+			jsonrpc: "2.0",
+			method: "group_chat_update",
+			params: {
+				latest_sequence: 1,
 			preview_messages: [],
 			total_messages: 1,
+			},
 		} as unknown as ServerMessage);
 		runtime.isAgentActive = false;
 		runtime.onAgentSettled?.();
@@ -822,10 +868,13 @@ describe("GroupChatInput", () => {
 
 		// 消费在途时新 update（闲态）→ 窗口开启；到期触发合并。
 		handler({
-			type: "group_chat_update",
-			latest_sequence: 2,
+			jsonrpc: "2.0",
+			method: "group_chat_update",
+			params: {
+				latest_sequence: 2,
 			preview_messages: [],
 			total_messages: 2,
+			},
 		} as unknown as ServerMessage);
 		await vi.advanceTimersByTimeAsync(1000);
 		expect(calls).toBe(1); // single flight：在途期间不并发拉取
@@ -858,10 +907,13 @@ describe("GroupChatInput", () => {
 
 		for (const seq of [5, 6, 7]) {
 			handler({
-				type: "group_chat_update",
-				latest_sequence: seq,
+				jsonrpc: "2.0",
+				method: "group_chat_update",
+				params: {
+					latest_sequence: seq,
 				preview_messages: [aPublicMessage("user_persona", { sequence: seq })],
 				total_messages: seq,
+				},
 			} as unknown as ServerMessage);
 		}
 		// 忙态：飞行锁合并并发通知 → 一次拉全 + 一次投递（保序不重不漏）。
@@ -873,7 +925,7 @@ describe("GroupChatInput", () => {
 
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[1] as [unknown, unknown];
 		const message = call[0] as { details: { events: Array<{ sequence?: number }> } };
-		const sequences = message.details.events.map((e) => e.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
+		const sequences = message.details.events.map((e) => ((e as { params?: { sequence?: number } }).params)?.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
 		expect(sequences).toEqual([5, 6, 7]); // 一次投递、保序、不重不漏
 
 		input.stop();
@@ -898,10 +950,13 @@ describe("GroupChatInput", () => {
 		const handler = runtime.onEnvironmentMessage ?? (() => {});
 
 		handler({
-			type: "group_chat_update",
-			latest_sequence: 5,
+			jsonrpc: "2.0",
+			method: "group_chat_update",
+			params: {
+				latest_sequence: 5,
 			preview_messages: [aPublicMessage("user_persona", { sequence: 5 })],
 			total_messages: 5,
+			},
 		} as unknown as ServerMessage);
 		// 窗口内：0 拉取；到期：1 次拉全 + 1 次投递（≤1s 延迟）。
 		await vi.advanceTimersByTimeAsync(999);
@@ -939,10 +994,13 @@ describe("GroupChatInput", () => {
 		// 活跃 run 内顺序到达 3 条通知：立即拉取（飞行锁合并：1 次 + refetch 补拉 1 次）。
 		for (const seq of [5, 6, 7]) {
 			handler({
-				type: "group_chat_update",
-				latest_sequence: seq,
+				jsonrpc: "2.0",
+				method: "group_chat_update",
+				params: {
+					latest_sequence: seq,
 				preview_messages: [],
 				total_messages: seq,
+				},
 			} as unknown as ServerMessage);
 		}
 		await vi.advanceTimersByTimeAsync(0);
@@ -985,10 +1043,13 @@ describe("GroupChatInput", () => {
 		// 窗口内顺序到达 3 条通知。
 		for (const seq of [5, 6, 7]) {
 			handler({
-				type: "group_chat_update",
-				latest_sequence: seq,
+				jsonrpc: "2.0",
+				method: "group_chat_update",
+				params: {
+					latest_sequence: seq,
 				preview_messages: [],
 				total_messages: seq,
+				},
 			} as unknown as ServerMessage);
 		}
 		// 窗口未到期：0 拉取。
@@ -1032,10 +1093,13 @@ describe("GroupChatInput", () => {
 		// 活跃 run 内顺序到达 3 条通知：立即拉取（飞行锁合并 1 次拉全 + 补拉）。
 		for (const seq of [5, 6, 7]) {
 			handler({
-				type: "group_chat_update",
-				latest_sequence: seq,
+				jsonrpc: "2.0",
+				method: "group_chat_update",
+				params: {
+					latest_sequence: seq,
 				preview_messages: [],
 				total_messages: seq,
+				},
 			} as unknown as ServerMessage);
 		}
 		// 首次拉取（since 4 → [5,6,7]）+ 投递（steer，游标推进 7）；补拉（since 7 → 空）。
@@ -1081,10 +1145,13 @@ describe("GroupChatInput", () => {
 
 		// 闲态首条标记 → 窗口开启。
 		handler({
-			type: "group_chat_update",
-			latest_sequence: 5,
+			jsonrpc: "2.0",
+			method: "group_chat_update",
+			params: {
+				latest_sequence: 5,
 			preview_messages: [],
 			total_messages: 5,
+			},
 		} as unknown as ServerMessage);
 
 		// 窗口开启中 run 从他源启动（如用户直聊）。
@@ -1105,7 +1172,7 @@ describe("GroupChatInput", () => {
 		// 防悬置：窗口内消息未被吞——送达内容含 seq 5。
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[1] as [unknown, unknown];
 		const message = call[0] as { details: { events: Array<{ sequence?: number }> } };
-		const sequences = message.details.events.map((e) => e.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
+		const sequences = message.details.events.map((e) => ((e as { params?: { sequence?: number } }).params)?.sequence).sort((a, b) => (a ?? 0) - (b ?? 0));
 		expect(sequences).toEqual([5]);
 
 		input.stop();
@@ -1128,10 +1195,13 @@ describe("GroupChatInput", () => {
 		input.start();
 		const handler = runtime.onEnvironmentMessage ?? (() => {});
 		handler({
-			type: "group_chat_update",
-			latest_sequence: 5,
+			jsonrpc: "2.0",
+			method: "group_chat_update",
+			params: {
+				latest_sequence: 5,
 			preview_messages: [aPublicMessage("user_persona", { sequence: 5 })],
 			total_messages: 5,
+			},
 		} as unknown as ServerMessage);
 		await vi.advanceTimersByTimeAsync(400);
 

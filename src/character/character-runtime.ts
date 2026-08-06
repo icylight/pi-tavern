@@ -12,7 +12,7 @@ import {
 } from "../controller/reload-handoff-registry.js";
 import { readCursorFile, writeCursorFile } from "../data/cursor-store.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
-import type { BoardNoteWire, BoardWriteDataWire, GroupChatStateMessage, ServerMessage } from "../protocol/messages.js";
+import { JSONRPC_VERSION, type BoardNoteWire, type BoardWriteDataWire, type GroupChatStateMessage, type ServerMessage } from "../protocol/messages.js";
 import {
 	HEARTBEAT_PING_INTERVAL_MS,
 	HEARTBEAT_TIMEOUT_MS,
@@ -20,6 +20,18 @@ import {
 } from "../shared/constants.js";
 import {
 	ERROR_BINARY_FRAME_RECEIVED,
+	METHOD_BOARD_QUERY,
+	METHOD_BOARD_WRITE,
+	METHOD_FETCH_MESSAGES_SINCE,
+	METHOD_GET_GROUP_CHAT_STATE,
+	METHOD_GET_MESSAGE_HISTORY,
+	METHOD_GROUP_CHAT_CLOSED,
+	METHOD_GROUP_CHAT_UPDATE,
+	METHOD_LEAVE_GROUP_CHAT,
+	METHOD_MESSAGE_HISTORY,
+	METHOD_PUBLIC_MESSAGE,
+	METHOD_SPEAK,
+	METHOD_UPDATE_CHARACTER_STATE,
 	ERROR_CHARACTER_RUNTIME_DETACHED,
 	ERROR_CHARACTER_RUNTIME_NOT_ACTIVE,
 	ERROR_CONNECTION_CLOSED,
@@ -327,24 +339,25 @@ export class CharacterRuntime {
 	}
 
 	async getGroupChatState(): Promise<GroupChatStateMessage> {
-		const response = await this.request({ type: "get_group_chat_state" });
-		if (response.type !== "response" || response.command !== "get_group_chat_state") {
+		const response = await this.request({ method: METHOD_GET_GROUP_CHAT_STATE, params: {} });
+		if ("error" in response) {
+			throw new Error(response.error.message);
+		}
+		if (!("result" in response)) {
 			throw new Error(ERROR_UNEXPECTED_STATE_RESPONSE);
 		}
-		if (!response.success) {
-			throw new Error(response.error);
-		}
-		this.lastGroupChatState = response.data;
-		this.onStateSnapshot?.(response.data);
+		const result = response.result as GroupChatStateMessage;
+		this.lastGroupChatState = result;
+		this.onStateSnapshot?.(result);
 		// 半开连接点亮丢失自愈：仅当快照中本角色仍为 false 且本地 run 活跃
 		// 时补发一次。状态翻转不再广播 group_chat_update，因此不会回接输入链。
 		if (this.isAgentActive) {
-			const self = response.data.online_characters?.find((c) => c.is_self);
+			const self = result.online_characters?.find((c) => c.is_self);
 			if (self && !self.is_streaming) {
 				this.updateStreaming(true);
 			}
 		}
-		return response.data;
+		return result;
 	}
 
 	/**
@@ -364,8 +377,8 @@ export class CharacterRuntime {
 		let response: ServerMessage;
 		try {
 			response = await this.request({
-				type: "get_message_history",
-				...(cursor !== null ? { cursor } : {}),
+				method: METHOD_GET_MESSAGE_HISTORY,
+				params: { ...(cursor !== null ? { cursor } : {}) },
 			});
 		} catch (error) {
 			// 翻页期间连接可能已断开：调用方保留已拿到的历史，
@@ -375,13 +388,13 @@ export class CharacterRuntime {
 			}
 			throw error;
 		}
-		if (response.type !== "response" || response.command !== "get_message_history") {
+		if ("error" in response) {
+			throw new Error(response.error.message);
+		}
+		if (!("result" in response)) {
 			throw new Error(ERROR_UNEXPECTED_HISTORY_RESPONSE);
 		}
-		if (!response.success) {
-			throw new Error(response.error);
-		}
-		const data = response.data as {
+		const data = response.result as {
 			messages: ServerMessage[];
 			cursor: string | null;
 			has_more: boolean;
@@ -408,8 +421,8 @@ export class CharacterRuntime {
 		let response: ServerMessage;
 		try {
 			response = await this.request({
-				type: "fetch_messages_since",
-				since_sequence: sinceSequence,
+				method: METHOD_FETCH_MESSAGES_SINCE,
+				params: { since_sequence: sinceSequence },
 			});
 		} catch (error) {
 			if (this.disconnected) {
@@ -417,13 +430,13 @@ export class CharacterRuntime {
 			}
 			throw error;
 		}
-		if (response.type !== "response" || response.command !== "fetch_messages_since") {
+		if ("error" in response) {
+			throw new Error(response.error.message);
+		}
+		if (!("result" in response)) {
 			throw new Error(ERROR_UNEXPECTED_FETCH_RESPONSE);
 		}
-		if (!response.success) {
-			throw new Error(response.error);
-		}
-		const data = response.data as {
+		const data = response.result as {
 			messages: ServerMessage[];
 			latest_sequence: number;
 			total_messages: number;
@@ -448,8 +461,9 @@ export class CharacterRuntime {
 			return;
 		}
 		this.send({
-			type: "update_character_state",
-			is_streaming: isStreaming,
+			jsonrpc: JSONRPC_VERSION,
+			method: METHOD_UPDATE_CHARACTER_STATE,
+			params: { is_streaming: isStreaming },
 		});
 	}
 
@@ -541,29 +555,42 @@ export class CharacterRuntime {
 		// 因此游标停在自己已发布的消息之前永远不会导致误拒。
 		// 旧版服务端忽略该字段。
 		const basedOnSequence = this.loadCursor() ?? 0;
-		const response = await this.request({ type: "speak", content, based_on_sequence: basedOnSequence });
-		if (response.type !== "response" || response.command !== "speak") {
+		const response = await this.request({ method: METHOD_SPEAK, params: { content, based_on_sequence: basedOnSequence } });
+		if ("error" in response) {
+			throw new Error(response.error.message);
+		}
+		if (!("result" in response)) {
 			throw new Error(ERROR_UNEXPECTED_SPEAK_RESPONSE);
 		}
-		if (!response.success) {
-			throw new Error(response.error);
-		}
-		const round = {
-			roundMaxMessages: response.data.round.round_max_messages,
-			usedMessages: response.data.round.used_messages,
-			remainingMessages: response.data.round.remaining_messages,
+		const result = response.result as {
+			published: boolean;
+			event_id: string;
+			sequence: number;
+			reason: string;
+			hand_raised: boolean;
+			missing_sequences: { from: number; to: number };
+			round: {
+				round_max_messages: number;
+				used_messages: number;
+				remaining_messages: number;
+			};
 		};
-		if (response.data.published) {
+		const round = {
+			roundMaxMessages: result.round.round_max_messages,
+			usedMessages: result.round.used_messages,
+			remainingMessages: result.round.remaining_messages,
+		};
+		if (result.published) {
 			this.staleRecoveryKey = null;
 			this.staleRecoveryCount = 0;
 			return {
 				published: true,
-				eventId: response.data.event_id,
-				sequence: response.data.sequence,
+				eventId: result.event_id,
+				sequence: result.sequence,
 				round,
 			};
 		}
-		if (response.data.reason === "stale") {
+		if (result.reason === "stale") {
 			const key = `${round.roundMaxMessages}:${round.usedMessages}`;
 			if (this.staleRecoveryKey !== key) {
 				this.staleRecoveryKey = key;
@@ -573,8 +600,8 @@ export class CharacterRuntime {
 			return {
 				published: false,
 				reason: "stale",
-				missingFrom: response.data.missing_sequences.from,
-				missingTo: response.data.missing_sequences.to,
+				missingFrom: result.missing_sequences?.from,
+				missingTo: result.missing_sequences?.to,
 				autoRecover: this.staleRecoveryCount <= MAX_STALE_AUTO_RECOVERIES,
 				round,
 			};
@@ -582,7 +609,7 @@ export class CharacterRuntime {
 		return {
 			published: false,
 			reason: "round_limit_reached",
-			handRaised: response.data.hand_raised,
+			handRaised: result.hand_raised,
 			round,
 		};
 	}
@@ -605,29 +632,28 @@ export class CharacterRuntime {
 	): Promise<BoardWriteDataWire> {
 		const [action, note] = args;
 		const response = await this.request({
-			type: "board_write",
-			action,
-			...(note !== undefined ? { note } : {}),
+			method: METHOD_BOARD_WRITE,
+			params: { action, ...(note !== undefined ? { note } : {}) },
 		});
-		if (response.type !== "response" || response.command !== "board_write") {
+		if ("error" in response) {
+			throw new Error(response.error.message);
+		}
+		if (!("result" in response)) {
 			throw new Error(ERROR_UNEXPECTED_BOARD_WRITE_RESPONSE);
 		}
-		if (!response.success) {
-			throw new Error(response.error);
-		}
-		return response.data;
+		return response.result as BoardWriteDataWire;
 	}
 
 	/** 白板模型（#114）：board_query——全量 per-character 条目（本人视角）。 */
 	async boardQuery(): Promise<Record<string, BoardNoteWire[]>> {
-		const response = await this.request({ type: "board_query" });
-		if (response.type !== "response" || response.command !== "board_query") {
+		const response = await this.request({ method: METHOD_BOARD_QUERY, params: {} });
+		if ("error" in response) {
+			throw new Error(response.error.message);
+		}
+		if (!("result" in response)) {
 			throw new Error(ERROR_UNEXPECTED_BOARD_QUERY_RESPONSE);
 		}
-		if (!response.success) {
-			throw new Error(response.error);
-		}
-		return response.data.boards;
+		return (response.result as { boards: Record<string, BoardNoteWire[]> }).boards;
 	}
 
 	/**
@@ -794,11 +820,11 @@ export class CharacterRuntime {
 
 	get hasPublicMessages(): boolean {
 		return this.receivedMessages.some((m) => {
-			if (m.type === "public_message") return true;
-			if (m.type === "message_history" && Array.isArray(m.messages) && m.messages.length > 0) {
+			if ("method" in m && m.method === METHOD_PUBLIC_MESSAGE) return true;
+			if ("method" in m && m.method === METHOD_MESSAGE_HISTORY && Array.isArray(m.params.messages) && m.params.messages.length > 0) {
 				return true;
 			}
-			if (m.type === "group_chat_update" && Array.isArray(m.preview_messages) && m.preview_messages.length > 0) {
+			if ("method" in m && m.method === METHOD_GROUP_CHAT_UPDATE && Array.isArray(m.params.preview_messages) && m.params.preview_messages.length > 0) {
 				return true;
 			}
 			return false;
@@ -822,18 +848,16 @@ export class CharacterRuntime {
 			return;
 		}
 		try {
-			const response = await this.request({ type: "leave_group_chat" });
-			if (response.type !== "response" || response.command !== "leave_group_chat" || !response.success) {
-				throw new Error(
-					response.type === "response" && !response.success ? response.error : ERROR_UNEXPECTED_LEAVE_RESPONSE,
-				);
+			const response = await this.request({ method: METHOD_LEAVE_GROUP_CHAT, params: {} });
+			if ("error" in response) {
+				throw new Error(response.error.message);
 			}
 		} finally {
 			this.finishDisconnected();
 		}
 	}
 
-	private request(message: Record<string, unknown>): Promise<ServerMessage> {
+	private request(message: { method: string; params: unknown }): Promise<ServerMessage> {
 		const id = randomUUID();
 		return new Promise<ServerMessage>((resolveRequest, rejectRequest) => {
 			if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
@@ -851,7 +875,7 @@ export class CharacterRuntime {
 				reject: rejectRequest,
 				timer,
 			});
-			this.send({ ...message, id });
+			this.send({ jsonrpc: JSONRPC_VERSION, ...message, id });
 		});
 	}
 
@@ -867,7 +891,7 @@ export class CharacterRuntime {
 	}
 
 	private handleServerMessage(message: ServerMessage): void {
-		if (message.type === "response" && message.id !== undefined) {
+		if (("result" in message || "error" in message) && message.id !== undefined) {
 			const pending = this.pendingRequests.get(message.id);
 			if (pending) {
 				clearTimeout(pending.timer);
@@ -881,7 +905,7 @@ export class CharacterRuntime {
 
 		this.onEnvironmentMessage?.(message);
 
-		if (message.type === "group_chat_closed") {
+		if ("method" in message && message.method === METHOD_GROUP_CHAT_CLOSED) {
 			this.finishDisconnected();
 		}
 	}

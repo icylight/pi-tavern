@@ -101,11 +101,11 @@ export async function joinCharacterWs(
 		client.socket.once("open", () => resolveOpen());
 		client.socket.once("error", (error) => rejectOpen(error));
 	});
-	client.send({ id: "1", type: "join_group_chat", session_id: sessionId });
-	await client.waitFor((m) => m.type === "response" && m.command === "join_group_chat");
-	client.send({ id: "2", type: "claim_character", character_id: characterId });
-	await client.waitFor((m) => m.type === "response" && m.command === "claim_character");
-	client.send({ id: "3", type: "character_ready" });
-	await client.waitFor((m) => m.type === "response" && m.command === "character_ready");
+	client.send({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: sessionId } });
+	await client.waitFor((m) => m.id === "1" && "result" in m);
+	client.send({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: characterId } });
+	await client.waitFor((m) => m.id === "2" && "result" in m);
+	client.send({ jsonrpc: "2.0", id: "3", method: "character_ready" });
+	await client.waitFor((m) => m.id === "3" && "result" in m);
 	return client;
 }

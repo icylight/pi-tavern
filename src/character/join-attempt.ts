@@ -6,10 +6,13 @@ import WebSocket from "ws";
 import { type ClaimedCharacter, loadClaimedCharacter } from "../config/character-card.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
-import type { CharacterSummaryWire, ServerMessage } from "../protocol/messages.js";
+import { JSONRPC_VERSION, type CharacterSummaryWire, type ServerMessage } from "../protocol/messages.js";
 import { SHORT_COORDINATION_TIMEOUT_MS } from "../shared/constants.js";
 import {
 	ERROR_BINARY_FRAME_RECEIVED,
+	METHOD_CHARACTER_READY,
+	METHOD_CLAIM_CHARACTER,
+	METHOD_JOIN_GROUP_CHAT,
 	ERROR_CONNECT_FAILED,
 	ERROR_CONNECTION_TIMED_OUT,
 	ERROR_JOIN_ATTEMPT_CLOSED,
@@ -78,7 +81,7 @@ export class JoinAttempt {
 			void this.closeWithError(asError(error));
 			return;
 		}
-		if (message.type === "response" && message.id !== undefined) {
+		if (("result" in message || "error" in message) && message.id !== undefined) {
 			const pending = this.pendingRequests.get(message.id);
 			if (pending) {
 				clearTimeout(pending.timer);
@@ -131,16 +134,16 @@ export class JoinAttempt {
 			await waitForOpen(socket, requestTimeoutMs);
 			const attempt = new JoinAttempt(descriptor, sessionId, socket, [], options);
 			const response = await attempt.request({
-				type: "join_group_chat",
-				session_id: sessionId,
+				method: METHOD_JOIN_GROUP_CHAT,
+				params: { session_id: sessionId },
 			});
-			if (response.type !== "response" || response.command !== "join_group_chat") {
+			if ("error" in response) {
+				throw new Error(response.error.message);
+			}
+			if (!("result" in response)) {
 				throw new Error(ERROR_UNEXPECTED_JOIN_RESPONSE);
 			}
-			if (!response.success) {
-				throw new Error(response.error);
-			}
-			attempt.availableCharacters.push(...response.data.available_characters);
+			attempt.availableCharacters.push(...(response.result as { available_characters: CharacterSummaryWire[] }).available_characters);
 			return attempt;
 		} catch (error) {
 			if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
@@ -152,18 +155,18 @@ export class JoinAttempt {
 
 	async claimCharacter(characterId: string, pi?: ExtensionAPI): Promise<CharacterRuntime> {
 		const claimResponse = await this.request({
-			type: "claim_character",
-			character_id: characterId,
+			method: METHOD_CLAIM_CHARACTER,
+			params: { character_id: characterId },
 		});
-		if (claimResponse.type !== "response" || claimResponse.command !== "claim_character") {
-			throw new Error(ERROR_UNEXPECTED_CLAIM_RESPONSE);
+		if ("error" in claimResponse) {
+			throw new Error(claimResponse.error.message);
 		}
-		if (!claimResponse.success) {
-			throw new Error(claimResponse.error);
+		if (!("result" in claimResponse)) {
+			throw new Error(ERROR_UNEXPECTED_CLAIM_RESPONSE);
 		}
 
 		try {
-			const claimed = toClaimedCharacter(claimResponse.data.character);
+			const claimed = toClaimedCharacter((claimResponse.result as { character: { character_id: string; name: string; description: string; path: string } }).character);
 			const character = await loadClaimedCharacter(claimed);
 			const runtime = CharacterRuntime.prepare({
 				groupChatId: this.descriptor.groupChatId,
@@ -176,12 +179,12 @@ export class JoinAttempt {
 				...(this.cursorStorePath !== undefined ? { cursorStorePath: this.cursorStorePath } : {}),
 				...(this.triggerDebounceMs !== undefined ? { triggerDebounceMs: this.triggerDebounceMs } : {}),
 			});
-			const readyResponse = await this.request({ type: "character_ready" });
-			if (readyResponse.type !== "response" || readyResponse.command !== "character_ready") {
-				throw new Error(ERROR_UNEXPECTED_READY_RESPONSE);
+			const readyResponse = await this.request({ method: METHOD_CHARACTER_READY, params: {} });
+			if ("error" in readyResponse) {
+				throw new Error(readyResponse.error.message);
 			}
-			if (!readyResponse.success) {
-				throw new Error(readyResponse.error);
+			if (!("result" in readyResponse)) {
+				throw new Error(ERROR_UNEXPECTED_READY_RESPONSE);
 			}
 			runtime.activate(this.takeConnection(), pi);
 			// ISSUE-014/#21：join 后立即拉取群聊状态快照，
@@ -197,16 +200,16 @@ export class JoinAttempt {
 
 	async refreshAvailableCharacters(): Promise<CharacterSummaryWire[]> {
 		const response = await this.request({
-			type: "join_group_chat",
-			session_id: this.sessionId,
+			method: METHOD_JOIN_GROUP_CHAT,
+			params: { session_id: this.sessionId },
 		});
-		if (response.type !== "response" || response.command !== "join_group_chat") {
+		if ("error" in response) {
+			throw new Error(response.error.message);
+		}
+		if (!("result" in response)) {
 			throw new Error(ERROR_UNEXPECTED_JOIN_RESPONSE);
 		}
-		if (!response.success) {
-			throw new Error(response.error);
-		}
-		this.availableCharacters.splice(0, this.availableCharacters.length, ...response.data.available_characters);
+		this.availableCharacters.splice(0, this.availableCharacters.length, ...(response.result as { available_characters: CharacterSummaryWire[] }).available_characters);
 		return this.availableCharacters;
 	}
 
@@ -245,7 +248,7 @@ export class JoinAttempt {
 		this.onDisconnected?.();
 	}
 
-	private request(message: Record<string, unknown>): Promise<ServerMessage> {
+	private request(message: { method: string; params: unknown }): Promise<ServerMessage> {
 		const id = randomUUID();
 		return new Promise<ServerMessage>((resolveRequest, rejectRequest) => {
 			if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
@@ -263,7 +266,7 @@ export class JoinAttempt {
 				reject: rejectRequest,
 				timer,
 			});
-			this.socket.send(encodeMessage({ ...message, id }));
+			this.socket.send(encodeMessage({ jsonrpc: JSONRPC_VERSION, ...message, id }));
 		});
 	}
 

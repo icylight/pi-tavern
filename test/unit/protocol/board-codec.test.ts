@@ -158,7 +158,7 @@ describe("board codec（B1，白板模型 #114，新信封 #119 M1）", () => {
 
 		it("applied 不带 note（remove/clear 成功）", () => {
 			const wire = encodeMessage({ jsonrpc: "2.0", id: "r2", result: { changed: true } });
-			expect(decodeServer(wire).result).toEqual({ changed: true });
+			expect((decodeServer(wire) as { result: Record<string, unknown> }).result).toEqual({ changed: true });
 		});
 
 		it("告知码（note_not_found / board_empty / note_unchanged）", () => {

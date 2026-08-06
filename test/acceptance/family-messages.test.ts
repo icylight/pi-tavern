@@ -138,17 +138,25 @@ describe("acceptance family: message sync + fetch + history paging (shared creat
 			await memberB.waitFor((m) => m.type === "message_history");
 
 			// 发布面（sync B2 正向 + speak 管线）：非 stale speak 发布为 seq 2。
-			memberA.send({ id: "sm1", type: "speak", content: "smoke reply", based_on_sequence: 1 });
-			const ok = await memberA.waitFor((m) => m.type === "response" && m.command === "speak" && m.id === "sm1", 30_000);
-			expect(ok.data).toMatchObject({ published: true, sequence: 2 });
+			memberA.send({
+				jsonrpc: "2.0",
+				id: "sm1",
+				method: "speak",
+				params: { content: "smoke reply", based_on_sequence: 1 },
+			});
+			const ok = await memberA.waitFor((m) => m.id === "sm1" && "result" in m, 30_000);
+			expect(ok.result).toMatchObject({ published: true, sequence: 2 });
 
 			// 拉取同源（fetch 面）：另一成员增量拉取看到同一内容。
-			memberB.send({ id: "sm2", type: "fetch_messages_since", since_sequence: 1 });
-			const pulled = await memberB.waitFor(
-				(m) => m.type === "response" && m.command === "fetch_messages_since" && m.id === "sm2",
-			);
-			expect((pulled.data as Record<string, unknown>).total_messages).toBe(2);
-			expect((pulled.data as Record<string, unknown>).latest_sequence).toBe(2);
+			memberB.send({
+				jsonrpc: "2.0",
+				id: "sm2",
+				method: "fetch_messages_since",
+				params: { since_sequence: 1 },
+			});
+			const pulled = await memberB.waitFor((m) => m.id === "sm2" && "result" in m);
+			expect((pulled.result as Record<string, unknown>).total_messages).toBe(2);
+			expect((pulled.result as Record<string, unknown>).latest_sequence).toBe(2);
 
 			// 广播一致（speak-order 面）：另一成员也收到同序通知。
 			await memberB.waitFor((m) => m.type === "group_chat_update" && (m.latest_sequence as number) >= 2, 30_000);

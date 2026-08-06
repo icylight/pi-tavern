@@ -47,23 +47,29 @@ function createMockPi(): ExtensionAPI {
 
 function aPublicMessage(sequence: number): ServerMessage {
 	return {
-		type: "public_message",
-		event_id: `evt-${sequence}`,
+		jsonrpc: "2.0",
+		method: "public_message",
+		params: {
+			event_id: `evt-${sequence}`,
 		sequence,
 		timestamp: "2026-01-01T00:00:00.000Z",
 		sender: { type: "user_persona" },
 		content: `Msg ${sequence}`,
 		round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
+		},
 	} as unknown as PublicMessage as ServerMessage;
 }
 
 // 忙态拉取由 group_chat_update（水位广播）触发（#68 契约），非 public_message。
 function aGroupChatUpdate(latestSequence: number): ServerMessage {
 	return {
-		type: "group_chat_update",
-		latest_sequence: latestSequence,
-		preview_messages: [],
-		total_messages: latestSequence,
+		jsonrpc: "2.0",
+		method: "group_chat_update",
+		params: {
+			latest_sequence: latestSequence,
+			preview_messages: [],
+			total_messages: latestSequence,
+		},
 	} as unknown as ServerMessage;
 }
 

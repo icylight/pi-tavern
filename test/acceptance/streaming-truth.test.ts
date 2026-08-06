@@ -190,19 +190,25 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 			ws.once("open", () => resolveWait());
 			ws.once("error", reject);
 		});
-		ws.send(JSON.stringify({ id: "obs0", type: "join_group_chat", session_id: "observer-1" }));
-		await observer.waitFor((m) => m.type === "response" && m.id === "obs0", 30_000);
-		ws.send(JSON.stringify({ id: "obs1", type: "claim_character", character_id: "characters/developer.md" }));
-		await observer.waitFor((m) => m.type === "response" && m.id === "obs1", 30_000);
-		ws.send(JSON.stringify({ id: "obs2", type: "character_ready" }));
-		await observer.waitFor((m) => m.type === "response" && m.id === "obs2", 30_000);
-
-		ws.send(JSON.stringify({ id: "obs3", type: "get_group_chat_state" }));
-		const before = await observer.waitFor(
-			(m) => m.type === "response" && m.command === "get_group_chat_state" && m.id === "obs3",
-			30_000,
+		ws.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "obs0", method: "join_group_chat", params: { session_id: "observer-1" } }),
 		);
-		expect((before.data as { online_characters: unknown[] }).online_characters).toHaveLength(2); // Architect (headless) + Developer (observer)
+		await observer.waitFor((m) => m.id === "obs0" && "result" in m, 30_000);
+		ws.send(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: "obs1",
+				method: "claim_character",
+				params: { character_id: "characters/developer.md" },
+			}),
+		);
+		await observer.waitFor((m) => m.id === "obs1" && "result" in m, 30_000);
+		ws.send(JSON.stringify({ jsonrpc: "2.0", id: "obs2", method: "character_ready" }));
+		await observer.waitFor((m) => m.id === "obs2" && "result" in m, 30_000);
+
+		ws.send(JSON.stringify({ jsonrpc: "2.0", id: "obs3", method: "get_group_chat_state" }));
+		const before = await observer.waitFor((m) => m.id === "obs3" && "result" in m, 30_000);
+		expect((before.result as { online_characters: unknown[] }).online_characters).toHaveLength(2); // Architect (headless) + Developer (observer)
 
 		// 群聊回合：streaming 翻转为 true（widget）。
 		await creator.runCommand("/tavern-test-message A4 hello");
@@ -212,7 +218,7 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 		);
 
 		// 公开群消息会在窗口期内触发 group_chat_update。
-		const updateFrames = observer.allFrames().filter((m) => m.type === "group_chat_update");
+		const updateFrames = observer.allFrames().filter((m) => m.method === "group_chat_update");
 		expect(updateFrames.length).toBeGreaterThan(0);
 
 		// 确定性收敛信号：无头 agent 运行完成。
@@ -221,13 +227,10 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 		// 收敛：收敛后（+ 看门狗余量），观察者快照
 		// 必须与 creator widget 一致（streaming 关闭）。
 		await new Promise((resolveWait) => setTimeout(resolveWait, 1_500));
-		ws.send(JSON.stringify({ id: "final", type: "get_group_chat_state" }));
-		const finalSnapshot = await observer.waitFor(
-			(m) => m.type === "response" && m.command === "get_group_chat_state" && m.id === "final",
-			30_000,
-		);
+		ws.send(JSON.stringify({ jsonrpc: "2.0", id: "final", method: "get_group_chat_state" }));
+		const finalSnapshot = await observer.waitFor((m) => m.id === "final" && "result" in m, 30_000);
 		const streamingMembers = (
-			finalSnapshot.data as { online_characters: Array<{ is_streaming: boolean }> }
+			finalSnapshot.result as { online_characters: Array<{ is_streaming: boolean }> }
 		).online_characters.filter((c) => c.is_streaming);
 		expect(streamingMembers).toEqual([]);
 		ws.close();

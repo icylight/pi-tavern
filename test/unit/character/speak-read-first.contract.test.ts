@@ -43,8 +43,10 @@ function aPublicMessage(
 	characterId?: string,
 ): PublicMessage {
 	return {
-		type: "public_message",
-		event_id: `evt-${sequence}`,
+		jsonrpc: "2.0",
+		method: "public_message",
+		params: {
+			event_id: `evt-${sequence}`,
 		sequence,
 		timestamp: "2026-01-01T00:00:00.000Z",
 		sender:
@@ -53,6 +55,7 @@ function aPublicMessage(
 				: { type: "character", character_id: characterId ?? "other", name: "Other" },
 		content: "Hello",
 		round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
+		},
 	} as PublicMessage;
 }
 
@@ -62,10 +65,13 @@ function aGroupChatUpdate(overrides: {
 	totalMessages?: number;
 }): ServerMessage {
 	return {
-		type: "group_chat_update",
-		latest_sequence: overrides.latestSequence,
-		preview_messages: overrides.previews,
-		total_messages: overrides.totalMessages ?? overrides.latestSequence,
+		jsonrpc: "2.0",
+		method: "group_chat_update",
+		params: {
+			latest_sequence: overrides.latestSequence,
+			preview_messages: overrides.previews,
+			total_messages: overrides.totalMessages ?? overrides.latestSequence,
+		},
 	} as ServerMessage;
 }
 

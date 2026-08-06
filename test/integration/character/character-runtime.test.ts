@@ -69,14 +69,14 @@ describe("M7 message fetch (ISSUE-012)", () => {
 		// 从游标之后增量拉取：仅更新的消息，按序。
 		const pulled = await runtime.fetchMessagesSince(1);
 		expect(pulled).not.toBeNull();
-		expect(pulled?.messages.map((m) => (m as { sequence?: number }).sequence)).toEqual([2, 3]);
+		expect(pulled?.messages.map((m) => (m as { params?: { sequence?: number } }).params?.sequence)).toEqual([2, 3]);
 		expect(pulled?.latestSequence).toBe(3);
 		expect(pulled?.totalMessages).toBe(3);
 
 		// 缺口修复：跳过某条消息的游标仍会返回其后的
 		// 每一条消息（服务端按序号过滤，无窗口限制）。
 		const gapHealed = await runtime.fetchMessagesSince(0);
-		expect(gapHealed?.messages.map((m) => (m as { sequence?: number }).sequence)).toEqual([1, 2, 3]);
+		expect(gapHealed?.messages.map((m) => (m as { params?: { sequence?: number } }).params?.sequence)).toEqual([1, 2, 3]);
 
 		// 最新消息之后没有新内容。
 		const empty = await runtime.fetchMessagesSince(3);
@@ -209,7 +209,7 @@ describe("M7 message fetch (ISSUE-012)", () => {
 
 		// B 从自己的游标拉取：无跳过、无重复投递。
 		const pulled = await runtimeB.fetchMessagesSince(1);
-		expect(pulled?.messages.map((m) => (m as { sequence?: number }).sequence)).toEqual([2, 3]);
+		expect(pulled?.messages.map((m) => (m as { params?: { sequence?: number } }).params?.sequence)).toEqual([2, 3]);
 	});
 
 	it("does not adopt the v1 group-chat cursor: a fresh session pulls from full history (P0)", async () => {
@@ -236,7 +236,7 @@ describe("M7 message fetch (ISSUE-012)", () => {
 
 		// 从 0 拉取完整历史：无跳过，重复可接受。
 		const pulled = await runtime.fetchMessagesSince(0);
-		expect(pulled?.messages.map((m) => (m as { sequence?: number }).sequence)).toEqual([1, 2, 3]);
+		expect(pulled?.messages.map((m) => (m as { params?: { sequence?: number } }).params?.sequence)).toEqual([1, 2, 3]);
 
 		// 保存仅写入会话文件；旧版文件保持不动。
 		runtime.saveCursor(3);
