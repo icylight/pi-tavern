@@ -57,6 +57,11 @@ export function encodeMessage(message: unknown): string {
 	return encoded;
 }
 
+/** id 合法性：JSON-RPC 2.0 标准 string | number（vscode-jsonrpc 库 sendRequest 自增数字 id）。 */
+function isId(value: unknown): boolean {
+	return value === undefined || typeof value === "string" || typeof value === "number";
+}
+
 /** 信封骨架校验：jsonrpc"2.0" 必带 + method 或 id/result/error 判别形状。 */
 function isMessageEnvelope(value: unknown): value is Message {
 	if (typeof value !== "object" || value === null) {
@@ -67,16 +72,16 @@ function isMessageEnvelope(value: unknown): value is Message {
 		return false;
 	}
 	if (typeof record["method"] === "string") {
-		// 请求或通知：id 可选，params 可选
-		return record["id"] === undefined || typeof record["id"] === "string";
+		// 请求或通知：id 可选（string|number），params 可选
+		return isId(record["id"]);
 	}
-	// 响应：id（可选，兼容无 id 响应）+ result 或 error 二选一
+	// 响应：id（可选）+ result 或 error 二选一
 	const hasResult = "result" in record;
 	const hasError = "error" in record;
 	if (hasResult === hasError) {
 		return false;
 	}
-	return record["id"] === undefined || typeof record["id"] === "string";
+	return isId(record["id"]);
 }
 
 function parseJson(data: RawData): unknown {

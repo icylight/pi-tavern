@@ -1,3 +1,4 @@
+import { ResponseError } from "vscode-jsonrpc";
 import type WebSocket from "ws";
 import { decodeCursor, encodeCursor } from "../../data/cursor-store.js";
 import type { GroupChatState } from "../../data/group-chat-state.js";
@@ -10,7 +11,6 @@ import {
 	ERROR_NO_CHAT_HISTORY_FILE,
 	ERROR_NOT_IN_GROUP_CHAT,
 	METHOD_PUBLIC_MESSAGE,
-	type ProtocolErrorCode,
 } from "../../shared/messages.js";
 
 /** 查询族消息类型（门面方法各自收窄）。 */
@@ -26,8 +26,6 @@ export interface QueryPipelineDependencies {
 	getPersistedCount: () => number;
 	/** 群聊状态快照构造（runtime 方法注入：group_chat/round/online_characters 装配）。 */
 	getGroupChatStateMessage: (requestingSessionId: string) => unknown;
-	send: (socket: WebSocket, message: unknown) => void;
-	sendFailure: (socket: WebSocket, id: string | undefined, code: ProtocolErrorCode, reason: string) => void;
 	onMembersChanged: (() => void) | undefined;
 }
 
@@ -43,26 +41,38 @@ export class QueryPipeline {
 		socket: WebSocket,
 		connection: QueryConnectionLike,
 		message: Extract<ClientMessage, { method: "get_group_chat_state" }>,
-	): void {
+	): unknown {
+		void socket;
 		if (!connection.online || connection.sessionId === null) {
-			this.deps.sendFailure(socket, message.id, ERROR_CODE_NOT_IN_GROUP, ERROR_NOT_IN_GROUP_CHAT);
-			return;
+			throw new ResponseError(ERROR_CODE_NOT_IN_GROUP, ERROR_NOT_IN_GROUP_CHAT);
 		}
-		this.deps.send(socket, {
-			...(message.id !== undefined ? { id: message.id } : {}),
-			jsonrpc: JSONRPC_VERSION,
-			result: this.deps.getGroupChatStateMessage(connection.sessionId),
-		});
+		return this.deps.getGroupChatStateMessage(connection.sessionId);
 	}
 
 	runGetMessageHistory(
 		socket: WebSocket,
 		connection: QueryConnectionLike,
 		message: Extract<ClientMessage, { method: "get_message_history" }>,
-	): void {
+	): {
+		messages: {
+			jsonrpc: "2.0";
+			method: "public_message";
+			params: {
+				event_id: string;
+				sequence: number;
+				timestamp: string;
+				sender: { type: "user_persona" } | { type: "character"; character_id: string; name: string };
+				content: string;
+				round: { round_max_messages: number; used_messages: number; remaining_messages: number };
+			};
+		}[];
+		cursor: string | null;
+		has_more: boolean;
+		total_messages: number;
+	} {
+		void socket;
 		if (!connection.online || connection.sessionId === null) {
-			this.deps.sendFailure(socket, message.id, ERROR_CODE_NOT_IN_GROUP, ERROR_NOT_IN_GROUP_CHAT);
-			return;
+			throw new ResponseError(ERROR_CODE_NOT_IN_GROUP, ERROR_NOT_IN_GROUP_CHAT);
 		}
 
 		// 游标是绝对 sequence 边界：返回 sequence < cursorSeq 的最近 10 条。
@@ -80,37 +90,48 @@ export class QueryPipeline {
 		const earliest = page[0];
 		const hasMore = earliest !== undefined && earliest.sequence > 1;
 
-		this.deps.send(socket, {
-			...(message.id !== undefined ? { id: message.id } : {}),
-			jsonrpc: JSONRPC_VERSION,
-			result: {
-				messages: page.map((m) => ({
-					jsonrpc: JSONRPC_VERSION,
-					method: METHOD_PUBLIC_MESSAGE,
-					params: {
-						event_id: m.event_id,
-						sequence: m.sequence,
-						timestamp: m.timestamp,
-						sender: m.sender,
-						content: m.content,
-						round: m.round,
-					},
-				})),
-				cursor: hasMore ? encodeCursor(earliest.sequence) : null,
-				has_more: hasMore,
-				total_messages: this.deps.publicMessages.length,
-			},
-		});
+		return {
+			messages: page.map((m) => ({
+				jsonrpc: JSONRPC_VERSION,
+				method: METHOD_PUBLIC_MESSAGE,
+				params: {
+					event_id: m.event_id,
+					sequence: m.sequence,
+					timestamp: m.timestamp,
+					sender: m.sender,
+					content: m.content,
+					round: m.round,
+				},
+			})),
+			cursor: hasMore ? encodeCursor(earliest.sequence) : null,
+			has_more: hasMore,
+			total_messages: this.deps.publicMessages.length,
+		};
 	}
 
 	runFetchMessagesSince(
 		socket: WebSocket,
 		connection: QueryConnectionLike,
 		message: Extract<ClientMessage, { method: "fetch_messages_since" }>,
-	): void {
+	): {
+		messages: {
+			jsonrpc: "2.0";
+			method: "public_message";
+			params: {
+				event_id: string;
+				sequence: number;
+				timestamp: string;
+				sender: { type: "user_persona" } | { type: "character"; character_id: string; name: string };
+				content: string;
+				round: { round_max_messages: number; used_messages: number; remaining_messages: number };
+			};
+		}[];
+		latest_sequence: number;
+		total_messages: number;
+	} {
+		void socket;
 		if (!connection.online || connection.sessionId === null) {
-			this.deps.sendFailure(socket, message.id, ERROR_CODE_NOT_IN_GROUP, ERROR_NOT_IN_GROUP_CHAT);
-			return;
+			throw new ResponseError(ERROR_CODE_NOT_IN_GROUP, ERROR_NOT_IN_GROUP_CHAT);
 		}
 
 		// 增量拉取（M7/ISSUE-012）：返回客户端游标之后的全部消息。sequence
@@ -119,55 +140,45 @@ export class QueryPipeline {
 		const increment = this.deps.publicMessages.filter((m) => m.sequence > since);
 		const latest = this.deps.publicMessages[this.deps.publicMessages.length - 1];
 
-		this.deps.send(socket, {
-			...(message.id !== undefined ? { id: message.id } : {}),
-			jsonrpc: JSONRPC_VERSION,
-			result: {
-				messages: increment.map((m) => ({
-					jsonrpc: JSONRPC_VERSION,
-					method: METHOD_PUBLIC_MESSAGE,
-					params: {
-						event_id: m.event_id,
-						sequence: m.sequence,
-						timestamp: m.timestamp,
-						sender: m.sender,
-						content: m.content,
-						round: m.round,
-					},
-				})),
-				latest_sequence: latest?.sequence ?? since,
-				total_messages: this.deps.publicMessages.length,
-			},
-		});
+		return {
+			messages: increment.map((m) => ({
+				jsonrpc: JSONRPC_VERSION,
+				method: METHOD_PUBLIC_MESSAGE,
+				params: {
+					event_id: m.event_id,
+					sequence: m.sequence,
+					timestamp: m.timestamp,
+					sender: m.sender,
+					content: m.content,
+					round: m.round,
+				},
+			})),
+			latest_sequence: latest?.sequence ?? since,
+			total_messages: this.deps.publicMessages.length,
+		};
 	}
 
 	runGetChatHistoryFile(
 		socket: WebSocket,
 		connection: QueryConnectionLike,
 		message: Extract<ClientMessage, { method: "get_chat_history_file" }>,
-	): void {
+	): { path: string } {
+		void socket;
 		if (!connection.online || connection.sessionId === null) {
-			this.deps.sendFailure(socket, message.id, ERROR_CODE_NOT_IN_GROUP, ERROR_NOT_IN_GROUP_CHAT);
-			return;
+			throw new ResponseError(ERROR_CODE_NOT_IN_GROUP, ERROR_NOT_IN_GROUP_CHAT);
 		}
 
 		let path: string;
 		try {
 			path = this.deps.sessionStore.getSessionFilePath();
 		} catch {
-			this.deps.sendFailure(socket, message.id, ERROR_CODE_NO_CHAT_HISTORY, ERROR_NO_CHAT_HISTORY_FILE);
-			return;
+			throw new ResponseError(ERROR_CODE_NO_CHAT_HISTORY, ERROR_NO_CHAT_HISTORY_FILE);
 		}
 		// 文件在首次持久化后才存在；SessionManager 在文件写入前可能已知路径。
 		if (this.deps.getPersistedCount() === 0) {
-			this.deps.sendFailure(socket, message.id, ERROR_CODE_NO_CHAT_HISTORY, ERROR_NO_CHAT_HISTORY_FILE);
-			return;
+			throw new ResponseError(ERROR_CODE_NO_CHAT_HISTORY, ERROR_NO_CHAT_HISTORY_FILE);
 		}
-		this.deps.send(socket, {
-			...(message.id !== undefined ? { id: message.id } : {}),
-			jsonrpc: JSONRPC_VERSION,
-			result: { path },
-		});
+		return { path };
 	}
 
 	/** update_character_state：流式状态翻转门面（无响应；失败静默——原语义保持）。 */

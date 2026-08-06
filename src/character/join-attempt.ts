@@ -46,7 +46,29 @@ interface PendingRequest {
 	resolve: (message: ServerMessage) => void;
 	reject: (error: Error) => void;
 	timer: NodeJS.Timeout;
+	/** 原请求 method：响应按 id 关联后校验 result 形状（PR #137 阻断② 同步修复）。 */
+	expectedMethod: string;
 }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+/**
+ * join 握手三请求的 result 形状判别（阻断②同步）：codec 合法 ≠ method 关联
+ * 正确——同 id 错 result fail-close，防 claim 响应错位 resolve。
+ */
+const RESPONSE_RESULT_MATCHERS: Record<string, (result: unknown) => boolean> = {
+	[METHOD_JOIN_GROUP_CHAT]: (result) => isRecord(result) && "available_characters" in result,
+	[METHOD_CLAIM_CHARACTER]: (result) => isRecord(result) && "character" in result,
+	[METHOD_CHARACTER_READY]: (result) => result === null,
+};
+
+const RESPONSE_METHOD_ERRORS: Record<string, string> = {
+	[METHOD_JOIN_GROUP_CHAT]: ERROR_UNEXPECTED_JOIN_RESPONSE,
+	[METHOD_CLAIM_CHARACTER]: ERROR_UNEXPECTED_CLAIM_RESPONSE,
+	[METHOD_CHARACTER_READY]: ERROR_UNEXPECTED_READY_RESPONSE,
+};
 
 const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
 
@@ -55,7 +77,7 @@ export class JoinAttempt {
 
 	private socket: WebSocket | null;
 	private readonly bufferedMessages: ServerMessage[] = [];
-	private readonly pendingRequests = new Map<string, PendingRequest>();
+	private readonly pendingRequests = new Map<string | number, PendingRequest>();
 	private readonly requestTimeoutMs: number;
 	private readonly onDisconnected: (() => void) | undefined;
 	private readonly heartbeatIntervalMs: number | undefined;
@@ -86,6 +108,14 @@ export class JoinAttempt {
 			if (pending) {
 				clearTimeout(pending.timer);
 				this.pendingRequests.delete(message.id);
+				// 阻断②同步修复：result 形状与预期 method 不匹配 = 协议错位 fail-close。
+				if ("result" in message && !("error" in message)) {
+					const matcher = RESPONSE_RESULT_MATCHERS[pending.expectedMethod];
+					if (!matcher || !matcher(message.result)) {
+						pending.reject(new Error(RESPONSE_METHOD_ERRORS[pending.expectedMethod] ?? ERROR_UNEXPECTED_JOIN_RESPONSE));
+						return;
+					}
+				}
 				pending.resolve(message);
 				return;
 			}
@@ -277,6 +307,7 @@ export class JoinAttempt {
 				resolve: resolveRequest,
 				reject: rejectRequest,
 				timer,
+				expectedMethod: message.method,
 			});
 			this.socket.send(encodeMessage({ jsonrpc: JSONRPC_VERSION, ...message, id }));
 		});

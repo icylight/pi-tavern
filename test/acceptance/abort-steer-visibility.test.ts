@@ -278,14 +278,20 @@ describe("acceptance: A'——steer 安全边界 abort 重开（可见性 + 收�
 		const deadline = Date.now() + 15_000;
 		let pending: number | undefined;
 		let isStreaming: boolean | undefined;
+		let probeCount = 0;
 		for (;;) {
 			const state = await readState(character);
 			pending = state.pendingMessageCount;
 			isStreaming = state.isStreaming;
+			probeCount += 1;
+			if (probeCount <= 30) {
+				console.error(`[T2-DBG] probe=${probeCount} pending=${String(pending)} streaming=${String(isStreaming)}`);
+			}
 			if (pending === 0 && isStreaming === false) {
 				break;
 			}
 			if (Date.now() > deadline) {
+				console.error(`[T2-DBG] CONVERGE FAIL after ${probeCount} probes`);
 				throw new Error(
 					`T2 red: 连续消息后未收敛（pendingMessageCount=${String(pending)}, isStreaming=${String(isStreaming)}）——livelock 风险锚点`,
 				);

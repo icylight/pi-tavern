@@ -1,3 +1,4 @@
+import { ResponseError } from "vscode-jsonrpc";
 import type WebSocket from "ws";
 import type { CharacterCard, CharacterSummary } from "../../config/character-card.js";
 import { encodeCursor } from "../../data/cursor-store.js";
@@ -13,7 +14,6 @@ import {
 	METHOD_CHARACTER_JOINED,
 	METHOD_MESSAGE_HISTORY,
 	METHOD_PUBLIC_MESSAGE,
-	type ProtocolErrorCode,
 } from "../../shared/messages.js";
 import type { HeartbeatRegistry } from "../heartbeat-registry.js";
 
@@ -43,7 +43,6 @@ export interface ReadyPipelineDependencies {
 		description: string;
 	};
 	send: (socket: WebSocket, message: unknown) => void;
-	sendFailure: (socket: WebSocket, id: string | undefined, code: ProtocolErrorCode, message: string) => void;
 	broadcast: (message: unknown) => void;
 	onMembersChanged: (() => void) | undefined;
 }
@@ -58,7 +57,7 @@ export interface ReadyPipelineDependencies {
 export class ReadyPipeline {
 	constructor(private readonly deps: ReadyPipelineDependencies) {}
 
-	run(socket: WebSocket, connection: ReadyConnectionLike, message: CharacterReadyMessage): void {
+	run(socket: WebSocket, connection: ReadyConnectionLike, message: CharacterReadyMessage): null {
 		const { sessionId, reservedCharacterId } = connection;
 		const character = reservedCharacterId ? this.deps.characters.get(reservedCharacterId) : undefined;
 		if (
@@ -68,12 +67,10 @@ export class ReadyPipeline {
 			connection.online ||
 			this.deps.state.characterReservations.get(reservedCharacterId) !== sessionId
 		) {
-			this.deps.sendFailure(socket, message.id, ERROR_CODE_RESERVATION_INVALID, ERROR_RESERVATION_INVALID);
-			return;
+			throw new ResponseError(ERROR_CODE_RESERVATION_INVALID, ERROR_RESERVATION_INVALID);
 		}
 		if (this.deps.connections.has(sessionId)) {
-			this.deps.sendFailure(socket, message.id, ERROR_CODE_ALREADY_IN_GROUP, ERROR_ALREADY_IN_GROUP_CHAT);
-			return;
+			throw new ResponseError(ERROR_CODE_ALREADY_IN_GROUP, ERROR_ALREADY_IN_GROUP_CHAT);
 		}
 
 		this.deps.clearReadyTimer(connection);
@@ -89,49 +86,48 @@ export class ReadyPipeline {
 		});
 		connection.online = true;
 
-		this.deps.send(socket, {
-			...(message.id !== undefined ? { id: message.id } : {}),
-			jsonrpc: JSONRPC_VERSION,
-			result: null,
-		});
-
-		// 在 join 广播前发送历史，使新 Character 处理自己的 character_joined
-		// 事件时 hasPublicMessages 已为 true。
+		// 时序语义（重构前 = 同步 send 顺序）：ready 响应（result: null）先到，
+		// 随后 message_history 通知 + character_joined 广播。connection 模式下
+		// 响应由库在 handler resolve 后（微任务）reply——通知帧延迟到宏任务，
+		// 事件循环保证响应先发。
 		// User 2026-08-01：join 推送窗口 10 → JOIN_HISTORY_LIMIT（100）。
 		const recentMessages = this.deps.publicMessages.slice(-JOIN_HISTORY_LIMIT);
 		const earliest = recentMessages[0];
 		const hasMore = earliest !== undefined && earliest.sequence > 1;
-		this.deps.send(socket, {
-			jsonrpc: JSONRPC_VERSION,
-			method: METHOD_MESSAGE_HISTORY,
-			params: {
-				messages: recentMessages.map((m) => ({
-					jsonrpc: JSONRPC_VERSION,
-					method: METHOD_PUBLIC_MESSAGE,
-					params: {
-						event_id: m.event_id,
-						sequence: m.sequence,
-						timestamp: m.timestamp,
-						sender: m.sender,
-						content: m.content,
-						round: m.round,
-					},
-				})),
-				cursor: hasMore ? encodeCursor(earliest.sequence) : null,
-				has_more: hasMore,
-				total_messages: this.deps.publicMessages.length,
-			},
+		void socket;
+		setImmediate(() => {
+			this.deps.send(socket, {
+				jsonrpc: JSONRPC_VERSION,
+				method: METHOD_MESSAGE_HISTORY,
+				params: {
+					messages: recentMessages.map((m) => ({
+						jsonrpc: JSONRPC_VERSION,
+						method: METHOD_PUBLIC_MESSAGE,
+						params: {
+							event_id: m.event_id,
+							sequence: m.sequence,
+							timestamp: m.timestamp,
+							sender: m.sender,
+							content: m.content,
+							round: m.round,
+						},
+					})),
+					cursor: hasMore ? encodeCursor(earliest.sequence) : null,
+					has_more: hasMore,
+					total_messages: this.deps.publicMessages.length,
+				},
+			});
+			// 在 message_history 之后广播 character_joined，使新 Character 处理
+			// 自己的 join 事件时 hasPublicMessages 已为 true。
+			this.deps.broadcast({
+				jsonrpc: JSONRPC_VERSION,
+				method: METHOD_CHARACTER_JOINED,
+				params: {
+					character: this.deps.toCharacterSummaryMessage(character),
+				},
+			});
+			this.deps.onMembersChanged?.();
 		});
-
-		// 在 message_history 之后广播 character_joined，使新 Character 处理
-		// 自己的 join 事件时 hasPublicMessages 已为 true。
-		this.deps.broadcast({
-			jsonrpc: JSONRPC_VERSION,
-			method: METHOD_CHARACTER_JOINED,
-			params: {
-				character: this.deps.toCharacterSummaryMessage(character),
-			},
-		});
-		this.deps.onMembersChanged?.();
+		return null;
 	}
 }

@@ -9,6 +9,67 @@ import {
 } from "../../../src/protocol/codec.js";
 
 describe("PiTavern protocol codec", () => {
+	// #119 阻断①（苍蓝星 2026-08-06）：request/notification/response 三态 schema 区分。
+	// 红测先行：当前 RequestIdSchema = Optional，无 id 帧可通过 codec（红）；
+	// 拆分后 request/response 强制字符串 id，仅 update_character_state 为无 id notification。
+	describe("id 三态区分（#119 阻断①）", () => {
+		it("A1 无 id 的 request 被拒", () => {
+			expect(() =>
+				decodeClientMessage(
+					Buffer.from(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							method: "join_group_chat",
+							params: { session_id: "session-1" },
+						}),
+					),
+				),
+			).toThrow(ProtocolError);
+		});
+
+		it("A2 无 id 的 response 被拒", () => {
+			expect(() =>
+				decodeServerMessage(
+					Buffer.from(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							result: { published: true, event_id: "evt-1", sequence: 1, latest_sequence: 1 },
+						}),
+					),
+				),
+			).toThrow(ProtocolError);
+		});
+
+		it("A3 update_character_state 无 id notification 被接受", () => {
+			expect(
+				decodeClientMessage(
+					Buffer.from(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							method: "update_character_state",
+							params: { is_streaming: true },
+						}),
+					),
+				),
+			).toEqual({ jsonrpc: "2.0", method: "update_character_state", params: { is_streaming: true } });
+		});
+
+		it("A4 update_character_state 带 id 被拒（notification 不得携带 id）", () => {
+			expect(() =>
+				decodeClientMessage(
+					Buffer.from(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							id: "req-n",
+							method: "update_character_state",
+							params: { is_streaming: true },
+						}),
+					),
+				),
+			).toThrow(ProtocolError);
+		});
+	});
+
 	it("decodes a strict snake_case client request", () => {
 		expect(
 			decodeClientMessage(

@@ -1,12 +1,9 @@
+import { ResponseError } from "vscode-jsonrpc";
 import type WebSocket from "ws";
 import type { CharacterCard, CharacterSummary } from "../../config/character-card.js";
 import type { GroupChatState } from "../../data/group-chat-state.js";
-import { type ClientMessage, JSONRPC_VERSION } from "../../protocol/messages.js";
-import {
-	ERROR_CHARACTER_UNAVAILABLE,
-	ERROR_CODE_CHARACTER_UNAVAILABLE,
-	type ProtocolErrorCode,
-} from "../../shared/messages.js";
+import type { ClientMessage } from "../../protocol/messages.js";
+import { ERROR_CHARACTER_UNAVAILABLE, ERROR_CODE_CHARACTER_UNAVAILABLE } from "../../shared/messages.js";
 
 type ClaimCharacterMessage = Extract<ClientMessage, { method: "claim_character" }>;
 
@@ -28,8 +25,6 @@ export interface ClaimPipelineDependencies {
 		name: string;
 		description: string;
 	};
-	send: (socket: WebSocket, message: unknown) => void;
-	sendFailure: (socket: WebSocket, id: string | undefined, code: ProtocolErrorCode, message: string) => void;
 }
 
 /**
@@ -40,7 +35,13 @@ export interface ClaimPipelineDependencies {
 export class ClaimPipeline {
 	constructor(private readonly deps: ClaimPipelineDependencies) {}
 
-	run(socket: WebSocket, connection: ClaimConnectionLike, message: ClaimCharacterMessage): void {
+	run(
+		socket: WebSocket,
+		connection: ClaimConnectionLike,
+		message: ClaimCharacterMessage,
+	): {
+		character: { character_id: string; name: string; description: string; path: string };
+	} {
 		const character = this.deps.characters.get(message.params.character_id);
 		if (
 			connection.sessionId === null ||
@@ -49,22 +50,17 @@ export class ClaimPipeline {
 			!character ||
 			!this.deps.isCharacterAvailable(message.params.character_id)
 		) {
-			this.deps.sendFailure(socket, message.id, ERROR_CODE_CHARACTER_UNAVAILABLE, ERROR_CHARACTER_UNAVAILABLE);
-			return;
+			throw new ResponseError(ERROR_CODE_CHARACTER_UNAVAILABLE, ERROR_CHARACTER_UNAVAILABLE);
 		}
 
 		this.deps.state.characterReservations.set(character.characterId, connection.sessionId);
 		connection.reservedCharacterId = character.characterId;
 		this.deps.startReadyTimer(socket, connection);
-		this.deps.send(socket, {
-			...(message.id !== undefined ? { id: message.id } : {}),
-			jsonrpc: JSONRPC_VERSION,
-			result: {
-				character: {
-					...this.deps.toCharacterSummaryMessage(character),
-					path: character.path,
-				},
+		return {
+			character: {
+				...this.deps.toCharacterSummaryMessage(character),
+				path: character.path,
 			},
-		});
+		};
 	}
 }

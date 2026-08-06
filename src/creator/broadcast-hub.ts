@@ -87,7 +87,11 @@ export class BroadcastHub {
 	}
 
 	broadcast(message: unknown): void {
-		this.options.iterateConnections((socket) => this.send(socket, message));
+		let count = 0;
+		this.options.iterateConnections((socket) => {
+			count++;
+			this.send(socket, message);
+		});
 	}
 
 	/**

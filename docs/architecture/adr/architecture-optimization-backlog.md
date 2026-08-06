@@ -20,6 +20,12 @@
 | saveCursor 内存先行 vs 磁盘失败不一致窗口 | 2026-08-06 QA 静态分析：语义幂等可接受 | 留注释说明窗口语义即可 | 待内嵌 |
 | refreshGroupChatState catch{} 副作用重评注记 | 2026-08-06 QA 静态分析：当前纯展示安全 | 未来引入副作用时重评；补注释 | 待内嵌 |
 | usage-scenarios/interaction-model 等大文档内容过时核对 | 2026-08-06 docs 重组遗留注记（PM）：本次只归类未重写 | 内容核对另排，过期章节更新或归档 | 待内嵌 |
+| character-runtime finishDisconnected 清 pendingRequests | 2026-08-06 W3 对抗验证坐实（QA）：断开后 pending 请求悬挂至超时；join-attempt rejectPending 有先例 | 一行循环参照 rejectPending；非阻断（超时兜底） | 待内嵌 |
+| speak 断言宽收窄（W1） | 2026-08-06 W1 对抗验证（QA）：当前 3 种 result 形状全覆盖，未来新增 reason 分支会静默误分类 | 新增 reason 时同步 character 侧断言 | 待内嵌 |
+| claim 错误文案测试覆盖缺口（W6） | 2026-08-06 W6 对抗验证（QA）：acceptance 仅覆盖 claim 1 条，error.message 10 码映射同源有保障 | 补覆盖非 1 条 claim 错误路径的断言 | 待内嵌 |
+| preview 条目字段级断言不全 | 2026-08-06 Arch 弱点 3 对抗验证（QA）：content 只断一条，字段形状有 codec schema 兜底 | 低优先：对 round/sender/event_id 补字段级断言 | 待内嵌 |
+| 去重路径压力测试 | 2026-08-06 Arch 弱点 4 对抗验证（QA）：message_history 展开 vs preview 交叉去重主路径已覆盖（T2/T3+paging） | 增强项：压力化覆盖交叉去重 | 待内嵌 |
+| writer.onRequestWritten 登记先于 OPEN 检查 | 2026-08-06 QA 独立抽查观察项：非 OPEN 场景登记未发出请求（pendingMethodById 残留），靠 failConnection/attachJsonRpc 清空兜底 | 低风险：可改登记顺序或补注释确认；无数据面危害 | 待内嵌 |
 
 ## 已落地
 
@@ -42,3 +48,8 @@
 | ⑤ | 依赖归属红线 | 运行期 import 必须 dependencies 且不同列 devDeps | 逐 import 核查 package.json 归属 |
 | ⑥ | 信封化嵌套条目内容访问 | reload.test.ts preview 条目旧访问（QA 漏条目内容层，2026-08-06 收口门禁） | preview/messages 条目的内容字段一律 `p.params.content`，method 判别修了不算完 |
 | ⑦ | acceptance 串行纪律 | reload.test.ts 首跑 `stdin is not writable`（并行撞共享端口/临时目录，2026-08-06） | acceptance 与 check/其他 acceptance 并行 = 环境抖动假失败；串行复跑为准 |
+| ⑧ | waitFor 判别永不匹配 = 假绿断言（⑥ 为其实例） | M3 收口门禁 6 失败核心模式（QA，2026-08-06）：迁移后判别字段残留（m.type vs m.method），waitFor 恒假只暴露于超时，否定断言恒真永绿 | 迁移类改动必须验证「断言确实匹配过真帧」（命中计数 > 0 / 红测先行证红）；绿 ≠ 断言在验 |
+| ⑨ | 迁移盘点四维清单（QA） | M3 迁移面低估根因（2026-08-06）：按文件数盘点漏 3 文件 + 6 失败 | 迁移类任务盘点/验收必查 4 维：① method 判别 ② 结果判别（id+result/error）③ 条目内容层（preview/messages/events 嵌套字段）④ 类型标注（mock/断言收窄） |
+| ⑩ | schema 三态区分度 | PR #137 阻断①（苍蓝星，2026-08-06）：同 optional id schema 共用 request/response → 无 id 帧通过 codec | 评审/迁移必查 request/notification/response 三态 schema 是否区分（id 必带性按态定） |
+| ⑪ | 响应关联校验 | PR #137 阻断②（苍蓝星，2026-08-06）：pending 只按 id resolve，同 id 任意合法响应可冒充（类型校验丢失） | 响应到达须按 pending 的预期 method/结果校验器验证，不符 fail-close |
+| ⑫ | 近似判别不得用于丢弃决策 | T2 livelock 根因（2026-08-06）：Set 集合近似（活跃 method）并发同 method 误丢响应 → pending 悬挂 → 断链 | 丢弃 = 数据面操作须精确关联（id 级）；近似（集合/包含）只可用于展示/提示级；feed 前丢弃无库兜底 |

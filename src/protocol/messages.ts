@@ -54,7 +54,16 @@ export const OnlineCharacterSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-const RequestIdSchema = Type.Optional(Type.String());
+/**
+ * 请求/响应必带 id（仅 update_character_state 为无 id notification；
+ * 服务端通知同样无 id——由各自 schema 形状区分）。阻断修复（PR #137
+ * 评审）：无 id 的 request/response 一律 fail-close——前者服务端无法
+ * 关联响应，后者客户端命不中 pendingRequests。
+ *
+ * id 类型 = string | number（JSON-RPC 2.0 标准；vscode-jsonrpc 库
+ * sendRequest 自增数字 id，手写握手用 string——双兼容）。
+ */
+const RequestIdSchema = Type.Union([Type.String(), Type.Integer()]);
 
 /** JSON-RPC 业务错误对象（code ∈ 10 码枚举，未知 code = schema fail-close）。 */
 export const ProtocolErrorObjectSchema = Type.Object(

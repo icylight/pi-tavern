@@ -593,9 +593,7 @@ export class GroupChatInput {
 		let groupChatState: unknown = null;
 		try {
 			groupChatState = await this.runtime.getGroupChatState();
-		} catch {
-			// 状态拉取失败也照常投递
-		}
+		} catch (e) {}
 
 		if (this.stopped) return;
 
