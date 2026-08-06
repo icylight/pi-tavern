@@ -54,3 +54,4 @@
 | ⑩ | schema 三态区分度 | PR #137 阻断①（苍蓝星，2026-08-06）：同 optional id schema 共用 request/response → 无 id 帧通过 codec | 评审/迁移必查 request/notification/response 三态 schema 是否区分（id 必带性按态定） |
 | ⑪ | 响应关联校验 | PR #137 阻断②（苍蓝星，2026-08-06）：pending 只按 id resolve，同 id 任意合法响应可冒充（类型校验丢失） | 响应到达须按 pending 的预期 method/结果校验器验证，不符 fail-close |
 | ⑫ | 近似判别不得用于丢弃决策 | T2 livelock 根因（2026-08-06）：Set 集合近似（活跃 method）并发同 method 误丢响应 → pending 悬挂 → 断链 | 丢弃 = 数据面操作须精确关联（id 级）；近似（集合/包含）只可用于展示/提示级；feed 前丢弃无库兜底 |
+| ⑬ | 跨移交资源所有权须显式取消或转移 | 三轮阻断⑨（苍蓝星，2026-08-06）：connection 跨 runtime 移交后旧 owner 仍可 dispose 共享连接 + 旧 pending 悬挂 | 资源移交时 in-flight 显式取消（reject+清 timer）或连同元数据转移；不得静默丢 |
