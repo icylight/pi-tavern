@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { WebSocketServer } from "ws";
+import WebSocket, { WebSocketServer } from "ws";
 import { CharacterRuntime } from "../../../src/character/character-runtime.js";
 import { JoinAttempt } from "../../../src/character/join-attempt.js";
 import { type CharacterCard, loadCharacterCard } from "../../../src/config/character-card.js";
@@ -71,6 +71,32 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		await runtime.close();
 		await vi.waitFor(() => expect(creator.state.onlineCharacters.has("session-1")).toBe(false));
 		expect(disconnected).toHaveBeenCalledTimes(1);
+	});
+
+	it("B4 未知 method 帧 → 协议破坏 fail-close（close 1002）；标准错误码接受由 A5 钉住（二轮评审阻断④）", async () => {
+		const { creator } = await startCreator();
+		const descriptor = creator.activeDescriptor;
+		const ws = new WebSocket(
+			`ws://${descriptor.host}:${descriptor.port}/` +
+				`${encodeURIComponent(descriptor.groupChatId)}/${encodeURIComponent(descriptor.instanceId)}`,
+		);
+		await new Promise<void>((resolve, reject) => {
+			ws.on("open", () => resolve());
+			ws.on("error", reject);
+		});
+		try {
+			// 未注册 method 在 codec 层被拒（11 类 union 外）——creator 既定策略 =
+			// 协议破坏 fail-close close 1002（防御在岗）。库自产标准错误码
+			// （handler 抛错 → -32603）的接受性由 unit A5 钉住（codec schema 纳入
+			// 标准错误码，本端合法响应不被误判协议破坏）。
+			const closed = new Promise<number | undefined>((resolve) => {
+				ws.on("close", (code) => resolve(code));
+			});
+			ws.send(JSON.stringify({ jsonrpc: "2.0", id: "r-unknown", method: "totally_unknown_method", params: {} }));
+			await expect(closed).resolves.toBe(1002);
+		} finally {
+			ws.close();
+		}
 	});
 
 	it("closes the pending connection when the claimed file no longer matches", async () => {

@@ -82,7 +82,7 @@ describe("CharacterRuntime pending 响应按 method 校验（阻断②）", () =
 		return { runtime, socket };
 	}
 
-	it("B1 同 id 但 result 形状不符 → 丢弃（feed 前校验防线，不 resolve）", async () => {
+	it("B1 同 id 但 result 形状不符 → 及时 reject（fail-close，不悬挂）", async () => {
 		const { runtime, socket } = createRuntime();
 		const request = (runtime as unknown as { request(m: { method: string; params: unknown }): Promise<unknown> })
 			.request;
@@ -90,33 +90,68 @@ describe("CharacterRuntime pending 响应按 method 校验（阻断②）", () =
 		const id = lastRequestId(socket);
 
 		// 注入 board_query 形状的 result（合法信封、错误 method 关联——冒充 speak 响应）。
-		// connection 重构后：feed 前形状校验（活跃请求 method 集合）判定不匹配 → 丢弃，
-		// 不 resolve 成错误形状（库内建关联 + 防线双保险）。
+		// 二轮评审阻断①（苍蓝星）：错误 result 必须 fail-close 及时 reject，
+		// 不得静默丢弃悬挂到超时。
 		injectResponse(socket, id, { result: { boards: {} } });
-		let settled = false;
-		promise.then(
-			() => {
-				settled = true;
-			},
-			() => {
-				settled = true;
-			},
-		);
-		await new Promise((resolve) => setTimeout(resolve, 50));
-		expect(settled).toBe(false);
 
-		// 同 id 正确形状到达 → 正常 resolve（证明错 result 被忽略、请求仍可被正确响应满足）。
-		injectResponse(socket, id, {
+		const start = Date.now();
+		await expect(promise).rejects.toThrow(ERROR_UNEXPECTED_SPEAK_RESPONSE);
+		expect(Date.now() - start).toBeLessThan(1_000);
+	});
+
+	it("B2 请求 in-flight 时 socket close → 即时 reject（非 5s 超时）", async () => {
+		const { runtime, socket } = createRuntime();
+		const request = (runtime as unknown as { request(m: { method: string; params: unknown }): Promise<unknown> })
+			.request;
+		const promise = request.call(runtime, { method: "speak", params: { content: "hello" } });
+		const id = lastRequestId(socket);
+
+		// 断线：dispose 库内拒绝（-32097）→ request() 映射断线原因立即 reject。
+		socket.readyState = WebSocket.CLOSED;
+		socket.emit("close");
+
+		const start = Date.now();
+		await expect(promise).rejects.toThrow();
+		expect(Date.now() - start).toBeLessThan(1_000);
+	});
+
+	it("B3 连接延续态：连续请求 id 单调（跨 handoff 不重置序列）", async () => {
+		const { runtime, socket } = createRuntime();
+		const request = (runtime as unknown as { request(m: { method: string; params: unknown }): Promise<unknown> })
+			.request;
+		const first = request.call(runtime, { method: "speak", params: { content: "a" } });
+		const firstId = lastRequestId(socket);
+		const second = request.call(runtime, { method: "speak", params: { content: "b" } });
+		const secondId = lastRequestId(socket);
+
+		// 同一 connection 序列单调递增——reload 延续不重建，旧代际响应撞不上新 id。
+		if (typeof firstId === "number" && typeof secondId === "number") {
+			expect(secondId).toBeGreaterThan(firstId);
+		} else if (typeof firstId === "string" && typeof secondId === "string") {
+			expect(secondId).not.toBe(firstId);
+		}
+
+		// 清理两个 in-flight（注入正确响应使 settle，避免超时断链）。
+		injectResponse(socket, firstId, {
 			result: {
 				published: true,
-				event_id: "evt-1",
+				event_id: "e1",
 				sequence: 1,
 				latest_sequence: 1,
 				round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
 			},
 		});
-		const response = (await promise) as { result: { published: boolean } };
-		expect(response.result.published).toBe(true);
+		injectResponse(socket, secondId, {
+			result: {
+				published: true,
+				event_id: "e2",
+				sequence: 2,
+				latest_sequence: 2,
+				round: { round_max_messages: 10, used_messages: 2, remaining_messages: 8 },
+			},
+		});
+		await first;
+		await second;
 	});
 
 	it("B2 同 id 正确 result 形状 → 正常 resolve（正向对照）", async () => {

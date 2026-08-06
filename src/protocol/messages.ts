@@ -65,10 +65,21 @@ export const OnlineCharacterSchema = Type.Object(
  */
 const RequestIdSchema = Type.Union([Type.String(), Type.Integer()]);
 
-/** JSON-RPC 业务错误对象（code ∈ 10 码枚举，未知 code = schema fail-close）。 */
+/**
+ * JSON-RPC 2.0 标准错误码（vscode-jsonrpc 库会自行产生：handler 抛普通 Error →
+ * -32603、无 handler → -32601、参数无效 → -32602、解析失败 → -32700、无效请求
+ * → -32600）。connection 模式下这些是库在本端生成的**合法**响应——必须纳入
+ * schema，否则 decodeServerMessage 拒帧 → 客户端把库产响应当协议破坏断线。
+ */
+const JSON_RPC_STANDARD_ERROR_CODES = [-32700, -32600, -32601, -32602, -32603] as const;
+
+/** JSON-RPC 错误对象（code = 业务 10 码 + 库标准码；未知 code = schema fail-close）。 */
 export const ProtocolErrorObjectSchema = Type.Object(
 	{
-		code: Type.Union(PROTOCOL_ERROR_CODES.map((value) => Type.Literal(value))),
+		code: Type.Union([
+			...PROTOCOL_ERROR_CODES.map((value) => Type.Literal(value)),
+			...JSON_RPC_STANDARD_ERROR_CODES.map((value) => Type.Literal(value)),
+		]),
 		message: Type.String(),
 	},
 	{ additionalProperties: false },

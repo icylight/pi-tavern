@@ -1,17 +1,12 @@
 import { dirname, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-	createMessageConnection,
-	type MessageConnection,
-	RequestType,
-	RequestType0,
-	ResponseError,
-} from "vscode-jsonrpc";
+import { createMessageConnection, type MessageConnection, ResponseError } from "vscode-jsonrpc";
 import WebSocket from "ws";
 
 import { type CharacterCard, loadCharacterCard } from "../config/character-card.js";
 import {
 	type BufferedFrame,
+	type CharacterJsonRpcTransfer,
 	type CharacterReloadHandoff,
 	getReloadHandoffRegistry,
 } from "../controller/reload-handoff-registry.js";
@@ -44,37 +39,32 @@ import {
 	ERROR_RUNTIME_ALREADY_ACTIVATED_OR_DISPOSED,
 	ERROR_UNEXPECTED_BOARD_QUERY_RESPONSE,
 	ERROR_UNEXPECTED_BOARD_WRITE_RESPONSE,
-	ERROR_UNEXPECTED_CLAIM_RESPONSE,
 	ERROR_UNEXPECTED_FETCH_RESPONSE,
 	ERROR_UNEXPECTED_HISTORY_RESPONSE,
-	ERROR_UNEXPECTED_JOIN_RESPONSE,
-	ERROR_UNEXPECTED_LEAVE_RESPONSE,
-	ERROR_UNEXPECTED_READY_RESPONSE,
 	ERROR_UNEXPECTED_SPEAK_RESPONSE,
 	ERROR_UNEXPECTED_STATE_RESPONSE,
 	METHOD_BOARD_QUERY,
 	METHOD_BOARD_WRITE,
-	METHOD_CHARACTER_READY,
-	METHOD_CLAIM_CHARACTER,
 	METHOD_FETCH_MESSAGES_SINCE,
-	METHOD_GET_CHAT_HISTORY_FILE,
 	METHOD_GET_GROUP_CHAT_STATE,
 	METHOD_GET_MESSAGE_HISTORY,
 	METHOD_GROUP_CHAT_CLOSED,
 	METHOD_GROUP_CHAT_UPDATE,
-	METHOD_JOIN_GROUP_CHAT,
 	METHOD_LEAVE_GROUP_CHAT,
 	METHOD_MESSAGE_HISTORY,
 	METHOD_PUBLIC_MESSAGE,
 	METHOD_SPEAK,
 	METHOD_UPDATE_CHARACTER_STATE,
 } from "../shared/messages.js";
-
 import { GroupChatInput } from "./group-chat-input.js";
+import { CHARACTER_REQUEST_TYPES } from "./request-types.js";
+import { PENDING_RESPONSE_REJECTED_CODE, ResponseCorrelator } from "./response-gate.js";
 
 export interface CharacterConnectionTransfer {
 	socket: WebSocket;
 	bufferedMessages: ServerMessage[];
+	/** 可选：JoinAttempt 握手连接移交（缺省 = 测试直构/兼容路径，attach 新建）。 */
+	jsonrpc?: CharacterJsonRpcTransfer;
 }
 
 export interface PrepareCharacterRuntimeOptions {
@@ -104,44 +94,6 @@ export interface PrepareCharacterRuntimeOptions {
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
-
-/**
- * #119 connection 接线：character 侧请求类型注册表（method 与 creator dispatch
- * 注册表同源 F 常量；库按 method 关联响应——替代手写 pending + RESULT_MATCHERS）。
- */
-const REQUEST_TYPES: Record<string, RequestType0<unknown, unknown> | RequestType<unknown, unknown, unknown>> = {
-	[METHOD_JOIN_GROUP_CHAT]: new RequestType(METHOD_JOIN_GROUP_CHAT),
-	[METHOD_CLAIM_CHARACTER]: new RequestType(METHOD_CLAIM_CHARACTER),
-	[METHOD_CHARACTER_READY]: new RequestType0(METHOD_CHARACTER_READY),
-	[METHOD_LEAVE_GROUP_CHAT]: new RequestType0(METHOD_LEAVE_GROUP_CHAT),
-	[METHOD_GET_GROUP_CHAT_STATE]: new RequestType0(METHOD_GET_GROUP_CHAT_STATE),
-	[METHOD_GET_MESSAGE_HISTORY]: new RequestType(METHOD_GET_MESSAGE_HISTORY),
-	[METHOD_FETCH_MESSAGES_SINCE]: new RequestType(METHOD_FETCH_MESSAGES_SINCE),
-	[METHOD_GET_CHAT_HISTORY_FILE]: new RequestType0(METHOD_GET_CHAT_HISTORY_FILE),
-	[METHOD_BOARD_WRITE]: new RequestType(METHOD_BOARD_WRITE),
-	[METHOD_BOARD_QUERY]: new RequestType0(METHOD_BOARD_QUERY),
-	[METHOD_SPEAK]: new RequestType(METHOD_SPEAK),
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
-/** 响应 result 形状判别（feed 前校验）：result 匹配任一活跃请求 method 才喂
- * connection；全部不匹配 = 旧 connection 晚到响应（reload 交接场景），丢弃。 */
-const RESPONSE_RESULT_MATCHERS: Record<string, (result: unknown) => boolean> = {
-	[METHOD_JOIN_GROUP_CHAT]: (result) => isRecord(result) && "available_characters" in result,
-	[METHOD_CLAIM_CHARACTER]: (result) => isRecord(result) && "character" in result,
-	[METHOD_CHARACTER_READY]: (result) => result === null,
-	[METHOD_LEAVE_GROUP_CHAT]: (result) => result === null,
-	[METHOD_GET_GROUP_CHAT_STATE]: (result) => isRecord(result) && "group_chat" in result,
-	[METHOD_GET_MESSAGE_HISTORY]: (result) => isRecord(result) && "messages" in result && "has_more" in result,
-	[METHOD_FETCH_MESSAGES_SINCE]: (result) => isRecord(result) && "messages" in result && "latest_sequence" in result,
-	[METHOD_GET_CHAT_HISTORY_FILE]: (result) => isRecord(result) && "path" in result,
-	[METHOD_BOARD_WRITE]: (result) => isRecord(result) && ("changed" in result || "code" in result || "note" in result),
-	[METHOD_BOARD_QUERY]: (result) => isRecord(result) && "boards" in result,
-	[METHOD_SPEAK]: (result) => isRecord(result) && "published" in result,
-};
 
 /** #66 产品参数（PM/User 定值 2026-08-02）：run wedged 判定阈值，默认 3 分钟。 */
 const DEFAULT_AGENT_WEDGED_TIMEOUT_MS = 180_000;
@@ -206,14 +158,18 @@ export class CharacterRuntime {
 	groupChatInput: GroupChatInput | undefined;
 
 	private socket: WebSocket | null = null;
-	/** #119 connection 接线：per-socket JSON-RPC 连接（响应关联/超时取消由库承担）。 */
+	/** #119 connection 接线：per-socket JSON-RPC 连接（响应关联/超时取消由库承担）。
+	 * 连接实例跨 owner 延续（JoinAttempt → runtime → reload 新 runtime），
+	 * 断线终态才 dispose。 */
 	private jsonrpcConnection: MessageConnection | null = null;
-	/** 请求 id → method 精确关联表（feed 前形状校验用；writer 登记，响应
-	 * 到达时消费删除，断链/重挂时清空）。并发同 method 请求互不干扰——
-	 * 集合近似在并发同 method 时会误丢第二个响应（T2 livelock 实测根因）。 */
-	private readonly pendingMethodById = new Map<string | number, string>();
-	/** reader 引用：响应帧 deliver 喂入 + 断开时 notifyClose（库内 pending 拒绝）。 */
+	/** 请求 id → method 精确关联 + 响应形状校验（feed 前 gate，fail-close）。 */
+	private readonly responseCorrelator = new ResponseCorrelator();
+	/** reader 引用：响应帧 deliver 喂入 connection。 */
 	private jsonrpcReader: WebSocketMessageReader | null = null;
+	/** writer 引用：跨 handoff 延续时重设请求登记回调到新 owner。 */
+	private jsonrpcWriter: WebSocketMessageWriter | null = null;
+	/** 断线原因（request() 映射库 dispose 拒绝码 -32097 → 以断线原因 reject）。 */
+	private disconnectError: Error | undefined;
 	private readonly requestTimeoutMs: number;
 	private readonly onDisconnected: (() => void) | undefined;
 	private readonly heartbeatIntervalMs: number;
@@ -287,17 +243,27 @@ export class CharacterRuntime {
 		return new CharacterRuntime(options);
 	}
 
-	/** #119 connection 接线：per-socket JSON-RPC 连接（character 侧只发请求收响应）。 */
+	/** #119 connection 接线：新建 per-socket JSON-RPC 连接（character 侧只发请求收响应）。
+	 * 仅无既有连接时使用（首次 join / 测试直构兼容）；跨 owner 移交走 adoptJsonRpc。 */
 	private attachJsonRpc(socket: WebSocket): void {
 		const reader = new WebSocketMessageReader();
-		this.pendingMethodById.clear();
-		const writer = new WebSocketMessageWriter(socket, (id, method) => {
-			this.pendingMethodById.set(id, method);
-		});
+		const writer = new WebSocketMessageWriter(socket);
+		writer.setRequestWrittenHandler((id, method) => this.responseCorrelator.register(id, method));
 		const jsonrpcConnection = createMessageConnection(reader, writer);
 		this.jsonrpcConnection = jsonrpcConnection;
 		this.jsonrpcReader = reader;
+		this.jsonrpcWriter = writer;
 		jsonrpcConnection.listen();
+	}
+
+	/** #119 connection 延续：接管既有 JSON-RPC 连接（不重建 = 库内序列单调，
+	 * 代际 id 不撞车——评审阻断②）。writer 登记回调重指向本 runtime 的关联表。 */
+	private adoptJsonRpc(jsonrpc: CharacterJsonRpcTransfer): void {
+		this.responseCorrelator.clear();
+		this.jsonrpcConnection = jsonrpc.connection;
+		this.jsonrpcReader = jsonrpc.reader;
+		this.jsonrpcWriter = jsonrpc.writer;
+		jsonrpc.writer.setRequestWrittenHandler((id, method) => this.responseCorrelator.register(id, method));
 	}
 
 	activate(transfer: CharacterConnectionTransfer, pi?: ExtensionAPI): void {
@@ -305,7 +271,11 @@ export class CharacterRuntime {
 			throw new Error(ERROR_RUNTIME_ALREADY_ACTIVATED_OR_DISPOSED);
 		}
 		this.socket = transfer.socket;
-		this.attachJsonRpc(transfer.socket);
+		if (transfer.jsonrpc) {
+			this.adoptJsonRpc(transfer.jsonrpc);
+		} else {
+			this.attachJsonRpc(transfer.socket);
+		}
 		this.socket.on("message", this.onMessage);
 		this.socket.on("close", this.onClose);
 		this.socket.on("error", this.onError);
@@ -789,6 +759,17 @@ export class CharacterRuntime {
 			socket,
 			character: this.character,
 			...(this.cursorStorePath !== undefined ? { cursorStorePath: this.cursorStorePath } : {}),
+			// #119 connection 延续：连接实例随 handoff 移交（新 runtime 不重建——
+			// 库内序列单调，旧代际响应撞不上新请求 id，评审阻断②）。
+			...(this.jsonrpcConnection && this.jsonrpcReader && this.jsonrpcWriter
+				? {
+						jsonrpc: {
+							connection: this.jsonrpcConnection,
+							reader: this.jsonrpcReader,
+							writer: this.jsonrpcWriter,
+						},
+					}
+				: {}),
 			pendingEvents: snapshot.pendingEvents,
 			debounceDueAt: snapshot.debounceDueAt,
 			idleWindowDueAt: snapshot.idleWindowDueAt,
@@ -863,7 +844,12 @@ export class CharacterRuntime {
 		socket.off("message", handoff.bufferingHandlers.message);
 		socket.off("close", handoff.bufferingHandlers.close);
 		this.socket = socket;
-		this.attachJsonRpc(socket);
+		if (handoff.jsonrpc) {
+			// #119 connection 延续：接管旧 runtime 的既有连接（序列单调，代际隔离）。
+			this.adoptJsonRpc(handoff.jsonrpc);
+		} else {
+			this.attachJsonRpc(socket);
+		}
 		this.lastPingAt = handoff.lastPingAt;
 		socket.on("message", this.onMessage);
 		socket.on("close", this.onClose);
@@ -952,7 +938,7 @@ export class CharacterRuntime {
 		if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
 			return Promise.reject(new Error(ERROR_CONNECTION_NOT_OPEN));
 		}
-		const type = REQUEST_TYPES[message.method];
+		const type = CHARACTER_REQUEST_TYPES[message.method];
 		if (!type || !this.jsonrpcConnection) {
 			return Promise.reject(new Error(`No request type for method: ${message.method}`));
 		}
@@ -980,6 +966,11 @@ export class CharacterRuntime {
 				return { jsonrpc: JSONRPC_VERSION, id: "", result } as ServerMessage;
 			},
 			(error) => {
+				if (error instanceof ResponseError && error.code === PENDING_RESPONSE_REJECTED_CODE) {
+					// 断线 dispose 的库内拒绝（-32097）：以断线原因 reject（立即收敛，
+					// 不悬挂到超时——评审阻断③）。fail-close 场景 = ERROR_UNEXPECTED_*。
+					return Promise.reject(this.disconnectError ?? new Error(ERROR_CONNECTION_HAS_BEEN_CLOSED));
+				}
 				if (error instanceof ResponseError) {
 					return {
 						jsonrpc: JSONRPC_VERSION,
@@ -1005,25 +996,22 @@ export class CharacterRuntime {
 
 	private handleServerMessage(message: ServerMessage, isReplay = false): void {
 		// #119 connection 接线：响应帧（result/error + id）喂 connection——
-		// 库按 id 关联原请求并校验（RequestManager 内建）；通知帧（method）
-		// 走本类消费（receivedMessages/环境消息/群聊关闭）。
+		// 库按 id 关联原请求；通知帧（method）走本类消费（receivedMessages/
+		// 环境消息/群聊关闭）。
 		if (("result" in message || "error" in message) && message.id !== undefined) {
-			// reload 重放：旧 runtime 的请求响应已作废（请求者随旧 runtime 消亡）——丢弃。
+			// reload 重放：旧代际请求的响应已作废（请求者随旧 runtime 消亡）——丢弃。
 			if (isReplay) {
 				return;
 			}
-			// 旧 connection 晚到响应（reload 交接后实时到达，id 撞新请求）：
-			// 按 id 精确关联请求 method → result 形状不匹配即丢弃防错位；
-			// error 自描述无条件喂。响应消费后删除登记（用完即删）。
-			if ("result" in message && !("error" in message)) {
-				const expectedMethod = this.pendingMethodById.get(message.id);
-				const matched =
-					expectedMethod !== undefined && (RESPONSE_RESULT_MATCHERS[expectedMethod]?.(message.result) ?? false);
-				if (!matched) {
-					return;
-				}
+			// feed 前 gate：同 id 错 result 形状 = 协议错位 fail-close（立即拒绝 + 断
+			// 链，不静默丢弃不悬挂——评审阻断①）；error 自描述、未知 id 旧代际迟到
+			// 响应 → 喂库（库按 id 结算或丢弃，代际隔离由连接延续保证，阻断②）。
+			const failCloseError = this.responseCorrelator.gate(message);
+			if (failCloseError) {
+				this.failConnection(failCloseError);
+				return;
 			}
-			this.pendingMethodById.delete(message.id);
+			this.responseCorrelator.consume(message.id);
 			this.jsonrpcReader?.deliver(message);
 			return;
 		}
@@ -1058,7 +1046,6 @@ export class CharacterRuntime {
 	}
 
 	private failConnection(error: Error): void {
-		this.pendingMethodById.clear();
 		const socket = this.socket;
 		if (socket && socket.readyState !== WebSocket.CLOSED) {
 			socket.terminate();
@@ -1071,6 +1058,7 @@ export class CharacterRuntime {
 			return;
 		}
 		this.disconnected = true;
+		this.disconnectError = error;
 		// 死连接上的 watchdog 定时器必须一并拆除：否则 agent_end 布防的 5s
 		// 流式复位定时器（或 run wedged 定时器）会在 socket 置空后点火，
 		// 定时器上下文内 throw = uncaughtException = 杀死整个 pi 进程。
@@ -1090,9 +1078,15 @@ export class CharacterRuntime {
 				socket.close();
 			}
 		}
-		// #119 connection 接线：断开通知库（内建 pending 拒绝）；剩余等待者由
-		// 库拒绝 + 调用方超时兜底（双保险，无悬挂）。
-		this.jsonrpcReader?.notifyClose();
+		// #119 connection 接线：断线终态 dispose connection——v9 实证 reader close
+		// 只置 Closed 不拒 pending，dispose() 才遍历 reject responsePromises
+		// （评审阻断③）。request() 把 -32097 映射为断线原因立即 reject。
+		this.responseCorrelator.clear();
+		const jsonrpcConnection = this.jsonrpcConnection;
+		this.jsonrpcConnection = null;
+		this.jsonrpcReader = null;
+		this.jsonrpcWriter = null;
+		jsonrpcConnection?.dispose();
 		this.onDisconnected?.();
 	}
 }

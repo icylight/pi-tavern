@@ -68,6 +68,24 @@ describe("PiTavern protocol codec", () => {
 				),
 			).toThrow(ProtocolError);
 		});
+
+		it("A5 JSON-RPC 标准错误码响应被接受（库自产帧不判协议破坏）", () => {
+			// 二轮评审阻断④（苍蓝星）：vscode-jsonrpc 会自产标准错误
+			// （handler 抛普通 Error → -32603、无 handler → -32601、参数错 → -32602）——
+			// schema 必须接受，否则本端合法响应被 codec 拒 → 误断线。
+			for (const code of [-32700, -32600, -32601, -32602, -32603]) {
+				const decoded = decodeServerMessage(
+					Buffer.from(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							id: "req-s",
+							error: { code, message: "standard error" },
+						}),
+					),
+				);
+				expect(decoded).toEqual({ jsonrpc: "2.0", id: "req-s", error: { code, message: "standard error" } });
+			}
+		});
 	});
 
 	it("decodes a strict snake_case client request", () => {

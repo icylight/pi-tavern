@@ -44,12 +44,18 @@ export class WebSocketMessageReader extends AbstractMessageReader {
 /** 单帧 JSON WS → vscode-jsonrpc MessageWriter（write = 序列化 + ws.send）。 */
 export class WebSocketMessageWriter extends AbstractMessageWriter {
 	private readonly socket: WebSocket;
-	private readonly onRequestWritten: ((id: string | number, method: string) => void) | undefined;
+	private onRequestWritten: ((id: string | number, method: string) => void) | undefined;
 
-	constructor(socket: WebSocket, onRequestWritten?: (id: string | number, method: string) => void) {
+	constructor(socket: WebSocket) {
 		super();
 		this.socket = socket;
-		this.onRequestWritten = onRequestWritten;
+	}
+
+	/** 请求 id → method 登记回调（feed 前形状校验用）。可重设：connection
+	 * 跨 handoff 延续时，writer 归属新 owner（JoinAttempt → CharacterRuntime
+	 * → reload 后新 runtime），回调须指向当前 owner 的关联表。 */
+	setRequestWrittenHandler(handler: ((id: string | number, method: string) => void) | undefined): void {
+		this.onRequestWritten = handler;
 	}
 
 	write(message: Message): Promise<void> {

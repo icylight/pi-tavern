@@ -1,18 +1,18 @@
-import { randomUUID } from "node:crypto";
-
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createMessageConnection, type MessageConnection, ResponseError } from "vscode-jsonrpc";
 import WebSocket from "ws";
 
 import { type ClaimedCharacter, loadClaimedCharacter } from "../config/character-card.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
-import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
+import { decodeServerMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import { type CharacterSummaryWire, JSONRPC_VERSION, type ServerMessage } from "../protocol/messages.js";
+import { WebSocketMessageReader, WebSocketMessageWriter } from "../protocol/ws-message-io.js";
 import { SHORT_COORDINATION_TIMEOUT_MS } from "../shared/constants.js";
 import {
 	ERROR_BINARY_FRAME_RECEIVED,
 	ERROR_CONNECT_FAILED,
+	ERROR_CONNECTION_HAS_BEEN_CLOSED,
 	ERROR_CONNECTION_TIMED_OUT,
-	ERROR_JOIN_ATTEMPT_CLOSED,
 	ERROR_JOIN_ATTEMPT_TRANSFERRED,
 	ERROR_JOIN_CONNECTION_CLOSED,
 	ERROR_JOIN_CONNECTION_NOT_OPEN,
@@ -25,6 +25,8 @@ import {
 	METHOD_JOIN_GROUP_CHAT,
 } from "../shared/messages.js";
 import { type CharacterConnectionTransfer, CharacterRuntime } from "./character-runtime.js";
+import { CHARACTER_REQUEST_TYPES } from "./request-types.js";
+import { PENDING_RESPONSE_REJECTED_CODE, ResponseCorrelator } from "./response-gate.js";
 
 export interface JoinAttemptOptions {
 	requestTimeoutMs?: number;
@@ -42,42 +44,26 @@ export interface JoinAttemptOptions {
 	triggerDebounceMs?: number;
 }
 
-interface PendingRequest {
-	resolve: (message: ServerMessage) => void;
-	reject: (error: Error) => void;
-	timer: NodeJS.Timeout;
-	/** 原请求 method：响应按 id 关联后校验 result 形状（PR #137 阻断② 同步修复）。 */
-	expectedMethod: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
-/**
- * join 握手三请求的 result 形状判别（阻断②同步）：codec 合法 ≠ method 关联
- * 正确——同 id 错 result fail-close，防 claim 响应错位 resolve。
- */
-const RESPONSE_RESULT_MATCHERS: Record<string, (result: unknown) => boolean> = {
-	[METHOD_JOIN_GROUP_CHAT]: (result) => isRecord(result) && "available_characters" in result,
-	[METHOD_CLAIM_CHARACTER]: (result) => isRecord(result) && "character" in result,
-	[METHOD_CHARACTER_READY]: (result) => result === null,
-};
-
-const RESPONSE_METHOD_ERRORS: Record<string, string> = {
-	[METHOD_JOIN_GROUP_CHAT]: ERROR_UNEXPECTED_JOIN_RESPONSE,
-	[METHOD_CLAIM_CHARACTER]: ERROR_UNEXPECTED_CLAIM_RESPONSE,
-	[METHOD_CHARACTER_READY]: ERROR_UNEXPECTED_READY_RESPONSE,
-};
-
 const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
 
+/**
+ * join 三阶段握手（#119 #139 完整迁移）：join/claim/ready 经 vscode-jsonrpc
+ * connection 发送（库内建 id 关联/超时取消），手工 pending/matcher 由
+ * RequestManager 替代；响应 feed 前仍走 ResponseCorrelator 形状 gate——
+ * 同 id 错 result fail-close（与 CharacterRuntime 同机制，阻断②回归保持）。
+ */
 export class JoinAttempt {
 	readonly availableCharacters: CharacterSummaryWire[];
 
 	private socket: WebSocket | null;
 	private readonly bufferedMessages: ServerMessage[] = [];
-	private readonly pendingRequests = new Map<string | number, PendingRequest>();
+	/** 请求 id → method 精确关联 + 形状校验（feed 前 gate，fail-close）。 */
+	private readonly responseCorrelator = new ResponseCorrelator();
+	private jsonrpcConnection: MessageConnection | null = null;
+	private jsonrpcReader: WebSocketMessageReader | null = null;
+	private jsonrpcWriter: WebSocketMessageWriter | null = null;
+	/** 关闭原因（request() 映射库 dispose 拒绝码 -32097 → 以关闭原因 reject）。 */
+	private closeError: Error | undefined;
 	private readonly requestTimeoutMs: number;
 	private readonly onDisconnected: (() => void) | undefined;
 	private readonly heartbeatIntervalMs: number | undefined;
@@ -104,21 +90,16 @@ export class JoinAttempt {
 			return;
 		}
 		if (("result" in message || "error" in message) && message.id !== undefined) {
-			const pending = this.pendingRequests.get(message.id);
-			if (pending) {
-				clearTimeout(pending.timer);
-				this.pendingRequests.delete(message.id);
-				// 阻断②同步修复：result 形状与预期 method 不匹配 = 协议错位 fail-close。
-				if ("result" in message && !("error" in message)) {
-					const matcher = RESPONSE_RESULT_MATCHERS[pending.expectedMethod];
-					if (!matcher || !matcher(message.result)) {
-						pending.reject(new Error(RESPONSE_METHOD_ERRORS[pending.expectedMethod] ?? ERROR_UNEXPECTED_JOIN_RESPONSE));
-						return;
-					}
-				}
-				pending.resolve(message);
+			// feed 前 gate：同 id 错 result 形状 = 协议错位 fail-close（立即拒绝 +
+			// 关闭，不悬挂）；error 自描述、未知 id 响应 → 喂库（库按 id 结算或丢弃）。
+			const failCloseError = this.responseCorrelator.gate(message);
+			if (failCloseError) {
+				void this.closeWithError(failCloseError);
 				return;
 			}
+			this.responseCorrelator.consume(message.id);
+			this.jsonrpcReader?.deliver(message);
+			return;
 		}
 		this.bufferedMessages.push(message);
 	};
@@ -147,6 +128,16 @@ export class JoinAttempt {
 		this.socket.on("message", this.onMessage);
 		this.socket.on("close", this.onClose);
 		this.socket.on("error", this.onError);
+		// #119 connection 接线：握手连接实例随 takeConnection 移交 runtime 延续
+		// （不重建 = 库内序列单调，代际 id 不撞车）。
+		const reader = new WebSocketMessageReader();
+		const writer = new WebSocketMessageWriter(socket);
+		writer.setRequestWrittenHandler((id, method) => this.responseCorrelator.register(id, method));
+		const jsonrpcConnection = createMessageConnection(reader, writer);
+		this.jsonrpcConnection = jsonrpcConnection;
+		this.jsonrpcReader = reader;
+		this.jsonrpcWriter = writer;
+		jsonrpcConnection.listen();
 	}
 
 	static async connect(
@@ -265,10 +256,23 @@ export class JoinAttempt {
 		socket.off("message", this.onMessage);
 		socket.off("close", this.onClose);
 		socket.off("error", this.onError);
-		return {
+		const transfer: CharacterConnectionTransfer = {
 			socket,
 			bufferedMessages: this.bufferedMessages.splice(0),
 		};
+		// #119 connection 延续：握手连接随移交（runtime adoptJsonRpc 接管，
+		// 序列单调——旧代际响应撞不上新请求 id）。
+		if (this.jsonrpcConnection && this.jsonrpcReader && this.jsonrpcWriter) {
+			transfer.jsonrpc = {
+				connection: this.jsonrpcConnection,
+				reader: this.jsonrpcReader,
+				writer: this.jsonrpcWriter,
+			};
+			this.jsonrpcConnection = null;
+			this.jsonrpcReader = null;
+			this.jsonrpcWriter = null;
+		}
+		return transfer;
 	}
 
 	async close(): Promise<void> {
@@ -286,47 +290,74 @@ export class JoinAttempt {
 				socket.terminate();
 			}
 		}
-		this.rejectPending(new Error(ERROR_JOIN_ATTEMPT_CLOSED));
+		this.responseCorrelator.clear();
+		// 断线终态 dispose connection：库内 pending 立即拒绝（-32097 →
+		// request 映射 closeError 收敛，不悬挂到超时）。
+		const jsonrpcConnection = this.jsonrpcConnection;
+		this.jsonrpcConnection = null;
+		this.jsonrpcReader = null;
+		this.jsonrpcWriter = null;
+		jsonrpcConnection?.dispose();
 		this.onDisconnected?.();
 	}
 
+	/** #119 connection 接线：sendRequest 替代手写 pending（响应关联/取消由库承担）。
+	 * 超时语义保留（Promise.race + closeWithError）；ResponseError 包装回
+	 * {error:{code,message}} 响应形状——调用方 `"error" in response` 判别语法不变。 */
 	private request(message: { method: string; params: unknown }): Promise<ServerMessage> {
-		const id = randomUUID();
-		return new Promise<ServerMessage>((resolveRequest, rejectRequest) => {
-			if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-				rejectRequest(new Error(ERROR_JOIN_CONNECTION_NOT_OPEN));
-				return;
-			}
+		if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+			return Promise.reject(new Error(ERROR_JOIN_CONNECTION_NOT_OPEN));
+		}
+		const type = CHARACTER_REQUEST_TYPES[message.method];
+		if (!type || !this.jsonrpcConnection) {
+			return Promise.reject(new Error(`No request type for method: ${message.method}`));
+		}
+		const pending = (this.jsonrpcConnection as MessageConnection).sendRequest(type as never, message.params as never);
+		const withTimeout = new Promise<unknown>((resolveRequest, rejectRequest) => {
 			const timer = setTimeout(() => {
-				this.pendingRequests.delete(id);
 				const error = new Error(ERROR_REQUEST_TIMED_OUT);
 				rejectRequest(error);
 				void this.closeWithError(error);
 			}, this.requestTimeoutMs);
-			this.pendingRequests.set(id, {
-				resolve: resolveRequest,
-				reject: rejectRequest,
-				timer,
-				expectedMethod: message.method,
-			});
-			this.socket.send(encodeMessage({ jsonrpc: JSONRPC_VERSION, ...message, id }));
+			timer.unref?.();
+			void pending.then(
+				(result) => {
+					clearTimeout(timer);
+					resolveRequest(result);
+				},
+				(error) => {
+					clearTimeout(timer);
+					rejectRequest(error);
+				},
+			);
 		});
+		return withTimeout.then(
+			(result) => {
+				return { jsonrpc: JSONRPC_VERSION, id: "", result } as ServerMessage;
+			},
+			(error) => {
+				if (error instanceof ResponseError && error.code === PENDING_RESPONSE_REJECTED_CODE) {
+					// 关闭 dispose 的库内拒绝（-32097）：以关闭原因立即 reject。
+					return Promise.reject(this.closeError ?? new Error(ERROR_CONNECTION_HAS_BEEN_CLOSED));
+				}
+				if (error instanceof ResponseError) {
+					return {
+						jsonrpc: JSONRPC_VERSION,
+						id: "",
+						error: { code: error.code, message: error.message },
+					} as ServerMessage;
+				}
+				return Promise.reject(error);
+			},
+		);
 	}
 
 	private async closeWithError(error: Error): Promise<void> {
 		if (this.closed || this.transferred) {
 			return;
 		}
+		this.closeError = error;
 		await this.close();
-		this.rejectPending(error);
-	}
-
-	private rejectPending(error: Error): void {
-		for (const pending of this.pendingRequests.values()) {
-			clearTimeout(pending.timer);
-			pending.reject(error);
-		}
-		this.pendingRequests.clear();
 	}
 }
 

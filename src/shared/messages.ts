@@ -116,6 +116,8 @@ export const ERROR_UNEXPECTED_CLAIM_RESPONSE = "Unexpected PiTavern Character cl
 export const ERROR_UNEXPECTED_BOARD_WRITE_RESPONSE = "Unexpected PiTavern board_write response";
 /** 意外 board_query 响应（客户端断言）。 */
 export const ERROR_UNEXPECTED_BOARD_QUERY_RESPONSE = "Unexpected PiTavern board_query response";
+/** 意外 get_chat_history_file 响应（客户端断言）。 */
+export const ERROR_UNEXPECTED_CHAT_HISTORY_FILE_RESPONSE = "Unexpected PiTavern get_chat_history_file response";
 
 /** 连接已关闭（character-runtime 侧断开）。 */
 export const ERROR_CONNECTION_CLOSED = "PiTavern connection closed";
