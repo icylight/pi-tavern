@@ -1,3 +1,5 @@
+> **已归档**：0.1.0 发布验收基线（历史归档，被后续验收文档替代）。本文件不再维护，索引见 docs/README.md。
+
 # 0.1.0 发布验收基线（main @ a25ecce，#93/#94 合入后）
 
 - 日期：2026-08-03（#88 发布定型）
@@ -31,7 +33,7 @@ check（biome + tsc）：0 error + 8 warnings（`characters[N]!` fixture 必要�
 ## J2 双绿结论注记（#85 定案，2026-08-03）
 
 - RPC 面：0.82.1 vs 0.83.0 双版本实测 abort 均不清已入队 steer（pending 1/1/2/2/2 序列一致）；clearQueue 仅 interactive 模式存在、两版本触发面同构；176 commits 零 abort/queue 变更 → **双绿，上游 issue 路径关闭**
-- 方向②不实施（Arch 评审定案：RPC 面无盲区、interactive 面结构性不可演练、触发概率极低）；BC-20 独立落库为已知边界（docs/boundary-conditions.md）
+- 方向②不实施（Arch 评审定案：RPC 面无盲区、interactive 面结构性不可演练、触发概率极低）；BC-20 独立落库为已知边界（docs/architecture/boundary-conditions.md）
 - 降级钉测：acceptance/j2-rpc-abort-no-loss.test.ts（0→1→abort→1→2 完整序列，防 abort 清队 + 队列锁死双回归）
 
 ## 废弃标注

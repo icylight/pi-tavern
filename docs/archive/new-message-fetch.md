@@ -1,3 +1,5 @@
+> **已归档**：被 #64 拉取模型与验收 A1 增量拉取覆盖（docs/development/acceptance.md）。本文件不再维护，索引见 docs/README.md。
+
 # 需求：角色获取新消息的交互调整（推送 + 拉取混合）
 
 > 状态：**历史决策记录**——#24 方案已实施；当前忙态口径由 ADR-0008 超驰：通知只排隐藏 steer 打断令牌，安全边界 abort，settle 后拉全并以 followUp 重开。本文中“忙态立即拉取正文并 steer 投递”的描述均不再适用。
@@ -7,7 +9,7 @@
 
 ## 1. 背景与动机
 
-现状（`docs/group-chat-input.md`）：服务端 WebSocket **推送**环境消息，角色侧固定 **1 秒 trailing-edge 防抖**后打包成一条 `pi-tavern.group-chat-input` custom_message 投递给当前 pi Agent。
+现状（`docs/architecture/group-chat-input.md`）：服务端 WebSocket **推送**环境消息，角色侧固定 **1 秒 trailing-edge 防抖**后打包成一条 `pi-tavern.group-chat-input` custom_message 投递给当前 pi Agent。
 
 痛点（User 确认，选项 A）：**消息延迟 / 触发时机不满意**。固定防抖被动接收，角色没有"主动获取"的能力。
 
@@ -63,12 +65,12 @@
 
 | 层 | 变更 |
 | --- | --- |
-| 协议层（`docs/websocket-protocol.md`，Dev 属主） | 广播通知化（新消息类型或改造现有广播：通知 + 最近几条 + 最新序号）；新增按序号增量拉取命令 |
+| 协议层（`docs/reference/websocket-protocol.md`，Dev 属主） | 广播通知化（新消息类型或改造现有广播：通知 + 最近几条 + 最新序号）；新增按序号增量拉取命令 |
 | Server 端 | 通知生成（带最新序号与预览）；按 sequence 的增量查询 |
 | 角色侧（`src/character/group-chat-input.ts`） | 去 1 秒防抖；收到广播即拉取；游标持久化；缺口检测；投递时机（当前 run 结束后立即） |
-| 持久化（`docs/persistence.md`，Dev 属主） | 游标存储（角色侧本地，按 group_chat_id） |
-| 验收（`docs/acceptance.md`，PM 属主） | 新增验收标准（见第 7 节方向） |
-| 文档（`docs/group-chat-input.md`） | 输入模型改写（推拉混合） |
+| 持久化（`docs/reference/persistence.md`，Dev 属主） | 游标存储（角色侧本地，按 group_chat_id） |
+| 验收（`docs/development/acceptance.md`，PM 属主） | 新增验收标准（见第 7 节方向） |
+| 文档（`docs/architecture/group-chat-input.md`） | 输入模型改写（推拉混合） |
 
 ## 7. 验收方向（QA 可测性评估已确认，2026-08-01；待写入 acceptance.md）
 

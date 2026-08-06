@@ -1,3 +1,5 @@
+> **已归档**：被 ADR-0008 忙态打断投递固化（docs/architecture/adr/0008）。本文件不再维护，索引见 docs/README.md。
+
 # 忙态打断投递（abort delivery）需求口径
 
 > 状态：**安全边界修正已实现，验收中**（2026-08-05，分支 `feat/abort-interrupt-delivery`）

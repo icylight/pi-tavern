@@ -81,7 +81,7 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 
 ### 新消息获取推拉混合（ISSUE-012 / GitHub #24，需求，方案已冻结，分支 feat/new-message-fetch）
 
-需求与冻结方案见 `docs/new-message-fetch.md`。交互由「服务端推送 + 固定 1 秒防抖」改为推送+拉取混合（微信模型）：广播通知化 + 角色主动增量拉取 + 游标本地持久化 + 缺口检测，不打断当前 run。
+需求与冻结方案见 `docs/archive/new-message-fetch.md`。交互由「服务端推送 + 固定 1 秒防抖」改为推送+拉取混合（微信模型）：广播通知化 + 角色主动增量拉取 + 游标本地持久化 + 缺口检测，不打断当前 run。
 
 1. **A1 增量拉取（闲态窗口 / 忙态 settle 触发，契约修订 #64）**：**闲态**（无 run）收到 `group_chat_update` → 首条标记启动 ≤1s 固定窗口聚合，窗口内 N 条并入（不重置）→ 到期恰好 1 次拉全未读 + 1 次投递（单测 fake timers 精确控时断言）；**忙态**（run 活跃）→ 零中间注入，settle 后立即触发 1 次拉全（N→1，无串行风暴）；窗口仅存于无 run 态，run 开始即取消窗口；
 2. **A2 游标持久化**：收消息 → 游标落盘 → 重启角色进程 → 游标保留、增量从游标后开始（reload.test.ts 先例复用）；投递失败游标不动；
@@ -138,7 +138,7 @@ cd references/pi && npm ci && npm run generate-models --workspace packages/ai
 
 ## macOS 手动验收
 
-平台一致性要求 macOS 与 Linux 使用相同发现与进程校验逻辑（`docs/discovery.md`）。当前自动化套件在 Linux 上运行；macOS 上的手动验收步骤：
+平台一致性要求 macOS 与 Linux 使用相同发现与进程校验逻辑（`docs/architecture/discovery.md`）。当前自动化套件在 Linux 上运行；macOS 上的手动验收步骤：
 
 1. 安装依赖与前置条件（同上）。
 2. 打开两个终端，各启动一个开发 pi：
@@ -156,7 +156,7 @@ scripts/pi-dev.sh --mode rpc
 
 发布前收尾（M0-M7 全完成 + 五层重构 Phase 5 收口 #75；version 0.0.0 → 0.1.0）：
 
-1. **R1 基线合成**：新验收基线文件 docs/acceptance-baseline-0.1.0.md 存在，含三层全量数据（unit 20/20·209 用例·5.73s + integration 13/13·110 用例·8.37s + acceptance 11/11·19 用例·88.76s，合计 ≈102.9s）+ 演进口径表（34/45/83.6s/102.9s）+ J2 双绿注记；旧 34/45 两份标注废弃（不删除，留档）；
+1. **R1 基线合成**：新验收基线文件 docs/archive/acceptance-baseline-0.1.0.md 存在，含三层全量数据（unit 20/20·209 用例·5.73s + integration 13/13·110 用例·8.37s + acceptance 11/11·19 用例·88.76s，合计 ≈102.9s）+ 演进口径表（34/45/83.6s/102.9s）+ J2 双绿注记；旧 34/45 两份标注废弃（不删除，留档）；
 2. **R2 版本与 CHANGELOG**：package.json + package-lock.json version=0.1.0（两处同步）；CHANGELOG 0.1.0 节含全部历史条目（[未发布] 汇入）+ 新增 #91/#93/#94/#95 条目；README/README.en 版本引用 0.1.0 一致（安装/项目状态各两处 + health 命令补充）；
 3. **R3 归档**：refactor-plan.md 状态行更新为「已完成（Phase 1–5 收口归档）」与 ADR-0005 Accepted 一致；creator-runtime 518 行口径注记（427 → 518 = +92 功能回填 #79/#83，结构未变）；
 4. **R4 门禁留痕**：发布前全量门禁 + check 全绿 V0 留痕（命令 | 结果 | hash@层，见 #88 评论区）；

@@ -2,7 +2,7 @@
 
 - 状态：**Accepted**（2026-08-02，User 批准 #38 四项：口径 A/秒级延迟/分支名/复用 #38；落 feat/issue-38-live-delivery 分支）
 - 决策者：架构师（契约定稿/评审）、开发工程师（实现）、产品经理（口径裁决/Task Brief）、测试工程师（验收 T1-T4）
-- 关联：GitHub #38（角色发言同步延迟）、M7 A5（投递时机）、docs/new-message-fetch.md §3 采访决策 #3/#4、ADR-0003（不受本修订影响，见「与 ADR-0003 的关系」）
+- 关联：GitHub #38（角色发言同步延迟）、M7 A5（投递时机）、docs/archive/new-message-fetch.md §3 采访决策 #3/#4、ADR-0003（不受本修订影响，见「与 ADR-0003 的关系」）
 
 ## 背景
 

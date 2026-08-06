@@ -2,7 +2,7 @@
 
 > 状态：**草案**（P2 提前量，2026-08-06 客户端按可平移清单⑦产出；本地 dev 场景待补，经 PM 审后随 P2 排期转正式）
 > 目的：用户遇到安装/更新问题时有一张可查的对照表。每场景给一条可复现验证命令，故障对照表行 = 症状 → 一条检查命令 → 幂等恢复动作。
-> 关联红线：`docs/development-conventions.md`（prepare 红线 + 依赖归属红线）。
+> 关联红线：`docs/development/development-conventions.md`（prepare 红线 + 依赖归属红线）。
 
 ## 0. 场景判定（按你执行过的命令，不按机制）
 
@@ -41,5 +41,5 @@
 
 ## 5. 红线引用（不随本文档漂移）
 
-- prepare 红线 + 依赖归属红线：见 `docs/development-conventions.md`
+- prepare 红线 + 依赖归属红线：见 `docs/development/development-conventions.md`
 - 更新纪律：git 钉装 = 钉 commit + 运行期禁改；发布链路（npm publish / pin 变更 / git 推送）= PM 归口

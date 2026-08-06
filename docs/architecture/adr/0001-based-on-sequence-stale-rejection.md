@@ -1,6 +1,6 @@
 # ADR-0001：发言前落后校验（based_on_sequence / stale 拒绝）
 
-- 状态：**Accepted**（2026-08-01 冻结于 `docs/websocket-protocol.md`，PR #30 实现并验收）
+- 状态：**Accepted**（2026-08-01 冻结于 `docs/reference/websocket-protocol.md`，PR #30 实现并验收）
 - 决策者：架构师（评审）、开发工程师（设计实现）、产品经理（需求定稿）、测试工程师（验收）
 - 关联：GitHub ISSUE-013（#28），PR #30；扩展自 M7 增量拉取（`fetch_messages_since`）
 
@@ -46,7 +46,7 @@ speak 响应**不承担**拉取协议：`missing_sequences` 仅为提示，客�
 
 ## 影响面
 
-- **协议**：`docs/websocket-protocol.md` 已冻结（speak 请求/响应结构、stale 响应、`latest_sequence` 语义）。
+- **协议**：`docs/reference/websocket-protocol.md` 已冻结（speak 请求/响应结构、stale 响应、`latest_sequence` 语义）。
 - **实现**：`group-chat-input.ts`（投递路径 A 侧）、speak 校验（服务端）、quota 判定（被拒不计额度）。
 - **兼容性**：`based_on_sequence` 缺省不校验，首版行为完全保留；响应 `reason` 字段首版枚举 `round_limit_reached` / `stale`。
 - **验收**：PR #30 16/16 验收（B2 stale 拒绝全链路、B4 不占额度、B6 连发不误拒、legacy 缺省不校验）。

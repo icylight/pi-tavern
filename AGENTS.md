@@ -1,15 +1,15 @@
 # PiTavern 开发指南
 
 这份文件解释项目为什么这样构建。当某个变更与这些原则冲突时，原则优先。
-操作指南（五方协作全流程、分支纪律、验证留痕）在 `docs/workflow.md`；本文只讲原则与必须加载的上下文。
+操作指南（五方协作全流程、分支纪律、验证留痕）在 `docs/development/workflow.md`；本文只讲原则与必须加载的上下文。
 
 ## 需要加载的上下文
 
 - @README.md — 项目定位、机制、安装
-- @docs/workflow.md — 五方协作规范（权威，v1.3：默认不跑测试）
-- @docs/terminology.md — 规范术语（群聊/角色卡/讨论轮次/发言上限/举手）
-- @docs/acceptance.md — 验收标准（功能"完成"的唯一判据）
-- @docs/refactor-plan.md — 五层架构重构计划与裁决留痕（结构演进中，以它为准）
+- @docs/development/workflow.md — 五方协作规范（权威，v1.3：默认不跑测试）
+- @docs/reference/terminology.md — 规范术语（群聊/角色卡/讨论轮次/发言上限/举手）
+- @docs/development/acceptance.md — 验收标准（功能"完成"的唯一判据）
+- @docs/development/refactor-plan.md — 五层架构重构计划与裁决留痕（结构演进中，以它为准）
 
 ## 项目是什么
 
@@ -17,12 +17,12 @@ PiTavern 是 pi-coding-agent 的本地扩展：多个独立 pi session 以 Chara
 
 ## 核心原则
 
-1. **五方角色协作**：PM（做什么/验收标准）、后端/客户端（实现）、Arch（架构评审 + code review）、QA（测试与验收）。文件所有权表与 git 纪律见 `docs/workflow.md`——改文件前先查属主，非属主默认只读；git 写操作（commit/push/PR/merge/分支）统一由 PM 执行，push 须 User 审批，任何人不得自行 merge。
-2. **验收驱动**：功能声称"完成"必须以 `docs/acceptance.md` 与 `docs/implementation-plan.md`（M0–M6）中的可验证标准为准，不是口头承诺或代码现状。
+1. **五方角色协作**：PM（做什么/验收标准）、后端/客户端（实现）、Arch（架构评审 + code review）、QA（测试与验收）。文件所有权表与 git 纪律见 `docs/development/workflow.md`——改文件前先查属主，非属主默认只读；git 写操作（commit/push/PR/merge/分支）统一由 PM 执行，push 须 User 审批，任何人不得自行 merge。
+2. **验收驱动**：功能声称"完成"必须以 `docs/development/acceptance.md` 与 `docs/development/implementation-plan.md`（M0–M6）中的可验证标准为准，不是口头承诺或代码现状。
 3. **契约零漂移**：`src/protocol/` 的 wire schema 默认零改动；任何协议/持久化/schema 变更必须先声明影响面、五方确认后再改。
 4. **验证默认不跑**（门卫机制）：测试命令无参 = exit 1 拒绝（提示"这是拒绝不是失败"）。日常验证必须显式指定目标：`npm run test:unit -- <pattern>`（unit/integration/acceptance 同规，pattern = 文件或目录）；层内全量用 `-- --all`；收口门禁用 `npm run test:full`（三层串行）。跑测试前 `git status` + `git rev-parse HEAD` 确认分支与工作区。
 5. **五层依赖方向**（`npm run lint:layers` 强制，不得破坏）：adapter（index.ts 组合根 / commands / headless / extension / ui）禁 import skills 行为面；application（controller / 各 pipelines）禁 node:fs；runtime 禁直连 node:fs（creator-factory 与组合根豁免）。纯类型与纯路径函数豁免。
-6. **术语纪律**：使用 `docs/terminology.md` 规范术语，不使用"房间"等非规范表达。
+6. **术语纪律**：使用 `docs/reference/terminology.md` 规范术语，不使用"房间"等非规范表达。
 
 ## 技术原则
 

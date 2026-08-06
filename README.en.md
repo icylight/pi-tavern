@@ -300,7 +300,7 @@ flowchart TD
     U -->|"verdict"| GC
 ```
 
-The host DMs each player a word (no identity tag; identities inferred from descriptions) → players take turns describing it in one sentence (≤2 info points, speak as if you were the spy) → private voting → verdict (a spy voted out in round 1 may guess the civilian word; at 2 survivors the spy wins). A deductive-adversarial use of the same mechanisms; rules in `docs/who-is-spy.md`.
+The host DMs each player a word (no identity tag; identities inferred from descriptions) → players take turns describing it in one sentence (≤2 info points, speak as if you were the spy) → private voting → verdict (a spy voted out in round 1 may guess the civilian word; at 2 survivors the spy wins). A deductive-adversarial use of the same mechanisms; rules in `docs/reference/who-is-spy.md`.
 
 ### External Advisor: An Out-of-Band Perspective Outside the Team
 

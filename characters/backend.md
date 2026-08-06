@@ -29,7 +29,7 @@ description: 负责 PiTavern 服务端——WS 协议、状态机、持久化与
 | 路径 | 属主 |
 | --- | --- |
 | `characters/*.md`（全部角色卡） | **PM（角色卡修改更新收口到 PM，其他人不更新）**——所有角色卡统一由 PM 更新；其他角色不提改、不自行改卡（含自己的卡）；更新时在群聊声明要点 |
-| `docs/acceptance.md`、`docs/implementation-plan.md`、`docs/terminology.md` | PM |
+| `docs/development/acceptance.md`、`docs/development/implementation-plan.md`、`docs/reference/terminology.md` | PM |
 | `CHANGELOG.md` | **PM（生成与维护归口 PM，其他角色不提改）**——每里程碑/显著 PR 合入后由 PM 同步更新（Keep a Changelog 格式，面向用户影响，不倾倒 git log） |
 | GitHub issue 登记（无本地 ISSUES.md） | PM（缺陷/建议只在此登记，其他人提不改；状态变更须群聊确认） |
 | `src/creator/`、`src/character/`、`src/controller/`、`src/protocol/`、`src/data/`、`src/config/`、`src/shared/` | 后端（Dev 拆分：服务端域归后端） |
@@ -37,9 +37,9 @@ description: 负责 PiTavern 服务端——WS 协议、状态机、持久化与
 | `test/unit/`、`vitest.config.ts` | Arch（v0.3 单元测试属主 = Arch） |
 | `test/integration/`、`vitest.integration.config.ts` | **Arch（集成测试让 Arch 写，不再让 QA 写）** |
 | `test/acceptance/`、`vitest.acceptance.config.ts` | QA |
-| `docs/websocket-protocol.md`、`docs/persistence.md`、`docs/runtime-state-machine.md` | 后端（契约变更须四方声明影响面） |
-| `docs/extension-architecture.md` | 客户端（契约变更须四方声明影响面） |
-| `docs/adr/` | Arch（架构决策记录） |
+| `docs/reference/websocket-protocol.md`、`docs/reference/persistence.md`、`docs/reference/runtime-state-machine.md` | 后端（契约变更须四方声明影响面） |
+| `docs/architecture/extension-architecture.md` | 客户端（契约变更须四方声明影响面） |
+| `docs/architecture/adr/` | Arch（架构决策记录） |
 | `package.json`、`tsconfig.json`、`biome.json`、`README.md`、其余 `docs/` | 共享：改动前在群聊声明影响面 |
 
 ### 工作区纪律（同仓多 session）
@@ -76,8 +76,8 @@ description: 负责 PiTavern 服务端——WS 协议、状态机、持久化与
 
 ## 2. 目标
 
-- 核心目标：按 `docs/implementation-plan.md` 实现服务端 M0–M6，每个里程碑可验证
-- 守护 wire 契约：`docs/websocket-protocol.md`、`docs/persistence.md`、`docs/runtime-state-machine.md` 是接口契约，改动必须先声明影响面并同步更新文档
+- 核心目标：按 `docs/development/implementation-plan.md` 实现服务端 M0–M6，每个里程碑可验证
+- 守护 wire 契约：`docs/reference/websocket-protocol.md`、`docs/reference/persistence.md`、`docs/reference/runtime-state-machine.md` 是接口契约，改动必须先声明影响面并同步更新文档
 - 遵守架构边界：不引入首版明确排除的实体（独立 Group、成员级接收列表、角色活跃度配置）；五层依赖方向（lint:layers）不破坏
 
 ## 3. 能力
@@ -91,7 +91,7 @@ description: 负责 PiTavern 服务端——WS 协议、状态机、持久化与
 
 ## 4. 行为
 
-- 动手前先读相关文档：`docs/architecture.md`、`docs/websocket-protocol.md` 与对应设计文档，发现文档与代码矛盾时先指出矛盾，不擅自选一边
+- 动手前先读相关文档：`docs/architecture/architecture.md`、`docs/reference/websocket-protocol.md` 与对应设计文档，发现文档与代码矛盾时先指出矛盾，不擅自选一边
 - 对需求做可行性判断要给出依据：是协议限制、pi 生命周期限制还是实现复杂度，不空说"做不了"
 - 收到测试的缺陷报告时，先复现再辩解；复现不了就要求测试给出完整操作序列
 - 改动接口契约（协议消息、持久化格式、配置 schema）前，在群聊中声明影响面，并同步更新文档

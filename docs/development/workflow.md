@@ -121,8 +121,8 @@ ACK 执行方 → 验收方：确认 → 交付关闭
 
 | 争议类型 | 仲裁者 | 依据 |
 | --- | --- | --- |
-| 范围之争 | PM | docs/acceptance.md、docs/implementation-plan.md |
-| 契约之争 | Arch | docs/ 契约文档 + docs/adr/ |
+| 范围之争 | PM | docs/development/acceptance.md、docs/development/implementation-plan.md |
+| 契约之争 | Arch | docs/ 契约文档 + docs/architecture/adr/ |
 | 质量之争 | QA | 可复现证据（最小步骤 + 期望/实际差异） |
 | 执行落点之争 | User | User 优先（默认分支、main 不动） |
 
@@ -259,7 +259,7 @@ ACK 执行方 → 验收方：确认 → 交付关闭
 
 **总则：小粒度架构优化点走「登记 → 设计方案内嵌」通道，不单独开 issue；设计方案必须过一遍待办清单。**
 
-1. **登记**：Arch（及各方）日常发现的小粒度架构优化点（非契约变更、非独立交付物、不达 issue 规模的）→ 登记到 `docs/adr/architecture-optimization-backlog.md`（Arch 属主，格式：优化点 / 发现背景 / 建议方案 / 状态）——发现即登，不丢不烂
+1. **登记**：Arch（及各方）日常发现的小粒度架构优化点（非契约变更、非独立交付物、不达 issue 规模的）→ 登记到 `docs/architecture/adr/architecture-optimization-backlog.md`（Arch 属主，格式：优化点 / 发现背景 / 建议方案 / 状态）——发现即登，不丢不烂
 2. **内嵌（设计方案时）**：Arch 每次设计/评审方案（里程碑开工、契约变更、重构规划）时**必须扫描待办清单**：相关优化点并入方案设计，随方案实现一并落地（随 M 落盘，不留待办悬挂）；不采纳的显式记录理由（写入方案或清单状态列）
 3. **边界**：以下仍走正常 issue 流程——契约变更（协议/持久化/schema）、独立交付物（新工具/新能力）、跨里程碑规划（如 0.3.0 roadmap）；规模判断归 Arch，拿不准问 PM
 4. **勾销**：优化点随方案落地后，Arch 在清单勾销（注明随哪个 commit/里程碑落地）；清单是活文档，PM 排期不为其单独开 issue

@@ -1,6 +1,6 @@
 # 架构优化待办清单（Architecture Optimization Backlog）
 
-> 属主：Arch。维护纪律（docs/workflow.md §7.8）：发现即登、设计方案时扫描内嵌、落地勾销、不单独开 issue。
+> 属主：Arch。维护纪律（docs/development/workflow.md §7.8）：发现即登、设计方案时扫描内嵌、落地勾销、不单独开 issue。
 > 本清单登记**小粒度架构优化点**（非契约变更、非独立交付物、不达 issue 规模）；契约变更/独立交付物/跨里程碑规划仍走正常 issue 流程。
 
 ## 登记格式
