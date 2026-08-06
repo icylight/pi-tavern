@@ -15,6 +15,7 @@ import { decodeServerMessage, encodeMessage } from "../../../src/protocol/codec.
  *  ① 新增角色卡 join 可见（loadCharacters 返回扩展清单 → available_characters 含新卡）
  *  ② name/description 变更 leave→join 成功（claim 响应返回新摘要，不抛旧快照校验错）
  *  ③ 重扫失败优雅降级（loadCharacters reject / 空结果 → 回退旧快照，join 仍可用）
+ * #119 M1/M2：信封迁移（请求 {jsonrpc,id,method,params}、响应 result）。
  */
 
 const temporaryDirectories: string[] = [];
@@ -142,14 +143,17 @@ describe("#25 CreatorRuntime character list lazy refresh", () => {
 		});
 		const peer = await connectPeer(runtime);
 
-		peer.send({ id: "join", type: "join_group_chat", session_id: "session-1" });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "join",
+			method: "join_group_chat",
+			params: { session_id: "session-1" },
+		});
 		const response = await peer.next();
 		expect(response).toMatchObject({
+			jsonrpc: "2.0",
 			id: "join",
-			type: "response",
-			command: "join_group_chat",
-			success: true,
-			data: {
+			result: {
 				available_characters: [architect, developer, qaCard].map(toSummaryMessage),
 			},
 		});
@@ -162,17 +166,25 @@ describe("#25 CreatorRuntime character list lazy refresh", () => {
 		});
 		const peer = await connectPeer(runtime);
 
-		peer.send({ id: "join", type: "join_group_chat", session_id: "session-1" });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "join",
+			method: "join_group_chat",
+			params: { session_id: "session-1" },
+		});
 		await peer.next();
 
-		peer.send({ id: "claim", type: "claim_character", character_id: qaCard.characterId });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "claim",
+			method: "claim_character",
+			params: { character_id: qaCard.characterId },
+		});
 		const claimResponse = await peer.next();
 		expect(claimResponse).toMatchObject({
+			jsonrpc: "2.0",
 			id: "claim",
-			type: "response",
-			command: "claim_character",
-			success: true,
-			data: {
+			result: {
 				character: {
 					...toSummaryMessage(qaCard),
 					path: qaCard.path,
@@ -190,13 +202,23 @@ describe("#25 CreatorRuntime character list lazy refresh", () => {
 		});
 		const peer = await connectPeer(runtime);
 
-		peer.send({ id: "join", type: "join_group_chat", session_id: "session-1" });
-		const joinResponse = (await peer.next()) as { data: { available_characters: Array<{ name: string }> } };
-		expect(joinResponse.data.available_characters.find((c) => c.name === "Architect v2")).toBeDefined();
+		peer.send({
+			jsonrpc: "2.0",
+			id: "join",
+			method: "join_group_chat",
+			params: { session_id: "session-1" },
+		});
+		const joinResponse = (await peer.next()) as { result: { available_characters: Array<{ name: string }> } };
+		expect(joinResponse.result.available_characters.find((c) => c.name === "Architect v2")).toBeDefined();
 
-		peer.send({ id: "claim", type: "claim_character", character_id: architect.characterId });
-		const claimResponse = (await peer.next()) as { data: { character: { name: string; description: string } } };
-		expect(claimResponse.data.character).toMatchObject({
+		peer.send({
+			jsonrpc: "2.0",
+			id: "claim",
+			method: "claim_character",
+			params: { character_id: architect.characterId },
+		});
+		const claimResponse = (await peer.next()) as { result: { character: { name: string; description: string } } };
+		expect(claimResponse.result.character).toMatchObject({
 			name: "Architect v2",
 			description: "Architecture v2",
 		});
@@ -211,14 +233,17 @@ describe("#25 CreatorRuntime character list lazy refresh", () => {
 		});
 		const peer = await connectPeer(runtime);
 
-		peer.send({ id: "join", type: "join_group_chat", session_id: "session-1" });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "join",
+			method: "join_group_chat",
+			params: { session_id: "session-1" },
+		});
 		const response = await peer.next();
 		expect(response).toMatchObject({
+			jsonrpc: "2.0",
 			id: "join",
-			type: "response",
-			command: "join_group_chat",
-			success: true,
-			data: {
+			result: {
 				available_characters: [architect, developer].map(toSummaryMessage),
 			},
 		});
@@ -231,14 +256,17 @@ describe("#25 CreatorRuntime character list lazy refresh", () => {
 		});
 		const peer = await connectPeer(runtime);
 
-		peer.send({ id: "join", type: "join_group_chat", session_id: "session-1" });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "join",
+			method: "join_group_chat",
+			params: { session_id: "session-1" },
+		});
 		const response = await peer.next();
 		expect(response).toMatchObject({
+			jsonrpc: "2.0",
 			id: "join",
-			type: "response",
-			command: "join_group_chat",
-			success: true,
-			data: {
+			result: {
 				available_characters: [architect, developer].map(toSummaryMessage),
 			},
 		});
@@ -248,14 +276,17 @@ describe("#25 CreatorRuntime character list lazy refresh", () => {
 		const runtime = await startRuntime({ characters: [architect, developer] });
 		const peer = await connectPeer(runtime);
 
-		peer.send({ id: "join", type: "join_group_chat", session_id: "session-1" });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "join",
+			method: "join_group_chat",
+			params: { session_id: "session-1" },
+		});
 		const response = await peer.next();
 		expect(response).toMatchObject({
+			jsonrpc: "2.0",
 			id: "join",
-			type: "response",
-			command: "join_group_chat",
-			success: true,
-			data: {
+			result: {
 				available_characters: [architect, developer].map(toSummaryMessage),
 			},
 		});
@@ -273,17 +304,32 @@ describe("#25 CreatorRuntime character list lazy refresh", () => {
 		const peer = await connectPeer(runtime);
 
 		// get_message_history 不应触发刷新
-		peer.send({ id: "history", type: "get_message_history" });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "history",
+			method: "get_message_history",
+			params: {},
+		});
 		await peer.next();
 		expect(refreshCount).toBe(0);
 
 		// join 触发一次
-		peer.send({ id: "join", type: "join_group_chat", session_id: "session-1" });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "join",
+			method: "join_group_chat",
+			params: { session_id: "session-1" },
+		});
 		await peer.next();
 		expect(refreshCount).toBe(1);
 
 		// claim 再触发一次
-		peer.send({ id: "claim", type: "claim_character", character_id: architect.characterId });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "claim",
+			method: "claim_character",
+			params: { character_id: architect.characterId },
+		});
 		await peer.next();
 		expect(refreshCount).toBe(2);
 	});

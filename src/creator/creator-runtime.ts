@@ -11,7 +11,12 @@ import type { SessionStore } from "../data/session-store.js";
 import type { ClientMessage } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 import { CHARACTER_REFRESH_TIMEOUT_MS } from "../shared/constants.js";
-import { ERROR_CHARACTER_REFRESH_TIMED_OUT } from "../shared/messages.js";
+import {
+	ERROR_CHARACTER_REFRESH_TIMED_OUT,
+	METHOD_CLAIM_CHARACTER,
+	METHOD_GET_GROUP_CHAT_STATE,
+	METHOD_JOIN_GROUP_CHAT,
+} from "../shared/messages.js";
 import type { RuntimeCloseReason, RuntimeCloseResult } from "../shared/runtime-close.js";
 import { BroadcastHub } from "./broadcast-hub.js";
 import { type ConnectionContext, ConnectionManager } from "./connection-manager.js";
@@ -445,9 +450,9 @@ export class CreatorRuntime {
 		// #25：角色清单入口（join 的 available_characters / claim 的摘要 /
 		// query 的群聊状态）前懒刷新，失败由 refreshCharacters 内部回退旧快照。
 		if (
-			message.type === "join_group_chat" ||
-			message.type === "claim_character" ||
-			message.type === "get_group_chat_state"
+			message.method === METHOD_JOIN_GROUP_CHAT ||
+			message.method === METHOD_CLAIM_CHARACTER ||
+			message.method === METHOD_GET_GROUP_CHAT_STATE
 		) {
 			await this.refreshCharacters();
 		}

@@ -2,21 +2,9 @@ import WebSocket from "ws";
 import type { CharacterSummary } from "../config/character-card.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
 import { encodeMessage } from "../protocol/codec.js";
+import { JSONRPC_VERSION } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
-
-export type FailureCommand =
-	| "join_group_chat"
-	| "claim_character"
-	| "character_ready"
-	| "leave_group_chat"
-	| "get_group_chat_state"
-	| "get_message_history"
-	| "fetch_messages_since"
-	| "get_chat_history_file"
-	| "speak"
-	// 白板模型（#114）：新消息失败通道 = union 加新命令成员（与 messages.ts 同步增量）。
-	| "board_write"
-	| "board_query";
+import { METHOD_GROUP_CHAT_UPDATE, METHOD_PUBLIC_MESSAGE, type ProtocolErrorCode } from "../shared/messages.js";
 
 export interface BroadcastHubOptions {
 	/** 群聊状态对象（骨架持有实体，只读引用注入）。 */
@@ -72,13 +60,14 @@ export class BroadcastHub {
 		};
 	}
 
-	sendFailure(socket: WebSocket, id: string | undefined, command: FailureCommand, error: string): void {
+	sendFailure(socket: WebSocket, id: string | undefined, code: ProtocolErrorCode, message: string): void {
 		this.send(socket, {
 			...(id !== undefined ? { id } : {}),
-			type: "response",
-			command,
-			success: false,
-			error,
+			jsonrpc: JSONRPC_VERSION,
+			error: {
+				code,
+				message,
+			},
 		});
 	}
 
@@ -114,26 +103,35 @@ export class BroadcastHub {
 		// 因此不会用本通知承载成员、流式状态或白板变化。
 		if (!latest) {
 			this.broadcast({
-				type: "group_chat_update",
-				latest_sequence: 0,
-				preview_messages: [],
-				total_messages: 0,
+				jsonrpc: JSONRPC_VERSION,
+				method: METHOD_GROUP_CHAT_UPDATE,
+				params: {
+					latest_sequence: 0,
+					preview_messages: [],
+					total_messages: 0,
+				},
 			});
 			return;
 		}
 		this.broadcast({
-			type: "group_chat_update",
-			latest_sequence: latest.sequence,
-			preview_messages: messages.slice(-3).map((m) => ({
-				type: "public_message" as const,
-				event_id: m.event_id,
-				sequence: m.sequence,
-				timestamp: m.timestamp,
-				sender: m.sender,
-				content: m.content,
-				round: m.round,
-			})),
-			total_messages: messages.length,
+			jsonrpc: JSONRPC_VERSION,
+			method: METHOD_GROUP_CHAT_UPDATE,
+			params: {
+				latest_sequence: latest.sequence,
+				preview_messages: messages.slice(-3).map((m) => ({
+					jsonrpc: JSONRPC_VERSION,
+					method: METHOD_PUBLIC_MESSAGE,
+					params: {
+						event_id: m.event_id,
+						sequence: m.sequence,
+						timestamp: m.timestamp,
+						sender: m.sender,
+						content: m.content,
+						round: m.round,
+					},
+				})),
+				total_messages: messages.length,
+			},
 		});
 	}
 }

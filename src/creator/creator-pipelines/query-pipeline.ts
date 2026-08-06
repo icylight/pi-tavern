@@ -2,9 +2,16 @@ import type WebSocket from "ws";
 import { decodeCursor, encodeCursor } from "../../data/cursor-store.js";
 import type { GroupChatState } from "../../data/group-chat-state.js";
 import type { SessionStore } from "../../data/session-store.js";
-import type { ClientMessage } from "../../protocol/messages.js";
+import { JSONRPC_VERSION, type ClientMessage } from "../../protocol/messages.js";
 import type { PublicMessageState } from "../../protocol/public-message-state.js";
-import { ERROR_NO_CHAT_HISTORY_FILE, ERROR_NOT_IN_GROUP_CHAT } from "../../shared/messages.js";
+import {
+	ERROR_CODE_NO_CHAT_HISTORY,
+	ERROR_CODE_NOT_IN_GROUP,
+	ERROR_NO_CHAT_HISTORY_FILE,
+	ERROR_NOT_IN_GROUP_CHAT,
+	METHOD_PUBLIC_MESSAGE,
+	type ProtocolErrorCode,
+} from "../../shared/messages.js";
 
 /** 查询族消息类型（门面方法各自收窄）。 */
 export type QueryConnectionLike = {
@@ -23,7 +30,7 @@ export interface QueryPipelineDependencies {
 	sendFailure: (
 		socket: WebSocket,
 		id: string | undefined,
-		command: "get_group_chat_state" | "get_message_history" | "fetch_messages_since" | "get_chat_history_file",
+		code: ProtocolErrorCode,
 		reason: string,
 	) => void;
 	onMembersChanged: (() => void) | undefined;
@@ -40,28 +47,26 @@ export class QueryPipeline {
 	runGetGroupChatState(
 		socket: WebSocket,
 		connection: QueryConnectionLike,
-		message: Extract<ClientMessage, { type: "get_group_chat_state" }>,
+		message: Extract<ClientMessage, { method: "get_group_chat_state" }>,
 	): void {
 		if (!connection.online || connection.sessionId === null) {
-			this.deps.sendFailure(socket, message.id, "get_group_chat_state", ERROR_NOT_IN_GROUP_CHAT);
+			this.deps.sendFailure(socket, message.id, ERROR_CODE_NOT_IN_GROUP, ERROR_NOT_IN_GROUP_CHAT);
 			return;
 		}
 		this.deps.send(socket, {
 			...(message.id !== undefined ? { id: message.id } : {}),
-			type: "response",
-			command: "get_group_chat_state",
-			success: true,
-			data: this.deps.getGroupChatStateMessage(connection.sessionId),
+			jsonrpc: JSONRPC_VERSION,
+			result: this.deps.getGroupChatStateMessage(connection.sessionId),
 		});
 	}
 
 	runGetMessageHistory(
 		socket: WebSocket,
 		connection: QueryConnectionLike,
-		message: Extract<ClientMessage, { type: "get_message_history" }>,
+		message: Extract<ClientMessage, { method: "get_message_history" }>,
 	): void {
 		if (!connection.online || connection.sessionId === null) {
-			this.deps.sendFailure(socket, message.id, "get_message_history", ERROR_NOT_IN_GROUP_CHAT);
+			this.deps.sendFailure(socket, message.id, ERROR_CODE_NOT_IN_GROUP, ERROR_NOT_IN_GROUP_CHAT);
 			return;
 		}
 
@@ -69,7 +74,7 @@ export class QueryPipeline {
 		// 新消息不会使其移位。
 		// 注：分页大小保持 10（增量分页粒度）；只有 join 推送窗口用
 		// JOIN_HISTORY_LIMIT（User 2026-08-01）。
-		const cursorSeq = message.cursor === undefined || message.cursor === null ? null : decodeCursor(message.cursor);
+		const cursorSeq = message.params.cursor === undefined || message.params.cursor === null ? null : decodeCursor(message.params.cursor);
 		const page =
 			cursorSeq === null
 				? this.deps.publicMessages.slice(-10)
@@ -79,18 +84,19 @@ export class QueryPipeline {
 
 		this.deps.send(socket, {
 			...(message.id !== undefined ? { id: message.id } : {}),
-			type: "response",
-			command: "get_message_history",
-			success: true,
-			data: {
-				messages: page.map((m) => ({
-					type: "public_message" as const,
-					event_id: m.event_id,
+			jsonrpc: JSONRPC_VERSION,
+			result: {
+				messages: page.map( (m) => ({
+					jsonrpc: JSONRPC_VERSION,
+					method: METHOD_PUBLIC_MESSAGE,
+					params: {
+						event_id: m.event_id,
 					sequence: m.sequence,
 					timestamp: m.timestamp,
-					sender: m.sender,
-					content: m.content,
-					round: m.round,
+						sender: m.sender,
+						content: m.content,
+						round: m.round,
+					},
 				})),
 				cursor: hasMore ? encodeCursor(earliest.sequence) : null,
 				has_more: hasMore,
@@ -102,33 +108,34 @@ export class QueryPipeline {
 	runFetchMessagesSince(
 		socket: WebSocket,
 		connection: QueryConnectionLike,
-		message: Extract<ClientMessage, { type: "fetch_messages_since" }>,
+		message: Extract<ClientMessage, { method: "fetch_messages_since" }>,
 	): void {
 		if (!connection.online || connection.sessionId === null) {
-			this.deps.sendFailure(socket, message.id, "fetch_messages_since", ERROR_NOT_IN_GROUP_CHAT);
+			this.deps.sendFailure(socket, message.id, ERROR_CODE_NOT_IN_GROUP, ERROR_NOT_IN_GROUP_CHAT);
 			return;
 		}
 
 		// 增量拉取（M7/ISSUE-012）：返回客户端游标之后的全部消息。sequence
 		// 过滤天然补洞——漏掉的通知由下一次拉取自愈。
-		const since = message.since_sequence;
+		const since = message.params.since_sequence;
 		const increment = this.deps.publicMessages.filter((m) => m.sequence > since);
 		const latest = this.deps.publicMessages[this.deps.publicMessages.length - 1];
 
 		this.deps.send(socket, {
 			...(message.id !== undefined ? { id: message.id } : {}),
-			type: "response",
-			command: "fetch_messages_since",
-			success: true,
-			data: {
-				messages: increment.map((m) => ({
-					type: "public_message" as const,
-					event_id: m.event_id,
+			jsonrpc: JSONRPC_VERSION,
+			result: {
+				messages: increment.map( (m) => ({
+					jsonrpc: JSONRPC_VERSION,
+					method: METHOD_PUBLIC_MESSAGE,
+					params: {
+						event_id: m.event_id,
 					sequence: m.sequence,
 					timestamp: m.timestamp,
-					sender: m.sender,
-					content: m.content,
-					round: m.round,
+						sender: m.sender,
+						content: m.content,
+						round: m.round,
+					},
 				})),
 				latest_sequence: latest?.sequence ?? since,
 				total_messages: this.deps.publicMessages.length,
@@ -139,10 +146,10 @@ export class QueryPipeline {
 	runGetChatHistoryFile(
 		socket: WebSocket,
 		connection: QueryConnectionLike,
-		message: Extract<ClientMessage, { type: "get_chat_history_file" }>,
+		message: Extract<ClientMessage, { method: "get_chat_history_file" }>,
 	): void {
 		if (!connection.online || connection.sessionId === null) {
-			this.deps.sendFailure(socket, message.id, "get_chat_history_file", ERROR_NOT_IN_GROUP_CHAT);
+			this.deps.sendFailure(socket, message.id, ERROR_CODE_NOT_IN_GROUP, ERROR_NOT_IN_GROUP_CHAT);
 			return;
 		}
 
@@ -150,20 +157,18 @@ export class QueryPipeline {
 		try {
 			path = this.deps.sessionStore.getSessionFilePath();
 		} catch {
-			this.deps.sendFailure(socket, message.id, "get_chat_history_file", ERROR_NO_CHAT_HISTORY_FILE);
+			this.deps.sendFailure(socket, message.id, ERROR_CODE_NO_CHAT_HISTORY, ERROR_NO_CHAT_HISTORY_FILE);
 			return;
 		}
 		// 文件在首次持久化后才存在；SessionManager 在文件写入前可能已知路径。
 		if (this.deps.getPersistedCount() === 0) {
-			this.deps.sendFailure(socket, message.id, "get_chat_history_file", ERROR_NO_CHAT_HISTORY_FILE);
+			this.deps.sendFailure(socket, message.id, ERROR_CODE_NO_CHAT_HISTORY, ERROR_NO_CHAT_HISTORY_FILE);
 			return;
 		}
 		this.deps.send(socket, {
 			...(message.id !== undefined ? { id: message.id } : {}),
-			type: "response",
-			command: "get_chat_history_file",
-			success: true,
-			data: { path },
+			jsonrpc: JSONRPC_VERSION,
+			result: { path },
 		});
 	}
 

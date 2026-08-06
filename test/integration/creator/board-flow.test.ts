@@ -4,6 +4,8 @@
  * 断言口径（09:26 版定案）：wire 层 N 次 applied → N 条 board_update 即时广播
  * （无网络层合并）；changed:false（告知/拒绝）不广播（群聊静默）。
  * 字符侧窗口合并（N 条 → 1 次上下文注入）属 B4 两步断言，本文件不覆盖。
+ * #119 M1/M2：信封迁移——请求 {jsonrpc,id,method,params}、响应 result/error、
+ * 通知 method+params；响应按 id 关联（method 不再出现在响应帧）。
  */
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -168,75 +170,125 @@ async function connectPeer(runtime: CreatorRuntime): Promise<Peer> {
 
 async function joinAndReady(runtime: CreatorRuntime, sessionId: string, characterId: string): Promise<Peer> {
 	const peer = await connectPeer(runtime);
-	peer.send({ id: `join-${sessionId}`, type: "join_group_chat", session_id: sessionId });
-	await peer.waitFor((m) => m.type === "response" && m.command === "join_group_chat" && m.id === `join-${sessionId}`);
-	peer.send({ id: `claim-${sessionId}`, type: "claim_character", character_id: characterId });
-	await peer.waitFor((m) => m.type === "response" && m.command === "claim_character" && m.id === `claim-${sessionId}`);
-	peer.send({ id: `ready-${sessionId}`, type: "character_ready" });
-	await peer.waitFor((m) => m.type === "response" && m.command === "character_ready" && m.id === `ready-${sessionId}`);
+	peer.send({
+		jsonrpc: "2.0",
+		id: `join-${sessionId}`,
+		method: "join_group_chat",
+		params: { session_id: sessionId },
+	});
+	await peer.waitFor((m) => m.id === `join-${sessionId}` && ("result" in m || "error" in m));
+	peer.send({
+		jsonrpc: "2.0",
+		id: `claim-${sessionId}`,
+		method: "claim_character",
+		params: { character_id: characterId },
+	});
+	await peer.waitFor((m) => m.id === `claim-${sessionId}` && ("result" in m || "error" in m));
+	peer.send({ jsonrpc: "2.0", id: `ready-${sessionId}`, method: "character_ready" });
+	await peer.waitFor((m) => m.id === `ready-${sessionId}` && ("result" in m || "error" in m));
 	return peer;
 }
 
-const isBoardUpdate = (m: Record<string, unknown>): boolean => m.type === "board_update";
-const isBoardWriteResponse = (m: Record<string, unknown>): boolean =>
-	m.type === "response" && m.command === "board_write";
+const isBoardUpdate = (m: Record<string, unknown>): boolean => m.method === "board_update";
+/** 响应帧判别（result/error 信封；具体请求种类由调用处的 id 关联）。 */
+const isBoardWriteResponse = (m: Record<string, unknown>): boolean => "result" in m || "error" in m;
 
 describe("B3 白板管线（#114，integration）", () => {
 	it("贴条：响应四态 applied 带 note（id 回带）+ 广播 board_update add", async () => {
 		const runtime = await startRuntime();
 		const peer = await joinAndReady(runtime, "s1", characters[0].characterId);
 
-		peer.send({ id: "w1", type: "board_write", action: "set", note: { content: "第一条" } });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "w1",
+			method: "board_write",
+			params: { action: "set", note: { content: "第一条" } },
+		});
 		const response = await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "w1");
-		const data = response.data as Record<string, unknown>;
-		expect(data.changed).toBe(true);
-		const note = data.note as Record<string, unknown>;
+		const result = response.result as Record<string, unknown>;
+		expect(result.changed).toBe(true);
+		const note = result.note as Record<string, unknown>;
 		expect(typeof note.id).toBe("string");
 		expect(note.content).toBe("第一条");
 
-		const update = await peer.waitFor((m) => isBoardUpdate(m) && m.action === "add");
-		expect(update.actor).toBe(characters[0].characterId);
-		expect(update.note).toEqual({ id: note.id, content: "第一条" });
+		const update = await peer.waitFor(
+			(m) => isBoardUpdate(m) && (m.params as Record<string, unknown>).action === "add",
+		);
+		const updateParams = update.params as Record<string, unknown>;
+		expect(updateParams.actor).toBe(characters[0].characterId);
+		expect(updateParams.note).toEqual({ id: note.id, content: "第一条" });
 		// 无 sequence 字段（不在消息流、无水位语义）。
-		expect("sequence" in update).toBe(false);
+		expect("sequence" in updateParams).toBe(false);
 	});
 
 	it("改条/撕条/清板增量摘要：update·remove 带内容、clear 无 note；N 条 applied → N 条广播", async () => {
 		const runtime = await startRuntime();
 		const peer = await joinAndReady(runtime, "s2", characters[0].characterId);
 
-		peer.send({ id: "w1", type: "board_write", action: "set", note: { content: "待改" } });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "w1",
+			method: "board_write",
+			params: { action: "set", note: { content: "待改" } },
+		});
 		const r1 = await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "w1");
-		const note1 = (r1.data as Record<string, unknown>).note as Record<string, unknown>;
+		const note1 = (r1.result as Record<string, unknown>).note as Record<string, unknown>;
 
 		// edit → action update（响应带新内容，广播同）
-		peer.send({ id: "w2", type: "board_write", action: "set", note: { id: note1.id, content: "改后" } });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "w2",
+			method: "board_write",
+			params: { action: "set", note: { id: note1.id, content: "改后" } },
+		});
 		const r2 = await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "w2");
-		expect((r2.data as Record<string, unknown>).changed).toBe(true);
-		const u2 = await peer.waitFor((m) => isBoardUpdate(m) && m.action === "update");
-		expect(u2.note).toEqual({ id: note1.id, content: "改后" });
+		expect((r2.result as Record<string, unknown>).changed).toBe(true);
+		const u2 = await peer.waitFor(
+			(m) => isBoardUpdate(m) && (m.params as Record<string, unknown>).action === "update",
+		);
+		expect((u2.params as Record<string, unknown>).note).toEqual({ id: note1.id, content: "改后" });
 
 		// remove → 广播携带被撕条完整内容（id + content）；响应不带 note
-		peer.send({ id: "w3", type: "board_write", action: "remove", note: { id: note1.id } });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "w3",
+			method: "board_write",
+			params: { action: "remove", note: { id: note1.id } },
+		});
 		const r3 = await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "w3");
-		expect((r3.data as Record<string, unknown>).changed).toBe(true);
-		expect((r3.data as Record<string, unknown>).note).toBeUndefined();
-		const u3 = await peer.waitFor((m) => isBoardUpdate(m) && m.action === "remove");
-		expect(u3.note).toEqual({ id: note1.id, content: "改后" });
+		expect((r3.result as Record<string, unknown>).changed).toBe(true);
+		expect((r3.result as Record<string, unknown>).note).toBeUndefined();
+		const u3 = await peer.waitFor(
+			(m) => isBoardUpdate(m) && (m.params as Record<string, unknown>).action === "remove",
+		);
+		expect((u3.params as Record<string, unknown>).note).toEqual({ id: note1.id, content: "改后" });
 
 		// 再贴一张 → clear（非空板 applied，广播无 note）
-		peer.send({ id: "w4", type: "board_write", action: "set", note: { content: "第二张" } });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "w4",
+			method: "board_write",
+			params: { action: "set", note: { content: "第二张" } },
+		});
 		await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "w4");
-		peer.send({ id: "w5", type: "board_write", action: "clear" });
+		peer.send({ jsonrpc: "2.0", id: "w5", method: "board_write", params: { action: "clear" } });
 		const r5 = await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "w5");
-		expect((r5.data as Record<string, unknown>).changed).toBe(true);
-		expect((r5.data as Record<string, unknown>).note).toBeUndefined();
-		const u5 = await peer.waitFor((m) => isBoardUpdate(m) && m.action === "clear");
-		expect(u5.note).toBeUndefined();
+		expect((r5.result as Record<string, unknown>).changed).toBe(true);
+		expect((r5.result as Record<string, unknown>).note).toBeUndefined();
+		const u5 = await peer.waitFor(
+			(m) => isBoardUpdate(m) && (m.params as Record<string, unknown>).action === "clear",
+		);
+		expect((u5.params as Record<string, unknown>).note).toBeUndefined();
 
 		// wire 层即时广播：5 次 applied → 5 条 board_update（顺序一致，无合并）
 		const updates = peer.allFrames().filter((m) => isBoardUpdate(m));
-		expect(updates.map((m) => m.action)).toEqual(["add", "update", "remove", "add", "clear"]);
+		expect(updates.map((m) => (m.params as Record<string, unknown>).action)).toEqual([
+			"add",
+			"update",
+			"remove",
+			"add",
+			"clear",
+		]);
 	});
 
 	it("告知/拒绝：changed:false 群聊静默（不广播 board_update）", async () => {
@@ -245,15 +297,25 @@ describe("B3 白板管线（#114，integration）", () => {
 		const updateCountBefore = peer.allFrames().filter((m) => isBoardUpdate(m)).length;
 
 		// remove 不存在 = 告知码 note_not_found（changed:false 不广播）
-		peer.send({ id: "w1", type: "board_write", action: "remove", note: { id: "ghost" } });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "w1",
+			method: "board_write",
+			params: { action: "remove", note: { id: "ghost" } },
+		});
 		const r1 = await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "w1");
-		expect(r1.data).toEqual({ changed: false, code: "note_not_found" });
+		expect(r1.result).toEqual({ changed: false, code: "note_not_found" });
 		await new Promise((resolveSleep) => setTimeout(resolveSleep, 150));
 		expect(peer.allFrames().filter((m) => isBoardUpdate(m))).toHaveLength(updateCountBefore);
 
 		// 5 条 applied set（各广播 1 条 add——wire 层 N→N；唯一 id 逐个确认）
 		for (let i = 0; i < 5; i++) {
-			peer.send({ id: `ws${i}`, type: "board_write", action: "set", note: { content: `条${i}` } });
+			peer.send({
+				jsonrpc: "2.0",
+				id: `ws${i}`,
+				method: "board_write",
+				params: { action: "set", note: { content: `条${i}` } },
+			});
 			await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === `ws${i}`);
 		}
 		const afterApplied = peer.allFrames().filter((m) => isBoardUpdate(m)).length;
@@ -269,29 +331,44 @@ describe("B3 白板管线（#114，integration）", () => {
 		const a = await joinAndReady(runtime, "sa", characters[0].characterId);
 		const b = await joinAndReady(runtime, "sb", characters[1].characterId);
 
-		a.send({ id: "wa", type: "board_write", action: "set", note: { content: "A 的" } });
+		a.send({
+			jsonrpc: "2.0",
+			id: "wa",
+			method: "board_write",
+			params: { action: "set", note: { content: "A 的" } },
+		});
 		await peerBoardWriteResponse(a, "wa");
 
-		b.send({ id: "wb", type: "board_write", action: "set", note: { content: "B 的" } });
+		b.send({
+			jsonrpc: "2.0",
+			id: "wb",
+			method: "board_write",
+			params: { action: "set", note: { content: "B 的" } },
+		});
 		await peerBoardWriteResponse(b, "wb");
 
 		// 先查 B 的条 id（隔离断言需要 B 的真实 id）
-		a.send({ id: "wq", type: "board_query" });
+		a.send({ jsonrpc: "2.0", id: "wq", method: "board_query" });
 		const query = await peerBoardQuery(a, "wq");
-		const boards = (query.data as Record<string, unknown>).boards as Record<string, unknown>;
+		const boards = (query.result as Record<string, unknown>).boards as Record<string, unknown>;
 		const bNotes = boards[characters[1].characterId] as Array<Record<string, unknown>>;
 		expect(bNotes).toHaveLength(1);
 		const noteB = bNotes[0];
 		if (!noteB) throw new Error("unreachable");
 
-		a.send({ id: "wx2", type: "board_write", action: "remove", note: { id: noteB.id } });
+		a.send({
+			jsonrpc: "2.0",
+			id: "wx2",
+			method: "board_write",
+			params: { action: "remove", note: { id: noteB.id } },
+		});
 		const rx = await peerBoardWriteResponse(a, "wx2");
-		expect(rx.data).toEqual({ changed: false, code: "note_not_found" });
+		expect(rx.result).toEqual({ changed: false, code: "note_not_found" });
 
 		// 双板不变
-		a.send({ id: "wq2", type: "board_query" });
+		a.send({ jsonrpc: "2.0", id: "wq2", method: "board_query" });
 		const q2 = await peerBoardQuery(a, "wq2");
-		const boards2 = (q2.data as Record<string, unknown>).boards as Record<string, unknown>;
+		const boards2 = (q2.result as Record<string, unknown>).boards as Record<string, unknown>;
 		expect(boards2[characters[0].characterId]).toHaveLength(1);
 		expect(boards2[characters[1].characterId]).toHaveLength(1);
 	});
@@ -301,34 +378,40 @@ describe("B3 白板管线（#114，integration）", () => {
 		const peer = await joinAndReady(runtime, "s4", characters[0].characterId);
 
 		// 基线 round 快照
-		peer.send({ id: "g1", type: "get_group_chat_state" });
-		const before = await peer.waitFor(
-			(m) => m.type === "response" && m.command === "get_group_chat_state" && m.id === "g1",
-		);
-		const roundBefore = (before.data as Record<string, unknown>).round as Record<string, unknown>;
+		peer.send({ jsonrpc: "2.0", id: "g1", method: "get_group_chat_state" });
+		const before = await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "g1");
+		const roundBefore = (before.result as Record<string, unknown>).round as Record<string, unknown>;
 
-		const groupChatUpdateBefore = peer.allFrames().filter((m) => m.type === "group_chat_update").length;
+		const groupChatUpdateBefore = peer.allFrames().filter((m) => m.method === "group_chat_update").length;
 
 		// 两次贴条 + 一次撕条
-		peer.send({ id: "w1", type: "board_write", action: "set", note: { content: "贴" } });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "w1",
+			method: "board_write",
+			params: { action: "set", note: { content: "贴" } },
+		});
 		await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "w1");
-		peer.send({ id: "w2", type: "board_write", action: "set", note: { content: "贴2" } });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "w2",
+			method: "board_write",
+			params: { action: "set", note: { content: "贴2" } },
+		});
 		await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "w2");
 
 		// round 计数不变（无额度消耗）
-		peer.send({ id: "g2", type: "get_group_chat_state" });
-		const after = await peer.waitFor(
-			(m) => m.type === "response" && m.command === "get_group_chat_state" && m.id === "g2",
-		);
-		const roundAfter = (after.data as Record<string, unknown>).round as Record<string, unknown>;
+		peer.send({ jsonrpc: "2.0", id: "g2", method: "get_group_chat_state" });
+		const after = await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "g2");
+		const roundAfter = (after.result as Record<string, unknown>).round as Record<string, unknown>;
 		expect(roundAfter).toEqual(roundBefore);
 
 		// 无消息流产出（无 public_message / message_history 增量）
-		expect(peer.allFrames().filter((m) => m.type === "public_message")).toHaveLength(0);
+		expect(peer.allFrames().filter((m) => m.method === "public_message")).toHaveLength(0);
 
 		// 无 group_chat_update 通知（board 走独立广播通道，不触发消息流拉取）
 		await new Promise((resolveSleep) => setTimeout(resolveSleep, 400));
-		expect(peer.allFrames().filter((m) => m.type === "group_chat_update")).toHaveLength(groupChatUpdateBefore);
+		expect(peer.allFrames().filter((m) => m.method === "group_chat_update")).toHaveLength(groupChatUpdateBefore);
 	});
 
 	it("leave → resume → board_query 读回（文件保留；删除群聊同步清理）", async () => {
@@ -339,16 +422,21 @@ describe("B3 白板管线（#114，integration）", () => {
 		runtimes.push(runtime);
 
 		const peer = await joinAndReady(runtime, "s5", characters[0].characterId);
-		peer.send({ id: "w1", type: "board_write", action: "set", note: { content: "持久化" } });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "w1",
+			method: "board_write",
+			params: { action: "set", note: { content: "持久化" } },
+		});
 		const r1 = await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "w1");
-		const note = (r1.data as Record<string, unknown>).note as Record<string, unknown>;
+		const note = (r1.result as Record<string, unknown>).note as Record<string, unknown>;
 
 		// 补首条消息建轮次 + speak 落会话条目（board 操作不入消息流/不写会话文件——resume 需会话文件存在）
 		await runtime.submitUserPersonaMessage("开题");
-		peer.send({ id: "sp1", type: "speak", content: "留档发言" });
-		await peer.waitFor((m) => m.type === "response" && m.command === "speak" && m.id === "sp1");
+		peer.send({ jsonrpc: "2.0", id: "sp1", method: "speak", params: { content: "留档发言" } });
+		await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "sp1");
 
-		peer.send({ type: "leave_group_chat" });
+		peer.send({ jsonrpc: "2.0", method: "leave_group_chat" });
 		await runtime.close();
 		await runtime.close();
 
@@ -362,9 +450,9 @@ describe("B3 白板管线（#114，integration）", () => {
 		runtimes.push(resumed);
 
 		const peer2 = await joinAndReady(resumed, "s5", characters[0].characterId);
-		peer2.send({ id: "q1", type: "board_query" });
-		const query = await peer2.waitFor((m) => m.type === "response" && m.command === "board_query" && m.id === "q1");
-		const boards = (query.data as Record<string, unknown>).boards as Record<string, unknown>;
+		peer2.send({ jsonrpc: "2.0", id: "q1", method: "board_query" });
+		const query = await peer2.waitFor((m) => isBoardWriteResponse(m) && m.id === "q1");
+		const boards = (query.result as Record<string, unknown>).boards as Record<string, unknown>;
 		expect(boards[characters[0].characterId]).toEqual([{ id: note.id, content: "持久化" }]);
 	});
 
@@ -376,30 +464,46 @@ describe("B3 白板管线（#114，integration）", () => {
 		};
 		const peer = await joinAndReady(runtime, "s6", characters[0].characterId);
 
-		peer.send({ id: "w1", type: "board_write", action: "set", note: { content: "贴条" } });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "w1",
+			method: "board_write",
+			params: { action: "set", note: { content: "贴条" } },
+		});
 		await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "w1");
 		expect(updates).toHaveLength(1);
 		expect(updates[0]).toEqual({
-			type: "board_update",
 			actor: characters[0].characterId,
 			action: "add",
 			note: { id: expect.any(String), content: "贴条" },
 		});
 
 		// changed:false（告知/拒绝）不触发
-		peer.send({ id: "w2", type: "board_write", action: "remove", note: { id: "ghost" } });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "w2",
+			method: "board_write",
+			params: { action: "remove", note: { id: "ghost" } },
+		});
 		await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "w2");
 		expect(updates).toHaveLength(1);
 	});
 
-	it("协议级错误走 sendFailure（未入群成员直接 board_write）", async () => {
+	it("协议级错误走 error 信封（未入群成员直接 board_write）", async () => {
 		const runtime = await startRuntime();
 		const peer = await connectPeer(runtime);
 
-		peer.send({ id: "w1", type: "board_write", action: "set", note: { content: "未入群" } });
+		peer.send({
+			jsonrpc: "2.0",
+			id: "w1",
+			method: "board_write",
+			params: { action: "set", note: { content: "未入群" } },
+		});
 		const failure = await peer.waitFor((m) => isBoardWriteResponse(m) && m.id === "w1");
-		expect(failure.success).toBe(false);
-		expect(typeof failure.error).toBe("string");
+		expect(failure.result).toBeUndefined();
+		const error = failure.error as { code: number; message: string };
+		expect(typeof error.message).toBe("string");
+		expect(error.code).toBe(-32100);
 	});
 });
 
@@ -410,5 +514,5 @@ async function peerBoardWriteResponse(peer: Peer, id: string): Promise<Record<st
 
 /** 等待 board_query 响应并返回。 */
 async function peerBoardQuery(peer: Peer, id: string): Promise<Record<string, unknown>> {
-	return peer.waitFor((m) => m.type === "response" && m.command === "board_query" && m.id === id);
+	return peer.waitFor((m) => isBoardWriteResponse(m) && m.id === id);
 }

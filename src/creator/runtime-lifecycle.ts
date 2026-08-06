@@ -4,7 +4,12 @@ import type { WebSocketServer } from "ws";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
 import { removeOwnedActiveDescriptor } from "../data/discovery/active-descriptor.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
-import { ERROR_CREATOR_RUNTIME_DETACHED, ERROR_GROUP_CHAT_CLOSED } from "../shared/messages.js";
+import {
+	ERROR_CREATOR_RUNTIME_DETACHED,
+	ERROR_GROUP_CHAT_CLOSED,
+	METHOD_GROUP_CHAT_CLOSED,
+} from "../shared/messages.js";
+import { JSONRPC_VERSION } from "../protocol/messages.js";
 import type { RuntimeCloseReason, RuntimeCloseResult } from "../shared/runtime-close.js";
 import type { BroadcastHub } from "./broadcast-hub.js";
 import type { HeartbeatRegistry } from "./heartbeat-registry.js";
@@ -58,8 +63,11 @@ export class RuntimeLifecycle {
 
 		try {
 			this.host.broadcastHub.broadcast({
-				type: "group_chat_closed",
-				group_chat_id: this.host.state.groupChat.groupChatId,
+				jsonrpc: JSONRPC_VERSION,
+				method: METHOD_GROUP_CHAT_CLOSED,
+				params: {
+					group_chat_id: this.host.state.groupChat.groupChatId,
+				},
 			});
 		} catch (error) {
 			errors.push(asError(error));

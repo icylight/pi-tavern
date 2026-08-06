@@ -1,6 +1,27 @@
 import { type Static, Type } from "typebox";
 
-import { PROTOCOL_ERROR_CODES } from "../shared/messages.js";
+import {
+	METHOD_BOARD_QUERY,
+	METHOD_BOARD_UPDATE,
+	METHOD_BOARD_WRITE,
+	METHOD_CHARACTER_JOINED,
+	METHOD_CHARACTER_LEFT,
+	METHOD_CHARACTER_READY,
+	METHOD_CLAIM_CHARACTER,
+	METHOD_FETCH_MESSAGES_SINCE,
+	METHOD_GET_CHAT_HISTORY_FILE,
+	METHOD_GET_GROUP_CHAT_STATE,
+	METHOD_GET_MESSAGE_HISTORY,
+	METHOD_GROUP_CHAT_CLOSED,
+	METHOD_GROUP_CHAT_UPDATE,
+	METHOD_JOIN_GROUP_CHAT,
+	METHOD_LEAVE_GROUP_CHAT,
+	METHOD_MESSAGE_HISTORY,
+	METHOD_PUBLIC_MESSAGE,
+	METHOD_SPEAK,
+	METHOD_UPDATE_CHARACTER_STATE,
+	PROTOCOL_ERROR_CODES,
+} from "../shared/messages.js";
 
 /**
  * JSON-RPC 2.0 标准信封（#119 M1 迁移，User 拍板豁免零漂移——特例仅此一次）。
@@ -49,7 +70,7 @@ export const ClientMessageSchema = Type.Union([
 		{
 			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			method: Type.Literal("join_group_chat"),
+			method: Type.Literal(METHOD_JOIN_GROUP_CHAT),
 			params: Type.Object({ session_id: Type.String() }, { additionalProperties: false }),
 		},
 		{ additionalProperties: false },
@@ -58,7 +79,7 @@ export const ClientMessageSchema = Type.Union([
 		{
 			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			method: Type.Literal("claim_character"),
+			method: Type.Literal(METHOD_CLAIM_CHARACTER),
 			params: Type.Object({ character_id: Type.String() }, { additionalProperties: false }),
 		},
 		{ additionalProperties: false },
@@ -67,7 +88,7 @@ export const ClientMessageSchema = Type.Union([
 		{
 			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			method: Type.Literal("character_ready"),
+			method: Type.Literal(METHOD_CHARACTER_READY),
 			params: Type.Optional(Type.Object({}, { additionalProperties: false })),
 		},
 		{ additionalProperties: false },
@@ -76,7 +97,7 @@ export const ClientMessageSchema = Type.Union([
 		{
 			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			method: Type.Literal("leave_group_chat"),
+			method: Type.Literal(METHOD_LEAVE_GROUP_CHAT),
 			params: Type.Optional(Type.Object({}, { additionalProperties: false })),
 		},
 		{ additionalProperties: false },
@@ -85,7 +106,7 @@ export const ClientMessageSchema = Type.Union([
 		{
 			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			method: Type.Literal("get_group_chat_state"),
+			method: Type.Literal(METHOD_GET_GROUP_CHAT_STATE),
 			params: Type.Optional(Type.Object({}, { additionalProperties: false })),
 		},
 		{ additionalProperties: false },
@@ -94,7 +115,7 @@ export const ClientMessageSchema = Type.Union([
 		{
 			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			method: Type.Literal("get_message_history"),
+			method: Type.Literal(METHOD_GET_MESSAGE_HISTORY),
 			params: Type.Object(
 				{
 					cursor: Type.Optional(Type.Union([Type.String(), Type.Null()])),
@@ -108,7 +129,7 @@ export const ClientMessageSchema = Type.Union([
 		{
 			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			method: Type.Literal("fetch_messages_since"),
+			method: Type.Literal(METHOD_FETCH_MESSAGES_SINCE),
 			params: Type.Object(
 				{ since_sequence: Type.Integer({ minimum: 0 }) },
 				{ additionalProperties: false },
@@ -120,7 +141,7 @@ export const ClientMessageSchema = Type.Union([
 		{
 			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			method: Type.Literal("get_chat_history_file"),
+			method: Type.Literal(METHOD_GET_CHAT_HISTORY_FILE),
 			params: Type.Optional(Type.Object({}, { additionalProperties: false })),
 		},
 		{ additionalProperties: false },
@@ -129,7 +150,7 @@ export const ClientMessageSchema = Type.Union([
 	Type.Object(
 		{
 			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			method: Type.Literal("update_character_state"),
+			method: Type.Literal(METHOD_UPDATE_CHARACTER_STATE),
 			params: Type.Object({ is_streaming: Type.Boolean() }, { additionalProperties: false }),
 		},
 		{ additionalProperties: false },
@@ -143,7 +164,7 @@ export const ClientMessageSchema = Type.Union([
 		{
 			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			method: Type.Literal("board_write"),
+			method: Type.Literal(METHOD_BOARD_WRITE),
 			params: Type.Object(
 				{
 					action: Type.Literal("set"),
@@ -168,7 +189,7 @@ export const ClientMessageSchema = Type.Union([
 		{
 			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			method: Type.Literal("board_write"),
+			method: Type.Literal(METHOD_BOARD_WRITE),
 			params: Type.Object(
 				{
 					action: Type.Literal("remove"),
@@ -189,7 +210,7 @@ export const ClientMessageSchema = Type.Union([
 		{
 			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			method: Type.Literal("board_write"),
+			method: Type.Literal(METHOD_BOARD_WRITE),
 			params: Type.Object({ action: Type.Literal("clear") }, { additionalProperties: false }),
 		},
 		{ additionalProperties: false },
@@ -200,7 +221,7 @@ export const ClientMessageSchema = Type.Union([
 		{
 			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			method: Type.Literal("board_query"),
+			method: Type.Literal(METHOD_BOARD_QUERY),
 			params: Type.Optional(Type.Object({}, { additionalProperties: false })),
 		},
 		{ additionalProperties: false },
@@ -209,7 +230,7 @@ export const ClientMessageSchema = Type.Union([
 		{
 			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			method: Type.Literal("speak"),
+			method: Type.Literal(METHOD_SPEAK),
 			params: Type.Object(
 				{
 					content: Type.String(),
@@ -316,7 +337,7 @@ const GroupChatStateResponseSchema = Type.Object(
 const CharacterJoinedSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		method: Type.Literal("character_joined"),
+		method: Type.Literal(METHOD_CHARACTER_JOINED),
 		params: Type.Object({ character: CharacterSummarySchema }, { additionalProperties: false }),
 	},
 	{ additionalProperties: false },
@@ -325,7 +346,7 @@ const CharacterJoinedSchema = Type.Object(
 const CharacterLeftSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		method: Type.Literal("character_left"),
+		method: Type.Literal(METHOD_CHARACTER_LEFT),
 		params: Type.Object(
 			{
 				character: CharacterSummarySchema,
@@ -340,7 +361,7 @@ const CharacterLeftSchema = Type.Object(
 const GroupChatClosedSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		method: Type.Literal("group_chat_closed"),
+		method: Type.Literal(METHOD_GROUP_CHAT_CLOSED),
 		params: Type.Object({ group_chat_id: Type.String() }, { additionalProperties: false }),
 	},
 	{ additionalProperties: false },
@@ -358,7 +379,7 @@ const RoundSnapshotSchema = Type.Object(
 const PublicMessageSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		method: Type.Literal("public_message"),
+		method: Type.Literal(METHOD_PUBLIC_MESSAGE),
 		params: Type.Object(
 			{
 				event_id: Type.String(),
@@ -383,7 +404,7 @@ const PublicMessageSchema = Type.Object(
 const MessageHistorySchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		method: Type.Literal("message_history"),
+		method: Type.Literal(METHOD_MESSAGE_HISTORY),
 		params: Type.Object(
 			{
 				messages: Type.Array(PublicMessageSchema),
@@ -433,7 +454,7 @@ const FetchMessagesSinceResponseSchema = Type.Object(
 const GroupChatUpdateSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		method: Type.Literal("group_chat_update"),
+		method: Type.Literal(METHOD_GROUP_CHAT_UPDATE),
 		params: Type.Object(
 			{
 				latest_sequence: Type.Integer({ minimum: 0 }),
@@ -609,7 +630,7 @@ export const BoardUpdateSchema = Type.Union([
 	Type.Object(
 		{
 			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			method: Type.Literal("board_update"),
+			method: Type.Literal(METHOD_BOARD_UPDATE),
 			params: Type.Object(
 				{
 					actor: Type.String(),
@@ -624,7 +645,7 @@ export const BoardUpdateSchema = Type.Union([
 	Type.Object(
 		{
 			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			method: Type.Literal("board_update"),
+			method: Type.Literal(METHOD_BOARD_UPDATE),
 			params: Type.Object(
 				{
 					actor: Type.String(),

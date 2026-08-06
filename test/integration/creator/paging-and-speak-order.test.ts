@@ -18,6 +18,7 @@ import { decodeServerMessage, encodeMessage } from "../../../src/protocol/codec.
  * Peer 帧语义 = BufferedWsClient 同款（acceptance/ws-helper）：frames 只增不消费、
  * waitFor/collect 从 fromIndex 扫描——绝不在谓词等待中丢弃帧（2026-08-02 QA 踩坑：
  * 消费式 next() + 谓词丢弃会把目标帧之前的广播提前吞掉，导致 collect 缺帧）。
+ * #119 M1/M2：信封迁移（请求 {jsonrpc,id,method,params}、通知 method+params、响应 result）。
  */
 const temporaryDirectories: string[] = [];
 const runtimes: CreatorRuntime[] = [];
@@ -172,12 +173,22 @@ async function connectPeer(runtime: CreatorRuntime): Promise<Peer> {
 
 async function joinAndReady(runtime: CreatorRuntime, sessionId: string, characterId: string): Promise<Peer> {
 	const peer = await connectPeer(runtime);
-	peer.send({ id: `join-${sessionId}`, type: "join_group_chat", session_id: sessionId });
-	await peer.waitFor((m) => m.type === "response" && m.command === "join_group_chat" && m.id === `join-${sessionId}`);
-	peer.send({ id: `claim-${sessionId}`, type: "claim_character", character_id: characterId });
-	await peer.waitFor((m) => m.type === "response" && m.command === "claim_character" && m.id === `claim-${sessionId}`);
-	peer.send({ id: `ready-${sessionId}`, type: "character_ready" });
-	await peer.waitFor((m) => m.type === "response" && m.command === "character_ready" && m.id === `ready-${sessionId}`);
+	peer.send({
+		jsonrpc: "2.0",
+		id: `join-${sessionId}`,
+		method: "join_group_chat",
+		params: { session_id: sessionId },
+	});
+	await peer.waitFor((m) => m.id === `join-${sessionId}` && ("result" in m || "error" in m));
+	peer.send({
+		jsonrpc: "2.0",
+		id: `claim-${sessionId}`,
+		method: "claim_character",
+		params: { character_id: characterId },
+	});
+	await peer.waitFor((m) => m.id === `claim-${sessionId}` && ("result" in m || "error" in m));
+	peer.send({ jsonrpc: "2.0", id: `ready-${sessionId}`, method: "character_ready" });
+	await peer.waitFor((m) => m.id === `ready-${sessionId}` && ("result" in m || "error" in m));
 	return peer;
 }
 
@@ -189,16 +200,17 @@ describe("ISSUE-008 join snapshot paging contract (integration)", () => {
 		}
 
 		const peer = await joinAndReady(runtime, "session-paging", characters[0].characterId);
-		const history = await peer.waitFor((m) => m.type === "message_history");
+		const history = await peer.waitFor((m) => m.method === "message_history");
+		const historyParams = history.params as Record<string, unknown>;
 
-		const messages = history.messages as Record<string, unknown>[];
+		const messages = historyParams.messages as Record<string, unknown>[];
 		expect(messages).toHaveLength(100);
-		expect(history.has_more).toBe(true);
-		expect(history.cursor).toBeTruthy();
-		expect(history.total_messages).toBe(102);
-		// 窗口覆盖 seq 3..102（最早 2 条超出窗口），oldest-first。
-		expect(messages[0]?.sequence).toBe(3);
-		expect(messages[99]?.sequence).toBe(102);
+		expect(historyParams.has_more).toBe(true);
+		expect(historyParams.cursor).toBeTruthy();
+		expect(historyParams.total_messages).toBe(102);
+		// 窗口覆盖 seq 3..102（最早 2 条超出窗口），oldest-first（条目 = 信封化 public_message）。
+		expect((messages[0]?.params as Record<string, unknown>)?.sequence).toBe(3);
+		expect((messages[99]?.params as Record<string, unknown>)?.sequence).toBe(102);
 	});
 
 	it("under-100 history advertises no paging (has_more false, cursor null)", async () => {
@@ -207,13 +219,14 @@ describe("ISSUE-008 join snapshot paging contract (integration)", () => {
 		await runtime.submitUserPersonaMessage("hello 2");
 
 		const peer = await joinAndReady(runtime, "session-paging2", characters[0].characterId);
-		const history = await peer.waitFor((m) => m.type === "message_history");
+		const history = await peer.waitFor((m) => m.method === "message_history");
+		const historyParams = history.params as Record<string, unknown>;
 
-		const messages = history.messages as Record<string, unknown>[];
+		const messages = historyParams.messages as Record<string, unknown>[];
 		expect(messages).toHaveLength(2);
-		expect(history.has_more).toBe(false);
-		expect(history.cursor).toBeNull();
-		expect(history.total_messages).toBe(2);
+		expect(historyParams.has_more).toBe(false);
+		expect(historyParams.cursor).toBeNull();
+		expect(historyParams.total_messages).toBe(2);
 	});
 });
 
@@ -233,19 +246,19 @@ describe("concurrent speaks keep creator order + round quota (integration)", () 
 		// （undefined → stale 检查跳过）→ 三连并发确定性全发布 [2,3,4]；交错发送
 		// 保留「creator 顺序权威 + 双接收者一致」的并发语义（stale 拒绝语义由
 		// family-messages B2/B4/B6 专测，不在本用例混测——Arch 2026-08-02 定夺）。
-		memberA.send({ id: "s1", type: "speak", content: "one" });
-		memberB.send({ id: "s2", type: "speak", content: "two" });
-		memberA.send({ id: "s3", type: "speak", content: "three" });
+		memberA.send({ jsonrpc: "2.0", id: "s1", method: "speak", params: { content: "one" } });
+		memberB.send({ jsonrpc: "2.0", id: "s2", method: "speak", params: { content: "two" } });
+		memberA.send({ jsonrpc: "2.0", id: "s3", method: "speak", params: { content: "three" } });
 
 		const speakUpdate = (m: Record<string, unknown>): boolean =>
-			m.type === "group_chat_update" && (m.latest_sequence as number) >= 2;
+			m.method === "group_chat_update" && ((m.params as Record<string, unknown>).latest_sequence as number) >= 2;
 		const [seenByA, seenByB] = await Promise.all([
 			memberA.collect(speakUpdate, 3, 10_000, baselineA),
 			memberB.collect(speakUpdate, 3, 10_000, baselineB),
 		]);
 		// 双方观察到的通知序列严格递增且一致（creator 顺序权威）。
-		const sequencesA = seenByA.map((m) => m.latest_sequence as number);
-		const sequencesB = seenByB.map((m) => m.latest_sequence as number);
+		const sequencesA = seenByA.map((m) => (m.params as Record<string, unknown>).latest_sequence as number);
+		const sequencesB = seenByB.map((m) => (m.params as Record<string, unknown>).latest_sequence as number);
 		expect(sequencesA).toEqual([2, 3, 4]);
 		expect(sequencesB).toEqual([2, 3, 4]);
 		// 最后一条通知的 preview 携带 3 条已发布消息（seq 2..4，oldest-first）。
@@ -254,23 +267,32 @@ describe("concurrent speaks keep creator order + round quota (integration)", () 
 		if (!last) {
 			throw new Error("expected 3 notifications");
 		}
-		const preview = (last.preview_messages as Record<string, unknown>[]).map((m) => m.sequence);
+		const lastParams = last.params as Record<string, unknown>;
+		const preview = (lastParams.preview_messages as Record<string, unknown>[]).map(
+			(m) => (m.params as Record<string, unknown>).sequence,
+		);
 		expect(preview).toEqual([2, 3, 4]);
 		// sender 归属 multiset（交错发送顺序不定）：2 个 Architect + 1 个 Reviewer。
-		const senderNames = (last.preview_messages as Record<string, unknown>[])
-			.map((m) => (m.sender as Record<string, unknown>).name)
+		const senderNames = (lastParams.preview_messages as Record<string, unknown>[])
+			.map((m) => ((m.params as Record<string, unknown>).sender as Record<string, unknown>).name)
 			.sort();
 		expect(senderNames).toEqual(["Architect", "Architect", "Reviewer"]);
 
 		// 配额：round 上限 3，第 4 条拒绝且举手（published false + hand_raised）。
-		memberA.send({ id: "s4", type: "speak", content: "four", based_on_sequence: 4 });
+		memberA.send({
+			jsonrpc: "2.0",
+			id: "s4",
+			method: "speak",
+			params: { content: "four", based_on_sequence: 4 },
+		});
 		const fourth = await memberA.waitFor(
-			(m) => m.type === "response" && m.command === "speak" && m.id === "s4",
+			(m) => ("result" in m || "error" in m) && m.id === "s4",
 			10_000,
 			baselineA,
 		);
-		expect(fourth.success).toBe(true);
-		expect((fourth.data as Record<string, unknown>).published).toBe(false);
-		expect((fourth.data as Record<string, unknown>).hand_raised).toBe(true);
+		expect(fourth.error).toBeUndefined();
+		const fourthResult = fourth.result as Record<string, unknown>;
+		expect(fourthResult.published).toBe(false);
+		expect(fourthResult.hand_raised).toBe(true);
 	});
 });

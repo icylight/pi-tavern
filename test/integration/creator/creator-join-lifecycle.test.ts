@@ -49,29 +49,31 @@ describe("CreatorRuntime Character join lifecycle", () => {
 		const runtime = await startRuntime();
 		const peer = await connectPeer(runtime);
 
-		peer.send({ id: "join", type: "join_group_chat", session_id: "session-1" });
-		expect(await peer.next()).toEqual({
+		peer.send({
+			jsonrpc: "2.0",
 			id: "join",
-			type: "response",
-			command: "join_group_chat",
-			success: true,
-			data: {
+			method: "join_group_chat",
+			params: { session_id: "session-1" },
+		});
+		expect(await peer.next()).toEqual({
+			jsonrpc: "2.0",
+			id: "join",
+			result: {
 				available_characters: characters.map(toSummaryMessage),
 			},
 		});
 		expect(runtime.state.onlineCharacters.size).toBe(0);
 
 		peer.send({
+			jsonrpc: "2.0",
 			id: "claim",
-			type: "claim_character",
-			character_id: characters[0]?.characterId,
+			method: "claim_character",
+			params: { character_id: characters[0]?.characterId },
 		});
 		expect(await peer.next()).toEqual({
+			jsonrpc: "2.0",
 			id: "claim",
-			type: "response",
-			command: "claim_character",
-			success: true,
-			data: {
+			result: {
 				character: {
 					...toSummaryMessage(characters[0] as CharacterCard),
 					path: characters[0]?.path,
@@ -81,23 +83,21 @@ describe("CreatorRuntime Character join lifecycle", () => {
 		expect(runtime.state.characterReservations.get(characters[0]?.characterId as string)).toBe("session-1");
 		expect(runtime.state.onlineCharacters.size).toBe(0);
 
-		peer.send({ id: "ready", type: "character_ready" });
+		peer.send({ jsonrpc: "2.0", id: "ready", method: "character_ready" });
 		expect(await peer.next()).toEqual({
+			jsonrpc: "2.0",
 			id: "ready",
-			type: "response",
-			command: "character_ready",
-			success: true,
+			result: null,
 		});
 		expect(await peer.next()).toEqual({
-			type: "message_history",
-			messages: [],
-			cursor: null,
-			has_more: false,
-			total_messages: 0,
+			jsonrpc: "2.0",
+			method: "message_history",
+			params: { messages: [], cursor: null, has_more: false, total_messages: 0 },
 		});
 		expect(await peer.next()).toEqual({
-			type: "character_joined",
-			character: toSummaryMessage(characters[0] as CharacterCard),
+			jsonrpc: "2.0",
+			method: "character_joined",
+			params: { character: toSummaryMessage(characters[0] as CharacterCard) },
 		});
 
 		expect(runtime.state.characterReservations.size).toBe(0);
@@ -112,13 +112,11 @@ describe("CreatorRuntime Character join lifecycle", () => {
 			handRaised: false,
 		});
 
-		peer.send({ id: "state", type: "get_group_chat_state" });
+		peer.send({ jsonrpc: "2.0", id: "state", method: "get_group_chat_state" });
 		expect(await peer.next()).toMatchObject({
+			jsonrpc: "2.0",
 			id: "state",
-			type: "response",
-			command: "get_group_chat_state",
-			success: true,
-			data: {
+			result: {
 				round: null,
 				online_characters: [
 					{
@@ -131,7 +129,7 @@ describe("CreatorRuntime Character join lifecycle", () => {
 			},
 		});
 
-		peer.send({ type: "update_character_state", is_streaming: true });
+		peer.send({ jsonrpc: "2.0", method: "update_character_state", params: { is_streaming: true } });
 		await vi.waitFor(() => expect(runtime.state.onlineCharacters.get("session-1")?.isStreaming).toBe(true));
 	});
 
@@ -144,25 +142,29 @@ describe("CreatorRuntime Character join lifecycle", () => {
 
 		await claim(first, "claim-1", characters[0]?.characterId as string);
 		second.send({
+			jsonrpc: "2.0",
 			id: "claim-2",
-			type: "claim_character",
-			character_id: characters[0]?.characterId,
+			method: "claim_character",
+			params: { character_id: characters[0]?.characterId },
 		});
 		expect(await second.next()).toEqual({
+			jsonrpc: "2.0",
 			id: "claim-2",
-			type: "response",
-			command: "claim_character",
-			success: false,
-			error: "Character is no longer available",
+			error: { code: -32103, message: "Character is no longer available" },
 		});
 
-		first.send({ id: "ready", type: "character_ready" });
+		first.send({ jsonrpc: "2.0", id: "ready", method: "character_ready" });
 		await first.next();
 		await first.next();
 		await first.next();
-		second.send({ id: "refresh", type: "join_group_chat", session_id: "session-2" });
+		second.send({
+			jsonrpc: "2.0",
+			id: "refresh",
+			method: "join_group_chat",
+			params: { session_id: "session-2" },
+		});
 		expect(await second.next()).toMatchObject({
-			data: {
+			result: {
 				available_characters: [toSummaryMessage(characters[1] as CharacterCard)],
 			},
 		});
@@ -186,21 +188,22 @@ describe("CreatorRuntime Character join lifecycle", () => {
 		const second = await connectAndReady(runtime, "session-2", characters[1]?.characterId as string);
 		// 第二个角色加入只广播 character_joined；group_chat_update 已收窄为
 		// 公共消息水位通知。
-		expect(await first.next()).toMatchObject({ type: "character_joined" });
+		expect(await first.next()).toMatchObject({ method: "character_joined" });
 
-		first.send({ id: "leave", type: "leave_group_chat" });
+		first.send({ jsonrpc: "2.0", id: "leave", method: "leave_group_chat" });
 		expect(await second.next()).toEqual({
-			type: "character_left",
-			character: toSummaryMessage(characters[0] as CharacterCard),
-			reason: "left",
+			jsonrpc: "2.0",
+			method: "character_left",
+			params: {
+				character: toSummaryMessage(characters[0] as CharacterCard),
+				reason: "left",
+			},
 		});
-		second.send({ id: "state-after-leave", type: "get_group_chat_state" });
+		second.send({ jsonrpc: "2.0", id: "state-after-leave", method: "get_group_chat_state" });
 		expect(await second.next()).toMatchObject({
+			jsonrpc: "2.0",
 			id: "state-after-leave",
-			type: "response",
-			command: "get_group_chat_state",
-			success: true,
-			data: {
+			result: {
 				online_characters: [
 					{
 						character_id: characters[1]?.characterId,
@@ -212,10 +215,9 @@ describe("CreatorRuntime Character join lifecycle", () => {
 			},
 		});
 		expect(await first.next()).toEqual({
+			jsonrpc: "2.0",
 			id: "leave",
-			type: "response",
-			command: "leave_group_chat",
-			success: true,
+			result: null,
 		});
 		await first.closed;
 		expect(runtime.connections.has("session-1")).toBe(false);
@@ -236,18 +238,16 @@ describe("CreatorRuntime Character join lifecycle", () => {
 		await claim(first, "claim-1", characters[0]?.characterId as string);
 		await claim(second, "claim-2", characters[1]?.characterId as string);
 
-		first.send({ id: "ready-1", type: "character_ready" });
+		first.send({ jsonrpc: "2.0", id: "ready-1", method: "character_ready" });
 		await first.next();
 		await first.next();
 		await first.next();
 		const firstOwnedConnection = runtime.connections.get("same-session");
-		second.send({ id: "ready-2", type: "character_ready" });
+		second.send({ jsonrpc: "2.0", id: "ready-2", method: "character_ready" });
 		expect(await second.next()).toEqual({
+			jsonrpc: "2.0",
 			id: "ready-2",
-			type: "response",
-			command: "character_ready",
-			success: false,
-			error: "This pi session is already in the group chat",
+			error: { code: -32101, message: "This pi session is already in the group chat" },
 		});
 		expect(runtime.connections.get("same-session")).toBe(firstOwnedConnection);
 		expect(runtime.state.onlineCharacters.get("same-session")?.character.name).toBe("Architect");
@@ -336,12 +336,17 @@ async function connectPeer(runtime: CreatorRuntime): Promise<Peer> {
 }
 
 async function joinGroupChat(peer: Peer, sessionId: string): Promise<void> {
-	peer.send({ id: `join-${sessionId}`, type: "join_group_chat", session_id: sessionId });
+	peer.send({
+		jsonrpc: "2.0",
+		id: `join-${sessionId}`,
+		method: "join_group_chat",
+		params: { session_id: sessionId },
+	});
 	await peer.next();
 }
 
 async function claim(peer: Peer, id: string, characterId: string): Promise<void> {
-	peer.send({ id, type: "claim_character", character_id: characterId });
+	peer.send({ jsonrpc: "2.0", id, method: "claim_character", params: { character_id: characterId } });
 	await peer.next();
 }
 
@@ -349,7 +354,7 @@ async function connectAndReady(runtime: CreatorRuntime, sessionId: string, chara
 	const peer = await connectPeer(runtime);
 	await joinGroupChat(peer, sessionId);
 	await claim(peer, `claim-${sessionId}`, characterId);
-	peer.send({ id: `ready-${sessionId}`, type: "character_ready" });
+	peer.send({ jsonrpc: "2.0", id: `ready-${sessionId}`, method: "character_ready" });
 	await peer.next();
 	await peer.next();
 	await peer.next();

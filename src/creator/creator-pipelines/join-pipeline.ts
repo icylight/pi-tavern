@@ -1,9 +1,13 @@
 import type WebSocket from "ws";
 import type { CharacterCard, CharacterSummary } from "../../config/character-card.js";
-import type { ClientMessage } from "../../protocol/messages.js";
-import { ERROR_ALREADY_IN_GROUP_CHAT } from "../../shared/messages.js";
+import { JSONRPC_VERSION, type ClientMessage } from "../../protocol/messages.js";
+import {
+	ERROR_ALREADY_IN_GROUP_CHAT,
+	ERROR_CODE_ALREADY_IN_GROUP,
+	type ProtocolErrorCode,
+} from "../../shared/messages.js";
 
-type JoinGroupChatMessage = Extract<ClientMessage, { type: "join_group_chat" }>;
+type JoinGroupChatMessage = Extract<ClientMessage, { method: "join_group_chat" }>;
 
 /** 连接上下文的本地窄接口（creator-runtime 的 ConnectionContext 结构子集）。 */
 export interface JoinConnectionLike {
@@ -22,7 +26,7 @@ export interface JoinPipelineDependencies {
 		description: string;
 	};
 	send: (socket: WebSocket, message: unknown) => void;
-	sendFailure: (socket: WebSocket, id: string | undefined, command: "join_group_chat", reason: string) => void;
+	sendFailure: (socket: WebSocket, id: string | undefined, code: ProtocolErrorCode, message: string) => void;
 }
 
 /**
@@ -37,23 +41,21 @@ export class JoinPipeline {
 		// validate：已在线 / 该会话已占 socket / 已归属其他会话 → 业务性拒绝
 		if (
 			connection.online ||
-			this.deps.connections.has(message.session_id) ||
-			(connection.sessionId !== null && connection.sessionId !== message.session_id)
+			this.deps.connections.has(message.params.session_id) ||
+			(connection.sessionId !== null && connection.sessionId !== message.params.session_id)
 		) {
-			this.deps.sendFailure(socket, message.id, "join_group_chat", ERROR_ALREADY_IN_GROUP_CHAT);
+			this.deps.sendFailure(socket, message.id, ERROR_CODE_ALREADY_IN_GROUP, ERROR_ALREADY_IN_GROUP_CHAT);
 			return;
 		}
 
 		// commit：会话归属写入连接上下文（runtime 状态显式读写）
-		connection.sessionId = message.session_id;
+		connection.sessionId = message.params.session_id;
 
 		// respond：可用角色快照（排除已预留 + 已在线）
 		this.deps.send(socket, {
 			...(message.id !== undefined ? { id: message.id } : {}),
-			type: "response",
-			command: "join_group_chat",
-			success: true,
-			data: {
+			jsonrpc: JSONRPC_VERSION,
+			result: {
 				available_characters: this.deps.getAvailableCharacters().map(this.deps.toCharacterSummaryMessage),
 			},
 		});

@@ -2,13 +2,22 @@ import type WebSocket from "ws";
 import type { CharacterCard, CharacterSummary } from "../../config/character-card.js";
 import { encodeCursor } from "../../data/cursor-store.js";
 import type { GroupChatState } from "../../data/group-chat-state.js";
-import type { ClientMessage } from "../../protocol/messages.js";
+import { JSONRPC_VERSION, type ClientMessage } from "../../protocol/messages.js";
 import type { PublicMessageState } from "../../protocol/public-message-state.js";
 import { JOIN_HISTORY_LIMIT } from "../../shared/constants.js";
-import { ERROR_ALREADY_IN_GROUP_CHAT, ERROR_RESERVATION_INVALID } from "../../shared/messages.js";
+import {
+	ERROR_ALREADY_IN_GROUP_CHAT,
+	ERROR_CODE_ALREADY_IN_GROUP,
+	ERROR_CODE_RESERVATION_INVALID,
+	ERROR_RESERVATION_INVALID,
+	METHOD_CHARACTER_JOINED,
+	METHOD_MESSAGE_HISTORY,
+	METHOD_PUBLIC_MESSAGE,
+	type ProtocolErrorCode,
+} from "../../shared/messages.js";
 import type { HeartbeatRegistry } from "../heartbeat-registry.js";
 
-type CharacterReadyMessage = Extract<ClientMessage, { type: "character_ready" }>;
+type CharacterReadyMessage = Extract<ClientMessage, { method: "character_ready" }>;
 
 /** 连接上下文窄接口（creator-runtime 的 ConnectionContext 结构子集）。 */
 export interface ReadyConnectionLike {
@@ -34,7 +43,7 @@ export interface ReadyPipelineDependencies {
 		description: string;
 	};
 	send: (socket: WebSocket, message: unknown) => void;
-	sendFailure: (socket: WebSocket, id: string | undefined, command: "character_ready", reason: string) => void;
+	sendFailure: (socket: WebSocket, id: string | undefined, code: ProtocolErrorCode, message: string) => void;
 	broadcast: (message: unknown) => void;
 	onMembersChanged: (() => void) | undefined;
 }
@@ -59,11 +68,11 @@ export class ReadyPipeline {
 			connection.online ||
 			this.deps.state.characterReservations.get(reservedCharacterId) !== sessionId
 		) {
-			this.deps.sendFailure(socket, message.id, "character_ready", ERROR_RESERVATION_INVALID);
+			this.deps.sendFailure(socket, message.id, ERROR_CODE_RESERVATION_INVALID, ERROR_RESERVATION_INVALID);
 			return;
 		}
 		if (this.deps.connections.has(sessionId)) {
-			this.deps.sendFailure(socket, message.id, "character_ready", ERROR_ALREADY_IN_GROUP_CHAT);
+			this.deps.sendFailure(socket, message.id, ERROR_CODE_ALREADY_IN_GROUP, ERROR_ALREADY_IN_GROUP_CHAT);
 			return;
 		}
 
@@ -82,9 +91,8 @@ export class ReadyPipeline {
 
 		this.deps.send(socket, {
 			...(message.id !== undefined ? { id: message.id } : {}),
-			type: "response",
-			command: "character_ready",
-			success: true,
+			jsonrpc: JSONRPC_VERSION,
+			result: null,
 		});
 
 		// 在 join 广播前发送历史，使新 Character 处理自己的 character_joined
@@ -94,26 +102,35 @@ export class ReadyPipeline {
 		const earliest = recentMessages[0];
 		const hasMore = earliest !== undefined && earliest.sequence > 1;
 		this.deps.send(socket, {
-			type: "message_history",
-			messages: recentMessages.map((m) => ({
-				type: "public_message" as const,
-				event_id: m.event_id,
-				sequence: m.sequence,
-				timestamp: m.timestamp,
-				sender: m.sender,
-				content: m.content,
-				round: m.round,
-			})),
-			cursor: hasMore ? encodeCursor(earliest.sequence) : null,
-			has_more: hasMore,
-			total_messages: this.deps.publicMessages.length,
+			jsonrpc: JSONRPC_VERSION,
+			method: METHOD_MESSAGE_HISTORY,
+			params: {
+				messages: recentMessages.map((m) => ({
+					jsonrpc: JSONRPC_VERSION,
+					method: METHOD_PUBLIC_MESSAGE,
+					params: {
+						event_id: m.event_id,
+						sequence: m.sequence,
+						timestamp: m.timestamp,
+						sender: m.sender,
+						content: m.content,
+						round: m.round,
+					},
+				})),
+				cursor: hasMore ? encodeCursor(earliest.sequence) : null,
+				has_more: hasMore,
+				total_messages: this.deps.publicMessages.length,
+			},
 		});
 
 		// 在 message_history 之后广播 character_joined，使新 Character 处理
 		// 自己的 join 事件时 hasPublicMessages 已为 true。
 		this.deps.broadcast({
-			type: "character_joined",
-			character: this.deps.toCharacterSummaryMessage(character),
+			jsonrpc: JSONRPC_VERSION,
+			method: METHOD_CHARACTER_JOINED,
+			params: {
+				character: this.deps.toCharacterSummaryMessage(character),
+			},
 		});
 		this.deps.onMembersChanged?.();
 	}

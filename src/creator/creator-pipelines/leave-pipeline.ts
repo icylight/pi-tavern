@@ -1,8 +1,13 @@
 import type WebSocket from "ws";
-import type { ClientMessage } from "../../protocol/messages.js";
-import { ERROR_LEFT_GROUP_CHAT, ERROR_NOT_IN_GROUP_CHAT } from "../../shared/messages.js";
+import { JSONRPC_VERSION, type ClientMessage } from "../../protocol/messages.js";
+import {
+	ERROR_CODE_NOT_IN_GROUP,
+	ERROR_LEFT_GROUP_CHAT,
+	ERROR_NOT_IN_GROUP_CHAT,
+	type ProtocolErrorCode,
+} from "../../shared/messages.js";
 
-type LeaveGroupChatMessage = Extract<ClientMessage, { type: "leave_group_chat" }>;
+type LeaveGroupChatMessage = Extract<ClientMessage, { method: "leave_group_chat" }>;
 
 /** 连接上下文的本地窄接口（creator-runtime 的 ConnectionContext 结构子集）。 */
 export interface LeaveConnectionLike {
@@ -17,7 +22,7 @@ export interface LeavePipelineDependencies {
 	 */
 	removeOnlineCharacter: (connection: LeaveConnectionLike, reason: "left" | "disconnected") => void;
 	send: (socket: WebSocket, message: unknown) => void;
-	sendFailure: (socket: WebSocket, id: string | undefined, command: "leave_group_chat", reason: string) => void;
+	sendFailure: (socket: WebSocket, id: string | undefined, code: ProtocolErrorCode, message: string) => void;
 }
 
 /**
@@ -30,7 +35,7 @@ export class LeavePipeline {
 	run(socket: WebSocket, connection: LeaveConnectionLike, message: LeaveGroupChatMessage): void {
 		// validate：非成员拒绝
 		if (!connection.online) {
-			this.deps.sendFailure(socket, message.id, "leave_group_chat", ERROR_NOT_IN_GROUP_CHAT);
+			this.deps.sendFailure(socket, message.id, ERROR_CODE_NOT_IN_GROUP, ERROR_NOT_IN_GROUP_CHAT);
 			return;
 		}
 
@@ -40,9 +45,8 @@ export class LeavePipeline {
 		// 响应 + 关闭
 		this.deps.send(socket, {
 			...(message.id !== undefined ? { id: message.id } : {}),
-			type: "response",
-			command: "leave_group_chat",
-			success: true,
+			jsonrpc: JSONRPC_VERSION,
+			result: null,
 		});
 		socket.close(1000, ERROR_LEFT_GROUP_CHAT);
 	}

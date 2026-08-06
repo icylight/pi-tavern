@@ -238,6 +238,9 @@ export const PROTOCOL_ERROR_CODES = [
 	ERROR_CODE_PERSIST_FAILED,
 ] as const;
 
+/** 10 码业务错误码类型（sendFailure/error 构造签名用）。 */
+export type ProtocolErrorCode = (typeof PROTOCOL_ERROR_CODES)[number];
+
 /** code→message 映射表（单一数据源；文案复用 A 类常量，message 原样保留 = 现有
  * failure 断言零语义漂移，#119 comment 5180067418 口径）。 */
 export const PROTOCOL_ERROR_CODE_MESSAGES: Readonly<Record<number, string>> = {
@@ -252,6 +255,51 @@ export const PROTOCOL_ERROR_CODE_MESSAGES: Readonly<Record<number, string>> = {
 	[ERROR_CODE_INTERNAL_ERROR]: ERROR_UNKNOWN,
 	[ERROR_CODE_PERSIST_FAILED]: ERROR_PERSIST_FAILED_PREFIX,
 };
+
+// ─── F 类：协议判别常量（#109 欠账消解，M2 同批抽取：method 判别值同源引用）──
+// 红线：wire method 判别一律引用本组常量；消费方剩余字面量引用随 M3 接线同步替换。
+
+// 请求/通知 method（客户端→服务端）
+/** 加入群聊（三阶段握手第一段）。 */
+export const METHOD_JOIN_GROUP_CHAT = "join_group_chat";
+/** 领取 Character（三阶段握手第二段）。 */
+export const METHOD_CLAIM_CHARACTER = "claim_character";
+/** Character 准备完成（三阶段握手第三段）。 */
+export const METHOD_CHARACTER_READY = "character_ready";
+/** 离开群聊。 */
+export const METHOD_LEAVE_GROUP_CHAT = "leave_group_chat";
+/** 获取群聊状态。 */
+export const METHOD_GET_GROUP_CHAT_STATE = "get_group_chat_state";
+/** 获取消息历史（分页）。 */
+export const METHOD_GET_MESSAGE_HISTORY = "get_message_history";
+/** 增量拉取（游标之后的消息）。 */
+export const METHOD_FETCH_MESSAGES_SINCE = "fetch_messages_since";
+/** 获取群聊记录文件路径。 */
+export const METHOD_GET_CHAT_HISTORY_FILE = "get_chat_history_file";
+/** 更新 Character 状态（通知，无响应）。 */
+export const METHOD_UPDATE_CHARACTER_STATE = "update_character_state";
+/** 白板写入（贴/改/撕/清，action 判别）。 */
+export const METHOD_BOARD_WRITE = "board_write";
+/** 白板查询（全量）。 */
+export const METHOD_BOARD_QUERY = "board_query";
+/** 公开发言。 */
+export const METHOD_SPEAK = "speak";
+
+// 服务端通知 method（服务端→客户端）
+/** Character 加入广播。 */
+export const METHOD_CHARACTER_JOINED = "character_joined";
+/** Character 离开广播。 */
+export const METHOD_CHARACTER_LEFT = "character_left";
+/** 群聊关闭广播。 */
+export const METHOD_GROUP_CHAT_CLOSED = "group_chat_closed";
+/** 公开消息（历史/拉取/广播消息形态）。 */
+export const METHOD_PUBLIC_MESSAGE = "public_message";
+/** 消息历史（加入推送形态）。 */
+export const METHOD_MESSAGE_HISTORY = "message_history";
+/** 群聊更新广播（增量拉取唤醒）。 */
+export const METHOD_GROUP_CHAT_UPDATE = "group_chat_update";
+/** 白板更新广播。 */
+export const METHOD_BOARD_UPDATE = "board_update";
 
 // ─── B 类：用户可见文案 ──────────────────────────────────────────────────
 

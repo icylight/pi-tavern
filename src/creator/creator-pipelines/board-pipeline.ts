@@ -1,11 +1,18 @@
 import type WebSocket from "ws";
 import type { BoardStore, BoardWriteOutcome } from "../../data/board-store.js";
 import type { GroupChatState } from "../../data/group-chat-state.js";
-import type { ClientMessage } from "../../protocol/messages.js";
-import { ERROR_NOT_GROUP_MEMBER, ERROR_NOTE_ID_EMPTY } from "../../shared/messages.js";
+import { JSONRPC_VERSION, type ClientMessage } from "../../protocol/messages.js";
+import {
+	ERROR_CODE_INVALID_NOTE_ID,
+	ERROR_CODE_NOT_IN_GROUP,
+	ERROR_NOT_GROUP_MEMBER,
+	ERROR_NOTE_ID_EMPTY,
+	METHOD_BOARD_UPDATE,
+	type ProtocolErrorCode,
+} from "../../shared/messages.js";
 
-type BoardWriteMessage = Extract<ClientMessage, { type: "board_write" }>;
-type BoardQueryMessage = Extract<ClientMessage, { type: "board_query" }>;
+type BoardWriteMessage = Extract<ClientMessage, { method: "board_write" }>;
+type BoardQueryMessage = Extract<ClientMessage, { method: "board_query" }>;
 
 /** 连接上下文窄接口（creator-runtime 的 ConnectionContext 结构子集）。 */
 export interface BoardConnectionLike {
@@ -17,12 +24,7 @@ export interface BoardPipelineDependencies {
 	state: GroupChatState;
 	boardStore: BoardStore;
 	send: (socket: WebSocket, message: unknown) => void;
-	sendFailure: (
-		socket: WebSocket,
-		id: string | undefined,
-		command: "board_write" | "board_query",
-		reason: string,
-	) => void;
+	sendFailure: (socket: WebSocket, id: string | undefined, code: ProtocolErrorCode, message: string) => void;
 	/** board_update 通知通道（复用 broadcast()，不混入 group_chat_update）。 */
 	broadcast: (message: unknown) => void;
 	/** creator 实时提示（纯展示，组合根接线；每次 applied 广播触发）。 */
@@ -49,53 +51,54 @@ export class BoardPipeline {
 
 	/** board_write 入口：校验 → store 写 → 响应四态 → applied 广播 board_update。 */
 	runBoardWrite(socket: WebSocket, connection: BoardConnectionLike, message: BoardWriteMessage): void {
-		const sender = this.requireOnlineCharacter(socket, connection, message, "board_write");
+		const sender = this.requireOnlineCharacter(socket, connection, message);
 		if (sender === null) {
 			return;
 		}
-		const note = message.action === "clear" ? undefined : message.note;
+		const note = message.params.action === "clear" ? undefined : message.params.note;
 		// Arch B3 建议：携带 id 必须非空（空串 = 无 id 语义，协议层拒绝）。
 		if (note?.id !== undefined && note.id === "") {
-			this.deps.sendFailure(socket, message.id, "board_write", ERROR_NOTE_ID_EMPTY);
+			this.deps.sendFailure(socket, message.id, ERROR_CODE_INVALID_NOTE_ID, ERROR_NOTE_ID_EMPTY);
 			return;
 		}
 		// 增量摘要需要被撕条完整内容（{id, content}——schema 要求 content）；
 		// 必须在写前读（写后已不在板上）。
 		const removedNote =
-			message.action === "remove" && note?.id
+			message.params.action === "remove" && note?.id
 				? this.deps.boardStore.read(this.deps.state.groupChat.groupChatId)[sender]?.find((n) => n.id === note.id)
 				: undefined;
-		const outcome = this.deps.boardStore.write(this.deps.state.groupChat.groupChatId, sender, message.action, note);
+		const outcome = this.deps.boardStore.write(this.deps.state.groupChat.groupChatId, sender, message.params.action, note);
 		this.deps.send(socket, this.toWriteResponse(message.id, outcome));
 		if (outcome.status === "applied") {
 			// 增量摘要：remove 携带被撕条完整内容；clear 无 note。
 			const action: "add" | "update" | "remove" | "clear" =
-				message.action === "set" ? (note?.id !== undefined ? "update" : "add") : message.action;
+				message.params.action === "set" ? (note?.id !== undefined ? "update" : "add") : message.params.action;
 			const broadcastNote = outcome.note ?? removedNote;
-			const update = {
-				type: "board_update" as const,
-				actor: sender,
-				action,
-				...(broadcastNote ? { note: broadcastNote } : {}),
+			const wireUpdate = {
+				jsonrpc: JSONRPC_VERSION,
+				method: METHOD_BOARD_UPDATE,
+				params: {
+					actor: sender,
+					action,
+					...(broadcastNote ? { note: broadcastNote } : {}),
+				},
 			};
-			this.deps.broadcast(update);
+			this.deps.broadcast(wireUpdate);
 			// creator 实时提示（纯展示）：每次 applied 广播同步通知组合根。
-			this.deps.onBoardUpdated?.(update);
+			this.deps.onBoardUpdated?.({ actor: sender, action, ...(broadcastNote ? { note: broadcastNote } : {}) });
 		}
 	}
 
 	/** board_query 入口：全量 per-character 条目（无参；groupId 由 session 隐含）。 */
 	runBoardQuery(socket: WebSocket, connection: BoardConnectionLike, message: BoardQueryMessage): void {
-		const sender = this.requireOnlineCharacter(socket, connection, message, "board_query");
+		const sender = this.requireOnlineCharacter(socket, connection, message);
 		if (sender === null) {
 			return;
 		}
 		this.deps.send(socket, {
 			...(message.id !== undefined ? { id: message.id } : {}),
-			type: "response",
-			command: "board_query",
-			success: true,
-			data: {
+			jsonrpc: JSONRPC_VERSION,
+			result: {
 				boards: this.deps.boardStore.read(this.deps.state.groupChat.groupChatId),
 			},
 		});
@@ -106,15 +109,14 @@ export class BoardPipeline {
 		socket: WebSocket,
 		connection: BoardConnectionLike,
 		message: { id?: string },
-		command: "board_write" | "board_query",
 	): string | null {
 		if (!connection.online || connection.sessionId === null) {
-			this.deps.sendFailure(socket, message.id, command, ERROR_NOT_GROUP_MEMBER);
+			this.deps.sendFailure(socket, message.id, ERROR_CODE_NOT_IN_GROUP, ERROR_NOT_GROUP_MEMBER);
 			return null;
 		}
 		const onlineCharacter = this.deps.state.onlineCharacters.get(connection.sessionId);
 		if (!onlineCharacter) {
-			this.deps.sendFailure(socket, message.id, command, ERROR_NOT_GROUP_MEMBER);
+			this.deps.sendFailure(socket, message.id, ERROR_CODE_NOT_IN_GROUP, ERROR_NOT_GROUP_MEMBER);
 			return null;
 		}
 		return onlineCharacter.character.characterId;
@@ -125,10 +127,8 @@ export class BoardPipeline {
 		if (outcome.status === "applied") {
 			return {
 				...(id !== undefined ? { id } : {}),
-				type: "response",
-				command: "board_write",
-				success: true,
-				data: {
+				jsonrpc: JSONRPC_VERSION,
+				result: {
 					changed: true,
 					...(outcome.note ? { note: outcome.note } : {}),
 				},
@@ -136,10 +136,8 @@ export class BoardPipeline {
 		}
 		return {
 			...(id !== undefined ? { id } : {}),
-			type: "response",
-			command: "board_write",
-			success: true,
-			data: {
+			jsonrpc: JSONRPC_VERSION,
+			result: {
 				changed: false,
 				code: outcome.code,
 			},
