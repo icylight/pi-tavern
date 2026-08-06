@@ -11,7 +11,12 @@
 
 ## 待内嵌
 
-<!-- Arch 登记：发现即登，设计方案时扫描本表并入方案 -->
+| 优化点 | 发现背景 | 建议方案 | 状态 |
+| --- | --- | --- | --- |
+| character 域单体拆分（character-runtime 953 行 / group-chat-input 850 行） | 2026-08-06 静态分析：两单体各为单 class 774-858 行，M3 接线后仍将增长 | 按职责拆：连接生命周期 / 请求协调 / stale 恢复 / 消息消费回调；先纯移动后微调，行为零变化 + 红绿锚定（refactor 批次，后端主导 + Arch 评审） | 待内嵌 |
+| broadcast(message: unknown) 签名收窄为 ServerMessage | 2026-08-06 M3：4 处旧信封构造因宽类型逃过 tsc，wire 形状错误编译期不可见 | 签名改 ServerMessage（或联合类型），tsc 直接捕获 wire 形状漂移；codec 层钉测兜底保持 | 待内嵌 |
+| dispatch 注册表 handler 样板收敛 | 2026-08-06 M2 评审 B 级：12 处 key-mismatch 双保险检查重复 | handler 工厂函数生成（key + method 断言单点），注册表声明式 | 待内嵌 |
+| commands.ts 5 个 UI 格式化函数下沉 ui/ 域 | 2026-08-06 静态分析：adapter 层混入展示格式化 | 纯移动（formatSessionLabel/formatCreatorStatus/formatCharacterStatus 等），低风险 | 待内嵌 |
 
 ## 已落地
 

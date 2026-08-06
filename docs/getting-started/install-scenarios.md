@@ -1,6 +1,6 @@
 # 安装与更新场景（三场景操作口径文档 · 草案）
 
-> 状态：**草案**（P2 提前量，2026-08-06 客户端按可平移清单⑦产出；本地 dev 场景待补，经 PM 审后随 P2 排期转正式）
+> 状态：**草案**（P2 提前量，客户端按可平移清单⑦产出；本地 dev 场景待补，经 PM 审后随 P2 排期转正式）
 > 目的：用户遇到安装/更新问题时有一张可查的对照表。每场景给一条可复现验证命令，故障对照表行 = 症状 → 一条检查命令 → 幂等恢复动作。
 > 关联红线：`docs/development/development-conventions.md`（prepare 红线 + 依赖归属红线）。
 
@@ -17,11 +17,11 @@
 - 安装命令：`pi install git:github.com/icylight/pi-tavern`
 - 机制要点：pi 按 commit 钉版本拉取并执行 `npm install --omit=dev`（devDependencies 不安装）；扩展入口 = package.json 的 `pi.extensions` 字段（`./src/index.ts`），files 白名单含 `src`，无构建产物
 - **验证命令**（一条可复现）：启动 pi 后检查工具列表是否出现 `tavern_speak` / `tavern_board` / `tavern_whoami`（工具注册成功 = 扩展加载 + 依赖 import 完整）
-- 更新纪律：**钉 commit + 运行期禁改 pin**（2026-08-06 四方收敛：prepare 修复只消除安装崩溃面，不与 pin 纪律正交松绑）；改 pin 需苍蓝星批准、PM 执行
+- 更新纪律：**钉 commit + 运行期禁改 pin**（四方收敛：prepare 修复只消除安装崩溃面，不与 pin 纪律正交松绑）；改 pin 需苍蓝星批准、PM 执行
 
 ## 2. npm 安装（正式版）
 
-- 安装命令：`pi install npm:pi-tavern`（当前正式版 0.2.1，2026-08-06）
+- 安装命令：`pi install npm:pi-tavern`（当前正式版 0.2.1）
 - 机制要点：npm 包发布物 = files 白名单（src + README + CHANGELOG + LICENSE），无构建产物；入口 = package.json `pi.extensions` 字段，不依赖 main/exports（直接 `import "pi-tavern"` 属非支持用法）
 - **验证命令**：`npm view pi-tavern version` 核对版本 + 启动 pi 检查上述三个工具是否出现
 - 更新：正式版更新走发布链路（#124 相关，P3 排期）；npm 场景不受「钉 commit」纪律约束，但升级后同样执行工具出现验证
