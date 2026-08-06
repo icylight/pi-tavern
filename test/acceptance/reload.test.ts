@@ -108,16 +108,19 @@ describe("acceptance: reload keeps confirmed connections and identity", () => {
 		// 预览携带新消息。
 		const delivered = await member.waitFor(
 			(m) =>
-				m.type === "group_chat_update" &&
-				((m.preview_messages as Record<string, unknown>[] | undefined) ?? []).some(
-					(p) => p.content === "Hello after reload",
-				),
+				m.method === "group_chat_update" &&
+				(((m.params as Record<string, unknown>).preview_messages as Record<string, unknown>[] | undefined)?.some(
+					(p) => (p.params as Record<string, unknown>).content === "Hello after reload",
+				) ??
+					false),
 			30_000,
 		);
-		expect((delivered.latest_sequence as number) ?? 0).toBeGreaterThan(0);
-		const preview = delivered.preview_messages as Record<string, unknown>[];
-		expect(preview.some((m) => m.content === "Hello after reload")).toBe(true);
-		expect(member.allFrames().some((m) => m.type === "character_left" || m.type === "group_chat_closed")).toBe(false);
+		expect(((delivered.params as Record<string, unknown>).latest_sequence as number) ?? 0).toBeGreaterThan(0);
+		const preview = (delivered.params as Record<string, unknown>).preview_messages as Record<string, unknown>[];
+		expect(preview.some((m) => (m.params as Record<string, unknown>).content === "Hello after reload")).toBe(true);
+		expect(member.allFrames().some((m) => m.method === "character_left" || m.method === "group_chat_closed")).toBe(
+			false,
+		);
 
 		await character.runCommand("/tavern-leave");
 		member.terminate();

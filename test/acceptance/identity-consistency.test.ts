@@ -152,7 +152,7 @@ describe("acceptance: identity consistency (ISSUE-003)", () => {
 			params: { character_id: "characters/ghost.md" },
 		});
 		const claim = await client.waitFor((m) => m.id === "2" && "error" in m);
-		expect(String(claim.error)).toContain("no longer available");
+		expect((claim.error as { message: string }).message).toContain("no longer available");
 
 		// 幽灵卡从未成为成员：creator 仍显示 3 人在线。
 		await creator.waitFor(

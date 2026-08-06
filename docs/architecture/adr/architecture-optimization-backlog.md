@@ -40,3 +40,5 @@
 | ③ | 声明数字路径级核对 | 清单 6 vs 4 教训 | 播报/文档声称的件数逐路径数，不信声明 |
 | ④ | 临时冒烟证据可引用 | 删测试不留痕教训 | 交付证据引用的命令/数据须能重跑复现 |
 | ⑤ | 依赖归属红线 | 运行期 import 必须 dependencies 且不同列 devDeps | 逐 import 核查 package.json 归属 |
+| ⑥ | 信封化嵌套条目内容访问 | reload.test.ts preview 条目旧访问（QA 漏条目内容层，2026-08-06 收口门禁） | preview/messages 条目的内容字段一律 `p.params.content`，method 判别修了不算完 |
+| ⑦ | acceptance 串行纪律 | reload.test.ts 首跑 `stdin is not writable`（并行撞共享端口/临时目录，2026-08-06） | acceptance 与 check/其他 acceptance 并行 = 环境抖动假失败；串行复跑为准 |

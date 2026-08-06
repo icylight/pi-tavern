@@ -134,8 +134,8 @@ describe("acceptance family: message sync + fetch + history paging (shared creat
 			sockets.push(memberA.socket);
 			const memberB = await joinCharacterWs(descriptor, "ws-smoke-b", "characters/reviewer.md");
 			sockets.push(memberB.socket);
-			await memberA.waitFor((m) => m.type === "message_history");
-			await memberB.waitFor((m) => m.type === "message_history");
+			await memberA.waitFor((m) => m.method === "message_history");
+			await memberB.waitFor((m) => m.method === "message_history");
 
 			// 发布面（sync B2 正向 + speak 管线）：非 stale speak 发布为 seq 2。
 			memberA.send({
@@ -159,7 +159,11 @@ describe("acceptance family: message sync + fetch + history paging (shared creat
 			expect((pulled.result as Record<string, unknown>).latest_sequence).toBe(2);
 
 			// 广播一致（speak-order 面）：另一成员也收到同序通知。
-			await memberB.waitFor((m) => m.type === "group_chat_update" && (m.latest_sequence as number) >= 2, 30_000);
+			await memberB.waitFor(
+				(m) =>
+					m.method === "group_chat_update" && ((m.params as Record<string, unknown>).latest_sequence as number) >= 2,
+				30_000,
+			);
 		} finally {
 			try {
 				for (const socket of sockets.splice(0)) {
