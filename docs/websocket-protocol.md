@@ -28,20 +28,59 @@ PiTavern 使用标准 WebSocket `ping` / `pong` 控制帧检测半开连接，�
 ## JSON 约定
 
 - JSON 字段名统一使用 `snake_case`。
-- `type` 等类型字符串统一使用 `snake_case`。
-- 协议不携带版本字段。
-- 请求使用可选的 `id` 关联响应。
-- 请求响应复用 pi-coding-agent 的通用响应结构：
+- `method` 等类型字符串统一使用 `snake_case`。
+- 协议使用 JSON-RPC 2.0 标准信封（#119 M1 迁移，User 拍板豁免零漂移——特例仅此一次）：所有消息必带 `"jsonrpc": "2.0"` 版本字段。
+- 请求使用可选的 `id` 关联响应；`id` 缺省 = JSON-RPC 通知（无响应）。
+- 请求/通知载荷一律位于 `params` 对象内。
+
+请求形状（带 `id` = request，无 `id` = notification）：
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-1",
-  "type": "response",
-  "command": "command_name",
-  "success": true,
-  "data": {}
+  "method": "command_name",
+  "params": {}
 }
 ```
+
+成功响应形状：
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req-1",
+  "result": {}
+}
+```
+
+业务失败响应形状（`code` 必须属于 10 码业务枚举，未知 code = 协议错误 fail-close）：
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req-1",
+  "error": {
+    "code": -32100,
+    "message": "Character is not in the group chat"
+  }
+}
+```
+
+业务错误码枚举（10 码，`-32100` 起，避开 JSON-RPC 标准码与 vscode-jsonrpc 已用码；`code → message` 映射表单一数据源在 `src/shared/messages.ts`，message 文案与原 `success: false` 的 `error` 字符串原样一致）：
+
+| code | 枚举名 | message |
+| --- | --- | --- |
+| -32100 | NOT_IN_GROUP | Character is not in the group chat |
+| -32101 | ALREADY_IN_GROUP | This pi session is already in the group chat |
+| -32102 | RESERVATION_INVALID | Character reservation is no longer valid |
+| -32103 | CHARACTER_UNAVAILABLE | Character is no longer available |
+| -32104 | NO_CHAT_HISTORY | Group chat has no chat history file yet |
+| -32105 | MESSAGE_TOO_LARGE | Message exceeds 64 KiB |
+| -32106 | NO_ACTIVE_ROUND | No active round |
+| -32107 | INVALID_NOTE_ID | note.id must not be empty |
+| -32108 | INTERNAL_ERROR | Unknown error |
+| -32109 | PERSIST_FAILED | Failed to persist message:  |
 
 通用 JSON 命名规则见 [development-conventions.md](development-conventions.md)。
 
@@ -51,10 +90,11 @@ PiTavern 对协议错误采用 fail-fast：
 
 - frame 不是可解析的 JSON 时，关闭该 WebSocket；
 - JSON 不符合对应 TypeBox schema 时，关闭该 WebSocket；
-- `type` 未知时，关闭该 WebSocket；
+- `method` 未知时，关闭该 WebSocket；
+- `error.code` 不属于 10 码业务枚举时，关闭该 WebSocket（未知 code fail-close）；
 - 不尝试补全字段、转换类型或猜测发送方意图。
 
-合法请求产生的业务失败不属于协议错误。例如 Character 已经被预留、当前没有 Round 或发言额度已经耗尽时，返回对应的 `success: false` 响应，并按照该业务消息已经定义的连接语义继续处理。
+合法请求产生的业务失败不属于协议错误。例如 Character 已经被预留、当前没有 Round 或发言额度已经耗尽时，返回对应的 `error: { code, message }` 响应，并按照该业务消息已经定义的连接语义继续处理。
 
 ### 请求超时
 
@@ -168,9 +208,12 @@ character_ready
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-2",
-  "type": "join_group_chat",
-  "session_id": "pi-session-uuid"
+  "method": "join_group_chat",
+  "params": {
+    "session_id": "pi-session-uuid"
+  }
 }
 ```
 
@@ -180,11 +223,9 @@ character_ready
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-2",
-  "type": "response",
-  "command": "join_group_chat",
-  "success": true,
-  "data": {
+  "result": {
     "available_characters": [
       {
         "character_id": "developer",
@@ -214,9 +255,12 @@ character_ready
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-3",
-  "type": "claim_character",
-  "character_id": "developer"
+  "method": "claim_character",
+  "params": {
+    "character_id": "developer"
+  }
 }
 ```
 
@@ -224,11 +268,9 @@ character_ready
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-3",
-  "type": "response",
-  "command": "claim_character",
-  "success": true,
-  "data": {
+  "result": {
     "character": {
       "character_id": "developer",
       "name": "Developer",
@@ -250,11 +292,12 @@ Character 已经被预留或已经在线等失败情况使用 pi-coding-agent �
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-3",
-  "type": "response",
-  "command": "claim_character",
-  "success": false,
-  "error": "Character is no longer available"
+  "error": {
+    "code": -32103,
+    "message": "Character is no longer available"
+  }
 }
 ```
 
@@ -272,8 +315,10 @@ Character 已经被预留或已经在线等失败情况使用 pi-coding-agent �
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-4",
-  "type": "character_ready"
+  "method": "character_ready",
+  "params": {}
 }
 ```
 
@@ -283,10 +328,9 @@ Character 已经被预留或已经在线等失败情况使用 pi-coding-agent �
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-4",
-  "type": "response",
-  "command": "character_ready",
-  "success": true
+  "result": null
 }
 ```
 
@@ -306,11 +350,14 @@ Character 完成 `character_ready` 并正式成为群成员后，群聊创建者
 
 ```json
 {
-  "type": "character_joined",
-  "character": {
-    "character_id": "developer",
-    "name": "Developer",
-    "description": "负责方案实现、代码设计和技术风险分析"
+  "jsonrpc": "2.0",
+  "method": "character_joined",
+  "params": {
+    "character": {
+      "character_id": "developer",
+      "name": "Developer",
+      "description": "负责方案实现、代码设计和技术风险分析"
+    }
   }
 }
 ```
@@ -331,8 +378,10 @@ Character 主动离开请求：
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-4",
-  "type": "leave_group_chat"
+  "method": "leave_group_chat",
+  "params": {}
 }
 ```
 
@@ -355,10 +404,9 @@ Character 主动离开请求：
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-4",
-  "type": "response",
-  "command": "leave_group_chat",
-  "success": true
+  "result": null
 }
 ```
 
@@ -366,13 +414,16 @@ Character 主动离开请求：
 
 ```json
 {
-  "type": "character_left",
-  "character": {
-    "character_id": "developer",
-    "name": "Developer",
-    "description": "负责方案实现、代码设计和技术风险分析"
-  },
-  "reason": "left"
+  "jsonrpc": "2.0",
+  "method": "character_left",
+  "params": {
+    "character": {
+      "character_id": "developer",
+      "name": "Developer",
+      "description": "负责方案实现、代码设计和技术风险分析"
+    },
+    "reason": "left"
+  }
 }
 ```
 
@@ -401,8 +452,11 @@ WebSocket 意外断开时没有离开请求和响应。群聊创建者立即执�
 
 ```json
 {
-  "type": "group_chat_closed",
-  "group_chat_id": "chat-123"
+  "jsonrpc": "2.0",
+  "method": "group_chat_closed",
+  "params": {
+    "group_chat_id": "chat-123"
+  }
 }
 ```
 
@@ -436,11 +490,14 @@ Character 加入成功后，群聊创建者自动发送最近 10 条公开消息
 
 ```json
 {
-  "type": "message_history",
-  "messages": [],
-  "cursor": "opaque-cursor",
-  "has_more": true,
-  "total_messages": 128
+  "jsonrpc": "2.0",
+  "method": "message_history",
+  "params": {
+    "messages": [],
+    "cursor": "opaque-cursor",
+    "has_more": true,
+    "total_messages": 128
+  }
 }
 ```
 
@@ -458,9 +515,12 @@ Character 加入成功后，群聊创建者自动发送最近 10 条公开消息
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-5",
-  "type": "get_message_history",
-  "cursor": "opaque-cursor"
+  "method": "get_message_history",
+  "params": {
+    "cursor": "opaque-cursor"
+  }
 }
 ```
 
@@ -468,11 +528,9 @@ Character 加入成功后，群聊创建者自动发送最近 10 条公开消息
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-5",
-  "type": "response",
-  "command": "get_message_history",
-  "success": true,
-  "data": {
+  "result": {
     "messages": [],
     "cursor": "older-opaque-cursor",
     "has_more": true,
@@ -491,8 +549,10 @@ Character 加入成功后，群聊创建者自动发送最近 10 条公开消息
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-6",
-  "type": "get_chat_history_file"
+  "method": "get_chat_history_file",
+  "params": {}
 }
 ```
 
@@ -500,11 +560,9 @@ Character 加入成功后，群聊创建者自动发送最近 10 条公开消息
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-6",
-  "type": "response",
-  "command": "get_chat_history_file",
-  "success": true,
-  "data": {
+  "result": {
     "path": "/absolute/path/to/chats/group-chat-id.jsonl"
   }
 }
@@ -515,7 +573,7 @@ Character 加入成功后，群聊创建者自动发送最近 10 条公开消息
 - 返回成功前，群聊创建者确保已经接受的消息写入文件。
 - 只有已经加入当前群聊的 pi 可以请求文件路径。
 - 该文件称为“群聊记录文件”，不称为 session 文件。
-- 空群聊尚未创建 JSONL 文件，此时返回 `success: false`。
+- 空群聊尚未创建 JSONL 文件，此时返回 `error` 响应（NO_CHAT_HISTORY）。
 
 ## 获取群聊状态
 
@@ -523,8 +581,10 @@ Character 加入成功后，群聊创建者自动发送最近 10 条公开消息
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-7",
-  "type": "get_group_chat_state"
+  "method": "get_group_chat_state",
+  "params": {}
 }
 ```
 
@@ -532,11 +592,9 @@ Character 加入成功后，群聊创建者自动发送最近 10 条公开消息
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-7",
-  "type": "response",
-  "command": "get_group_chat_state",
-  "success": true,
-  "data": {
+  "result": {
     "group_chat": {
       "group_chat_id": "chat-123",
       "name": "PiTavern 技术设计",
@@ -632,8 +690,11 @@ Character 上报：
 
 ```json
 {
-  "type": "update_character_state",
-  "is_streaming": true
+  "jsonrpc": "2.0",
+  "method": "update_character_state",
+  "params": {
+    "is_streaming": true
+  }
 }
 ```
 
@@ -658,10 +719,13 @@ Character 的 `tavern_speak` Agent tool 通过以下 WebSocket 请求原子尝�
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-8",
-  "type": "speak",
-  "content": "我建议先实现持久化层。",
-  "based_on_sequence": 41
+  "method": "speak",
+  "params": {
+    "content": "我建议先实现持久化层。",
+    "based_on_sequence": 41
+  }
 }
 ```
 
@@ -686,11 +750,9 @@ Character 的 `tavern_speak` Agent tool 通过以下 WebSocket 请求原子尝�
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-8",
-  "type": "response",
-  "command": "speak",
-  "success": true,
-  "data": {
+  "result": {
     "published": true,
     "event_id": "a1b2c3d4",
     "sequence": 42,
@@ -710,11 +772,9 @@ Character 的 `tavern_speak` Agent tool 通过以下 WebSocket 请求原子尝�
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-8",
-  "type": "response",
-  "command": "speak",
-  "success": true,
-  "data": {
+  "result": {
     "published": false,
     "reason": "round_limit_reached",
     "hand_raised": true,
@@ -736,14 +796,15 @@ Character 的 `tavern_speak` Agent tool 通过以下 WebSocket 请求原子尝�
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-8",
-  "type": "response",
-  "command": "speak",
-  "success": true,
-  "data": {
+  "result": {
     "published": false,
     "reason": "stale",
-    "missing_sequences": { "from": 42, "to": 45 },
+    "missing_sequences": {
+      "from": 42,
+      "to": 45
+    },
     "round": {
       "round_max_messages": 10,
       "used_messages": 4,
@@ -758,15 +819,16 @@ Character 的 `tavern_speak` Agent tool 通过以下 WebSocket 请求原子尝�
 - **落后判定排除自身（B6）**：服务端比较的是「最近一条**他人**消息的序号」（尾部向前扫描，跳过请求者自己的消息）——客户端的拉取游标永不越过自己的消息（回显被客户端过滤），若按最新总序号比较，自己的消息会令下一次发言被误拒。
 - **客户端行为（B3/B5，简化终版）**：`tavern_speak` 工具收到 stale 拒绝后**不做任何拉取**——只置 A2 既有「有更新」标记并返回一句提示（无消息全文）；当前 run 结束后由 A2 统一拉取覆盖（被拒时错过的消息与后续增量一并拉全），新 turn 里 LLM 看到完整上下文重新决策（放弃或修改重发）。同轮自动恢复上限 2 次（按响应 Round 快照变化重置），超限后只报告拒绝，不再触发自动注入。
 
-协议错误或连接身份错误使用 `success: false`：
+协议错误或连接身份错误使用 `error` 响应：
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-8",
-  "type": "response",
-  "command": "speak",
-  "success": false,
-  "error": "Character is not a group member"
+  "error": {
+    "code": -32100,
+    "message": "Character is not a group member"
+  }
 }
 ```
 
@@ -780,20 +842,23 @@ Character 消息：
 
 ```json
 {
-  "type": "public_message",
-  "event_id": "a1b2c3d4",
-  "sequence": 42,
-  "timestamp": "2026-07-26T11:30:00.000Z",
-  "sender": {
-    "type": "character",
-    "character_id": "developer",
-    "name": "Developer"
-  },
-  "content": "我建议先实现持久化层。",
-  "round": {
-    "round_max_messages": 10,
-    "used_messages": 4,
-    "remaining_messages": 6
+  "jsonrpc": "2.0",
+  "method": "public_message",
+  "params": {
+    "event_id": "a1b2c3d4",
+    "sequence": 42,
+    "timestamp": "2026-07-26T11:30:00.000Z",
+    "sender": {
+      "type": "character",
+      "character_id": "developer",
+      "name": "Developer"
+    },
+    "content": "我建议先实现持久化层。",
+    "round": {
+      "round_max_messages": 10,
+      "used_messages": 4,
+      "remaining_messages": 6
+    }
   }
 }
 ```
@@ -802,18 +867,21 @@ User Persona 消息：
 
 ```json
 {
-  "type": "public_message",
-  "event_id": "b2c3d4e5",
-  "sequence": 43,
-  "timestamp": "2026-07-26T11:31:00.000Z",
-  "sender": {
-    "type": "user_persona"
-  },
-  "content": "先从持久化层开始。",
-  "round": {
-    "round_max_messages": 10,
-    "used_messages": 0,
-    "remaining_messages": 10
+  "jsonrpc": "2.0",
+  "method": "public_message",
+  "params": {
+    "event_id": "b2c3d4e5",
+    "sequence": 43,
+    "timestamp": "2026-07-26T11:31:00.000Z",
+    "sender": {
+      "type": "user_persona"
+    },
+    "content": "先从持久化层开始。",
+    "round": {
+      "round_max_messages": 10,
+      "used_messages": 0,
+      "remaining_messages": 10
+    }
   }
 }
 ```
@@ -838,10 +906,13 @@ User Persona 消息：
 
 ```json
 {
-  "type": "group_chat_update",
-  "latest_sequence": 43,
-  "preview_messages": [ { "type": "public_message", ... 最近 3 条 ... } ],
-  "total_messages": 43
+  "jsonrpc": "2.0",
+  "method": "group_chat_update",
+  "params": {
+    "latest_sequence": 43,
+    "preview_messages": [ { "jsonrpc": "2.0", "method": "public_message", ... 最近 3 条 ... } ],
+    "total_messages": 43
+  }
 }
 ```
 
@@ -857,9 +928,12 @@ User Persona 消息：
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-1",
-  "type": "fetch_messages_since",
-  "since_sequence": 40
+  "method": "fetch_messages_since",
+  "params": {
+    "since_sequence": 40
+  }
 }
 ```
 
@@ -867,12 +941,10 @@ User Persona 消息：
 
 ```json
 {
+  "jsonrpc": "2.0",
   "id": "req-1",
-  "type": "response",
-  "command": "fetch_messages_since",
-  "success": true,
-  "data": {
-    "messages": [ { "type": "public_message", "sequence": 41 }, ... ],
+  "result": {
+    "messages": [ { "jsonrpc": "2.0", "method": "public_message", "params": { "sequence": 41 } }, ... ],
     "latest_sequence": 43,
     "total_messages": 43
   }
@@ -885,4 +957,4 @@ User Persona 消息：
 
 Character 发言成功时，群聊创建者原子分配 `sequence`、更新 Round 次数并通过 `SessionManager` 写入 `custom_message`，使用返回的 entry `id` 作为 `event_id`，然后先广播 `group_chat_update`，再返回对应的 `speak` 成功响应。
 
-session append 成功是公开消息的成立点。append 失败时，不递增 `sequence`、不消耗 Round 额度、不广播，并返回 `success: false`。append 成功后，即使某个 WebSocket 发送失败，公开消息也不撤销；对应连接进入断线处理。
+session append 成功是公开消息的成立点。append 失败时，不递增 `sequence`、不消耗 Round 额度、不广播，并返回 `error` 响应（PERSIST_FAILED）。append 成功后，即使某个 WebSocket 发送失败，公开消息也不撤销；对应连接进入断线处理。

@@ -198,6 +198,61 @@ export const ERROR_IMPORT_NOT_FILE_OR_DIR_PREFIX = "Character import is not a fi
 /** 角色文件必须使用 .md 扩展名。 */
 export const ERROR_MD_EXTENSION_PREFIX = "Character file must use the .md extension: ";
 
+// ─── A 类：协议业务错误码（#119 M1，JSON-RPC error.code 10 码枚举）──────
+// 取值 = -32100 起，避开 JSON-RPC 标准码（-32700~-32000）与 vscode-jsonrpc 已用码
+// （-32001/-32002/-32098/-32099/-32800 系列）；code→message 映射表 = 单一数据源。
+// 未知 code 由 codec schema 收窄 fail-close（#119 M1 定案：code 必须 ∈ 10 码枚举）。
+
+/** 成员资格校验失败（query/leave/speak/board 业务拒绝）。 */
+export const ERROR_CODE_NOT_IN_GROUP = -32100;
+/** 已在群聊中（join/ready/controller 绑定校验）。 */
+export const ERROR_CODE_ALREADY_IN_GROUP = -32101;
+/** character_ready 预留失效。 */
+export const ERROR_CODE_RESERVATION_INVALID = -32102;
+/** claim_character 角色已被占用。 */
+export const ERROR_CODE_CHARACTER_UNAVAILABLE = -32103;
+/** 群聊尚无聊天历史文件。 */
+export const ERROR_CODE_NO_CHAT_HISTORY = -32104;
+/** speak 消息超过 64 KiB 上限。 */
+export const ERROR_CODE_MESSAGE_TOO_LARGE = -32105;
+/** 当前无讨论轮次（speak 拒绝）。 */
+export const ERROR_CODE_NO_ACTIVE_ROUND = -32106;
+/** board_write note.id 为空（协议级拒绝）。 */
+export const ERROR_CODE_INVALID_NOTE_ID = -32107;
+/** 未知错误兜底。 */
+export const ERROR_CODE_INTERNAL_ERROR = -32108;
+/** 消息持久化失败。 */
+export const ERROR_CODE_PERSIST_FAILED = -32109;
+
+/** 10 码业务枚举（codec schema 收窄用：未知 code fail-close）。 */
+export const PROTOCOL_ERROR_CODES = [
+	ERROR_CODE_NOT_IN_GROUP,
+	ERROR_CODE_ALREADY_IN_GROUP,
+	ERROR_CODE_RESERVATION_INVALID,
+	ERROR_CODE_CHARACTER_UNAVAILABLE,
+	ERROR_CODE_NO_CHAT_HISTORY,
+	ERROR_CODE_MESSAGE_TOO_LARGE,
+	ERROR_CODE_NO_ACTIVE_ROUND,
+	ERROR_CODE_INVALID_NOTE_ID,
+	ERROR_CODE_INTERNAL_ERROR,
+	ERROR_CODE_PERSIST_FAILED,
+] as const;
+
+/** code→message 映射表（单一数据源；文案复用 A 类常量，message 原样保留 = 现有
+ * failure 断言零语义漂移，#119 comment 5180067418 口径）。 */
+export const PROTOCOL_ERROR_CODE_MESSAGES: Readonly<Record<number, string>> = {
+	[ERROR_CODE_NOT_IN_GROUP]: ERROR_NOT_IN_GROUP_CHAT,
+	[ERROR_CODE_ALREADY_IN_GROUP]: ERROR_ALREADY_IN_GROUP_CHAT,
+	[ERROR_CODE_RESERVATION_INVALID]: ERROR_RESERVATION_INVALID,
+	[ERROR_CODE_CHARACTER_UNAVAILABLE]: ERROR_CHARACTER_UNAVAILABLE,
+	[ERROR_CODE_NO_CHAT_HISTORY]: ERROR_NO_CHAT_HISTORY_FILE,
+	[ERROR_CODE_MESSAGE_TOO_LARGE]: ERROR_MESSAGE_TOO_LARGE,
+	[ERROR_CODE_NO_ACTIVE_ROUND]: ERROR_NO_ACTIVE_ROUND,
+	[ERROR_CODE_INVALID_NOTE_ID]: ERROR_NOTE_ID_EMPTY,
+	[ERROR_CODE_INTERNAL_ERROR]: ERROR_UNKNOWN,
+	[ERROR_CODE_PERSIST_FAILED]: ERROR_PERSIST_FAILED_PREFIX,
+};
+
 // ─── B 类：用户可见文案 ──────────────────────────────────────────────────
 
 /** 白板 reason_code 文案：已达条数上限。 */

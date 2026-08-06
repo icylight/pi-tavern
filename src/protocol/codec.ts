@@ -1,3 +1,4 @@
+import type { Message } from "vscode-jsonrpc";
 import { Compile } from "typebox/compile";
 import type { RawData } from "ws";
 import {
@@ -16,8 +17,16 @@ export class ProtocolError extends Error {}
 const checkClientMessage = Compile(ClientMessageSchema);
 const checkServerMessage = Compile(ServerMessageSchema);
 
+/**
+ * 解码客户端消息（#119 M1：JSON-RPC 2.0 标准信封）。
+ * 信封层校验：JSON 解析 → vscode-jsonrpc Message 骨架 → TypeBox 判别结构
+ * （method 判别 + params 形状 + 10 码业务枚举收窄，未知 code fail-close）。
+ */
 export function decodeClientMessage(data: RawData): ClientMessage {
 	const value = parseJson(data);
+	if (!isMessageEnvelope(value)) {
+		throw new ProtocolError(ERROR_INVALID_CLIENT_MESSAGE);
+	}
 	if (!checkClientMessage.Check(value)) {
 		throw new ProtocolError(ERROR_INVALID_CLIENT_MESSAGE);
 	}
@@ -26,6 +35,9 @@ export function decodeClientMessage(data: RawData): ClientMessage {
 
 export function decodeServerMessage(data: RawData): ServerMessage {
 	const value = parseJson(data);
+	if (!isMessageEnvelope(value)) {
+		throw new ProtocolError(ERROR_INVALID_SERVER_MESSAGE);
+	}
 	if (!checkServerMessage.Check(value)) {
 		throw new ProtocolError(ERROR_INVALID_SERVER_MESSAGE);
 	}
@@ -43,6 +55,28 @@ export function encodeMessage(message: unknown): string {
 		throw new ProtocolError(ERROR_WS_FRAME_TOO_LARGE);
 	}
 	return encoded;
+}
+
+/** 信封骨架校验：jsonrpc"2.0" 必带 + method 或 id/result/error 判别形状。 */
+function isMessageEnvelope(value: unknown): value is Message {
+	if (typeof value !== "object" || value === null) {
+		return false;
+	}
+	const record = value as Record<string, unknown>;
+	if (record["jsonrpc"] !== "2.0") {
+		return false;
+	}
+	if (typeof record["method"] === "string") {
+		// 请求或通知：id 可选，params 可选
+		return record["id"] === undefined || typeof record["id"] === "string";
+	}
+	// 响应：id（可选，兼容无 id 响应）+ result 或 error 二选一
+	const hasResult = "result" in record;
+	const hasError = "error" in record;
+	if (hasResult === hasError) {
+		return false;
+	}
+	return record["id"] === undefined || typeof record["id"] === "string";
 }
 
 function parseJson(data: RawData): unknown {
