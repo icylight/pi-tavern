@@ -1,6 +1,6 @@
 # 重构实施计划:五层架构(IO 管线范式)
 
-- 状态：**已完成（Phase 1–5 收口归档，2026-08-03 #88）**——Phase 1–4 已合入 main @ b71af53，ADR-0005 已转 Accepted（2026-08-02）；本文档归档为完成态计划，后续结构演进以 docs/adr/0005-io-pipeline-five-layer.md（实施后差异核注段）+ docs/architecture.md 为准。
+- 状态：**已完成（Phase 1–5 收口归档，2026-08-03 #88）**——Phase 1–4 已合入 main @ b71af53，ADR-0005 已转 Accepted；本文档归档为完成态计划，后续结构演进以 docs/architecture/adr/0005-io-pipeline-five-layer.md（实施后差异核注段）+ docs/architecture/architecture.md 为准。
 - 关联:ADR-0005(五层定义与映射)、QA 行为等价验收基准承诺(2026-08-02)
 - 原则:契约零改动、行为零变化、每阶段独立绿、试点优先「测试覆盖最厚」模块
 
@@ -11,9 +11,9 @@
 3. **阶段门禁**：每阶段末 unit 全量 + 定向 acceptance；Phase 3/5 全链门禁
 4. **粒度约束（Arch 判据 + QA 细化）**：管线 iff ≥3 顺序阶段 + 共享中间状态 +（≥2 入口复用 或 需要显式安排读写顺序）；短流程留用例门面；Phase 1 按 skills 模块拆 2-3 个 PR，各带定向验证
 5. **契约不动**：protocol/messages.ts 的消息格式定义（wire schema）零改动；每阶段 git diff 核对 messages/codec 零 diff；「拆 schema 与行为」挂 Phase 4 可选
-6. **新增原语同 PR 必带钉（2026-08-02 Arch 建议 + PM 定夺）**：新增/扩展 skills 原语（如文件层 read/write/原子写）必须与实现同 PR 带直接钉测（unit 层断言原语语义：抛错/原子性/mkdir/损坏容错；编排层语义如吞错归 integration/runtime 层）——不允许仅依赖间接覆盖；先钉后迁纪律的补全（PR-B 缺口教训：行为全绿但钉测层缺失，QA 把关拦截）；QA 验收按此清单复核，豁免须 PM 明示留痕。**执行形态（QA 定）**：验收时自动对照「git diff 中 src/data/（skills 层）新增 export 函数名 ↔ 全 test/ 引用计数 ≥1」，grep 一条命令可验，无匹配即钉测缺口；与「契约零 diff」并列进验收证据模板
+6. **新增原语同 PR 必带钉（Arch 建议 + PM 定夺）**：新增/扩展 skills 原语（如文件层 read/write/原子写）必须与实现同 PR 带直接钉测（unit 层断言原语语义：抛错/原子性/mkdir/损坏容错；编排层语义如吞错归 integration/runtime 层）——不允许仅依赖间接覆盖；先钉后迁纪律的补全（PR-B 缺口教训：行为全绿但钉测层缺失，QA 把关拦截）；QA 验收按此清单复核，豁免须 PM 明示留痕。**执行形态（QA 定）**：验收时自动对照「git diff 中 src/data/（skills 层）新增 export 函数名 ↔ 全 test/ 引用计数 ≥1」，grep 一条命令可验，无匹配即钉测缺口；与「契约零 diff」并列进验收证据模板
 
-## 模块覆盖现状（QA 实测 v2，2026-08-02）
+## 模块覆盖现状（QA 实测 v2
 
 - **裸奔仅 4 薄壳**：headless / renderers / runtime-close / constants（无大文件裸奔）
 - group-chat-input：19 用例专测（非裸奔；三重风险降级为「大文件 + 迁移面广」）
@@ -46,7 +46,7 @@
 - 验证:**全链门禁**(unit + integration + acceptance,V0 留痕)
 - 出口：**绝对行数目标**——终态 creator-runtime ≈ 400 行骨架 + 已拆模块（Phase 2 已消化 1881→1193；PR-B 剩余任务 = 1193→~400，约 800 行拆出）
 
-**Phase 3 裁决留痕（Arch 2026-08-02）**：
+**Phase 3 裁决留痕（Arch）**：
 - ① config 豁免成立：组合根唯一 loadTavernConfig、runtime 全收参零直读（决策 7 精神）；commands 保留注入点供测试；豁免理由：装配与行为分离
 - ② 组合根成立：ADR-0005 明示 index.ts=组合根；装配区无业务逻辑只构造+注入；headless.ts 同归 adapter 注册点
 - ③ 出口数字为绝对目标（见上），非按现基线增量
@@ -60,9 +60,9 @@
 - 验证:unit + 定向
 - 出口:依赖方向可由 lint 强制(adapter 不得触 skills、application 不碰文件)
 
-**Phase 4 定稿留痕（2026-08-02）**：
+**Phase 4 定稿留痕**：
 - lint 选型（Arch 裁决）：biome 2.3.5 `noRestrictedImports` **patterns 方向性方案**（group=gitignore 源匹配 + importNamePattern=regex 禁入；ADR 五层方向矩阵 ≤8 条编码；单一工具链、CI `biome check src/` 天然覆盖；importNamePattern 匹配书写形 specifier、跨目录深度用 `(\.\./)*` 前缀兼容）；表达力不足时退自定义 script（Dev 定）
-- **patterns 实测证伪（2026-08-02 Dev 实验）**：group glob 匹配**被 import 模块 specifier**（无「源文件路径」维度），「adapter 文件不得 import data/」不可表达（全局禁 data/ 误杀 controller→skills 合法引用）→ 按预案退 **scripts/lint-layers.mjs**（~50 行零依赖，`npm run lint:layers` 并 CI，与 biome check 并列）；前置实验教训：选型以实测能力为准，不凭文档语义
+- **patterns 实测证伪（Dev 实验）**：group glob 匹配**被 import 模块 specifier**（无「源文件路径」维度），「adapter 文件不得 import data/」不可表达（全局禁 data/ 误杀 controller→skills 合法引用）→ 按预案退 **scripts/lint-layers.mjs**（~50 行零依赖，`npm run lint:layers` 并 CI，与 biome check 并列）；前置实验教训：选型以实测能力为准，不凭文档语义
 - **规则矩阵定稿（Arch 边界裁决）**：① adapter→skills 禁行为面（纯函数/类型豁免、默认实现上移组合根 index.ts 注入——commands/headless 只留注入面，unit 注入面已存在测试零改动；getGroupChatCursorDirectory 纯路径函数豁免）② application→文件 IO 禁（controller 零 fs 已核 0 处，直接启用）③ runtime→node:fs 禁直连（creator-runtime 死导入先删零调用点；creator-factory/组合根豁免——默认依赖装配语义）
 - PR 形态（PM 裁决）：1 PR（基线清零 + lint 加固 + pkill 转义并入）；「拆 schema 与行为」挂起待 User 拍板
 - 测试慢分析（Arch 静态切片）：墙钟模型 = 13 文件 ÷ 8 worker = 2 批，批界 = 批内最长文件（~40-50s）→ 99.5s 吻合；spawn 27×~6s÷8 ≈ 20s 纯启动；worker 拐点 8；杠杆排序：① 进程复用试点（省 ~15-20s）② 文件合并至 ≤8（单批省 ~45s，受最长文件钳制）③ join 3s 延迟注入 ④ worker 试探——等 QA 执行层数据合流后 PM 决策
@@ -73,7 +73,7 @@
 - 验证:全链门禁,V0 留痕
 - 出口:重构完成,基线更新
 
-> **归档注记（2026-08-03，#88 发布定型）**：Phase 5 收口完成（ADR-0005 已转 Accepted 2026-08-02，见状态行）。行数口径刷新：creator-runtime 收口基线 427 行（QA 收口核对③）→ 现 **518 行**（+92 行 = #79 角色卡懒刷新 + #83 join 挂起修复的功能回填，结构未变——拆出模块仍 10 个，骨架出口 ~400 口径在功能回填后不再适用，以 ADR-0005 文末核注段与 docs/architecture.md 为准）。
+> **归档注记（2026-08-03，#88 发布定型）**：Phase 5 收口完成（ADR-0005 已转 Accepted 2026-08-02，见状态行）。行数口径刷新：creator-runtime 收口基线 427 行（QA 收口核对③）→ 现 **518 行**（+92 行 = #79 角色卡懒刷新 + #83 join 挂起修复的功能回填，结构未变——拆出模块仍 10 个，骨架出口 ~400 口径在功能回填后不再适用，以 ADR-0005 文末核注段与 docs/architecture/architecture.md 为准）。
 
 ## 风险与对策
 
@@ -88,7 +88,7 @@
 
 ## 遗留项清单
 
-1. ~~ADR-0005 §3「一致性边界（无 DB 的事务对应物）」表述~~（User 评论 r3698822940「这部分太奇怪了」）——**已解决**：User 裁定「这个 pr 上改」，§3 重写（标题改「消息与游标怎么保存」、删事务类比、跨消息裁决归决策 7）+ §2 依赖规则简化已随 PR #55 一并入库（2026-08-02）
+1. ~~ADR-0005 §3「一致性边界（无 DB 的事务对应物）」表述~~（User 评论 r3698822940「这部分太奇怪了」）——**已解决**：User 裁定「这个 pr 上改」，§3 重写（标题改「消息与游标怎么保存」、删事务类比、跨消息裁决归决策 7）+ §2 依赖规则简化已随 PR #55 一并入库
 
 ## 待四方确认项（评审收敛进度）
 

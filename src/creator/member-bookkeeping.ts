@@ -2,7 +2,8 @@ import type WebSocket from "ws";
 
 import type { CharacterCard, CharacterSummary } from "../config/character-card.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
-import { ERROR_READY_TIMEOUT } from "../shared/messages.js";
+import { JSONRPC_VERSION } from "../protocol/messages.js";
+import { ERROR_READY_TIMEOUT, METHOD_CHARACTER_LEFT } from "../shared/messages.js";
 import type { BroadcastHub } from "./broadcast-hub.js";
 import type { ConnectionContext } from "./connection-manager.js";
 import type { HeartbeatRegistry } from "./heartbeat-registry.js";
@@ -74,9 +75,12 @@ export class MemberBookkeeping {
 		this.options.state.onlineCharacters.delete(connection.sessionId);
 		if (onlineCharacter) {
 			this.options.broadcastHub.broadcast({
-				type: "character_left",
-				character: this.options.toCharacterSummaryMessage(onlineCharacter.character),
-				reason,
+				jsonrpc: JSONRPC_VERSION,
+				method: METHOD_CHARACTER_LEFT,
+				params: {
+					character: this.options.toCharacterSummaryMessage(onlineCharacter.character),
+					reason,
+				},
 			});
 		}
 		this.options.readOnMembersChanged()?.();

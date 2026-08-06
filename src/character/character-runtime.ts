@@ -1,18 +1,25 @@
-import { randomUUID } from "node:crypto";
 import { dirname, resolve } from "node:path";
-
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createMessageConnection, type MessageConnection, ResponseError } from "vscode-jsonrpc";
 import WebSocket from "ws";
 
 import { type CharacterCard, loadCharacterCard } from "../config/character-card.js";
 import {
 	type BufferedFrame,
+	type CharacterJsonRpcTransfer,
 	type CharacterReloadHandoff,
 	getReloadHandoffRegistry,
 } from "../controller/reload-handoff-registry.js";
 import { readCursorFile, writeCursorFile } from "../data/cursor-store.js";
 import { decodeServerMessage, encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
-import type { BoardNoteWire, BoardWriteDataWire, GroupChatStateMessage, ServerMessage } from "../protocol/messages.js";
+import {
+	type BoardNoteWire,
+	type BoardWriteDataWire,
+	type GroupChatStateMessage,
+	JSONRPC_VERSION,
+	type ServerMessage,
+} from "../protocol/messages.js";
+import { WebSocketMessageReader, WebSocketMessageWriter } from "../protocol/ws-message-io.js";
 import {
 	HEARTBEAT_PING_INTERVAL_MS,
 	HEARTBEAT_TIMEOUT_MS,
@@ -34,16 +41,30 @@ import {
 	ERROR_UNEXPECTED_BOARD_WRITE_RESPONSE,
 	ERROR_UNEXPECTED_FETCH_RESPONSE,
 	ERROR_UNEXPECTED_HISTORY_RESPONSE,
-	ERROR_UNEXPECTED_LEAVE_RESPONSE,
 	ERROR_UNEXPECTED_SPEAK_RESPONSE,
 	ERROR_UNEXPECTED_STATE_RESPONSE,
+	METHOD_BOARD_QUERY,
+	METHOD_BOARD_WRITE,
+	METHOD_FETCH_MESSAGES_SINCE,
+	METHOD_GET_GROUP_CHAT_STATE,
+	METHOD_GET_MESSAGE_HISTORY,
+	METHOD_GROUP_CHAT_CLOSED,
+	METHOD_GROUP_CHAT_UPDATE,
+	METHOD_LEAVE_GROUP_CHAT,
+	METHOD_MESSAGE_HISTORY,
+	METHOD_PUBLIC_MESSAGE,
+	METHOD_SPEAK,
+	METHOD_UPDATE_CHARACTER_STATE,
 } from "../shared/messages.js";
-
 import { GroupChatInput } from "./group-chat-input.js";
+import { CHARACTER_REQUEST_TYPES } from "./request-types.js";
+import { PENDING_RESPONSE_REJECTED_CODE, ResponseCorrelator } from "./response-gate.js";
 
 export interface CharacterConnectionTransfer {
 	socket: WebSocket;
 	bufferedMessages: ServerMessage[];
+	/** 可选：JoinAttempt 握手连接移交（缺省 = 测试直构/兼容路径，attach 新建）。 */
+	jsonrpc?: CharacterJsonRpcTransfer;
 }
 
 export interface PrepareCharacterRuntimeOptions {
@@ -70,12 +91,6 @@ export interface PrepareCharacterRuntimeOptions {
 	agentWedgedTimeoutMs?: number;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	triggerDebounceMs?: number;
-}
-
-interface PendingRequest {
-	resolve: (message: ServerMessage) => void;
-	reject: (error: Error) => void;
-	timer: NodeJS.Timeout;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
@@ -143,7 +158,22 @@ export class CharacterRuntime {
 	groupChatInput: GroupChatInput | undefined;
 
 	private socket: WebSocket | null = null;
-	private readonly pendingRequests = new Map<string, PendingRequest>();
+	/** #119 connection 接线：per-socket JSON-RPC 连接（响应关联/超时取消由库承担）。
+	 * 连接实例跨 owner 延续（JoinAttempt → runtime → reload 新 runtime），
+	 * 断线终态才 dispose。 */
+	private jsonrpcConnection: MessageConnection | null = null;
+	/** 请求 id → method 精确关联 + 响应形状校验（feed 前 gate，fail-close）。 */
+	private readonly responseCorrelator = new ResponseCorrelator();
+	/** reader 引用：响应帧 deliver 喂入 connection。 */
+	private jsonrpcReader: WebSocketMessageReader | null = null;
+	/** writer 引用：跨 handoff 延续时重设请求登记回调到新 owner。 */
+	private jsonrpcWriter: WebSocketMessageWriter | null = null;
+	/** 断线原因（request() 映射库 dispose 拒绝码 -32097 → 以断线原因 reject）。 */
+	private disconnectError: Error | undefined;
+	/** 在途请求登记（detach 显式取消用：clearTimeout + reject——三轮评审阻断⑨：
+	 * 旧 owner 的 timer 不得在移交后点火，否则 failConnection → finishDisconnected
+	 * 会 dispose 新 runtime 正在使用的共享 connection）。 */
+	private readonly inflightRequests = new Set<{ timer: NodeJS.Timeout; reject: (error: Error) => void }>();
 	private readonly requestTimeoutMs: number;
 	private readonly onDisconnected: (() => void) | undefined;
 	private readonly heartbeatIntervalMs: number;
@@ -217,11 +247,39 @@ export class CharacterRuntime {
 		return new CharacterRuntime(options);
 	}
 
+	/** #119 connection 接线：新建 per-socket JSON-RPC 连接（character 侧只发请求收响应）。
+	 * 仅无既有连接时使用（首次 join / 测试直构兼容）；跨 owner 移交走 adoptJsonRpc。 */
+	private attachJsonRpc(socket: WebSocket): void {
+		const reader = new WebSocketMessageReader();
+		const writer = new WebSocketMessageWriter(socket);
+		writer.setRequestWrittenHandler((id, method) => this.responseCorrelator.register(id, method));
+		const jsonrpcConnection = createMessageConnection(reader, writer);
+		this.jsonrpcConnection = jsonrpcConnection;
+		this.jsonrpcReader = reader;
+		this.jsonrpcWriter = writer;
+		jsonrpcConnection.listen();
+	}
+
+	/** #119 connection 延续：接管既有 JSON-RPC 连接（不重建 = 库内序列单调，
+	 * 代际 id 不撞车——评审阻断②）。writer 登记回调重指向本 runtime 的关联表。 */
+	private adoptJsonRpc(jsonrpc: CharacterJsonRpcTransfer): void {
+		this.responseCorrelator.clear();
+		this.jsonrpcConnection = jsonrpc.connection;
+		this.jsonrpcReader = jsonrpc.reader;
+		this.jsonrpcWriter = jsonrpc.writer;
+		jsonrpc.writer.setRequestWrittenHandler((id, method) => this.responseCorrelator.register(id, method));
+	}
+
 	activate(transfer: CharacterConnectionTransfer, pi?: ExtensionAPI): void {
 		if (this.socket || this.disconnected) {
 			throw new Error(ERROR_RUNTIME_ALREADY_ACTIVATED_OR_DISPOSED);
 		}
 		this.socket = transfer.socket;
+		if (transfer.jsonrpc) {
+			this.adoptJsonRpc(transfer.jsonrpc);
+		} else {
+			this.attachJsonRpc(transfer.socket);
+		}
 		this.socket.on("message", this.onMessage);
 		this.socket.on("close", this.onClose);
 		this.socket.on("error", this.onError);
@@ -327,24 +385,25 @@ export class CharacterRuntime {
 	}
 
 	async getGroupChatState(): Promise<GroupChatStateMessage> {
-		const response = await this.request({ type: "get_group_chat_state" });
-		if (response.type !== "response" || response.command !== "get_group_chat_state") {
+		const response = await this.request({ method: METHOD_GET_GROUP_CHAT_STATE, params: {} });
+		if ("error" in response) {
+			throw new Error(response.error.message);
+		}
+		if (!("result" in response)) {
 			throw new Error(ERROR_UNEXPECTED_STATE_RESPONSE);
 		}
-		if (!response.success) {
-			throw new Error(response.error);
-		}
-		this.lastGroupChatState = response.data;
-		this.onStateSnapshot?.(response.data);
+		const result = response.result as GroupChatStateMessage;
+		this.lastGroupChatState = result;
+		this.onStateSnapshot?.(result);
 		// 半开连接点亮丢失自愈：仅当快照中本角色仍为 false 且本地 run 活跃
 		// 时补发一次。状态翻转不再广播 group_chat_update，因此不会回接输入链。
 		if (this.isAgentActive) {
-			const self = response.data.online_characters?.find((c) => c.is_self);
+			const self = result.online_characters?.find((c) => c.is_self);
 			if (self && !self.is_streaming) {
 				this.updateStreaming(true);
 			}
 		}
-		return response.data;
+		return result;
 	}
 
 	/**
@@ -364,8 +423,8 @@ export class CharacterRuntime {
 		let response: ServerMessage;
 		try {
 			response = await this.request({
-				type: "get_message_history",
-				...(cursor !== null ? { cursor } : {}),
+				method: METHOD_GET_MESSAGE_HISTORY,
+				params: { ...(cursor !== null ? { cursor } : {}) },
 			});
 		} catch (error) {
 			// 翻页期间连接可能已断开：调用方保留已拿到的历史，
@@ -375,13 +434,13 @@ export class CharacterRuntime {
 			}
 			throw error;
 		}
-		if (response.type !== "response" || response.command !== "get_message_history") {
+		if ("error" in response) {
+			throw new Error(response.error.message);
+		}
+		if (!("result" in response)) {
 			throw new Error(ERROR_UNEXPECTED_HISTORY_RESPONSE);
 		}
-		if (!response.success) {
-			throw new Error(response.error);
-		}
-		const data = response.data as {
+		const data = response.result as {
 			messages: ServerMessage[];
 			cursor: string | null;
 			has_more: boolean;
@@ -408,8 +467,8 @@ export class CharacterRuntime {
 		let response: ServerMessage;
 		try {
 			response = await this.request({
-				type: "fetch_messages_since",
-				since_sequence: sinceSequence,
+				method: METHOD_FETCH_MESSAGES_SINCE,
+				params: { since_sequence: sinceSequence },
 			});
 		} catch (error) {
 			if (this.disconnected) {
@@ -417,13 +476,13 @@ export class CharacterRuntime {
 			}
 			throw error;
 		}
-		if (response.type !== "response" || response.command !== "fetch_messages_since") {
+		if ("error" in response) {
+			throw new Error(response.error.message);
+		}
+		if (!("result" in response)) {
 			throw new Error(ERROR_UNEXPECTED_FETCH_RESPONSE);
 		}
-		if (!response.success) {
-			throw new Error(response.error);
-		}
-		const data = response.data as {
+		const data = response.result as {
 			messages: ServerMessage[];
 			latest_sequence: number;
 			total_messages: number;
@@ -448,8 +507,9 @@ export class CharacterRuntime {
 			return;
 		}
 		this.send({
-			type: "update_character_state",
-			is_streaming: isStreaming,
+			jsonrpc: JSONRPC_VERSION,
+			method: METHOD_UPDATE_CHARACTER_STATE,
+			params: { is_streaming: isStreaming },
 		});
 	}
 
@@ -541,29 +601,45 @@ export class CharacterRuntime {
 		// 因此游标停在自己已发布的消息之前永远不会导致误拒。
 		// 旧版服务端忽略该字段。
 		const basedOnSequence = this.loadCursor() ?? 0;
-		const response = await this.request({ type: "speak", content, based_on_sequence: basedOnSequence });
-		if (response.type !== "response" || response.command !== "speak") {
+		const response = await this.request({
+			method: METHOD_SPEAK,
+			params: { content, based_on_sequence: basedOnSequence },
+		});
+		if ("error" in response) {
+			throw new Error(response.error.message);
+		}
+		if (!("result" in response)) {
 			throw new Error(ERROR_UNEXPECTED_SPEAK_RESPONSE);
 		}
-		if (!response.success) {
-			throw new Error(response.error);
-		}
-		const round = {
-			roundMaxMessages: response.data.round.round_max_messages,
-			usedMessages: response.data.round.used_messages,
-			remainingMessages: response.data.round.remaining_messages,
+		const result = response.result as {
+			published: boolean;
+			event_id: string;
+			sequence: number;
+			reason: string;
+			hand_raised: boolean;
+			missing_sequences: { from: number; to: number };
+			round: {
+				round_max_messages: number;
+				used_messages: number;
+				remaining_messages: number;
+			};
 		};
-		if (response.data.published) {
+		const round = {
+			roundMaxMessages: result.round.round_max_messages,
+			usedMessages: result.round.used_messages,
+			remainingMessages: result.round.remaining_messages,
+		};
+		if (result.published) {
 			this.staleRecoveryKey = null;
 			this.staleRecoveryCount = 0;
 			return {
 				published: true,
-				eventId: response.data.event_id,
-				sequence: response.data.sequence,
+				eventId: result.event_id,
+				sequence: result.sequence,
 				round,
 			};
 		}
-		if (response.data.reason === "stale") {
+		if (result.reason === "stale") {
 			const key = `${round.roundMaxMessages}:${round.usedMessages}`;
 			if (this.staleRecoveryKey !== key) {
 				this.staleRecoveryKey = key;
@@ -573,8 +649,8 @@ export class CharacterRuntime {
 			return {
 				published: false,
 				reason: "stale",
-				missingFrom: response.data.missing_sequences.from,
-				missingTo: response.data.missing_sequences.to,
+				missingFrom: result.missing_sequences?.from,
+				missingTo: result.missing_sequences?.to,
 				autoRecover: this.staleRecoveryCount <= MAX_STALE_AUTO_RECOVERIES,
 				round,
 			};
@@ -582,7 +658,7 @@ export class CharacterRuntime {
 		return {
 			published: false,
 			reason: "round_limit_reached",
-			handRaised: response.data.hand_raised,
+			handRaised: result.hand_raised,
 			round,
 		};
 	}
@@ -605,29 +681,28 @@ export class CharacterRuntime {
 	): Promise<BoardWriteDataWire> {
 		const [action, note] = args;
 		const response = await this.request({
-			type: "board_write",
-			action,
-			...(note !== undefined ? { note } : {}),
+			method: METHOD_BOARD_WRITE,
+			params: { action, ...(note !== undefined ? { note } : {}) },
 		});
-		if (response.type !== "response" || response.command !== "board_write") {
+		if ("error" in response) {
+			throw new Error(response.error.message);
+		}
+		if (!("result" in response)) {
 			throw new Error(ERROR_UNEXPECTED_BOARD_WRITE_RESPONSE);
 		}
-		if (!response.success) {
-			throw new Error(response.error);
-		}
-		return response.data;
+		return response.result as BoardWriteDataWire;
 	}
 
 	/** 白板模型（#114）：board_query——全量 per-character 条目（本人视角）。 */
 	async boardQuery(): Promise<Record<string, BoardNoteWire[]>> {
-		const response = await this.request({ type: "board_query" });
-		if (response.type !== "response" || response.command !== "board_query") {
+		const response = await this.request({ method: METHOD_BOARD_QUERY, params: {} });
+		if ("error" in response) {
+			throw new Error(response.error.message);
+		}
+		if (!("result" in response)) {
 			throw new Error(ERROR_UNEXPECTED_BOARD_QUERY_RESPONSE);
 		}
-		if (!response.success) {
-			throw new Error(response.error);
-		}
-		return response.data.boards;
+		return (response.result as { boards: Record<string, BoardNoteWire[]> }).boards;
 	}
 
 	/**
@@ -688,6 +763,17 @@ export class CharacterRuntime {
 			socket,
 			character: this.character,
 			...(this.cursorStorePath !== undefined ? { cursorStorePath: this.cursorStorePath } : {}),
+			// #119 connection 延续：连接实例随 handoff 移交（新 runtime 不重建——
+			// 库内序列单调，旧代际响应撞不上新请求 id，评审阻断②）。
+			...(this.jsonrpcConnection && this.jsonrpcReader && this.jsonrpcWriter
+				? {
+						jsonrpc: {
+							connection: this.jsonrpcConnection,
+							reader: this.jsonrpcReader,
+							writer: this.jsonrpcWriter,
+						},
+					}
+				: {}),
 			pendingEvents: snapshot.pendingEvents,
 			debounceDueAt: snapshot.debounceDueAt,
 			idleWindowDueAt: snapshot.idleWindowDueAt,
@@ -704,6 +790,19 @@ export class CharacterRuntime {
 			},
 		};
 		this.socket = null;
+		// 三轮评审阻断⑨：显式取消旧 in-flight（clearTimeout + reject 断线原因）——
+		// 旧 owner 的 timer 不再点火，杜绝 failConnection → finishDisconnected →
+		// dispose 新 runtime 正在使用的共享 connection；随后脱离共享连接引用与
+		// 关联元数据（任何迟到的 finishDisconnected 都碰不到移交的连接）。
+		for (const inflight of this.inflightRequests) {
+			clearTimeout(inflight.timer);
+			inflight.reject(new Error(ERROR_CONNECTION_CLOSED_DURING_RELOAD));
+		}
+		this.inflightRequests.clear();
+		this.responseCorrelator.clear();
+		this.jsonrpcConnection = null;
+		this.jsonrpcReader = null;
+		this.jsonrpcWriter = null;
 		getReloadHandoffRegistry().publish(handoff);
 		return handoff;
 	}
@@ -762,6 +861,12 @@ export class CharacterRuntime {
 		socket.off("message", handoff.bufferingHandlers.message);
 		socket.off("close", handoff.bufferingHandlers.close);
 		this.socket = socket;
+		if (handoff.jsonrpc) {
+			// #119 connection 延续：接管旧 runtime 的既有连接（序列单调，代际隔离）。
+			this.adoptJsonRpc(handoff.jsonrpc);
+		} else {
+			this.attachJsonRpc(socket);
+		}
 		this.lastPingAt = handoff.lastPingAt;
 		socket.on("message", this.onMessage);
 		socket.on("close", this.onClose);
@@ -794,11 +899,21 @@ export class CharacterRuntime {
 
 	get hasPublicMessages(): boolean {
 		return this.receivedMessages.some((m) => {
-			if (m.type === "public_message") return true;
-			if (m.type === "message_history" && Array.isArray(m.messages) && m.messages.length > 0) {
+			if ("method" in m && m.method === METHOD_PUBLIC_MESSAGE) return true;
+			if (
+				"method" in m &&
+				m.method === METHOD_MESSAGE_HISTORY &&
+				Array.isArray(m.params.messages) &&
+				m.params.messages.length > 0
+			) {
 				return true;
 			}
-			if (m.type === "group_chat_update" && Array.isArray(m.preview_messages) && m.preview_messages.length > 0) {
+			if (
+				"method" in m &&
+				m.method === METHOD_GROUP_CHAT_UPDATE &&
+				Array.isArray(m.params.preview_messages) &&
+				m.params.preview_messages.length > 0
+			) {
 				return true;
 			}
 			return false;
@@ -822,37 +937,71 @@ export class CharacterRuntime {
 			return;
 		}
 		try {
-			const response = await this.request({ type: "leave_group_chat" });
-			if (response.type !== "response" || response.command !== "leave_group_chat" || !response.success) {
-				throw new Error(
-					response.type === "response" && !response.success ? response.error : ERROR_UNEXPECTED_LEAVE_RESPONSE,
-				);
+			const response = await this.request({ method: METHOD_LEAVE_GROUP_CHAT, params: {} });
+			if ("error" in response) {
+				throw new Error(response.error.message);
 			}
 		} finally {
 			this.finishDisconnected();
 		}
 	}
 
-	private request(message: Record<string, unknown>): Promise<ServerMessage> {
-		const id = randomUUID();
-		return new Promise<ServerMessage>((resolveRequest, rejectRequest) => {
-			if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-				rejectRequest(new Error(ERROR_CONNECTION_NOT_OPEN));
-				return;
-			}
+	/**
+	 * #119 connection 接线：sendRequest 替代手写 pending（响应关联/取消由库承担）。
+	 * 超时语义保留（Promise.race + failConnection）；ResponseError 包装回
+	 * {error:{code,message}} 响应形状——调用方 `"error" in response` 判别语法不变。
+	 */
+	private request(message: { method: string; params: unknown }): Promise<ServerMessage> {
+		if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+			return Promise.reject(new Error(ERROR_CONNECTION_NOT_OPEN));
+		}
+		const type = CHARACTER_REQUEST_TYPES[message.method];
+		if (!type || !this.jsonrpcConnection) {
+			return Promise.reject(new Error(`No request type for method: ${message.method}`));
+		}
+		const pending = (this.jsonrpcConnection as MessageConnection).sendRequest(type as never, message.params as never);
+		const withTimeout = new Promise<unknown>((resolveRequest, rejectRequest) => {
 			const timer = setTimeout(() => {
-				this.pendingRequests.delete(id);
 				const error = new Error(ERROR_REQUEST_TIMED_OUT);
 				rejectRequest(error);
 				this.failConnection(error);
 			}, this.requestTimeoutMs);
-			this.pendingRequests.set(id, {
-				resolve: resolveRequest,
-				reject: rejectRequest,
-				timer,
-			});
-			this.send({ ...message, id });
+			timer.unref?.();
+			const inflight = { timer, reject: rejectRequest };
+			this.inflightRequests.add(inflight);
+			void pending.then(
+				(result) => {
+					clearTimeout(timer);
+					this.inflightRequests.delete(inflight);
+					resolveRequest(result);
+				},
+				(error) => {
+					clearTimeout(timer);
+					this.inflightRequests.delete(inflight);
+					rejectRequest(error);
+				},
+			);
 		});
+		return withTimeout.then(
+			(result) => {
+				return { jsonrpc: JSONRPC_VERSION, id: "", result } as ServerMessage;
+			},
+			(error) => {
+				if (error instanceof ResponseError && error.code === PENDING_RESPONSE_REJECTED_CODE) {
+					// 断线 dispose 的库内拒绝（-32097）：以断线原因 reject（立即收敛，
+					// 不悬挂到超时——评审阻断③）。fail-close 场景 = ERROR_UNEXPECTED_*。
+					return Promise.reject(this.disconnectError ?? new Error(ERROR_CONNECTION_HAS_BEEN_CLOSED));
+				}
+				if (error instanceof ResponseError) {
+					return {
+						jsonrpc: JSONRPC_VERSION,
+						id: "",
+						error: { code: error.code, message: error.message },
+					} as ServerMessage;
+				}
+				return Promise.reject(error);
+			},
+		);
 	}
 
 	private send(message: unknown): void {
@@ -867,21 +1016,29 @@ export class CharacterRuntime {
 	}
 
 	private handleServerMessage(message: ServerMessage): void {
-		if (message.type === "response" && message.id !== undefined) {
-			const pending = this.pendingRequests.get(message.id);
-			if (pending) {
-				clearTimeout(pending.timer);
-				this.pendingRequests.delete(message.id);
-				pending.resolve(message);
+		// #119 connection 接线：响应帧（result/error + id）喂 connection——
+		// 库按 id 关联原请求；通知帧（method）走本类消费（receivedMessages/
+		// 环境消息/群聊关闭）。
+		if (("result" in message || "error" in message) && message.id !== undefined) {
+			// feed 前 gate：同 id 错 result 形状 = 协议错位 fail-close（立即拒绝 + 断
+			// 链，不静默丢弃不悬挂——评审阻断①）；error 自描述、未知 id（旧代际迟到
+			// 响应 / reload 缓冲重放）→ 喂库——库按 id 结算（旧 pending 已在 detach
+			// 显式取消 = resolve 无害）或丢弃；代际隔离由连接延续保证（阻断②⑨）。
+			const failCloseError = this.responseCorrelator.gate(message);
+			if (failCloseError) {
+				this.failConnection(failCloseError);
 				return;
 			}
+			this.responseCorrelator.consume(message.id);
+			this.jsonrpcReader?.deliver(message);
+			return;
 		}
 
 		this.receivedMessages.push(message);
 
 		this.onEnvironmentMessage?.(message);
 
-		if (message.type === "group_chat_closed") {
+		if ("method" in message && message.method === METHOD_GROUP_CHAT_CLOSED) {
 			this.finishDisconnected();
 		}
 	}
@@ -919,6 +1076,7 @@ export class CharacterRuntime {
 			return;
 		}
 		this.disconnected = true;
+		this.disconnectError = error;
 		// 死连接上的 watchdog 定时器必须一并拆除：否则 agent_end 布防的 5s
 		// 流式复位定时器（或 run wedged 定时器）会在 socket 置空后点火，
 		// 定时器上下文内 throw = uncaughtException = 杀死整个 pi 进程。
@@ -938,12 +1096,15 @@ export class CharacterRuntime {
 				socket.close();
 			}
 		}
-		const disconnectError = error ?? new Error(ERROR_CONNECTION_HAS_BEEN_CLOSED);
-		for (const pending of this.pendingRequests.values()) {
-			clearTimeout(pending.timer);
-			pending.reject(disconnectError);
-		}
-		this.pendingRequests.clear();
+		// #119 connection 接线：断线终态 dispose connection——v9 实证 reader close
+		// 只置 Closed 不拒 pending，dispose() 才遍历 reject responsePromises
+		// （评审阻断③）。request() 把 -32097 映射为断线原因立即 reject。
+		this.responseCorrelator.clear();
+		const jsonrpcConnection = this.jsonrpcConnection;
+		this.jsonrpcConnection = null;
+		this.jsonrpcReader = null;
+		this.jsonrpcWriter = null;
+		jsonrpcConnection?.dispose();
 		this.onDisconnected?.();
 	}
 }

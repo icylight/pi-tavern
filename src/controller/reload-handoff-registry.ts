@@ -1,4 +1,5 @@
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
+import type { MessageConnection } from "vscode-jsonrpc";
 import type WebSocket from "ws";
 import type { WebSocketServer } from "ws";
 
@@ -8,6 +9,7 @@ import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descrip
 import type { GroupChatState } from "../data/group-chat-state.js";
 import type { ServerMessage } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
+import type { WebSocketMessageReader, WebSocketMessageWriter } from "../protocol/ws-message-io.js";
 
 /** 私有 globalThis 键，让 reload 后的扩展代码能找到槽位。 */
 export const RELOAD_HANDOFF_SYMBOL: unique symbol = Symbol.for("pi-tavern.reload-handoff");
@@ -15,6 +17,17 @@ export const RELOAD_HANDOFF_SYMBOL: unique symbol = Symbol.for("pi-tavern.reload
 export interface BufferedFrame {
 	receivedAt: number;
 	data: WebSocket.RawData;
+}
+
+/**
+ * #119 connection 延续三件套（评审阻断②）：JSON-RPC 连接实例跨 owner 移交
+ * （JoinAttempt → CharacterRuntime → reload 后新 runtime）——连接不重建 =
+ * 库内序列单调，代际 id 不撞车（旧代际迟到响应不可能命中新请求）。
+ */
+export interface CharacterJsonRpcTransfer {
+	connection: MessageConnection;
+	reader: WebSocketMessageReader;
+	writer: WebSocketMessageWriter;
 }
 
 interface HeartbeatStateSnapshot {
@@ -70,6 +83,9 @@ export interface CharacterReloadHandoff {
 	idleWindowAbortEligible?: boolean | undefined;
 	incrementPending?: boolean | undefined;
 	lastPingAt: number;
+
+	/** #119 connection 延续：旧 runtime 的 JSON-RPC 连接实例（可选：兼容旧态 handoff）。 */
+	jsonrpc?: CharacterJsonRpcTransfer;
 
 	bufferedFrames: BufferedFrame[];
 	bufferingHandlers: { message: (data: WebSocket.RawData) => void; close: () => void };

@@ -1,3 +1,5 @@
+> **已归档**：已废弃基线（#45，验收口径并入 docs/development/acceptance.md）。本文件不再维护，索引见 docs/README.md。
+
 > **已废弃（#45 2026-08-02 基线，被 acceptance-baseline-0.1.0.md 取代）**——留档不删。
 
 # #45 验收套件基线（两场景 + Pareto 面）

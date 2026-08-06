@@ -66,36 +66,36 @@ describe("CreatorRuntime 流式状态通知收窄", () => {
 		client.on("message", (data) => {
 			const message = JSON.parse(data.toString()) as Record<string, unknown>;
 			frames.push(message);
-			if (message.type === "group_chat_update") {
+			if (message.method === "group_chat_update") {
 				broadcastCount += 1;
 			}
 		});
 
 		// join → 动态 claim（available_characters[0]）→ ready
-		send({ type: "join_group_chat", session_id: "j4-s1" });
-		const joinResp = await waitFor((m) => m.id === "1" && m.type === "response");
-		expect(joinResp.success).toBe(true);
-		const available = (joinResp.data as { available_characters?: Array<{ character_id: string }> })
+		send({ jsonrpc: "2.0", method: "join_group_chat", params: { session_id: "j4-s1" } });
+		const joinResp = await waitFor((m) => m.id === "1" && ("result" in m || "error" in m));
+		expect(joinResp.error).toBeUndefined();
+		const available = (joinResp.result as { available_characters?: Array<{ character_id: string }> })
 			?.available_characters;
 		const claimId = available?.[0]?.character_id;
 		expect(claimId).toBeTruthy();
-		send({ type: "claim_character", character_id: claimId ?? "dev" });
-		await waitFor((m) => m.id === "2" && m.type === "response");
-		expect(frames.find((m) => m.id === "2")?.success).toBe(true);
-		send({ type: "character_ready" });
-		await waitFor((m) => m.id === "3" && m.type === "response");
-		expect(frames.find((m) => m.id === "3")?.success).toBe(true);
+		send({ jsonrpc: "2.0", method: "claim_character", params: { character_id: claimId ?? "dev" } });
+		await waitFor((m) => m.id === "2" && ("result" in m || "error" in m));
+		expect(frames.find((m) => m.id === "2")?.error).toBeUndefined();
+		send({ jsonrpc: "2.0", method: "character_ready" });
+		await waitFor((m) => m.id === "3" && ("result" in m || "error" in m));
+		expect(frames.find((m) => m.id === "3")?.error).toBeUndefined();
 
 		// 模拟 agent_start 点亮（false→true 翻转）
 		broadcastCount = 0;
-		client.send(JSON.stringify({ type: "update_character_state", is_streaming: true }));
+		client.send(JSON.stringify({ jsonrpc: "2.0", method: "update_character_state", params: { is_streaming: true } }));
 
 		await new Promise((r) => setTimeout(r, 300));
 		expect(broadcastCount).toBe(0);
-		send({ type: "get_group_chat_state" });
-		const state = await waitFor((m) => m.id === "4" && m.type === "response");
+		send({ jsonrpc: "2.0", method: "get_group_chat_state" });
+		const state = await waitFor((m) => m.id === "4" && ("result" in m || "error" in m));
 		const self = (
-			state.data as { online_characters?: Array<{ is_self?: boolean; is_streaming?: boolean }> }
+			state.result as { online_characters?: Array<{ is_self?: boolean; is_streaming?: boolean }> }
 		)?.online_characters?.find((character) => character.is_self);
 		expect(self?.is_streaming).toBe(true);
 

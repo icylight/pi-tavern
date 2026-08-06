@@ -100,17 +100,30 @@ describe("A6: join-time active state refresh (#21 成员数未知窗口)", () =>
 			second.once("open", () => resolve());
 			second.once("error", reject);
 		});
-		second.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: "session-2" }));
-		second.send(JSON.stringify({ id: "2", type: "claim_character", character_id: "characters/developer.md" }));
-		second.send(JSON.stringify({ id: "3", type: "character_ready" }));
+		second.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "session-2" } }),
+		);
+		second.send(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: "2",
+				method: "claim_character",
+				params: { character_id: "characters/developer.md" },
+			}),
+		);
+		second.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
 
 		// 成员事件仍到达既有角色连接，但不再复用公共消息水位通知。
 		await vi.waitFor(
 			() =>
-				expect(runtime.receivedMessages.slice(messagesBefore).some((m) => m.type === "character_joined")).toBe(true),
+				expect(
+					runtime.receivedMessages.slice(messagesBefore).some((m) => "method" in m && m.method === "character_joined"),
+				).toBe(true),
 			{ timeout: 2000 },
 		);
-		expect(runtime.receivedMessages.slice(messagesBefore).some((m) => m.type === "group_chat_update")).toBe(false);
+		expect(
+			runtime.receivedMessages.slice(messagesBefore).some((m) => "method" in m && m.method === "group_chat_update"),
+		).toBe(false);
 		second.terminate();
 		await runtime.close();
 	});

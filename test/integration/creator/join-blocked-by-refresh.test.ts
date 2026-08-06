@@ -35,7 +35,7 @@ function waitForMessage(socket: WebSocket, expectedType: string, timeoutMs = 500
 		const timeout = setTimeout(() => reject(new Error(`Timed out waiting for ${expectedType}`)), timeoutMs);
 		const onMessage = (data: WebSocket.RawData) => {
 			const message = JSON.parse(data.toString()) as Record<string, unknown>;
-			if (message.type === expectedType) {
+			if (expectedType === "response" ? "result" in message || "error" in message : message.method === expectedType) {
 				clearTimeout(timeout);
 				socket.off("message", onMessage);
 				resolve(message);
@@ -65,7 +65,7 @@ describe("CreatorRuntime #83 join 阻塞复现（#79 懒重扫无超时）", () 
 			`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		);
 		await waitForOpen(client);
-		client.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: "s1" }));
+		client.send(JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: "s1" } }));
 
 		// 断言：挂起的重扫不得阻塞 join 响应（2s 窗口）
 		await expect(waitForMessage(client, "response", 2000)).resolves.toMatchObject({ id: "1" });

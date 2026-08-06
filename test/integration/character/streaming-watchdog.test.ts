@@ -147,10 +147,8 @@ describe("A3: streaming reset watchdog (#14 悬挂兜底)", () => {
 		// 场景 A（#83 收敛修正）：快照中本角色 is_streaming == false（点亮确实
 		// 丢失）且 run 活跃 → 补发点亮（自愈保留）。
 		mockRequest.mockResolvedValueOnce({
-			type: "response",
-			command: "get_group_chat_state",
-			success: true,
-			data: {
+			jsonrpc: "2.0",
+			result: {
 				online_characters: [
 					{ character_id: "c", name: "self", is_self: true, is_streaming: false, hand_raised: false },
 				],
@@ -163,10 +161,8 @@ describe("A3: streaming reset watchdog (#14 悬挂兜底)", () => {
 		// 自激循环在此终止（原无条件补发 + creator 无条件广播 = 风暴掉线根因）。
 		updateStreaming.mockClear();
 		mockRequest.mockResolvedValueOnce({
-			type: "response",
-			command: "get_group_chat_state",
-			success: true,
-			data: {
+			jsonrpc: "2.0",
+			result: {
 				online_characters: [{ character_id: "c", name: "self", is_self: true, is_streaming: true, hand_raised: false }],
 			},
 		});
@@ -177,10 +173,8 @@ describe("A3: streaming reset watchdog (#14 悬挂兜底)", () => {
 		updateStreaming.mockClear();
 		runtime.isAgentActive = false;
 		mockRequest.mockResolvedValueOnce({
-			type: "response",
-			command: "get_group_chat_state",
-			success: true,
-			data: {
+			jsonrpc: "2.0",
+			result: {
 				online_characters: [
 					{ character_id: "c", name: "self", is_self: true, is_streaming: false, hand_raised: false },
 				],

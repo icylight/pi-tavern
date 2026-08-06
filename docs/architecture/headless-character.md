@@ -3,7 +3,7 @@
 ## 背景
 
 真实终端下，pi 平台 TUI 渲染管线（60fps 全量 diff + 逐行 Kitty 图像检测 + box 渲染）
-使每个空闲 Character 进程占用 35-42% CPU（实测，2026-08-01）。RPC 模式（无 TUI）
+使每个空闲 Character 进程占用 35-42% CPU（实测。RPC 模式（无 TUI）
 实测 ~1%。Character 本质是自主 agent——群聊输入即全部交互，不需要终端界面。
 
 ## 启动

@@ -44,13 +44,16 @@ function createMockPi(): ExtensionAPI {
 
 function aPublicMessage(sequence: number): PublicMessage {
 	return {
-		type: "public_message",
-		event_id: `evt-${sequence}`,
-		sequence,
-		timestamp: "2026-01-01T00:00:00.000Z",
-		sender: { type: "user_persona" },
-		content: `msg-${sequence}`,
-		round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
+		jsonrpc: "2.0",
+		method: "public_message",
+		params: {
+			event_id: `evt-${sequence}`,
+			sequence,
+			timestamp: "2026-01-01T00:00:00.000Z",
+			sender: { type: "user_persona" },
+			content: `msg-${sequence}`,
+			round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
+		},
 	} as PublicMessage;
 }
 
@@ -92,10 +95,13 @@ describe("GroupChatInput #85 J1 长工具循环忙态投递回归", () => {
 		for (let k = 1; k <= N; k += 1) {
 			latestSeq = 6 + k;
 			handler({
-				type: "group_chat_update",
-				latest_sequence: latestSeq,
-				preview_messages: [],
-				total_messages: latestSeq,
+				jsonrpc: "2.0",
+				method: "group_chat_update",
+				params: {
+					latest_sequence: latestSeq,
+					preview_messages: [],
+					total_messages: latestSeq,
+				},
 			} as unknown as ServerMessage);
 		}
 
@@ -109,8 +115,8 @@ describe("GroupChatInput #85 J1 长工具循环忙态投递回归", () => {
 		expect(fetchSinceCalls).toEqual([6]);
 		expect(pi.sendMessage).toHaveBeenCalledTimes(2);
 		const delivery = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[1] as [unknown, unknown];
-		const message = delivery[0] as { details: { events: Array<{ sequence?: number }> } };
-		const delivered = message.details.events.map((event) => event.sequence);
+		const message = delivery[0] as { details: { events: Array<{ params?: { sequence?: number } }> } };
+		const delivered = message.details.events.map((event) => event.params?.sequence);
 		expect(delivered).toEqual(Array.from({ length: N }, (_, index) => 7 + index));
 		expect(new Set(delivered).size).toBe(N);
 		expect((delivery[1] as { deliverAs: string }).deliverAs).toBe("followUp");

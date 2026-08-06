@@ -1,7 +1,7 @@
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
+import { createMessageConnection, type MessageConnection } from "vscode-jsonrpc";
 import type WebSocket from "ws";
 import type { WebSocketServer } from "ws";
-
 import type { CharacterCard, CharacterSummary } from "../config/character-card.js";
 import type { CreatorReloadHandoff } from "../controller/reload-handoff-registry.js";
 import type { BoardStore } from "../data/board-store.js";
@@ -10,15 +10,24 @@ import type { GroupChatState } from "../data/group-chat-state.js";
 import type { SessionStore } from "../data/session-store.js";
 import type { ClientMessage } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
+import { type WebSocketMessageReader, WebSocketMessageWriter } from "../protocol/ws-message-io.js";
 import { CHARACTER_REFRESH_TIMEOUT_MS } from "../shared/constants.js";
-import { ERROR_CHARACTER_REFRESH_TIMED_OUT } from "../shared/messages.js";
+import {
+	ERROR_CHARACTER_REFRESH_TIMED_OUT,
+	METHOD_CLAIM_CHARACTER,
+	METHOD_GET_GROUP_CHAT_STATE,
+	METHOD_JOIN_GROUP_CHAT,
+} from "../shared/messages.js";
 import type { RuntimeCloseReason, RuntimeCloseResult } from "../shared/runtime-close.js";
 import { BroadcastHub } from "./broadcast-hub.js";
 import { type ConnectionContext, ConnectionManager } from "./connection-manager.js";
 import { buildCreatorDependencies, createNewRuntime, resumeRuntime } from "./creator-factory.js";
 import type { BoardPipeline } from "./creator-pipelines/board-pipeline.js";
 import type { ClaimPipeline } from "./creator-pipelines/claim-pipeline.js";
-import { dispatchClientMessage as dispatchClientMessageFlow } from "./creator-pipelines/dispatch.js";
+import {
+	dispatchClientMessage as dispatchClientMessageFlow,
+	registerJsonRpcConnection,
+} from "./creator-pipelines/dispatch.js";
 import type { JoinPipeline } from "./creator-pipelines/join-pipeline.js";
 import type { LeavePipeline } from "./creator-pipelines/leave-pipeline.js";
 import type { QueryPipeline } from "./creator-pipelines/query-pipeline.js";
@@ -203,7 +212,10 @@ export class CreatorRuntime {
 		this.connectionManager = new ConnectionManager({
 			isActive: () => this.lifecycle === "active",
 			enqueue: (operation) => this.enqueue(operation),
-			onClientMessage: (socket, connection, message) => this.dispatchClientMessage(socket, connection, message),
+			onClientMessage: (socket, connection, message) => {
+				void this.dispatchClientMessage(socket, connection, message);
+			},
+			createConnection: (socket, connection, reader) => this.createJsonRpcConnection(socket, connection, reader),
 			onPong: (connection) => {
 				if (connection.sessionId !== null) {
 					this.heartbeatRegistry.recordPong(connection.sessionId);
@@ -436,18 +448,54 @@ export class CreatorRuntime {
 		}
 	}
 
+	/** #119 connection 接线：per-socket JSON-RPC 连接（dispatch 注册表 + deps 装配）。 */
+	private createJsonRpcConnection(
+		socket: WebSocket,
+		connection: ConnectionContext,
+		reader: WebSocketMessageReader,
+	): MessageConnection {
+		const writer = new WebSocketMessageWriter(socket);
+		const jsonrpcConnection = createMessageConnection(reader, writer);
+		registerJsonRpcConnection(
+			{
+				joinPipeline: this.joinPipeline,
+				leavePipeline: this.leavePipeline,
+				submitMessageDeps: this.submitMessageDeps,
+				claimDeps: this.claimDeps,
+				readyDeps: this.readyDeps,
+				queryDeps: this.queryDeps,
+				boardDeps: this.boardDeps,
+				enqueue: (operation) => this.enqueue(operation),
+			},
+			socket,
+			connection,
+			jsonrpcConnection,
+			// #25：角色清单入口（join/claim/query）前懒刷新（原 dispatchClientMessage 前置）。
+			async (method) => {
+				if (
+					method === METHOD_JOIN_GROUP_CHAT ||
+					method === METHOD_CLAIM_CHARACTER ||
+					method === METHOD_GET_GROUP_CHAT_STATE
+				) {
+					await this.refreshCharacters();
+				}
+			},
+		);
+		return jsonrpcConnection;
+	}
+
 	/** 客户端消息分发（PR-B：流程移至 creator-pipelines/dispatch）。 */
 	private async dispatchClientMessage(
 		socket: WebSocket,
 		connection: ConnectionContext,
 		message: ClientMessage,
-	): Promise<void> {
+	): Promise<unknown> {
 		// #25：角色清单入口（join 的 available_characters / claim 的摘要 /
 		// query 的群聊状态）前懒刷新，失败由 refreshCharacters 内部回退旧快照。
 		if (
-			message.type === "join_group_chat" ||
-			message.type === "claim_character" ||
-			message.type === "get_group_chat_state"
+			message.method === METHOD_JOIN_GROUP_CHAT ||
+			message.method === METHOD_CLAIM_CHARACTER ||
+			message.method === METHOD_GET_GROUP_CHAT_STATE
 		) {
 			await this.refreshCharacters();
 		}
@@ -460,6 +508,7 @@ export class CreatorRuntime {
 				readyDeps: this.readyDeps,
 				queryDeps: this.queryDeps,
 				boardDeps: this.boardDeps,
+				enqueue: (operation) => this.enqueue(operation),
 			},
 			socket,
 			connection,

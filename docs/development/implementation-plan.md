@@ -11,10 +11,10 @@
 ```text
 Red
 先写测试，确认测试因缺少当前行为而失败
-  ↓
+↓
 Green
 实现让该测试通过的最小代码
-  ↓
+↓
 Refactor
 在测试保持通过的前提下整理结构
 ```
@@ -35,7 +35,7 @@ Refactor
 本地：编写并运行失败测试
 本地：实现最小代码并确认全部检查通过
 提交：test + implementation
-refactor: simplify <area>   # 仅在确实需要时
+refactor: simplify <area> # 仅在确实需要时
 ```
 
 测试应在同一变更中保持清晰、能够被单独审查，但不能向设计分支提交一个故意失败的中间状态。每个可检出的 commit 都必须通过当时已有的全部测试和检查。
@@ -196,11 +196,11 @@ M6 不用于补齐前面遗漏的单元或组件测试，而是验证只有真�
 
 实现和修正仍遵循 Red、Green、Refactor：每发现一个进程级缺陷，先让对应验收测试稳定失败，再修改实现。
 
-## M7：新消息获取推拉混合（ISSUE-012 / GitHub #24，2026-08-01 需求，方案已冻结）
+## M7：新消息获取推拉混合（ISSUE-012 / GitHub #24，需求，方案已冻结）
 
-需求与冻结方案：`docs/new-message-fetch.md`（**历史决策记录，触发/投递口径已按 #60/#64 修订**，见下文 A1/A4 注）。交互由「服务端推送 + 固定 1 秒防抖」改为**推送+拉取混合（微信模型）**：广播通知化（`group_chat_update`：latest_sequence + 最近 3 条完整消息预览 + total）、角色主动增量拉取（`fetch_messages_since`，sequence > since 全量）、游标本地持久化（`<agent-dir>/tavern/<project-key>/cursors/<group_id>/<session_id>.json`，**Session 级，2026-08-02 User 指示**；旧群聊级单文件 `cursors/<group_id>.json` 保守回退为起点，只读不写不删；成功投递后更新）、缺口天然补齐（拉全语义）、不打断当前 run（followUp + isAgentActive/onAgentSettled）。
+需求与冻结方案：`docs/archive/new-message-fetch.md`（**历史决策记录，触发/投递口径已按 #60/#64 修订**，见下文 A1/A4 注）。交互由「服务端推送 + 固定 1 秒防抖」改为**推送+拉取混合（微信模型）**：广播通知化（`group_chat_update`：latest_sequence + 最近 3 条完整消息预览 + total）、角色主动增量拉取（`fetch_messages_since`，sequence > since 全量）、游标本地持久化（`<agent-dir>/tavern/<project-key>/cursors/<group_id>/<session_id>.json`，**Session 级，**；旧群聊级单文件 `cursors/<group_id>.json` 保守回退为起点，只读不写不删；成功投递后更新）、缺口天然补齐（拉全语义）、不打断当前 run（followUp + isAgentActive/onAgentSettled）。
 
-先行验收测试（`docs/acceptance.md` M7 A1-A7，测试先行，不允许先实现后补测；**分工：A1-A7 测试由 QA 编写（test/** 所有权，红测暂存）→ Dev 实现 src/** 转绿 → QA 随批提交**，避免越权重演）：
+先行验收测试（`docs/development/acceptance.md` M7 A1-A7，测试先行，不允许先实现后补测；**分工：A1-A7 测试由 QA 编写（test/** 所有权，红测暂存）→ Dev 实现 src/** 转绿 → QA 随批提交**，避免越权重演）：
 
 - A1 去防抖增量拉取：广播到达 → 立即 fetch（fake timers 断言无 1s 延迟）；**（注：已按 #64 修订——闲态 ≤1s 固定窗口聚合触发 / 忙态 settle 后立即触发，见 acceptance.md A1 现行口径）**；
 - A2 游标持久化：收消息 → 游标落盘 → 重启 → 游标保留、增量从游标后开始；投递失败游标不动；
@@ -220,7 +220,7 @@ M6 不用于补齐前面遗漏的单元或组件测试，而是验证只有真�
 
 - 该里程碑列出的先行测试已经建立并通过；
 - 所有更早里程碑测试保持通过；
-- `npm run test:full` 通过（三层全量收口门禁；日常验证走显式定向 `npm run test:unit -- <pattern>`，见 docs/workflow.md §7 默认不跑）；
+- `npm run test:full` 通过（三层全量收口门禁；日常验证走显式定向 `npm run test:unit -- <pattern>`，见 docs/development/workflow.md §7 默认不跑）；
 - `npm run check` 通过；
 - 没有依赖真实 LLM 或外部网络的默认测试；
 - 文档与最终实现没有已知语义分歧；

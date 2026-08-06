@@ -4,13 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { WebSocketServer } from "ws";
+import WebSocket, { WebSocketServer } from "ws";
 import { CharacterRuntime } from "../../../src/character/character-runtime.js";
 import { JoinAttempt } from "../../../src/character/join-attempt.js";
 import { type CharacterCard, loadCharacterCard } from "../../../src/config/character-card.js";
 import { getReloadHandoffRegistry } from "../../../src/controller/reload-handoff-registry.js";
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 import type { ActiveGroupChatDescriptor } from "../../../src/data/discovery/active-descriptor.js";
+import { ERROR_CONNECTION_CLOSED_DURING_RELOAD } from "../../../src/shared/messages.js";
 
 const temporaryDirectories: string[] = [];
 const creatorRuntimes: CreatorRuntime[] = [];
@@ -73,6 +74,61 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		expect(disconnected).toHaveBeenCalledTimes(1);
 	});
 
+	it("B5 reload handoff：in-flight 请求显式取消 + 新 connection 不被旧 owner dispose（三轮阻断⑨）", async () => {
+		const { creator, character } = await startCreator();
+		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-1");
+		const runtime = await attempt.claimCharacter(character.characterId);
+
+		// ① in-flight 请求（不 await——detach 必须显式取消它）。
+		const inflight = runtime.getGroupChatState();
+		const handoff = await runtime.detachForReload("session-1");
+		getReloadHandoffRegistry().take("session-1"); // controller clears the slot before takeHandoff
+
+		// ② 旧请求被显式取消：及时 reject（断线原因），不悬挂到 5s 超时。
+		await expect(inflight).rejects.toThrow(ERROR_CONNECTION_CLOSED_DURING_RELOAD);
+
+		// ③ 新 runtime 接管同一 connection；旧 owner 的迟到 dispose 不得发生——
+		// 等过旧 5s 超时窗口后，连接仍存活且新请求正常往返。
+		const taken = await CharacterRuntime.takeHandoff(handoff);
+		await new Promise((resolve) => setTimeout(resolve, 5_200));
+		await expect(taken.getGroupChatState()).resolves.toMatchObject({
+			online_characters: [
+				{
+					character_id: character.characterId,
+					is_self: true,
+				},
+			],
+		});
+
+		await taken.close();
+	}, 20_000);
+
+	it("B4 未知 method 帧 → 协议破坏 fail-close（close 1002）；标准错误码接受由 A5 钉住（二轮评审阻断④）", async () => {
+		const { creator } = await startCreator();
+		const descriptor = creator.activeDescriptor;
+		const ws = new WebSocket(
+			`ws://${descriptor.host}:${descriptor.port}/` +
+				`${encodeURIComponent(descriptor.groupChatId)}/${encodeURIComponent(descriptor.instanceId)}`,
+		);
+		await new Promise<void>((resolve, reject) => {
+			ws.on("open", () => resolve());
+			ws.on("error", reject);
+		});
+		try {
+			// 未注册 method 在 codec 层被拒（11 类 union 外）——creator 既定策略 =
+			// 协议破坏 fail-close close 1002（防御在岗）。库自产标准错误码
+			// （handler 抛错 → -32603）的接受性由 unit A5 钉住（codec schema 纳入
+			// 标准错误码，本端合法响应不被误判协议破坏）。
+			const closed = new Promise<number | undefined>((resolve) => {
+				ws.on("close", (code) => resolve(code));
+			});
+			ws.send(JSON.stringify({ jsonrpc: "2.0", id: "r-unknown", method: "totally_unknown_method", params: {} }));
+			await expect(closed).resolves.toBe(1002);
+		} finally {
+			ws.close();
+		}
+	});
+
 	it("closes the pending connection when the claimed file no longer matches", async () => {
 		const { creator, character } = await startCreator();
 		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-1");
@@ -120,8 +176,9 @@ describe("JoinAttempt and CharacterRuntime", () => {
 
 		await vi.waitFor(() => expect(disconnected).toHaveBeenCalledTimes(1));
 		expect(runtime.receivedMessages).toContainEqual({
-			type: "group_chat_closed",
-			group_chat_id: creator.state.groupChat.groupChatId,
+			jsonrpc: "2.0",
+			method: "group_chat_closed",
+			params: { group_chat_id: creator.state.groupChat.groupChatId },
 		});
 	});
 
@@ -129,6 +186,11 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		const { creator, character } = await startCreator({ heartbeatIntervalMs: 30, heartbeatTimeoutMs: 120 });
 		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-1");
 		const runtime = await attempt.claimCharacter(character.characterId);
+		// 基线取点前先等 claim 链路的 message_history 通知到达：connection 重构后
+		// reply 异步化（ready result → mh → cj 宏任务投递），取点早于通知会误判。
+		await vi.waitFor(() => {
+			expect(runtime.receivedMessages.some((m) => "method" in m && m.method === "message_history")).toBe(true);
+		});
 		const messageCountAfterJoin = runtime.receivedMessages.length;
 
 		// 若干次 ping/pong 周期内无任何新的环境消息。
@@ -184,8 +246,11 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		expect(
 			taken.receivedMessages.some(
 				(m) =>
-					m.type === "group_chat_update" &&
-					(m.preview_messages as Record<string, unknown>[]).some((p) => p.content === "Hello during reload"),
+					"method" in m &&
+					m.method === "group_chat_update" &&
+					((m.params as Record<string, unknown>).preview_messages as Record<string, unknown>[]).some(
+						(p) => (p.params as Record<string, unknown>).content === "Hello during reload",
+					),
 			),
 		).toBe(true);
 
@@ -195,8 +260,11 @@ describe("JoinAttempt and CharacterRuntime", () => {
 			expect(
 				taken.receivedMessages.some(
 					(m) =>
-						m.type === "group_chat_update" &&
-						(m.preview_messages as Record<string, unknown>[]).some((p) => p.content === "Hello after reload"),
+						"method" in m &&
+						m.method === "group_chat_update" &&
+						((m.params as Record<string, unknown>).preview_messages as Record<string, unknown>[]).some(
+							(p) => (p.params as Record<string, unknown>).content === "Hello after reload",
+						),
 				),
 			).toBe(true),
 		);

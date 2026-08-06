@@ -63,14 +63,10 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 			connections: host.connections,
 			getAvailableCharacters: () => memberBookkeeping.getAvailableCharacters(),
 			toCharacterSummaryMessage: host.toCharacterSummaryMessage,
-			send: (socket, message) => broadcastHub.send(socket, message),
-			sendFailure: (socket, id, command, reason) => broadcastHub.sendFailure(socket, id, command, reason),
 		}),
 		leavePipeline: new LeavePipeline({
 			removeOnlineCharacter: (connection, reason) =>
 				memberBookkeeping.removeOnlineCharacter(connection as ConnectionContext, reason),
-			send: (socket, message) => broadcastHub.send(socket, message),
-			sendFailure: (socket, id, command, reason) => broadcastHub.sendFailure(socket, id, command, reason),
 		}),
 		submitMessageDeps: {
 			state: host.state,
@@ -81,8 +77,6 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 			onPublicMessage: (msg) => host.readOnPublicMessage()?.(msg),
 			onPublicMessageError: (error, sequence, timestamp) =>
 				host.readOnPublicMessageError()?.(error, sequence, timestamp),
-			send: (socket, message) => broadcastHub.send(socket, message),
-			sendFailure: (socket, id, command, reason) => broadcastHub.sendFailure(socket, id, command, reason),
 		},
 		claimDeps: {
 			state: host.state,
@@ -91,8 +85,6 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 			startReadyTimer: (socket, connection) =>
 				memberBookkeeping.startReadyTimer(socket, connection as ConnectionContext),
 			toCharacterSummaryMessage: host.toCharacterSummaryMessage,
-			send: (socket, message) => broadcastHub.send(socket, message),
-			sendFailure: (socket, id, command, reason) => broadcastHub.sendFailure(socket, id, command, reason),
 		},
 		readyDeps: {
 			state: host.state,
@@ -105,7 +97,6 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 			toCharacterSummary: host.toCharacterSummary,
 			toCharacterSummaryMessage: host.toCharacterSummaryMessage,
 			send: (socket, message) => broadcastHub.send(socket, message),
-			sendFailure: (socket, id, command, reason) => broadcastHub.sendFailure(socket, id, command, reason),
 			broadcast: (message) => broadcastHub.broadcast(message),
 			onMembersChanged: () => host.readOnMembersChanged()?.(),
 		},
@@ -115,15 +106,11 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 			sessionStore: host.sessionStore,
 			getPersistedCount: () => host.persistedCount.get(),
 			getGroupChatStateMessage: (requestingSessionId) => broadcastHub.getGroupChatStateMessage(requestingSessionId),
-			send: (socket, message) => broadcastHub.send(socket, message),
-			sendFailure: (socket, id, command, reason) => broadcastHub.sendFailure(socket, id, command, reason),
 			onMembersChanged: () => host.readOnMembersChanged()?.(),
 		},
 		boardDeps: {
 			state: host.state,
 			boardStore: host.boardStore,
-			send: (socket, message) => broadcastHub.send(socket, message),
-			sendFailure: (socket, id, command, reason) => broadcastHub.sendFailure(socket, id, command, reason),
 			broadcast: (message) => broadcastHub.broadcast(message),
 			onBoardUpdated: (update) => host.readOnBoardUpdated()?.(update),
 		},

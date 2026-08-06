@@ -263,8 +263,12 @@ describe("acceptance: A'——steer 安全边界 abort 重开（可见性 + 收�
 			(messagesResponse.data as { messages?: Array<Record<string, unknown>> } | undefined)?.messages ?? [];
 		const deliveredContents = sessionMessages.flatMap((message) => {
 			if (message.customType !== "pi-tavern.group-chat-input") return [];
-			const details = message.details as { events?: Array<{ type?: string; content?: string }> } | undefined;
-			return (details?.events ?? []).filter((event) => event.type === "public_message").map((event) => event.content);
+			const details = message.details as
+				| { events?: Array<{ method?: string; params?: { content?: string } }> }
+				| undefined;
+			return (details?.events ?? [])
+				.filter((event) => event.method === "public_message")
+				.map((event) => event.params?.content ?? "");
 		});
 		for (let i = 0; i < 5; i += 1) {
 			expect(deliveredContents.filter((content) => content === `T2-storm-${i}`)).toHaveLength(1);
@@ -274,14 +278,20 @@ describe("acceptance: A'——steer 安全边界 abort 重开（可见性 + 收�
 		const deadline = Date.now() + 15_000;
 		let pending: number | undefined;
 		let isStreaming: boolean | undefined;
+		let probeCount = 0;
 		for (;;) {
 			const state = await readState(character);
 			pending = state.pendingMessageCount;
 			isStreaming = state.isStreaming;
+			probeCount += 1;
+			if (probeCount <= 30) {
+				console.error(`[T2-DBG] probe=${probeCount} pending=${String(pending)} streaming=${String(isStreaming)}`);
+			}
 			if (pending === 0 && isStreaming === false) {
 				break;
 			}
 			if (Date.now() > deadline) {
+				console.error(`[T2-DBG] CONVERGE FAIL after ${probeCount} probes`);
 				throw new Error(
 					`T2 red: 连续消息后未收敛（pendingMessageCount=${String(pending)}, isStreaming=${String(isStreaming)}）——livelock 风险锚点`,
 				);
@@ -334,9 +344,13 @@ describe("acceptance: A'——steer 安全边界 abort 重开（可见性 + 收�
 			(message) => message.customType === "pi-tavern.group-chat-input",
 		);
 		const delivered = messages.flatMap((message) => {
-			const details = message.details as { events?: Array<{ type?: string; content?: string }> } | undefined;
+			const details = message.details as
+				| { events?: Array<{ method?: string; params?: { content?: string } }> }
+				| undefined;
 			return details?.events ?? [];
 		});
-		expect(delivered.filter((event) => event.type === "public_message" && event.content === "T3-once")).toHaveLength(1);
+		expect(
+			delivered.filter((event) => event.method === "public_message" && event.params?.content === "T3-once"),
+		).toHaveLength(1);
 	});
 });

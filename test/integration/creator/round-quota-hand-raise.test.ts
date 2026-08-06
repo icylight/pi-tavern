@@ -48,7 +48,7 @@ function waitForMessage(socket: WebSocket, expectedType: string): Promise<Record
 		const timeout = setTimeout(() => reject(new Error(`Timed out waiting for ${expectedType}`)), 5000);
 		const onMessage = (data: WebSocket.RawData) => {
 			const message = JSON.parse(data.toString()) as Record<string, unknown>;
-			if (message.type === expectedType) {
+			if (expectedType === "response" ? "result" in message || "error" in message : message.method === expectedType) {
 				clearTimeout(timeout);
 				socket.off("message", onMessage);
 				resolve(message);
@@ -85,11 +85,20 @@ async function joinCharacter(runtime: CreatorRuntime, sessionId: string): Promis
 	);
 	sockets.push(client);
 	await waitForOpen(client);
-	client.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: sessionId }));
+	client.send(
+		JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: sessionId } }),
+	);
 	await waitForMessage(client, "response");
-	client.send(JSON.stringify({ id: "2", type: "claim_character", character_id: "characters/dev.md" }));
+	client.send(
+		JSON.stringify({
+			jsonrpc: "2.0",
+			id: "2",
+			method: "claim_character",
+			params: { character_id: "characters/dev.md" },
+		}),
+	);
 	await waitForMessage(client, "response");
-	client.send(JSON.stringify({ id: "3", type: "character_ready" }));
+	client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
 	await waitForMessage(client, "response");
 	return client;
 }
@@ -100,24 +109,20 @@ describe("A5: hand_raised truth flow on round-limit refusal", () => {
 		const client = await joinCharacter(runtime, "session-1");
 
 		// 第一条发言在配额内（轮次上限 = 1）。
-		client.send(JSON.stringify({ id: "s1", type: "speak", content: "first" }));
+		client.send(JSON.stringify({ jsonrpc: "2.0", id: "s1", method: "speak", params: { content: "first" } }));
 		const first = await waitForMessage(client, "response");
 		expect(first).toMatchObject({
 			id: "s1",
-			command: "speak",
-			success: true,
-			data: { published: true },
+			result: { published: true },
 		});
 
 		// 第二条发言超过配额 → 以 round_limit_reached 拒绝并
 		// hand raised (User-observed #20 chain: 配额用尽 → 自动举手).
-		client.send(JSON.stringify({ id: "s2", type: "speak", content: "second" }));
+		client.send(JSON.stringify({ jsonrpc: "2.0", id: "s2", method: "speak", params: { content: "second" } }));
 		const refusal = await waitForMessage(client, "response");
 		expect(refusal).toMatchObject({
 			id: "s2",
-			command: "speak",
-			success: true,
-			data: {
+			result: {
 				published: false,
 				reason: "round_limit_reached",
 				hand_raised: true,
@@ -133,13 +138,11 @@ describe("A5: hand_raised truth flow on round-limit refusal", () => {
 		expect(runtime.state.onlineCharacters.get("session-1")?.handRaised).toBe(true);
 
 		// 快照真相：get_group_chat_state 报告 hand_raised=true。
-		client.send(JSON.stringify({ id: "state", type: "get_group_chat_state" }));
+		client.send(JSON.stringify({ jsonrpc: "2.0", id: "state", method: "get_group_chat_state" }));
 		const snapshot = await waitForMessage(client, "response");
 		expect(snapshot).toMatchObject({
 			id: "state",
-			command: "get_group_chat_state",
-			success: true,
-			data: {
+			result: {
 				online_characters: [
 					{
 						character_id: "characters/dev.md",
@@ -155,9 +158,9 @@ describe("A5: hand_raised truth flow on round-limit refusal", () => {
 		const runtime = await startRuntime(1);
 		const client = await joinCharacter(runtime, "session-1");
 
-		client.send(JSON.stringify({ id: "s1", type: "speak", content: "first" }));
+		client.send(JSON.stringify({ jsonrpc: "2.0", id: "s1", method: "speak", params: { content: "first" } }));
 		await waitForMessage(client, "response");
-		client.send(JSON.stringify({ id: "s2", type: "speak", content: "second" }));
+		client.send(JSON.stringify({ jsonrpc: "2.0", id: "s2", method: "speak", params: { content: "second" } }));
 		await waitForMessage(client, "response");
 		expect(runtime.state.onlineCharacters.get("session-1")?.handRaised).toBe(true);
 

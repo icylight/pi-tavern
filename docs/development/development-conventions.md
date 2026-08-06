@@ -2,7 +2,7 @@
 
 本文记录 PiTavern 的通用开发约定。具体通信协议及其消息结构由对应的技术设计文档另行定义。
 
-## 代码注释语言（2026-08-02 User 指示）
+## 代码注释语言
 
 代码注释（`src/`、`test/` 下所有 `.ts` 文件）统一使用**中文**书写说明性文字：
 
@@ -14,7 +14,7 @@
 
 新增/修改代码时按本约定书写注释；存量注释的中文化按任务布置分批进行。
 
-## 中英文排版规范（2026-08-02 User 指示，参考 [sparanoid/chinese-copywriting-guidelines](https://github.com/sparanoid/chinese-copywriting-guidelines)）
+## 中英文排版规范（参考 [sparanoid/chinese-copywriting-guidelines](https://github.com/sparanoid/chinese-copywriting-guidelines)）
 
 注释与文档中的中文文案统一遵循中文文案排版指北（sparanoid/chinese-copywriting-guidelines）：
 
@@ -27,15 +27,22 @@
 
 可选用自动化工具辅助（pangu.js、autocorrect），但以人工审查为准。
 
+## package.json prepare 红线（四方收敛）
+
+- `scripts.prepare` 的语义是**纯 husky 开发便利**（初始化 git hooks），不得混入构建/生成等必须步骤。
+- 现状容错形态：`"prepare": "husky || echo \"husky init skipped/inactive\" >&2 || true"`——pi 从 git 安装包时跑 `npm install --omit=dev`（不装 devDependencies，husky 为 devDep），prepare 在安装时必执行；`|| true` 保证 husky 缺失时静默跳过不报错（本地开发有 husky 时正常初始化 hooks）。
+- **红线**：若未来 prepare 需要承担构建/生成（必须步骤），必须撤销 `|| true` 容错或拆分为 `prepare:dev`/`prepare:build`，不得让必须步骤被静默吞掉。
+- 配套依赖归属红线：**运行期 import 的包一律进 `dependencies`，且不得同列 `devDependencies`**（双列会导致 lockfile 打 `dev: true` 标记，`--omit=dev` 安装时被跳过 → 装成功启动崩；typebox 双列教训，vscode-jsonrpc 同规）。
+
 ## 自定义 JSON
 
 PiTavern 自己定义的 JSON 对象字段名统一使用 `snake_case`：
 
 ```json
 {
-  "event_id": "evt-42",
-  "character_id": "developer",
-  "group_chat_id": "group-1"
+"event_id": "evt-42",
+"character_id": "developer",
+"group_chat_id": "group-1"
 }
 ```
 
@@ -43,7 +50,7 @@ PiTavern 自己定义的 JSON 对象字段名统一使用 `snake_case`：
 
 ```json
 {
-  "type": "character_message"
+"type": "character_message"
 }
 ```
 
@@ -51,9 +58,9 @@ PiTavern 自己定义的 JSON 对象字段名统一使用 `snake_case`：
 
 ```json
 {
-  "eventId": "evt-42",
-  "CharacterId": "developer",
-  "group-chat-id": "group-1"
+"eventId": "evt-42",
+"CharacterId": "developer",
+"group-chat-id": "group-1"
 }
 ```
 
@@ -115,8 +122,8 @@ agent 目录：<repo>/.dev/pi-agent
 
 ```bash
 PI_CODING_AGENT_DIR="$PWD/.dev/pi-agent" \
-  ./references/pi/pi-test.sh \
-  -e "$PWD/src/index.ts"
+./references/pi/pi-test.sh \
+-e "$PWD/src/index.ts"
 ```
 
 同一次多人群聊开发中的终端 A、B、C 必须使用相同的开发启动形式和同一个 `.dev/pi-agent`，使多个开发 pi 共享 PiTavern 的群聊发现及记录，同时与本机日常 pi 完全隔离。
@@ -135,10 +142,10 @@ PiTavern 使用 npm 管理依赖并提交 `package-lock.json`，与 `references/
 
 ```json
 {
-  "type": "module",
-  "pi": {
-    "extensions": ["./src/index.ts"]
-  }
+"type": "module",
+"pi": {
+"extensions": ["./src/index.ts"]
+}
 }
 ```
 
@@ -148,9 +155,9 @@ Node.js 版本跟随当前 pi fork：
 
 ```json
 {
-  "engines": {
-    "node": ">=22.19.0"
-  }
+"engines": {
+"node": ">=22.19.0"
+}
 }
 ```
 
@@ -194,11 +201,11 @@ vitest
 npm scripts（**门卫语义，v1.3**：无参调用拒绝 exit 1 并打印指引——验证必须显式指定目标，默认不跑）：
 
 ```text
-npm run test:unit -- <pattern>    → 只跑指定文件/目录（unit / integration / acceptance 同规）
-npm run test:unit -- --all        → 层内全量
-npm run test:full                 → 三层全量串行（收口门禁）
-npm run check                     → 运行 Biome 检查和 TypeScript noEmit
-npm run format                    → 使用 Biome 自动格式化
+npm run test:unit -- <pattern> → 只跑指定文件/目录（unit / integration / acceptance 同规）
+npm run test:unit -- --all → 层内全量
+npm run test:full → 三层全量串行（收口门禁）
+npm run check → 运行 Biome 检查和 TypeScript noEmit
+npm run format → 使用 Biome 自动格式化
 ```
 
 任何测试命令必须显式指定目标（文件/`--all`），无参调用 = 拒绝（exit 1，非失败非 watch）。

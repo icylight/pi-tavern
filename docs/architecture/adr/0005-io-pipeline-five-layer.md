@@ -1,13 +1,13 @@
 # ADR-0005：五层架构——IO 管线范式（adapter / application / skills / runtime / shared）
 
-- 状态：**Accepted**（2026-08-02 Phase 5 收口，四方确认 + User 批准开工后转正；实施后差异核对见文末「实施后差异核注」段，配套依赖图 = docs/architecture.md）
+- 状态：**Accepted**（2026-08-02 Phase 5 收口，四方确认 + User 批准开工后转正；实施后差异核对见文末「实施后差异核注」段，配套依赖图 = docs/architecture/architecture.md）
 - 决策者：User（层模型、IO 管线范式与 skill/mcp 概念映射）、Arch（落地映射与迁移）、Dev/QA（实施与验收）
 - 关联：User 2026-08-02 重构指示；动机 = 可维护 / 可读 / 规范
 
 ## 背景
 
 > 状态注记（2026-08-02，Phase 3 达成后补）：正文为决策记录时的基线（1881 行单体）；Phase 3 已达成目标结构（creator-runtime 1193→429 行骨架，ADR 目标结构映射见下，与现状一致）。
-> 状态注记（2026-08-02，Phase 5 收口补）：五阶段实施完成；creator-runtime 现 427 行骨架（QA 收口核对③）。「目标结构」段中 character-pipelines/ 与 character-runtime 瘦身为**挂起后续项**（本期范围 = creator 侧），差异与豁免面明细见文末核注段 + docs/architecture.md。
+> 状态注记（2026-08-02，Phase 5 收口补）：五阶段实施完成；creator-runtime 现 427 行骨架（QA 收口核对③）。「目标结构」段中 character-pipelines/ 与 character-runtime 瘦身为**挂起后续项**（本期范围 = creator 侧），差异与豁免面明细见文末核注段 + docs/architecture/architecture.md。
 
 `src/creator/creator-runtime.ts`（1881 行）单体：WS 传输（handleConnection/心跳）、业务编排（submitUserPersonaMessage/join/claim/ready/leave）、持久化（游标/FIRST_PERSIST_*/session 文件恢复）全部混在一个类；依赖方向靠约定不靠结构；目录与命名无统一规范（22 文件 6415 行，按既有目录分布）。
 
@@ -111,7 +111,7 @@ shared:       protocol/(messages·codec) / config/(character-card·load-config) 
 - creator-runtime：1881 → **427 行骨架**（≈400 目标达成）；WS 连接域/心跳域/装配域/reload 域/成员簿记已拆出（creator/ 域模块 10 个）
 - creator-pipelines：6 管线（submit-message/join/claim/ready/leave/query）+ dispatch 桥齐备（收口核对②）
 - skills：data/ 8 文件全迁入、无 pi 依赖可单测；discovery 整体 skills（QA 评审定案）
-- 组合根 = src/index.ts（决策 4 达成）；依赖方向由 lint:layers 强制（决策 2 达成，规则矩阵见 docs/architecture.md §3）
+- 组合根 = src/index.ts（决策 4 达成）；依赖方向由 lint:layers 强制（决策 2 达成，规则矩阵见 docs/architecture/architecture.md §3）
 - 契约零改动达成：protocol wire schema 五阶段零 diff（收口核对）
 
 ### 挂起项（如实标注）
@@ -128,7 +128,7 @@ shared:       protocol/(messages·codec) / config/(character-card·load-config) 
 
 ### 豁免面（IO 审计口径，QA 预核 + Dev grep 歧义排除）
 
-非 skills 层文件 IO 调用点 = 3 处，全部有裁决依据（非字面「0 调用点」）：config×2（Phase 3 裁决①组合根配置豁免）、creator-factory×1（lint-layers 白名单，组合根装配语义）；grep `writeFile` 另 2 处假命中（creator-runtime.ts:88 / reload-flow.ts:39 为注入接口类型签名）。明细见 docs/architecture.md §5。
+非 skills 层文件 IO 调用点 = 3 处，全部有裁决依据（非字面「0 调用点」）：config×2（Phase 3 裁决①组合根配置豁免）、creator-factory×1（lint-layers 白名单，组合根装配语义）；grep `writeFile` 另 2 处假命中（creator-runtime.ts:88 / reload-flow.ts:39 为注入接口类型签名）。明细见 docs/architecture/architecture.md §5。
 
 ## 否决的替代方案
 

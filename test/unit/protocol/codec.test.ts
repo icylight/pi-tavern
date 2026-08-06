@@ -9,33 +9,118 @@ import {
 } from "../../../src/protocol/codec.js";
 
 describe("PiTavern protocol codec", () => {
+	// #119 阻断①（苍蓝星 2026-08-06）：request/notification/response 三态 schema 区分。
+	// 红测先行：当前 RequestIdSchema = Optional，无 id 帧可通过 codec（红）；
+	// 拆分后 request/response 强制字符串 id，仅 update_character_state 为无 id notification。
+	describe("id 三态区分（#119 阻断①）", () => {
+		it("A1 无 id 的 request 被拒", () => {
+			expect(() =>
+				decodeClientMessage(
+					Buffer.from(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							method: "join_group_chat",
+							params: { session_id: "session-1" },
+						}),
+					),
+				),
+			).toThrow(ProtocolError);
+		});
+
+		it("A2 无 id 的 response 被拒", () => {
+			expect(() =>
+				decodeServerMessage(
+					Buffer.from(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							result: { published: true, event_id: "evt-1", sequence: 1, latest_sequence: 1 },
+						}),
+					),
+				),
+			).toThrow(ProtocolError);
+		});
+
+		it("A3 update_character_state 无 id notification 被接受", () => {
+			expect(
+				decodeClientMessage(
+					Buffer.from(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							method: "update_character_state",
+							params: { is_streaming: true },
+						}),
+					),
+				),
+			).toEqual({ jsonrpc: "2.0", method: "update_character_state", params: { is_streaming: true } });
+		});
+
+		it("A4 update_character_state 带 id 被拒（notification 不得携带 id）", () => {
+			expect(() =>
+				decodeClientMessage(
+					Buffer.from(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							id: "req-n",
+							method: "update_character_state",
+							params: { is_streaming: true },
+						}),
+					),
+				),
+			).toThrow(ProtocolError);
+		});
+
+		it("A5 JSON-RPC 标准错误码响应被接受（库自产帧不判协议破坏）", () => {
+			// 二轮评审阻断④（苍蓝星）：vscode-jsonrpc 会自产标准错误
+			// （handler 抛普通 Error → -32603、无 handler → -32601、参数错 → -32602）——
+			// schema 必须接受，否则本端合法响应被 codec 拒 → 误断线。
+			for (const code of [-32700, -32600, -32601, -32602, -32603]) {
+				const decoded = decodeServerMessage(
+					Buffer.from(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							id: "req-s",
+							error: { code, message: "standard error" },
+						}),
+					),
+				);
+				expect(decoded).toEqual({ jsonrpc: "2.0", id: "req-s", error: { code, message: "standard error" } });
+			}
+		});
+	});
+
 	it("decodes a strict snake_case client request", () => {
 		expect(
 			decodeClientMessage(
 				Buffer.from(
 					JSON.stringify({
+						jsonrpc: "2.0",
 						id: "req-1",
-						type: "join_group_chat",
-						session_id: "session-1",
+						method: "join_group_chat",
+						params: { session_id: "session-1" },
 					}),
 				),
 			),
 		).toEqual({
+			jsonrpc: "2.0",
 			id: "req-1",
-			type: "join_group_chat",
-			session_id: "session-1",
+			method: "join_group_chat",
+			params: { session_id: "session-1" },
 		});
 	});
 
-	it("rejects malformed JSON, unknown types, and extra fields", () => {
+	it("rejects malformed JSON, unknown methods, and extra fields", () => {
 		expect(() => decodeClientMessage(Buffer.from("{broken"))).toThrow(ProtocolError);
-		expect(() => decodeClientMessage(Buffer.from(JSON.stringify({ type: "unknown" })))).toThrow(ProtocolError);
+		expect(() =>
+			decodeClientMessage(Buffer.from(JSON.stringify({ jsonrpc: "2.0", method: "unknown_method" }))),
+		).toThrow(ProtocolError);
 		expect(() =>
 			decodeClientMessage(
 				Buffer.from(
 					JSON.stringify({
-						type: "character_ready",
-						sessionId: "camel-case-is-invalid",
+						jsonrpc: "2.0",
+						id: "req-1",
+						method: "character_ready",
+						params: { sessionId: "camel-case-is-invalid" },
 					}),
 				),
 			),
@@ -44,10 +129,9 @@ describe("PiTavern protocol codec", () => {
 
 	it("decodes server messages and encodes compact JSON", () => {
 		const message = {
+			jsonrpc: "2.0",
 			id: "req-1",
-			type: "response",
-			command: "character_ready",
-			success: true,
+			result: null,
 		};
 
 		expect(decodeServerMessage(Buffer.from(JSON.stringify(message)))).toEqual(message);
@@ -67,17 +151,19 @@ describe("PiTavern protocol codec", () => {
 		const message = decodeClientMessage(
 			Buffer.from(
 				JSON.stringify({
+					jsonrpc: "2.0",
 					id: "req-8",
-					type: "speak",
-					content: "I suggest starting with the persistence layer.",
+					method: "speak",
+					params: { content: "I suggest starting with the persistence layer." },
 				}),
 			),
 		);
 
 		expect(message).toEqual({
+			jsonrpc: "2.0",
 			id: "req-8",
-			type: "speak",
-			content: "I suggest starting with the persistence layer.",
+			method: "speak",
+			params: { content: "I suggest starting with the persistence layer." },
 		});
 	});
 
@@ -85,11 +171,9 @@ describe("PiTavern protocol codec", () => {
 		const published = decodeServerMessage(
 			Buffer.from(
 				JSON.stringify({
+					jsonrpc: "2.0",
 					id: "req-8",
-					type: "response",
-					command: "speak",
-					success: true,
-					data: {
+					result: {
 						published: true,
 						event_id: "evt-1",
 						sequence: 1,
@@ -103,11 +187,9 @@ describe("PiTavern protocol codec", () => {
 		);
 
 		expect(published).toEqual({
+			jsonrpc: "2.0",
 			id: "req-8",
-			type: "response",
-			command: "speak",
-			success: true,
-			data: {
+			result: {
 				published: true,
 				event_id: "evt-1",
 				sequence: 1,
@@ -119,11 +201,9 @@ describe("PiTavern protocol codec", () => {
 		const rejected = decodeServerMessage(
 			Buffer.from(
 				JSON.stringify({
+					jsonrpc: "2.0",
 					id: "req-9",
-					type: "response",
-					command: "speak",
-					success: true,
-					data: {
+					result: {
 						published: false,
 						reason: "round_limit_reached",
 						hand_raised: true,
@@ -134,11 +214,9 @@ describe("PiTavern protocol codec", () => {
 		);
 
 		expect(rejected).toEqual({
+			jsonrpc: "2.0",
 			id: "req-9",
-			type: "response",
-			command: "speak",
-			success: true,
-			data: {
+			result: {
 				published: false,
 				reason: "round_limit_reached",
 				hand_raised: true,
@@ -148,38 +226,49 @@ describe("PiTavern protocol codec", () => {
 	});
 
 	it("decodes get_message_history and get_chat_history_file requests", () => {
-		expect(decodeClientMessage(Buffer.from(JSON.stringify({ id: "req-1", type: "get_message_history" })))).toEqual({
-			id: "req-1",
-			type: "get_message_history",
-		});
 		expect(
-			decodeClientMessage(Buffer.from(JSON.stringify({ id: "req-2", type: "get_message_history", cursor: "opaque" }))),
-		).toEqual({ id: "req-2", type: "get_message_history", cursor: "opaque" });
+			decodeClientMessage(
+				Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: "req-1", method: "get_message_history", params: {} })),
+			),
+		).toEqual({ jsonrpc: "2.0", id: "req-1", method: "get_message_history", params: {} });
 		expect(
-			decodeClientMessage(Buffer.from(JSON.stringify({ id: "req-3", type: "get_message_history", cursor: null }))),
-		).toEqual({ id: "req-3", type: "get_message_history", cursor: null });
-		expect(decodeClientMessage(Buffer.from(JSON.stringify({ id: "req-4", type: "get_chat_history_file" })))).toEqual({
-			id: "req-4",
-			type: "get_chat_history_file",
-		});
+			decodeClientMessage(
+				Buffer.from(
+					JSON.stringify({ jsonrpc: "2.0", id: "req-2", method: "get_message_history", params: { cursor: "opaque" } }),
+				),
+			),
+		).toEqual({ jsonrpc: "2.0", id: "req-2", method: "get_message_history", params: { cursor: "opaque" } });
+		expect(
+			decodeClientMessage(
+				Buffer.from(
+					JSON.stringify({ jsonrpc: "2.0", id: "req-3", method: "get_message_history", params: { cursor: null } }),
+				),
+			),
+		).toEqual({ jsonrpc: "2.0", id: "req-3", method: "get_message_history", params: { cursor: null } });
+		expect(
+			decodeClientMessage(
+				Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: "req-4", method: "get_chat_history_file" })),
+			),
+		).toEqual({ jsonrpc: "2.0", id: "req-4", method: "get_chat_history_file" });
 	});
 
 	it("decodes a get_message_history response with cursor fields", () => {
 		const response = {
+			jsonrpc: "2.0",
 			id: "req-1",
-			type: "response",
-			command: "get_message_history",
-			success: true,
-			data: {
+			result: {
 				messages: [
 					{
-						type: "public_message",
-						event_id: "evt-1",
-						sequence: 1,
-						timestamp: "2026-07-01T00:00:00.000Z",
-						sender: { type: "user_persona" },
-						content: "Hello",
-						round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
+						jsonrpc: "2.0",
+						method: "public_message",
+						params: {
+							event_id: "evt-1",
+							sequence: 1,
+							timestamp: "2026-07-01T00:00:00.000Z",
+							sender: { type: "user_persona" },
+							content: "Hello",
+							round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
+						},
 					},
 				],
 				cursor: null,
@@ -192,11 +281,9 @@ describe("PiTavern protocol codec", () => {
 
 	it("decodes a get_chat_history_file response", () => {
 		const response = {
+			jsonrpc: "2.0",
 			id: "req-1",
-			type: "response",
-			command: "get_chat_history_file",
-			success: true,
-			data: { path: "/absolute/path/to/chats/group-1.jsonl" },
+			result: { path: "/absolute/path/to/chats/group-1.jsonl" },
 		};
 		expect(decodeServerMessage(Buffer.from(JSON.stringify(response)))).toEqual(response);
 	});

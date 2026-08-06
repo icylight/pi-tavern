@@ -1,10 +1,11 @@
+import { ResponseError } from "vscode-jsonrpc";
 import type WebSocket from "ws";
 import type { CharacterCard, CharacterSummary } from "../../config/character-card.js";
 import type { GroupChatState } from "../../data/group-chat-state.js";
 import type { ClientMessage } from "../../protocol/messages.js";
-import { ERROR_CHARACTER_UNAVAILABLE } from "../../shared/messages.js";
+import { ERROR_CHARACTER_UNAVAILABLE, ERROR_CODE_CHARACTER_UNAVAILABLE } from "../../shared/messages.js";
 
-type ClaimCharacterMessage = Extract<ClientMessage, { type: "claim_character" }>;
+type ClaimCharacterMessage = Extract<ClientMessage, { method: "claim_character" }>;
 
 /** 连接上下文窄接口（creator-runtime 的 ConnectionContext 结构子集）。 */
 export interface ClaimConnectionLike {
@@ -24,8 +25,6 @@ export interface ClaimPipelineDependencies {
 		name: string;
 		description: string;
 	};
-	send: (socket: WebSocket, message: unknown) => void;
-	sendFailure: (socket: WebSocket, id: string | undefined, command: "claim_character", reason: string) => void;
 }
 
 /**
@@ -36,33 +35,32 @@ export interface ClaimPipelineDependencies {
 export class ClaimPipeline {
 	constructor(private readonly deps: ClaimPipelineDependencies) {}
 
-	run(socket: WebSocket, connection: ClaimConnectionLike, message: ClaimCharacterMessage): void {
-		const character = this.deps.characters.get(message.character_id);
+	run(
+		socket: WebSocket,
+		connection: ClaimConnectionLike,
+		message: ClaimCharacterMessage,
+	): {
+		character: { character_id: string; name: string; description: string; path: string };
+	} {
+		const character = this.deps.characters.get(message.params.character_id);
 		if (
 			connection.sessionId === null ||
 			connection.online ||
 			connection.reservedCharacterId !== null ||
 			!character ||
-			!this.deps.isCharacterAvailable(message.character_id)
+			!this.deps.isCharacterAvailable(message.params.character_id)
 		) {
-			this.deps.sendFailure(socket, message.id, "claim_character", ERROR_CHARACTER_UNAVAILABLE);
-			return;
+			throw new ResponseError(ERROR_CODE_CHARACTER_UNAVAILABLE, ERROR_CHARACTER_UNAVAILABLE);
 		}
 
 		this.deps.state.characterReservations.set(character.characterId, connection.sessionId);
 		connection.reservedCharacterId = character.characterId;
 		this.deps.startReadyTimer(socket, connection);
-		this.deps.send(socket, {
-			...(message.id !== undefined ? { id: message.id } : {}),
-			type: "response",
-			command: "claim_character",
-			success: true,
-			data: {
-				character: {
-					...this.deps.toCharacterSummaryMessage(character),
-					path: character.path,
-				},
+		return {
+			character: {
+				...this.deps.toCharacterSummaryMessage(character),
+				path: character.path,
 			},
-		});
+		};
 	}
 }

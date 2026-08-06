@@ -37,7 +37,7 @@ function waitForMessage(socket: WebSocket, expectedType: string, timeoutMs = 500
 		const timeout = setTimeout(() => reject(new Error(`Timed out waiting for ${expectedType}`)), timeoutMs);
 		const onMessage = (data: WebSocket.RawData) => {
 			const message = JSON.parse(data.toString()) as Record<string, unknown>;
-			if (message.type === expectedType) {
+			if (expectedType === "response" ? "result" in message || "error" in message : message.method === expectedType) {
 				clearTimeout(timeout);
 				socket.off("message", onMessage);
 				resolve(message);
@@ -58,11 +58,15 @@ async function joinCharacter(
 		{ autoPong: options.autoPong ?? true },
 	);
 	await waitForOpen(client);
-	client.send(JSON.stringify({ id: "1", type: "join_group_chat", session_id: sessionId }));
+	client.send(
+		JSON.stringify({ jsonrpc: "2.0", id: "1", method: "join_group_chat", params: { session_id: sessionId } }),
+	);
 	await waitForMessage(client, "response");
-	client.send(JSON.stringify({ id: "2", type: "claim_character", character_id: characterId }));
+	client.send(
+		JSON.stringify({ jsonrpc: "2.0", id: "2", method: "claim_character", params: { character_id: characterId } }),
+	);
 	await waitForMessage(client, "response");
-	client.send(JSON.stringify({ id: "3", type: "character_ready" }));
+	client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
 	const historyPromise = waitForMessage(client, "message_history");
 	await waitForMessage(client, "response");
 	const messageHistory = await historyPromise;
@@ -70,8 +74,11 @@ async function joinCharacter(
 }
 
 function historySequences(messageHistory: Record<string, unknown>): number[] {
-	const messages = (messageHistory.messages as Array<{ sequence?: number }>) ?? [];
-	return messages.map((m) => m.sequence ?? -1);
+	const messages =
+		((messageHistory.params as Record<string, unknown>).messages as Array<{
+			params?: { sequence?: number };
+		}>) ?? [];
+	return messages.map((m) => m.params?.sequence ?? -1);
 }
 
 describe("CreatorRuntime #85 J3 半开断连恢复一致性", () => {
@@ -95,7 +102,7 @@ describe("CreatorRuntime #85 J3 半开断连恢复一致性", () => {
 
 		// ② 半开清理：healthy 收到 character_left（disconnected）→ j3 移出在线表。
 		const left = await waitForMessage(healthy, "character_left", 5000);
-		expect(left.reason).toBe("disconnected");
+		expect((left.params as Record<string, unknown>).reason).toBe("disconnected");
 		expect(runtime.state.onlineCharacters.has("session-j3")).toBe(false);
 		expect(runtime.connections.has("session-j3")).toBe(false);
 		deadClient.terminate();
@@ -115,8 +122,9 @@ describe("CreatorRuntime #85 J3 半开断连恢复一致性", () => {
 		// （M7 A3/A4 已钉），creator 侧只验证广播恢复。
 		runtime.submitUserPersonaMessage("after-reconnect");
 		const update = await waitForMessage(revived, "group_chat_update", 5000);
-		const preview = (update.preview_messages as Array<{ sequence?: number }>) ?? [];
-		expect(preview.map((m) => m.sequence)).toContain(3);
+		const preview =
+			((update.params as Record<string, unknown>).preview_messages as Array<{ params?: { sequence?: number } }>) ?? [];
+		expect(preview.map((m) => m.params?.sequence)).toContain(3);
 
 		healthy.close();
 		revived.close();

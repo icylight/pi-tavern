@@ -1,5 +1,36 @@
 import { type Static, Type } from "typebox";
 
+import {
+	METHOD_BOARD_QUERY,
+	METHOD_BOARD_UPDATE,
+	METHOD_BOARD_WRITE,
+	METHOD_CHARACTER_JOINED,
+	METHOD_CHARACTER_LEFT,
+	METHOD_CHARACTER_READY,
+	METHOD_CLAIM_CHARACTER,
+	METHOD_FETCH_MESSAGES_SINCE,
+	METHOD_GET_CHAT_HISTORY_FILE,
+	METHOD_GET_GROUP_CHAT_STATE,
+	METHOD_GET_MESSAGE_HISTORY,
+	METHOD_GROUP_CHAT_CLOSED,
+	METHOD_GROUP_CHAT_UPDATE,
+	METHOD_JOIN_GROUP_CHAT,
+	METHOD_LEAVE_GROUP_CHAT,
+	METHOD_MESSAGE_HISTORY,
+	METHOD_PUBLIC_MESSAGE,
+	METHOD_SPEAK,
+	METHOD_UPDATE_CHARACTER_STATE,
+	PROTOCOL_ERROR_CODES,
+} from "../shared/messages.js";
+
+/**
+ * JSON-RPC 2.0 标准信封（#119 M1 迁移，User 拍板豁免零漂移——特例仅此一次）。
+ * 判别字段 type → method；请求/响应/通知统一 {jsonrpc:"2.0"}；载荷进 params；
+ * 响应 {command, success, data} → {result} / {error:{code,message}}。
+ * F 类 method 判别常量（#109 欠账）挂 M2 同批抽取，M1 先用字面量。
+ */
+export const JSONRPC_VERSION = "2.0";
+
 export const CharacterSummarySchema = Type.Object(
 	{
 		character_id: Type.String(),
@@ -23,73 +54,121 @@ export const OnlineCharacterSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-const RequestIdSchema = Type.Optional(Type.String());
+/**
+ * 请求/响应必带 id（仅 update_character_state 为无 id notification；
+ * 服务端通知同样无 id——由各自 schema 形状区分）。阻断修复（PR #137
+ * 评审）：无 id 的 request/response 一律 fail-close——前者服务端无法
+ * 关联响应，后者客户端命不中 pendingRequests。
+ *
+ * id 类型 = string | number（JSON-RPC 2.0 标准；vscode-jsonrpc 库
+ * sendRequest 自增数字 id，手写握手用 string——双兼容）。
+ */
+const RequestIdSchema = Type.Union([Type.String(), Type.Integer()]);
+
+/**
+ * JSON-RPC 2.0 标准错误码（vscode-jsonrpc 库会自行产生：handler 抛普通 Error →
+ * -32603、无 handler → -32601、参数无效 → -32602、解析失败 → -32700、无效请求
+ * → -32600）。connection 模式下这些是库在本端生成的**合法**响应——必须纳入
+ * schema，否则 decodeServerMessage 拒帧 → 客户端把库产响应当协议破坏断线。
+ */
+const JSON_RPC_STANDARD_ERROR_CODES = [-32700, -32600, -32601, -32602, -32603] as const;
+
+/** JSON-RPC 错误对象（code = 业务 10 码 + 库标准码；未知 code = schema fail-close）。 */
+export const ProtocolErrorObjectSchema = Type.Object(
+	{
+		code: Type.Union([
+			...PROTOCOL_ERROR_CODES.map((value) => Type.Literal(value)),
+			...JSON_RPC_STANDARD_ERROR_CODES.map((value) => Type.Literal(value)),
+		]),
+		message: Type.String(),
+	},
+	{ additionalProperties: false },
+);
 
 export const ClientMessageSchema = Type.Union([
 	Type.Object(
 		{
+			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			type: Type.Literal("join_group_chat"),
-			session_id: Type.String(),
+			method: Type.Literal(METHOD_JOIN_GROUP_CHAT),
+			params: Type.Object({ session_id: Type.String() }, { additionalProperties: false }),
 		},
 		{ additionalProperties: false },
 	),
 	Type.Object(
 		{
+			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			type: Type.Literal("claim_character"),
-			character_id: Type.String(),
+			method: Type.Literal(METHOD_CLAIM_CHARACTER),
+			params: Type.Object({ character_id: Type.String() }, { additionalProperties: false }),
 		},
 		{ additionalProperties: false },
 	),
 	Type.Object(
 		{
+			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			type: Type.Literal("character_ready"),
+			method: Type.Literal(METHOD_CHARACTER_READY),
+			params: Type.Optional(Type.Object({}, { additionalProperties: false })),
 		},
 		{ additionalProperties: false },
 	),
 	Type.Object(
 		{
+			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			type: Type.Literal("leave_group_chat"),
+			method: Type.Literal(METHOD_LEAVE_GROUP_CHAT),
+			params: Type.Optional(Type.Object({}, { additionalProperties: false })),
 		},
 		{ additionalProperties: false },
 	),
 	Type.Object(
 		{
+			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			type: Type.Literal("get_group_chat_state"),
+			method: Type.Literal(METHOD_GET_GROUP_CHAT_STATE),
+			params: Type.Optional(Type.Object({}, { additionalProperties: false })),
 		},
 		{ additionalProperties: false },
 	),
 	Type.Object(
 		{
+			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			type: Type.Literal("get_message_history"),
-			cursor: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+			method: Type.Literal(METHOD_GET_MESSAGE_HISTORY),
+			params: Type.Object(
+				{
+					cursor: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+				},
+				{ additionalProperties: false },
+			),
 		},
 		{ additionalProperties: false },
 	),
 	Type.Object(
 		{
+			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			type: Type.Literal("fetch_messages_since"),
-			since_sequence: Type.Integer({ minimum: 0 }),
+			method: Type.Literal(METHOD_FETCH_MESSAGES_SINCE),
+			params: Type.Object({ since_sequence: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
 		},
 		{ additionalProperties: false },
 	),
 	Type.Object(
 		{
+			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			type: Type.Literal("get_chat_history_file"),
+			method: Type.Literal(METHOD_GET_CHAT_HISTORY_FILE),
+			params: Type.Optional(Type.Object({}, { additionalProperties: false })),
 		},
 		{ additionalProperties: false },
 	),
+	// 通知（无 id）：update_character_state 不要求响应（原协议同语义）。
 	Type.Object(
 		{
-			type: Type.Literal("update_character_state"),
-			is_streaming: Type.Boolean(),
+			jsonrpc: Type.Literal(JSONRPC_VERSION),
+			method: Type.Literal(METHOD_UPDATE_CHARACTER_STATE),
+			params: Type.Object({ is_streaming: Type.Boolean() }, { additionalProperties: false }),
 		},
 		{ additionalProperties: false },
 	),
@@ -100,17 +179,23 @@ export const ClientMessageSchema = Type.Union([
 	// 幂等（09:26 定案），schema 不得灭掉该告知场景；空串由 store 拦为 noop。
 	Type.Object(
 		{
+			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			type: Type.Literal("board_write"),
-			action: Type.Literal("set"),
-			note: Type.Optional(
-				Type.Object(
-					{
-						id: Type.Optional(Type.String()),
-						content: Type.Optional(Type.String()),
-					},
-					{ additionalProperties: false },
-				),
+			method: Type.Literal(METHOD_BOARD_WRITE),
+			params: Type.Object(
+				{
+					action: Type.Literal("set"),
+					note: Type.Optional(
+						Type.Object(
+							{
+								id: Type.Optional(Type.String()),
+								content: Type.Optional(Type.String()),
+							},
+							{ additionalProperties: false },
+						),
+					),
+				},
+				{ additionalProperties: false },
 			),
 		},
 		{ additionalProperties: false },
@@ -119,12 +204,18 @@ export const ClientMessageSchema = Type.Union([
 	// content 禁止（被撕条完整内容由服务端在 board_update 广播中回带）。
 	Type.Object(
 		{
+			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			type: Type.Literal("board_write"),
-			action: Type.Literal("remove"),
-			note: Type.Object(
+			method: Type.Literal(METHOD_BOARD_WRITE),
+			params: Type.Object(
 				{
-					id: Type.String(),
+					action: Type.Literal("remove"),
+					note: Type.Object(
+						{
+							id: Type.String(),
+						},
+						{ additionalProperties: false },
+					),
 				},
 				{ additionalProperties: false },
 			),
@@ -134,9 +225,10 @@ export const ClientMessageSchema = Type.Union([
 	// clear：禁携带 note（清空语义无目标条）。
 	Type.Object(
 		{
+			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			type: Type.Literal("board_write"),
-			action: Type.Literal("clear"),
+			method: Type.Literal(METHOD_BOARD_WRITE),
+			params: Type.Object({ action: Type.Literal("clear") }, { additionalProperties: false }),
 		},
 		{ additionalProperties: false },
 	),
@@ -144,20 +236,28 @@ export const ClientMessageSchema = Type.Union([
 	// groupId 由 session 隐含；跨群聊隔离由服务端按 session 关联保证。
 	Type.Object(
 		{
+			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			type: Type.Literal("board_query"),
+			method: Type.Literal(METHOD_BOARD_QUERY),
+			params: Type.Optional(Type.Object({}, { additionalProperties: false })),
 		},
 		{ additionalProperties: false },
 	),
 	Type.Object(
 		{
+			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			type: Type.Literal("speak"),
-			content: Type.String(),
-			// ISSUE-013：可选字段——缺省 = 旧版客户端，服务端跳过 stale
-			// 检查（平滑演进）。存在时服务端拒绝过期发言（reason: "stale"）
-			// 而不是发布它们。
-			based_on_sequence: Type.Optional(Type.Integer({ minimum: 0 })),
+			method: Type.Literal(METHOD_SPEAK),
+			params: Type.Object(
+				{
+					content: Type.String(),
+					// ISSUE-013：可选字段——缺省 = 旧版客户端，服务端跳过 stale
+					// 检查（平滑演进）。存在时服务端拒绝过期发言（reason: "stale"）
+					// 而不是发布它们。
+					based_on_sequence: Type.Optional(Type.Integer({ minimum: 0 })),
+				},
+				{ additionalProperties: false },
+			),
 		},
 		{ additionalProperties: false },
 	),
@@ -165,15 +265,16 @@ export const ClientMessageSchema = Type.Union([
 
 export type ClientMessage = Static<typeof ClientMessageSchema>;
 
-export type SpeakMessage = Extract<ClientMessage, { type: "speak" }>;
+export type SpeakMessage = Extract<ClientMessage, { method: "speak" }>;
+
+/** 空成功响应 result（character_ready / leave_group_chat）。 */
+const NullResultSchema = Type.Null();
 
 const JoinGroupChatResponseSchema = Type.Object(
 	{
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
 		id: RequestIdSchema,
-		type: Type.Literal("response"),
-		command: Type.Literal("join_group_chat"),
-		success: Type.Literal(true),
-		data: Type.Object({ available_characters: Type.Array(CharacterSummarySchema) }, { additionalProperties: false }),
+		result: Type.Object({ available_characters: Type.Array(CharacterSummarySchema) }, { additionalProperties: false }),
 	},
 	{ additionalProperties: false },
 );
@@ -190,57 +291,37 @@ const ClaimedCharacterSchema = Type.Object(
 
 const ClaimCharacterResponseSchema = Type.Object(
 	{
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
 		id: RequestIdSchema,
-		type: Type.Literal("response"),
-		command: Type.Literal("claim_character"),
-		success: Type.Literal(true),
-		data: Type.Object({ character: ClaimedCharacterSchema }, { additionalProperties: false }),
+		result: Type.Object({ character: ClaimedCharacterSchema }, { additionalProperties: false }),
 	},
 	{ additionalProperties: false },
 );
 
 const EmptySuccessResponseSchema = Type.Object(
 	{
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
 		id: RequestIdSchema,
-		type: Type.Literal("response"),
-		command: Type.Union([Type.Literal("character_ready"), Type.Literal("leave_group_chat")]),
-		success: Type.Literal(true),
+		result: NullResultSchema,
 	},
 	{ additionalProperties: false },
 );
 
+/** 业务失败响应（id 关联请求；code ∈ 10 码枚举，message = 文案原样保留）。 */
 const FailureResponseSchema = Type.Object(
 	{
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
 		id: RequestIdSchema,
-		type: Type.Literal("response"),
-		command: Type.Union([
-			Type.Literal("join_group_chat"),
-			Type.Literal("claim_character"),
-			Type.Literal("character_ready"),
-			Type.Literal("leave_group_chat"),
-			Type.Literal("get_group_chat_state"),
-			Type.Literal("get_message_history"),
-			Type.Literal("fetch_messages_since"),
-			Type.Literal("get_chat_history_file"),
-			Type.Literal("speak"),
-			// 白板模型（#114）：新消息的失败通道 = union 加新命令成员（合法 union 增量，
-			// speak 先例；旧端对新消息本就 fail-close，兼容性政策覆盖）。
-			Type.Literal("board_write"),
-			Type.Literal("board_query"),
-		]),
-		success: Type.Literal(false),
-		error: Type.String(),
+		error: ProtocolErrorObjectSchema,
 	},
 	{ additionalProperties: false },
 );
 
 const GroupChatStateResponseSchema = Type.Object(
 	{
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
 		id: RequestIdSchema,
-		type: Type.Literal("response"),
-		command: Type.Literal("get_group_chat_state"),
-		success: Type.Literal(true),
-		data: Type.Object(
+		result: Type.Object(
 			{
 				group_chat: Type.Object(
 					{
@@ -272,25 +353,33 @@ const GroupChatStateResponseSchema = Type.Object(
 
 const CharacterJoinedSchema = Type.Object(
 	{
-		type: Type.Literal("character_joined"),
-		character: CharacterSummarySchema,
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
+		method: Type.Literal(METHOD_CHARACTER_JOINED),
+		params: Type.Object({ character: CharacterSummarySchema }, { additionalProperties: false }),
 	},
 	{ additionalProperties: false },
 );
 
 const CharacterLeftSchema = Type.Object(
 	{
-		type: Type.Literal("character_left"),
-		character: CharacterSummarySchema,
-		reason: Type.Union([Type.Literal("left"), Type.Literal("disconnected")]),
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
+		method: Type.Literal(METHOD_CHARACTER_LEFT),
+		params: Type.Object(
+			{
+				character: CharacterSummarySchema,
+				reason: Type.Union([Type.Literal("left"), Type.Literal("disconnected")]),
+			},
+			{ additionalProperties: false },
+		),
 	},
 	{ additionalProperties: false },
 );
 
 const GroupChatClosedSchema = Type.Object(
 	{
-		type: Type.Literal("group_chat_closed"),
-		group_chat_id: Type.String(),
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
+		method: Type.Literal(METHOD_GROUP_CHAT_CLOSED),
+		params: Type.Object({ group_chat_id: Type.String() }, { additionalProperties: false }),
 	},
 	{ additionalProperties: false },
 );
@@ -306,41 +395,51 @@ const RoundSnapshotSchema = Type.Object(
 
 const PublicMessageSchema = Type.Object(
 	{
-		type: Type.Literal("public_message"),
-		event_id: Type.String(),
-		sequence: Type.Integer({ minimum: 1 }),
-		timestamp: Type.String(),
-		sender: Type.Union([
-			Type.Object({ type: Type.Literal("user_persona") }, { additionalProperties: false }),
-			Type.Object(
-				{ type: Type.Literal("character"), character_id: Type.String(), name: Type.String() },
-				{ additionalProperties: false },
-			),
-		]),
-		content: Type.String(),
-		round: RoundSnapshotSchema,
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
+		method: Type.Literal(METHOD_PUBLIC_MESSAGE),
+		params: Type.Object(
+			{
+				event_id: Type.String(),
+				sequence: Type.Integer({ minimum: 1 }),
+				timestamp: Type.String(),
+				sender: Type.Union([
+					Type.Object({ type: Type.Literal("user_persona") }, { additionalProperties: false }),
+					Type.Object(
+						{ type: Type.Literal("character"), character_id: Type.String(), name: Type.String() },
+						{ additionalProperties: false },
+					),
+				]),
+				content: Type.String(),
+				round: RoundSnapshotSchema,
+			},
+			{ additionalProperties: false },
+		),
 	},
 	{ additionalProperties: false },
 );
 
 const MessageHistorySchema = Type.Object(
 	{
-		type: Type.Literal("message_history"),
-		messages: Type.Array(PublicMessageSchema),
-		cursor: Type.Union([Type.String(), Type.Null()]),
-		has_more: Type.Boolean(),
-		total_messages: Type.Integer({ minimum: 0 }),
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
+		method: Type.Literal(METHOD_MESSAGE_HISTORY),
+		params: Type.Object(
+			{
+				messages: Type.Array(PublicMessageSchema),
+				cursor: Type.Union([Type.String(), Type.Null()]),
+				has_more: Type.Boolean(),
+				total_messages: Type.Integer({ minimum: 0 }),
+			},
+			{ additionalProperties: false },
+		),
 	},
 	{ additionalProperties: false },
 );
 
 const GetMessageHistoryResponseSchema = Type.Object(
 	{
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
 		id: RequestIdSchema,
-		type: Type.Literal("response"),
-		command: Type.Literal("get_message_history"),
-		success: Type.Literal(true),
-		data: Type.Object(
+		result: Type.Object(
 			{
 				messages: Type.Array(PublicMessageSchema),
 				cursor: Type.Union([Type.String(), Type.Null()]),
@@ -355,11 +454,9 @@ const GetMessageHistoryResponseSchema = Type.Object(
 
 const FetchMessagesSinceResponseSchema = Type.Object(
 	{
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
 		id: RequestIdSchema,
-		type: Type.Literal("response"),
-		command: Type.Literal("fetch_messages_since"),
-		success: Type.Literal(true),
-		data: Type.Object(
+		result: Type.Object(
 			{
 				messages: Type.Array(PublicMessageSchema),
 				latest_sequence: Type.Integer({ minimum: 0 }),
@@ -373,23 +470,13 @@ const FetchMessagesSinceResponseSchema = Type.Object(
 
 const GroupChatUpdateSchema = Type.Object(
 	{
-		type: Type.Literal("group_chat_update"),
-		latest_sequence: Type.Integer({ minimum: 0 }),
-		preview_messages: Type.Array(PublicMessageSchema),
-		total_messages: Type.Integer({ minimum: 0 }),
-	},
-	{ additionalProperties: false },
-);
-
-const GetChatHistoryFileResponseSchema = Type.Object(
-	{
-		id: RequestIdSchema,
-		type: Type.Literal("response"),
-		command: Type.Literal("get_chat_history_file"),
-		success: Type.Literal(true),
-		data: Type.Object(
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
+		method: Type.Literal(METHOD_GROUP_CHAT_UPDATE),
+		params: Type.Object(
 			{
-				path: Type.String(),
+				latest_sequence: Type.Integer({ minimum: 0 }),
+				preview_messages: Type.Array(PublicMessageSchema),
+				total_messages: Type.Integer({ minimum: 0 }),
 			},
 			{ additionalProperties: false },
 		),
@@ -397,14 +484,21 @@ const GetChatHistoryFileResponseSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+const GetChatHistoryFileResponseSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
+		id: RequestIdSchema,
+		result: Type.Object({ path: Type.String() }, { additionalProperties: false }),
+	},
+	{ additionalProperties: false },
+);
+
 const SpeakResponseSchema = Type.Union([
 	Type.Object(
 		{
+			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			type: Type.Literal("response"),
-			command: Type.Literal("speak"),
-			success: Type.Literal(true),
-			data: Type.Object(
+			result: Type.Object(
 				{
 					published: Type.Literal(true),
 					event_id: Type.String(),
@@ -422,11 +516,9 @@ const SpeakResponseSchema = Type.Union([
 	),
 	Type.Object(
 		{
+			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			type: Type.Literal("response"),
-			command: Type.Literal("speak"),
-			success: Type.Literal(true),
-			data: Type.Object(
+			result: Type.Object(
 				{
 					published: Type.Literal(false),
 					reason: Type.Literal("round_limit_reached"),
@@ -440,11 +532,9 @@ const SpeakResponseSchema = Type.Union([
 	),
 	Type.Object(
 		{
+			jsonrpc: Type.Literal(JSONRPC_VERSION),
 			id: RequestIdSchema,
-			type: Type.Literal("response"),
-			command: Type.Literal("speak"),
-			success: Type.Literal(true),
-			data: Type.Object(
+			result: Type.Object(
 				{
 					// ISSUE-013 B2：stale 拒绝镜像 round_limit_reached——业务拒绝
 					// 而非协议错误。只携带缺失的 sequence 区间；客户端通过既有的
@@ -495,7 +585,7 @@ export const BoardReasonCodeSchema = Type.Union([
 ]);
 
 /**
- * board_write 成功响应 data（嵌套两态，外层 success 恒 true）：
+ * board_write 成功响应 result（嵌套两态）：
  * - { changed: true, note? }：有变化；set 新贴/改条回带 { id, content }（id 回带闭环，
  *   业务规则由 pipeline 保证必带）；remove/clear applied 不带 note
  * - { changed: false, code }：无变化——五码取值区分告知（幂等）与拒绝（资源约束）
@@ -520,14 +610,12 @@ export const BoardWriteDataSchema = Type.Union([
 
 export type BoardWriteDataWire = Static<typeof BoardWriteDataSchema>;
 
-/** board_write 响应：success 恒 true 业务变体（success:false 协议错误走 FailureResponseSchema）。 */
+/** board_write 响应：业务变体（协议失败走 FailureResponseSchema error）。 */
 export const BoardWriteResponseSchema = Type.Object(
 	{
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
 		id: RequestIdSchema,
-		type: Type.Literal("response"),
-		command: Type.Literal("board_write"),
-		success: Type.Literal(true),
-		data: BoardWriteDataSchema,
+		result: BoardWriteDataSchema,
 	},
 	{ additionalProperties: false },
 );
@@ -535,11 +623,9 @@ export const BoardWriteResponseSchema = Type.Object(
 /** board_query 响应：全量 per-character 条目（boards: sender → 条列表）。 */
 export const BoardQueryResponseSchema = Type.Object(
 	{
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
 		id: RequestIdSchema,
-		type: Type.Literal("response"),
-		command: Type.Literal("board_query"),
-		success: Type.Literal(true),
-		data: Type.Object(
+		result: Type.Object(
 			{
 				boards: Type.Record(Type.String(), Type.Array(BoardNoteSchema)),
 			},
@@ -560,18 +646,30 @@ export const BoardQueryResponseSchema = Type.Object(
 export const BoardUpdateSchema = Type.Union([
 	Type.Object(
 		{
-			type: Type.Literal("board_update"),
-			actor: Type.String(),
-			action: Type.Union([Type.Literal("add"), Type.Literal("update"), Type.Literal("remove")]),
-			note: BoardNoteSchema,
+			jsonrpc: Type.Literal(JSONRPC_VERSION),
+			method: Type.Literal(METHOD_BOARD_UPDATE),
+			params: Type.Object(
+				{
+					actor: Type.String(),
+					action: Type.Union([Type.Literal("add"), Type.Literal("update"), Type.Literal("remove")]),
+					note: BoardNoteSchema,
+				},
+				{ additionalProperties: false },
+			),
 		},
 		{ additionalProperties: false },
 	),
 	Type.Object(
 		{
-			type: Type.Literal("board_update"),
-			actor: Type.String(),
-			action: Type.Literal("clear"),
+			jsonrpc: Type.Literal(JSONRPC_VERSION),
+			method: Type.Literal(METHOD_BOARD_UPDATE),
+			params: Type.Object(
+				{
+					actor: Type.String(),
+					action: Type.Literal("clear"),
+				},
+				{ additionalProperties: false },
+			),
 		},
 		{ additionalProperties: false },
 	),
@@ -602,7 +700,13 @@ export type ServerMessage = Static<typeof ServerMessageSchema>;
 export type PublicMessage = Static<typeof PublicMessageSchema>;
 
 export type CharacterSummaryWire = Static<typeof CharacterSummarySchema>;
-export type JoinGroupChatSuccess = Extract<ServerMessage, { command: "join_group_chat"; success: true }>;
-export type ClaimCharacterSuccess = Extract<ServerMessage, { command: "claim_character"; success: true }>;
-export type GroupChatStateSuccess = Extract<ServerMessage, { command: "get_group_chat_state"; success: true }>;
-export type GroupChatStateMessage = GroupChatStateSuccess["data"];
+export type JoinGroupChatSuccess = Extract<
+	ServerMessage,
+	{ result: { available_characters: CharacterSummaryMessage[] } }
+>;
+export type ClaimCharacterSuccess = Extract<
+	ServerMessage,
+	{ result: { character: Static<typeof ClaimedCharacterSchema> } }
+>;
+export type GroupChatStateSuccess = Extract<ServerMessage, { result: { group_chat: unknown } }>;
+export type GroupChatStateMessage = GroupChatStateSuccess["result"];

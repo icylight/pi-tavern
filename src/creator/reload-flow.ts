@@ -167,6 +167,8 @@ export async function takeHandoff(
 			online: true,
 			readyTimer: null,
 			handlers: null,
+			jsonrpcConnection: null,
+			jsonrpcReader: null,
 		};
 		runtime.connectionManager.register(socket, connection);
 	}

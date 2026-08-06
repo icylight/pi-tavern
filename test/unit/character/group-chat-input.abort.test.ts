@@ -32,24 +32,30 @@ function createMockPi(): ExtensionAPI {
 
 function publicMessage(sequence: number, characterId?: string): PublicMessage {
 	return {
-		type: "public_message",
-		event_id: `evt-${sequence}`,
-		sequence,
-		timestamp: "2026-08-05T00:00:00.000Z",
-		sender: characterId
-			? { type: "character", character_id: characterId, name: characterId }
-			: { type: "user_persona" },
-		content: `message-${sequence}`,
-		round: { round_max_messages: 10, used_messages: sequence, remaining_messages: 10 - sequence },
+		jsonrpc: "2.0",
+		method: "public_message",
+		params: {
+			event_id: `evt-${sequence}`,
+			sequence,
+			timestamp: "2026-08-05T00:00:00.000Z",
+			sender: characterId
+				? { type: "character", character_id: characterId, name: characterId }
+				: { type: "user_persona" },
+			content: `message-${sequence}`,
+			round: { round_max_messages: 10, used_messages: sequence, remaining_messages: 10 - sequence },
+		},
 	} as PublicMessage;
 }
 
 function update(latestSequence: number, previewMessages: PublicMessage[]): ServerMessage {
 	return {
-		type: "group_chat_update",
-		latest_sequence: latestSequence,
-		preview_messages: previewMessages,
-		total_messages: latestSequence,
+		jsonrpc: "2.0",
+		method: "group_chat_update",
+		params: {
+			latest_sequence: latestSequence,
+			preview_messages: previewMessages,
+			total_messages: latestSequence,
+		},
 	} as ServerMessage;
 }
 
@@ -313,18 +319,23 @@ describe("GroupChatInput steer 安全边界打断", () => {
 		input.start();
 
 		runtime.onEnvironmentMessage?.({
-			type: "character_joined",
-			character: { character_id: "qa", name: "QA" },
+			jsonrpc: "2.0",
+			method: "character_joined",
+			params: { character: { character_id: "qa", name: "QA" } },
 		} as ServerMessage);
 		runtime.onEnvironmentMessage?.({
-			type: "character_left",
-			character: { character_id: "qa", name: "QA", description: "Tests" },
-			reason: "left",
+			jsonrpc: "2.0",
+			method: "character_left",
+			params: { character: { character_id: "qa", name: "QA", description: "Tests" }, reason: "left" },
 		} as ServerMessage);
 		await vi.advanceTimersByTimeAsync(1000);
 		expect(pi.sendMessage).not.toHaveBeenCalled();
 
-		runtime.onEnvironmentMessage?.({ type: "board_update", actor: "qa", action: "clear" } as ServerMessage);
+		runtime.onEnvironmentMessage?.({
+			jsonrpc: "2.0",
+			method: "board_update",
+			params: { actor: "qa", action: "clear" },
+		} as ServerMessage);
 		await vi.advanceTimersByTimeAsync(1000);
 		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
 		input.stop();
