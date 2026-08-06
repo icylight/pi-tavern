@@ -1,10 +1,20 @@
 # PiTavern
 
+### 中文
+
 **让多个独立 Agent 像群成员一样持续在场，自主决定何时发言。**
 
 PiTavern 是 [pi-coding-agent](https://github.com/earendil-works/pi) 的本地扩展，也是面向独立 Agent Session 的、生命周期感知的异步群聊。它不选择“下一位发言者”：多个长期存在、彼此独立的 Pi Session 在同一条公共消息流中持续在场，每个角色自行决定公开发言或保持沉默。
 
 群聊实时记录每一处变化；每个 Agent 按自己的运行节奏完整追上团队。
+
+### English
+
+**Let independent agents stay present like group members and decide for themselves when to speak.**
+
+PiTavern is a local extension for [pi-coding-agent](https://github.com/earendil-works/pi) and a lifecycle-aware, asynchronous group chat for independent Agent Sessions. It does not choose the “next speaker”: multiple long-lived Pi Sessions share one durable public message stream, while each Character independently decides whether to publish or stay silent.
+
+The group chat records every change in real time, and each Agent catches up with the team at its own running pace.
 
 > 📖 English: [README.en.md](./README.en.md)
 
@@ -263,7 +273,7 @@ flowchart LR
 - 固定 `references/pi` 版本（测试门禁锚定）。
 - 角色卡是用户定义的文件，可以任意命名职位——示例中的名称只是建议。
 
-## 安装
+## 安装与首次使用
 
 PiTavern 当前正式版为 0.2.0（2026-08-05）。推荐从 npm 安装：
 
@@ -280,10 +290,55 @@ pi install git:github.com/icylight/pi-tavern
 
 > **开发版本**：接口与行为可能随时变化，以当前分支代码与 `docs/`（中文）为准。
 
-## 快速开始（最短示例）
+安装扩展后，还需要先创建角色卡，并在 PiTavern 配置中导入它们。角色卡定义加入群聊的 Agent 身份；群聊创建者使用 User Persona，不领取角色卡。
+
+### 1. 创建角色卡
+
+以下示例创建一张全局角色卡，所有项目都可以使用：
+
+```bash
+mkdir -p ~/.pi/agent/characters
+```
+
+创建 `~/.pi/agent/characters/reviewer.md`：
+
+```markdown
+---
+name: Reviewer
+description: 独立检查方案、代码与风险，并给出可验证的评审意见
+---
+
+你是一名独立复核者。先核对事实与证据，再公开给出结论；发现问题时说明影响、依据和建议。
+```
+
+`name` 和 `description` 是必填字段，Markdown 正文是该角色加入群聊期间使用的角色提示词。需要多个角色时，继续在同一目录创建其他 `.md` 文件，并确保 `name` 不重复。
+
+### 2. 配置 PiTavern 导入角色卡
+
+创建或修改全局配置 `~/.pi/agent/tavern.json`：
+
+```json
+{
+  "characters": ["./characters"]
+}
+```
+
+`characters` 中的路径相对于声明它的 `tavern.json` 解析，既可以指向单个角色卡，也可以指向递归加载的目录。
+
+如果角色卡只属于当前项目，可以改用项目配置 `<repo>/.pi/tavern.json`。例如角色卡位于 `<repo>/characters/` 时：
+
+```json
+{
+  "characters": ["../characters"]
+}
+```
+
+PiTavern 使用独立的 `tavern.json`，不要把 `characters` 写进 pi-coding-agent 的 `.pi/settings.json`。请在创建群聊前完成角色卡与配置；已创建群聊的角色清单不会因为随后修改文件而自动替换。
+
+### 3. 创建并加入群聊
 
 1. **创建群聊**（终端 A）：启动 pi，执行 `/tavern-new`——当前终端成为群聊创建者（User Persona）。
-2. **角色加入**（终端 B/C）：再开两个终端启动 pi，分别执行 `/tavern-join`——每个终端是一个独立的角色（Character）Session。角色数可多可少：至少一个即可验证消息发布与拉取，两个起形成协作闭环。
+2. **角色加入**（终端 B/C）：在同一项目中再启动一个或多个 pi，分别执行 `/tavern-join`，选择尚未领取的角色卡——每个终端成为一个独立的 Character Session。同一张角色卡在同一个群聊中同时只能由一个 Session 使用。
 3. **开始对话**：在创建者终端输入消息（以 User Persona 身份发言）；公开消息面向全部在线角色，各角色按自己的 run 生命周期拿到完整新上下文，并自主决定是否调用 `tavern_speak` 公开回应——无人、单人或多人回应都可以。
 
 ## 项目状态

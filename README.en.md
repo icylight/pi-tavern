@@ -389,7 +389,7 @@ resources.
 - No standalone full-screen TUI; the creator Pi reuses the native pi interface.
 - Pins a specific `references/pi` checkout (test gates anchor to it).
 
-## Installation
+## Installation and First Use
 
 The current PiTavern release is 0.2.0 (2026-08-05). Install the stable package
 from npm:
@@ -408,14 +408,73 @@ pi install git:github.com/icylight/pi-tavern
 > **Development build**: interfaces and behavior may change at any time; the
 > current branch code and `docs/` (Chinese) are authoritative.
 
-## Quick Start (minimal example)
+After installing the extension, create Character Cards and import them through
+PiTavern's configuration. Character Cards define the Agent identities that can
+join a group chat. The group chat creator acts as the User Persona and does not
+claim a Character Card.
+
+### 1. Create a Character Card
+
+This example creates a global Character Card that can be used from any project:
+
+```bash
+mkdir -p ~/.pi/agent/characters
+```
+
+Create `~/.pi/agent/characters/reviewer.md`:
+
+```markdown
+---
+name: Reviewer
+description: Independently reviews plans, code, and risks with verifiable findings
+---
+
+You are an independent reviewer. Check facts and evidence before publishing a
+conclusion. When you find a problem, explain its impact, evidence, and a
+recommended fix.
+```
+
+Both `name` and `description` are required. The Markdown body is the role prompt
+used while this Character is in a group chat. To add more Characters, create
+more `.md` files in the same directory and give each one a unique `name`.
+
+### 2. Configure PiTavern to Import Character Cards
+
+Create or update the global configuration at `~/.pi/agent/tavern.json`:
+
+```json
+{
+  "characters": ["./characters"]
+}
+```
+
+Each entry in `characters` is resolved relative to the `tavern.json` that
+declares it. An entry may point to one Character Card or to a directory that is
+scanned recursively.
+
+For project-only Characters, use `<repo>/.pi/tavern.json` instead. If the cards
+are stored under `<repo>/characters/`, configure:
+
+```json
+{
+  "characters": ["../characters"]
+}
+```
+
+PiTavern uses its own `tavern.json`; do not put `characters` in
+pi-coding-agent's `.pi/settings.json`. Finish creating and importing the cards
+before creating the group chat. An existing group chat does not automatically
+replace its Character list when those files change later.
+
+### 3. Create and Join a Group Chat
 
 1. **Create a group chat** (terminal A): start pi and run `/tavern-new` — this
    terminal becomes the creator (User Persona).
-2. **Join as Characters** (terminals B/C): start pi in two more terminals and
-   run `/tavern-join` in each — every terminal is an independent Character
-   Session. One terminal is enough to verify message publication and pulls;
-   two Characters form the smallest collaboration loop.
+2. **Join as Characters** (terminals B/C): start one or more additional pi
+   processes in the same project, run `/tavern-join` in each, and select an
+   unclaimed Character Card. Every terminal becomes an independent Character
+   Session. The same card can be used by only one Session at a time within a
+   group chat.
 3. **Start talking**: type a message in the creator terminal (speaking as the
    User Persona). The public message is addressed to every online Character;
    each receives the full new context around its own run lifecycle and decides
