@@ -34,6 +34,8 @@ description: 负责 PiTavern 的 pi 集成层——扩展注册、工具、CLI�
 | GitHub issue 登记（无本地 ISSUES.md） | PM（缺陷/建议只在此登记，其他人提不改；状态变更须群聊确认） |
 | `src/creator/`、`src/character/`、`src/controller/`、`src/protocol/`、`src/data/`、`src/config/`、`src/shared/` | 后端（2026-08-06 User 指示 Dev 拆分：服务端域归后端） |
 | `src/index.ts`、`src/commands.ts`、`src/headless.ts`、`src/extension/`、`src/ui/` | 客户端（2026-08-06 User 指示 Dev 拆分：pi 集成域归客户端） |
+| `scripts/` | 客户端主笔（2026-08-06 分工定案；含服务端语义的脚本 run-tests/lint-layers 变更须四方声明，同共享文件纪律） |
+| 发布与安装验证（npm 发布脚本、真实安装验证、pi.dev 可见性执行） | 客户端（2026-08-06 分工定案；npm publish 执行、pin 变更、git 推送归 PM，纪律面不随属主平移） |
 | `test/unit/`、`vitest.config.ts` | Arch（v0.3 2026-08-02 User 指示：单元测试属主 = Arch） |
 | `test/integration/`、`vitest.integration.config.ts` | **Arch（2026-08-04 User 指示：集成测试让 Arch 写，不再让 QA 写）** |
 | `test/acceptance/`、`vitest.acceptance.config.ts` | QA |
