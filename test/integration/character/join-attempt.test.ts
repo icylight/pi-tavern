@@ -11,6 +11,7 @@ import { type CharacterCard, loadCharacterCard } from "../../../src/config/chara
 import { getReloadHandoffRegistry } from "../../../src/controller/reload-handoff-registry.js";
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 import type { ActiveGroupChatDescriptor } from "../../../src/data/discovery/active-descriptor.js";
+import { ERROR_CONNECTION_CLOSED_DURING_RELOAD } from "../../../src/shared/messages.js";
 
 const temporaryDirectories: string[] = [];
 const creatorRuntimes: CreatorRuntime[] = [];
@@ -72,6 +73,35 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		await vi.waitFor(() => expect(creator.state.onlineCharacters.has("session-1")).toBe(false));
 		expect(disconnected).toHaveBeenCalledTimes(1);
 	});
+
+	it("B5 reload handoff：in-flight 请求显式取消 + 新 connection 不被旧 owner dispose（三轮阻断⑨）", async () => {
+		const { creator, character } = await startCreator();
+		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-1");
+		const runtime = await attempt.claimCharacter(character.characterId);
+
+		// ① in-flight 请求（不 await——detach 必须显式取消它）。
+		const inflight = runtime.getGroupChatState();
+		const handoff = await runtime.detachForReload("session-1");
+		getReloadHandoffRegistry().take("session-1"); // controller clears the slot before takeHandoff
+
+		// ② 旧请求被显式取消：及时 reject（断线原因），不悬挂到 5s 超时。
+		await expect(inflight).rejects.toThrow(ERROR_CONNECTION_CLOSED_DURING_RELOAD);
+
+		// ③ 新 runtime 接管同一 connection；旧 owner 的迟到 dispose 不得发生——
+		// 等过旧 5s 超时窗口后，连接仍存活且新请求正常往返。
+		const taken = await CharacterRuntime.takeHandoff(handoff);
+		await new Promise((resolve) => setTimeout(resolve, 5_200));
+		await expect(taken.getGroupChatState()).resolves.toMatchObject({
+			online_characters: [
+				{
+					character_id: character.characterId,
+					is_self: true,
+				},
+			],
+		});
+
+		await taken.close();
+	}, 20_000);
 
 	it("B4 未知 method 帧 → 协议破坏 fail-close（close 1002）；标准错误码接受由 A5 钉住（二轮评审阻断④）", async () => {
 		const { creator } = await startCreator();

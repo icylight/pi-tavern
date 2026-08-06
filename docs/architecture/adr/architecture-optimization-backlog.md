@@ -26,6 +26,7 @@
 | preview 条目字段级断言不全 | 2026-08-06 Arch 弱点 3 对抗验证（QA）：content 只断一条，字段形状有 codec schema 兜底 | 低优先：对 round/sender/event_id 补字段级断言 | 待内嵌 |
 | 去重路径压力测试 | 2026-08-06 Arch 弱点 4 对抗验证（QA）：message_history 展开 vs preview 交叉去重主路径已覆盖（T2/T3+paging） | 增强项：压力化覆盖交叉去重 | 待内嵌 |
 | writer.onRequestWritten 登记先于 OPEN 检查 | 2026-08-06 QA 独立抽查观察项：非 OPEN 场景登记未发出请求（pendingMethodById 残留），靠 failConnection/attachJsonRpc 清空兜底 | 低风险：可改登记顺序或补注释确认；无数据面危害 | 待内嵌 |
+| handler 异常端到端故障注入测试（-32603 路径） | 2026-08-06 二轮阻断④ 收敛（后端论证：error 帧不过 gate 结构性闭合；A5 钉 schema 接受） | 测试强度项：creator 侧故障注入普通 Error → 端到端验证 -32603 收敛 | 待内嵌 |
 
 ## 已落地
 

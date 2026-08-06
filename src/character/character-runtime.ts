@@ -170,6 +170,10 @@ export class CharacterRuntime {
 	private jsonrpcWriter: WebSocketMessageWriter | null = null;
 	/** 断线原因（request() 映射库 dispose 拒绝码 -32097 → 以断线原因 reject）。 */
 	private disconnectError: Error | undefined;
+	/** 在途请求登记（detach 显式取消用：clearTimeout + reject——三轮评审阻断⑨：
+	 * 旧 owner 的 timer 不得在移交后点火，否则 failConnection → finishDisconnected
+	 * 会 dispose 新 runtime 正在使用的共享 connection）。 */
+	private readonly inflightRequests = new Set<{ timer: NodeJS.Timeout; reject: (error: Error) => void }>();
 	private readonly requestTimeoutMs: number;
 	private readonly onDisconnected: (() => void) | undefined;
 	private readonly heartbeatIntervalMs: number;
@@ -205,7 +209,7 @@ export class CharacterRuntime {
 		this.handleIncomingData(data, isBinary);
 	};
 
-	private handleIncomingData(data: WebSocket.RawData, isBinary: boolean, isReplay = false): void {
+	private handleIncomingData(data: WebSocket.RawData, isBinary: boolean): void {
 		if (isBinary) {
 			this.failConnection(new Error(ERROR_BINARY_FRAME_RECEIVED));
 			return;
@@ -217,7 +221,7 @@ export class CharacterRuntime {
 			this.failConnection(asError(error));
 			return;
 		}
-		this.handleServerMessage(message, isReplay);
+		this.handleServerMessage(message);
 	}
 
 	private readonly onClose = (): void => {
@@ -786,6 +790,19 @@ export class CharacterRuntime {
 			},
 		};
 		this.socket = null;
+		// 三轮评审阻断⑨：显式取消旧 in-flight（clearTimeout + reject 断线原因）——
+		// 旧 owner 的 timer 不再点火，杜绝 failConnection → finishDisconnected →
+		// dispose 新 runtime 正在使用的共享 connection；随后脱离共享连接引用与
+		// 关联元数据（任何迟到的 finishDisconnected 都碰不到移交的连接）。
+		for (const inflight of this.inflightRequests) {
+			clearTimeout(inflight.timer);
+			inflight.reject(new Error(ERROR_CONNECTION_CLOSED_DURING_RELOAD));
+		}
+		this.inflightRequests.clear();
+		this.responseCorrelator.clear();
+		this.jsonrpcConnection = null;
+		this.jsonrpcReader = null;
+		this.jsonrpcWriter = null;
 		getReloadHandoffRegistry().publish(handoff);
 		return handoff;
 	}
@@ -870,7 +887,7 @@ export class CharacterRuntime {
 		}
 
 		for (const frame of [...handoff.bufferedFrames].sort((a, b) => a.receivedAt - b.receivedAt)) {
-			this.handleIncomingData(frame.data, false, true);
+			this.handleIncomingData(frame.data, false);
 		}
 
 		// ISSUE-014/#14 reload 角落：旧 runtime 的流式看门狗定时器
@@ -950,13 +967,17 @@ export class CharacterRuntime {
 				this.failConnection(error);
 			}, this.requestTimeoutMs);
 			timer.unref?.();
+			const inflight = { timer, reject: rejectRequest };
+			this.inflightRequests.add(inflight);
 			void pending.then(
 				(result) => {
 					clearTimeout(timer);
+					this.inflightRequests.delete(inflight);
 					resolveRequest(result);
 				},
 				(error) => {
 					clearTimeout(timer);
+					this.inflightRequests.delete(inflight);
 					rejectRequest(error);
 				},
 			);
@@ -994,18 +1015,15 @@ export class CharacterRuntime {
 		this.socket.send(encoded);
 	}
 
-	private handleServerMessage(message: ServerMessage, isReplay = false): void {
+	private handleServerMessage(message: ServerMessage): void {
 		// #119 connection 接线：响应帧（result/error + id）喂 connection——
 		// 库按 id 关联原请求；通知帧（method）走本类消费（receivedMessages/
 		// 环境消息/群聊关闭）。
 		if (("result" in message || "error" in message) && message.id !== undefined) {
-			// reload 重放：旧代际请求的响应已作废（请求者随旧 runtime 消亡）——丢弃。
-			if (isReplay) {
-				return;
-			}
 			// feed 前 gate：同 id 错 result 形状 = 协议错位 fail-close（立即拒绝 + 断
-			// 链，不静默丢弃不悬挂——评审阻断①）；error 自描述、未知 id 旧代际迟到
-			// 响应 → 喂库（库按 id 结算或丢弃，代际隔离由连接延续保证，阻断②）。
+			// 链，不静默丢弃不悬挂——评审阻断①）；error 自描述、未知 id（旧代际迟到
+			// 响应 / reload 缓冲重放）→ 喂库——库按 id 结算（旧 pending 已在 detach
+			// 显式取消 = resolve 无害）或丢弃；代际隔离由连接延续保证（阻断②⑨）。
 			const failCloseError = this.responseCorrelator.gate(message);
 			if (failCloseError) {
 				this.failConnection(failCloseError);

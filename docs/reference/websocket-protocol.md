@@ -30,10 +30,10 @@ PiTavern 使用标准 WebSocket `ping` / `pong` 控制帧检测半开连接，�
 - JSON 字段名统一使用 `snake_case`。
 - `method` 等类型字符串统一使用 `snake_case`。
 - 协议使用 JSON-RPC 2.0 标准信封（#119 M1 迁移，User 拍板豁免零漂移——特例仅此一次）：所有消息必带 `"jsonrpc": "2.0"` 版本字段。
-- 请求使用可选的 `id` 关联响应；`id` 缺省 = JSON-RPC 通知（无响应）。
+- 请求/响应必带 `id` 关联（`id` = string | number，JSON-RPC 2.0 标准）；仅 `update_character_state` 为无 `id` notification（无响应语义）。缺 `id` 的 request/response = 协议错误 fail-close。
 - 请求/通知载荷一律位于 `params` 对象内。
 
-请求形状（带 `id` = request，无 `id` = notification）：
+请求形状（`id` 必带；`update_character_state` 例外——无 `id` 通知）：
 
 ```json
 {
@@ -54,7 +54,7 @@ PiTavern 使用标准 WebSocket `ping` / `pong` 控制帧检测半开连接，�
 }
 ```
 
-业务失败响应形状（`code` 必须属于 10 码业务枚举，未知 code = 协议错误 fail-close）：
+业务失败响应形状（`code` 必须属于 10 码业务枚举 + 5 个 JSON-RPC 标准错误码，未知 code = 协议错误 fail-close）：
 
 ```json
 {
@@ -82,6 +82,16 @@ PiTavern 使用标准 WebSocket `ping` / `pong` 控制帧检测半开连接，�
 | -32108 | INTERNAL_ERROR | Unknown error |
 | -32109 | PERSIST_FAILED | Failed to persist message:  |
 
+JSON-RPC 标准错误码（vscode-jsonrpc 库自产，connection 模式下为本端合法响应，schema 一并接受；客户端对标准码按 error envelope 正常收敛、不断链）：
+
+| code | 含义 | 产生场景 |
+| --- | --- | --- |
+| -32700 | Parse error | 帧解析失败（codec 层通常先拒，防御保留） |
+| -32600 | Invalid Request | 无效请求 |
+| -32601 | Method not found | 无对应 handler |
+| -32602 | Invalid params | 参数校验失败 |
+| -32603 | Internal error | handler 抛非 ResponseError 异常 |
+
 通用 JSON 命名规则见 [development-conventions.md](development-conventions.md)。
 
 ### 非法消息
@@ -91,7 +101,7 @@ PiTavern 对协议错误采用 fail-fast：
 - frame 不是可解析的 JSON 时，关闭该 WebSocket；
 - JSON 不符合对应 TypeBox schema 时，关闭该 WebSocket；
 - `method` 未知时，关闭该 WebSocket；
-- `error.code` 不属于 10 码业务枚举时，关闭该 WebSocket（未知 code fail-close）；
+- `error.code` 不属于 10 码业务枚举与 5 个 JSON-RPC 标准错误码时，关闭该 WebSocket（未知 code fail-close）；
 - 不尝试补全字段、转换类型或猜测发送方意图。
 
 合法请求产生的业务失败不属于协议错误。例如 Character 已经被预留、当前没有 Round 或发言额度已经耗尽时，返回对应的 `error: { code, message }` 响应，并按照该业务消息已经定义的连接语义继续处理。
