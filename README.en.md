@@ -391,7 +391,7 @@ resources.
 
 ## Installation and First Use
 
-The current PiTavern release is 0.2.0 (2026-08-05). Install the stable package
+The current PiTavern release is 0.2.1 (2026-08-06). Install the stable package
 from npm:
 
 ```bash
@@ -483,12 +483,13 @@ replace its Character list when those files change later.
 
 ## Project Status
 
-Released 0.2.0 (2026-08-05). The core mechanisms — autonomous participation
+Released 0.2.1 (2026-08-06). The core mechanisms — autonomous participation
 without a speaker selector, a durable public message stream, lifecycle-aware
 delivery, and per-session cursors — are implemented and covered by automated
-acceptance suites. Version 0.2.0 adds the whiteboard model, safe-boundary steer
-interrupts, and read-before-speak behavior; design details live in `docs/`
-(Chinese).
+acceptance suites. Version 0.2.0 added the whiteboard model, safe-boundary steer
+interrupts, and read-before-speak behavior; version 0.2.1 adds the bilingual
+introduction and Character Card first-use guide. Design details live in
+`docs/` (Chinese).
 
 ## Development setup
 

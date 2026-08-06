@@ -168,3 +168,10 @@ cd references/pi && npm ci && npm run generate-models --workspace packages/ai
 2. **N2 tarball 最小化**：`npm pack --dry-run --ignore-scripts --json` 只包含运行所需的 `src/` 与 README/CHANGELOG/LICENSE；不得包含 `references/`、`test/`、内部 `docs/`、角色卡、开发脚本、Husky 或 AGENTS.md。
 3. **N3 发布前门禁**：干净 release commit 上串行执行 `npm run test:full` 与 `npm run check`，按 V0 格式记录 HEAD/tree、`references/pi`、Node、命令和结果；随后 `npm publish --dry-run` 通过。
 4. **N4 发布后可用**：`npm view pi-tavern@0.2.0` 的 latest/keywords/pi manifest 正确；`pi -e npm:pi-tavern@0.2.0` 加载无错误；`https://pi.dev/packages/pi-tavern` 可见后方可关闭 #124。
+
+## 0.2.1 文档补丁发布（#135，分支 chore/issue-135-release-0.2.1）
+
+1. **P1 版本一致**：`package.json` 与 `package-lock.json` 根包版本均为 0.2.1；包名、依赖、`pi` manifest、发布白名单与 0.2.0 保持一致。
+2. **P2 文档范围**：CHANGELOG 只记录 #133/#134 的双语简介与角色卡首次使用指引；中英文 README 的当前版本均更新为 0.2.1。
+3. **P3 发布包**：`npm pack --dry-run` 与 `npm publish --dry-run` 通过，tarball 包含更新后的 README，且不新增白名单外文件。
+4. **P4 发布后可用**：PR 合并后由 User 发布；`npm view pi-tavern@0.2.1` 的 latest/keywords/pi manifest 正确，`pi -e npm:pi-tavern@0.2.1` 加载无错误，pi.dev 详情页显示 0.2.1。
