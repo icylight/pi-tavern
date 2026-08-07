@@ -34,9 +34,9 @@ description: 负责 PiTavern 的质量把关——自动化验收套件、边界
 
 | 路径 | 属主 |
 | --- | --- |
-| `characters/pm.md` / `characters/dev.md` / `characters/qa.md` / `characters/architect.md` | 各自仅改自己的卡；改他人卡片须群聊提议，由对方本人执行 |
+| `characters/*.md`（全部角色卡） | **PM（角色卡修改更新收口到 PM，其他人不更新）**——所有角色卡统一由 PM 更新；其他角色不提改、不自行改卡（含自己的卡）；更新时在群聊声明要点 |
 | `docs/development/acceptance.md`、`docs/development/implementation-plan.md`、`docs/reference/terminology.md` | PM |
-| `CHANGELOG.md` | **PM（生成与维护归口 PM，其他角色不提改）**——每里程碑/显著 PR 合入后由 PM 同步更新（Keep a Changelog 格式，面向用户影响，不倾倒 git log） |
+| `CHANGELOG.md` | **PM（生成与维护归口 PM，其他角色不提改）**——**发布批次收口时统一更新**（2026-08-08 粒度拍板：日常 merge 不单独写/不开 PR；Keep a Changelog 格式，面向用户影响，不倾倒 git log） |
 | `ISSUES.md` | PM（缺陷/建议只在此登记，其他人提不改；状态变更须群聊确认） |
 | `src/creator`、`src/character`、`src/controller`、`src/data`、`src/config`、`src/shared`、`src/protocol`（后端域） | 后端 |
 | `src/index.ts`、`src/commands`、`src/headless`、`src/extension`、`src/ui`（客户端域） | 客户端 |

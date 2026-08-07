@@ -28,7 +28,7 @@ User 自然表达指示 → **PM 负责转译成 Task Brief 并回读确认**（
 - **worktree 纪律（v0.5 补充**：默认单 worktree——评审/开发一律在主仓库分支内做，不建额外 worktree；worktree 仅例外使用（并发任务需隔离运行时），创建前须 PM 同意 + 群聊声明（属主/任务/目录）+ 记入 issue，未声明的 worktree 一律视为违规（#49 后清理时逐层确认的根因即两个 worktree 从未声明）；生命周期：任务收口随分支清理一并移除，不留未声明旁支
 - **扩展包更新操作纪律（实证；独立操作风险，非 #83 根因——#83 根因 = #77 状态广播自激循环，见 §8 与本批修复）**：群聊运行期间禁止改写**运行中扩展的加载目录**（加载源 = agent clone `~/.pi/agent/git/github.com/icylight/pi-tavern`，按 `~/.pi/agent/settings.json` packages 的 git:...@commit 钉加载）。机制（QA 实证修正）：pi 包管理器对**未钉 commit 的 git 包引用**执行 ensureGitRef（fetch + reset --hard + clean + 必要时 npm install）——14:52:36 sync（触发者未确认）与 15:31:21 sync（User 15:31:15 `pi update --all` 手动触发，zsh 实证）与掉线时刻相关吻合，但**因果未证实**（受控实验 v1/v2：单进程场景 src 改写 + 完整三连副作用均未复现掉线；真实场景差异 = 多进程并发）；**钉 hash 后 ensureGitRef 幂等（localHead==target → 零改动）** = 回滚后稳定的机制根因（QA 实证）。直接子机制未完全实证：src 改写本身 30s 观察不掉线（QA 复现实验），候选 = update 完整副作用（npm install 重写 node_modules / clean 删文件 / 与运行中扩展竞态），四步对照复现（reset/clean/npm install/全三连）排期中。防线二：① 包引用**永远钉 commit hash**（唯一防改写手段；worktree 隔离不了 clone 目录）② 运行期禁止 pin 变更/`pi update`/`pi update --all`/clone reset 等一切会触发 clone 改写（含后续 sync）的动作——注意 pin 变更本身不掉线，掉线发生在「pin 变更/更新命令 + 新 pi 进程启动触发 sync 改写 clone」的组合；③ 切版本流程 = 停群聊 → 改钉 → 重启；可选保险丝（文档化）：同步前先确认群聊未在运行（active descriptor 存在则先停）。**例外**：dev 仓库（/home/wangsen/code/pi-tavern）的 git 操作（分支/commit/pull/merge）不影响运行扩展（加载源 = clone，pi 源码 `getGitInstallRoot` 实证 + fix/issue-83 开发期间群聊全程稳定），不受此限。**补充**：扩展加载唯一入口 = settings.json 钉（clone 目录）；显式 `-e` 覆盖会与钉版本双注册冲突（tavern_speak 工具冲突实证），非推荐用法。
 - **开发完成开 PR（PM 负责推送与 PR 创建/更新**：PR 标题/描述引用 issue 编号，附 Task Brief 五要素 + 验收证据（命令 + 结果）；评审（Arch）与验收（QA）在 PR 上留痕；角色侧一律不执行 merge，PR 就绪后宣布，由 User 合并
-- **变更记录（CHANGELOG**：`CHANGELOG.md` 由 PM 归口维护（生成 + 更新，其他角色不提改）。每里程碑 / 显著 PR 合入后，PM 随合入批次同步更新（Keep a Changelog 格式 + 语义化版本；条目面向用户影响，不倾倒 git log）；PR 描述如需 changelog 条目，由 PM 在 Task Brief 中说明
+- **变更记录（CHANGELOG**：`CHANGELOG.md` 由 PM 归口维护（生成 + 更新，其他角色不提改）。**更新粒度 = 发布批次**（2026-08-08 苍蓝星拍板：每次 merge 单独写太频繁）——0.3.0 等发布收口时统一写入该版本全部条目，日常功能 merge 不单独更新、不为 CHANGELOG 单独开 PR；条目面向用户影响，不倾倒 git log（Keep a Changelog 格式 + 语义化版本）；PR 描述如需 changelog 条目，由 PM 在 Task Brief 中说明
 - **git 写操作统一归 PM**：git add/commit、迁分支、分支创建/切换/删除、stash/apply、merge/rebase、push、PR 创建/更新/评论、issue 操作一律由 PM 统一执行，**不得委托**。任何角色不得以「拆分自己的工作区改动」「恢复现场」等理由自行执行 git 写操作——需要拆分支/暂存时，先声明工作区内容归属（「工作区 = X 改动集」），由 PM 执行拆分；commit 内容属主=各角色；git 只读（status/log/diff/fetch）保留用于排查
 - **PM 落盘职责边界（User 观察 + Arch 审计）**：PM 对非属主文件仅执行 git 归口操作（add/commit/分支）；机械修复（格式/TS 语法级）可代做但**须先群聊声明**并请内容属主复核；语义修改一律归内容属主——PM 反馈问题 → 属主改 → PM 落盘，PM 不直接代改（#90 W1-c 教训）
 - 动手前先 `git status` + `git branch --show-current`：确认所在分支正确、工作区无他人未提交改动
@@ -285,7 +285,7 @@ ACK 执行方 → 验收方：确认 → 交付关闭
 
 **总则：小粒度架构优化点走「登记 → 设计方案内嵌」通道，不单独开 issue；设计方案必须过一遍待办清单。**
 
-1. **登记**：Arch（及各方）日常发现的小粒度架构优化点（非契约变更、非独立交付物、不达 issue 规模的）→ 登记到 `docs/architecture/adr/architecture-optimization-backlog.md`（Arch 属主，格式：优化点 / 发现背景 / 建议方案 / 状态）——发现即登，不丢不烂
+1. **登记**：Arch（及各方）日常发现的小粒度架构优化点（非契约变更、非独立交付物、不达 issue 规模的）→ 登记到 `docs/architecture/adr/architecture-optimization-backlog.md`（Arch 属主，格式：优化点 / 发现背景 / 建议方案 / 状态）——**发现即登，随所在分支/PR 同批合入，不为 backlog 单独开 PR**（2026-08-08 苍蓝星拍板），不丢不烂
 2. **内嵌（设计方案时）**：Arch 每次设计/评审方案（里程碑开工、契约变更、重构规划）时**必须扫描待办清单**：相关优化点并入方案设计，随方案实现一并落地（随 M 落盘，不留待办悬挂）；不采纳的显式记录理由（写入方案或清单状态列）
 3. **边界**：以下仍走正常 issue 流程——契约变更（协议/持久化/schema）、独立交付物（新工具/新能力）、跨里程碑规划（如 0.3.0 roadmap）；规模判断归 Arch，拿不准问 PM
 4. **勾销**：优化点随方案落地后，Arch 在清单勾销（注明随哪个 commit/里程碑落地）；清单是活文档，PM 排期不为其单独开 issue
