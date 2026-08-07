@@ -105,6 +105,10 @@ describe("#104 env time", () => {
 
 		// T3：身份行不回归
 		expect(content).toContain("你的当前角色：QA（character_id=characters/qa.md，注册名=QA）");
+
+		// #97 S2 红测先行：注入含显式来源声明「来源：群聊」，与身份行同批（当前实现
+		// 无此声明行 → 红；Green 后 buildContent 头部与身份行同批注入）。
+		expect(content).toContain("来源：群聊");
 	});
 
 	it("T2: 消息行含发言时间 + 距当前间隔", { timeout: 15_000 }, async () => {

@@ -287,4 +287,71 @@ describe("PiTavern protocol codec", () => {
 		};
 		expect(decodeServerMessage(Buffer.from(JSON.stringify(response)))).toEqual(response);
 	});
+
+	// #97 来源显式化（S1）：public_message 显式 source 字段，缺省=group，未知取值 fail-close。
+	// 红测先行：当前 schema 无 source 字段（additionalProperties:false）——①④ 显式 source
+	// 帧被拒（红），② 旧格式无 source 通过（兼容锚），③ 未知取值被拒（当前即红，Green 后
+	// 由 Literal 判别拒绝，语义不变）。
+	describe("source 来源字段（#97 S1）", () => {
+		const publicMessage = (params: Record<string, unknown>) => ({
+			jsonrpc: "2.0",
+			method: "public_message",
+			params,
+		});
+		const baseParams = {
+			event_id: "evt-1",
+			sequence: 1,
+			timestamp: "2026-07-01T00:00:00.000Z",
+			sender: { type: "user_persona" },
+			content: "Hello",
+			round: { round_max_messages: 10, used_messages: 0, remaining_messages: 10 },
+		};
+
+		it('S1-1 显式 source:"group" 解码通过且值可读', () => {
+			const decoded = decodeServerMessage(
+				Buffer.from(JSON.stringify(publicMessage({ ...baseParams, source: "group" }))),
+			);
+			expect(decoded).toEqual(publicMessage({ ...baseParams, source: "group" }));
+		});
+
+		it("S1-2 无 source 字段旧格式解码通过（缺省=group 兼容）", () => {
+			expect(decodeServerMessage(Buffer.from(JSON.stringify(publicMessage(baseParams))))).toEqual(
+				publicMessage(baseParams),
+			);
+		});
+
+		it("S1-3 source 未知取值 fail-close", () => {
+			expect(() =>
+				decodeServerMessage(Buffer.from(JSON.stringify(publicMessage({ ...baseParams, source: "dm" })))),
+			).toThrow(ProtocolError);
+		});
+
+		it("S1-4 message_history 条目 source 语义同 public_message", () => {
+			// 历史条目带 source:"group" 通过（history 与 public_message 同 schema 单点覆盖）。
+			const withSource = {
+				jsonrpc: "2.0",
+				id: "req-1",
+				result: {
+					messages: [publicMessage({ ...baseParams, source: "group" })],
+					cursor: null,
+					has_more: false,
+					total_messages: 1,
+				},
+			};
+			expect(decodeServerMessage(Buffer.from(JSON.stringify(withSource)))).toEqual(withSource);
+
+			// 历史条目 source 未知取值同样 fail-close。
+			const badSource = {
+				jsonrpc: "2.0",
+				id: "req-1",
+				result: {
+					messages: [publicMessage({ ...baseParams, source: "dm" })],
+					cursor: null,
+					has_more: false,
+					total_messages: 1,
+				},
+			};
+			expect(() => decodeServerMessage(Buffer.from(JSON.stringify(badSource)))).toThrow(ProtocolError);
+		});
+	});
 });
