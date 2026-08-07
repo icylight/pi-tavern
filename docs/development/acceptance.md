@@ -116,7 +116,7 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 
 公开消息流与群聊输入注入的来源判定显式化，不再依赖隐式文本模式：
 
-1. **S1 协议来源字段**：`public_message` schema 显式 `source` 字段，群聊=group；旧消息无字段默认视为 group（向后兼容）；`additionalProperties:false` 严格校验下未知取值 fail-close；
+1. **S1 协议来源字段**：`public_message` schema 显式 `source` 字段，群聊=group；旧消息无字段默认视为 group（向后兼容）；`additionalProperties:false` 严格校验下未知取值 fail-close；`message_history` 条目与 public_message 同 schema，同字段语义（历史消息同样缺省=group），钉测一并覆盖；
 2. **S2 注入显式声明**：群聊输入注入（steer 包装）含显式来源声明（「来源:群聊」），与身份行同批；「PiTavern 群聊环境更新」前缀不再作为唯一判据（显式字段优先）；
 3. **S3 私聊无协议标识**：私聊消息无 `source` 字段/无群聊协议标记，角色侧可判定非群聊；私聊不进入公共消息流与持久化（回归 isolation 系）；
 4. **S4 判定确定性**：同输入重复解析来源判定一致；群聊判定不依赖隐式文本模式；
