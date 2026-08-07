@@ -863,6 +863,7 @@ Character 消息：
       "character_id": "developer",
       "name": "Developer"
     },
+    "source": "group",
     "content": "我建议先实现持久化层。",
     "round": {
       "round_max_messages": 10,
@@ -886,6 +887,7 @@ User Persona 消息：
     "sender": {
       "type": "user_persona"
     },
+    "source": "group",
     "content": "先从持久化层开始。",
     "round": {
       "round_max_messages": 10,
@@ -903,6 +905,7 @@ User Persona 消息：
 - `timestamp` 是群聊创建者接受消息的时间。
 - `content` 是公开消息的完整内容。
 - `sender.type` 首版支持 `user_persona` 和 `character`。
+- `source`（#97 来源显式化）：声明消息来源，首版唯一取值为 `group`（群聊）。**缺省 = `group`**——旧消息/旧客户端不带该字段时按群聊语义处理，向后兼容不拒帧；未知取值在严格校验下 fail-close。私聊不经本协议/公共消息流，无此字段。`message_history.messages` 条目同字段语义。
 - Character sender 携带 `character_id` 和当时的显示名称；User Persona 不携带 Character 字段。
 - Character 消息携带成功计数后的 Round 快照。
 - User Persona 消息携带新 Round 的初始快照，其中 `used_messages` 为 `0`。

@@ -736,10 +736,16 @@ export class GroupChatInput {
 			`（character_id=${this.runtime.character.characterId}，注册名=${this.runtime.character.name}）`;
 		parts.push(`\n${identity}`);
 
+		// #97 来源显式化（S2）：本注入来自群聊通道，显式声明来源（契约文案，
+		// 全角冒号）。与身份行同批注入；私聊不经此函数，天然无此声明（S3）。
+		const sourceLine = "来源：群聊";
+		parts.push(`\n${sourceLine}`);
+
 		if (process.env.PITAVERN_TEST === "1") {
 			// 验收套件的观察通道（RPC 模式把 notify 呈现为 extension_ui_request；
-			// 参见 identity-consistency.test.ts）
-			testNotify?.(`[tavern-test-injection] ${identity}`);
+			// 参见 identity-consistency.test.ts）——与身份行同一 notify 同批携带
+			// 来源声明（QA 钉测：identity-consistency.test.ts:208 断言同批含「来源：群聊」）。
+			testNotify?.(`[tavern-test-injection] ${identity}\n${sourceLine}`);
 		}
 
 		// 群聊名
