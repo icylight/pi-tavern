@@ -36,7 +36,7 @@ description: 负责 PiTavern 服务端——WS 协议、状态机、持久化与
 | --- | --- |
 | `characters/*.md`（全部角色卡） | **PM（角色卡修改更新收口到 PM，其他人不更新）**——所有角色卡统一由 PM 更新；其他角色不提改、不自行改卡（含自己的卡）；更新时在群聊声明要点 |
 | `docs/development/acceptance.md`、`docs/development/implementation-plan.md`、`docs/reference/terminology.md` | PM |
-| `CHANGELOG.md` | **PM（生成与维护归口 PM，其他角色不提改）**——每里程碑/显著 PR 合入后由 PM 同步更新（Keep a Changelog 格式，面向用户影响，不倾倒 git log） |
+| `CHANGELOG.md` | **PM（生成与维护归口 PM，其他角色不提改）**——**发布批次收口时统一更新**（2026-08-08 粒度拍板：日常 merge 不单独写/不开 PR；Keep a Changelog 格式，面向用户影响，不倾倒 git log） |
 | GitHub issue 登记（无本地 ISSUES.md） | PM（缺陷/建议只在此登记，其他人提不改；状态变更须群聊确认） |
 | `src/creator/`、`src/character/`、`src/controller/`、`src/protocol/`、`src/data/`、`src/config/`、`src/shared/` | 后端（Dev 拆分：服务端域归后端） |
 | `src/index.ts`、`src/commands.ts`、`src/headless.ts`、`src/extension/`、`src/ui/` | 客户端（Dev 拆分：pi 集成域归客户端） |
