@@ -112,6 +112,32 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 3. **W3 正常单轮回归**：单轮 run settle 正常到达 → 灯亮至收敛后灭（既有 streaming 测试回归）；
 4. **W4 空闲不误亮**：无 run 时灯不亮（初值 false；重连/心跳路径不回归）。
 
+### 消息来源显式化（#97，PM 布置，P1 下一主线，验收条目 QA 提供场景文本）
+
+公开消息流与群聊输入注入的来源判定显式化，不再依赖隐式文本模式：
+
+1. **S1 协议来源字段**：`public_message` schema 显式 `source` 字段，群聊=group；旧消息无字段默认视为 group（向后兼容）；`additionalProperties:false` 严格校验下未知取值 fail-close；
+2. **S2 注入显式声明**：群聊输入注入（steer 包装）含显式来源声明（「来源:群聊」），与身份行同批；「PiTavern 群聊环境更新」前缀不再作为唯一判据（显式字段优先）；
+3. **S3 私聊无协议标识**：私聊消息无 `source` 字段/无群聊协议标记，角色侧可判定非群聊；私聊不进入公共消息流与持久化（回归 isolation 系）；
+4. **S4 判定确定性**：同输入重复解析来源判定一致；群聊判定不依赖隐式文本模式；
+5. **S5 处理规则落文档**：角色卡/workflow 私聊处理规则（不广播、需群知时显式发布并注明来源）；terminology.md 收录「私聊」；
+6. **S6 文档同步**：websocket-protocol.md 记录 source 字段与默认语义（契约变更四方已确认后生效）。
+
+验收方式：acceptance 断言存在且非空 + 单测 + check 全绿 + 协议文档无语义分歧。
+
+> 注：注入变化影响 identity-consistency.test.ts:188 增量断言（welcome/来源声明后 speaker 一致，后端钉测扩展）与 abort-steer 注入解析；客户端集成层仅透传零代码变更。协议变更仍须遵守契约零漂移流程（四方确认后落 schema）。
+
+### 欢迎消息与历史行为（#123，PM 布置，P2 后置，验收条目 QA 提供场景文本）
+
+1. **WL1 ready 后恰收 1 条 system_message**：join/ready 成功后新角色恰好收到 1 条，内容=当前生效欢迎文案（非公共消息、无 sequence 计入轮次）；
+2. **WL2 不再自动推送历史**：character_ready 后零 message_history 自动推送（旧 100 条行为取消）；
+3. **WL3 主动历史可查**：`get_message_history` / `fetch_messages_since` 仍可用，>10 条可完整分页拉取；
+4. **WL4 配置优先级链三档**：welcome_message 项目 `.pi/tavern.json` > 全局 `~/.pi/tavern.json` > 代码默认值；项目覆盖全局、全局覆盖默认、均缺省用默认，三档各验；
+5. **WL5 resume 投影窗口**：resume 场景历史投影恰 10 条（JOIN_HISTORY_LIMIT 100→10）；
+6. **WL6 信封一致**：system_message 走 #119 新信封（method/params），与 #97 source 扩展位兼容；websocket-protocol.md 同步。
+
+验收方式：acceptance 断言存在且非空 + 单测 + check 全绿 + 协议文档无语义分歧。
+
 ### 测试门控命令
 
 RPC 模式没有输入通道、也无法调用扩展工具，因此 `PITAVERN_TEST=1`（acceptance 门卫自动设置）时额外注册：
