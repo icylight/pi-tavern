@@ -409,6 +409,9 @@ const PublicMessageSchema = Type.Object(
 						{ additionalProperties: false },
 					),
 				]),
+				// #97 来源显式化（S1）：群聊消息显式携带 source="group"；
+				// 缺省 = 视为 group（旧消息/旧客户端向后兼容，不拒帧）。
+				source: Type.Optional(Type.Literal("group")),
 				content: Type.String(),
 				round: RoundSnapshotSchema,
 			},

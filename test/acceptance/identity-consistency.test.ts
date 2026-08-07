@@ -200,6 +200,12 @@ describe("acceptance: identity consistency (ISSUE-003)", () => {
 		expect(match?.[1]).toBe("Architect");
 		expect(match?.[2]).toBe("characters/architect.md");
 		expect(match?.[3]).toBe("Architect");
+
+		// #97 来源显式化（S2，acceptance 钉测）：观察通道同批携带显式来源
+		// 声明，与身份行同一 notify（同批）；身份行保持可解析（回归不破）。
+		// 契约文案「来源：群聊」（全角冒号，与身份行风格一致，S2 落文同源）。
+		// 红钉：#97 实现前此断言失败（通道仅重发身份行，无来源声明）。
+		expect(line).toContain("来源：群聊");
 	});
 
 	/**
