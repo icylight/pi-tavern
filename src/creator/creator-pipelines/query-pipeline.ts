@@ -14,12 +14,12 @@ import {
 } from "../../shared/messages.js";
 
 /** 查询族消息类型（门面方法各自收窄）。 */
-export type QueryConnectionLike = {
+type QueryConnectionLike = {
 	sessionId: string | null;
 	online: boolean;
 };
 
-export interface QueryPipelineDependencies {
+interface QueryPipelineDependencies {
 	state: GroupChatState;
 	publicMessages: PublicMessageState[];
 	sessionStore: SessionStore;

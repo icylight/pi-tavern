@@ -67,7 +67,7 @@ export interface CharacterConnectionTransfer {
 	jsonrpc?: CharacterJsonRpcTransfer;
 }
 
-export interface PrepareCharacterRuntimeOptions {
+interface PrepareCharacterRuntimeOptions {
 	groupChatId: string;
 	sessionId: string;
 	character: CharacterCard;

@@ -5,7 +5,7 @@ interface HeartbeatState {
 	lastPongAt: number;
 }
 
-export interface HeartbeatRegistryOptions {
+interface HeartbeatRegistryOptions {
 	/** 心跳 ping 间隔（默认 30s）。 */
 	intervalMs: number;
 	/** Pong 超时阈值（默认 120s）；超时成员被终止。 */

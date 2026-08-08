@@ -18,7 +18,7 @@ import type { HeartbeatRegistry } from "./heartbeat-registry.js";
 import type { MemberBookkeeping } from "./member-bookkeeping.js";
 
 /** 管线装配访问的骨架窄接口（结构类型；模块不 import CreatorRuntime 类本身）。 */
-export interface PipelineAssemblyHost {
+interface PipelineAssemblyHost {
 	state: GroupChatState;
 	connections: Map<string, WebSocket>;
 	heartbeatRegistry: HeartbeatRegistry;
@@ -47,7 +47,7 @@ export interface PipelineAssemblyHost {
 	};
 }
 
-export interface PipelineAssembly {
+interface PipelineAssembly {
 	joinPipeline: JoinPipeline;
 	leavePipeline: LeavePipeline;
 	submitMessageDeps: ConstructorParameters<typeof SubmitMessagePipeline>[0];

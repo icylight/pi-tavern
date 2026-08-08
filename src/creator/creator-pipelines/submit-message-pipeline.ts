@@ -21,18 +21,18 @@ import {
 type SpeakMessage = Extract<ClientMessage, { method: "speak" }>;
 
 /** 连接上下文窄接口（creator-runtime 的 ConnectionContext 结构子集）。 */
-export interface SpeakConnectionLike {
+interface SpeakConnectionLike {
 	sessionId: string | null;
 	online: boolean;
 }
 
 /** 持久化条目计数访问面：跨消息会话状态归 runtime，管线经读写函数显式访问（决策 7）。 */
-export interface PersistedCountAccess {
+interface PersistedCountAccess {
 	get(): number;
 	add(delta: number): void;
 }
 
-export interface SubmitMessagePipelineDependencies {
+interface SubmitMessagePipelineDependencies {
 	state: GroupChatState;
 	publicMessages: PublicMessageState[];
 	persistedCount: PersistedCountAccess;
@@ -43,7 +43,7 @@ export interface SubmitMessagePipelineDependencies {
 }
 
 /** speak 响应 result（stale / round_limit_reached / published 三态）。 */
-export type SpeakResult =
+type SpeakResult =
 	| {
 			published: false;
 			reason: "stale";

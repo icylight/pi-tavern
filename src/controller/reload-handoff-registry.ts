@@ -12,7 +12,7 @@ import type { PublicMessageState } from "../protocol/public-message-state.js";
 import type { WebSocketMessageReader, WebSocketMessageWriter } from "../protocol/ws-message-io.js";
 
 /** 私有 globalThis 键，让 reload 后的扩展代码能找到槽位。 */
-export const RELOAD_HANDOFF_SYMBOL: unique symbol = Symbol.for("pi-tavern.reload-handoff");
+const RELOAD_HANDOFF_SYMBOL: unique symbol = Symbol.for("pi-tavern.reload-handoff");
 
 export interface BufferedFrame {
 	receivedAt: number;
@@ -99,7 +99,7 @@ export interface CharacterReloadHandoff {
 	cleanup: () => Promise<void>;
 }
 
-export type ReloadHandoff = CreatorReloadHandoff | CharacterReloadHandoff;
+type ReloadHandoff = CreatorReloadHandoff | CharacterReloadHandoff;
 
 class ReloadHandoffRegistry {
 	private handoff: ReloadHandoff | null = null;

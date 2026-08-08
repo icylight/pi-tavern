@@ -26,7 +26,7 @@ import { ReadyPipeline } from "./ready-pipeline.js";
 import { SubmitMessagePipeline } from "./submit-message-pipeline.js";
 
 /** 分发依赖面（runtime 装配注入的管线门面）。 */
-export interface DispatchDependencies {
+interface DispatchDependencies {
 	joinPipeline: JoinPipeline;
 	leavePipeline: LeavePipeline;
 	submitMessageDeps: ConstructorParameters<typeof SubmitMessagePipeline>[0];
@@ -47,21 +47,21 @@ export interface DispatchDependencies {
  * dispatchClientMessage 查表兜底（codec schema 已拒未知 method，此层为防御不静默）。
  * update_character_state 为通知（NotificationType，无响应语义）。
  */
-export const JoinGroupChatRequest = new RequestType(METHOD_JOIN_GROUP_CHAT);
-export const ClaimCharacterRequest = new RequestType(METHOD_CLAIM_CHARACTER);
+const JoinGroupChatRequest = new RequestType(METHOD_JOIN_GROUP_CHAT);
+const ClaimCharacterRequest = new RequestType(METHOD_CLAIM_CHARACTER);
 // 无参请求必须用 RequestType0（v9 默认 byName 结构声明 1 参数，无 params 会被
 // 库判 InvalidParams 拒绝）。
-export const CharacterReadyRequest = new RequestType0(METHOD_CHARACTER_READY);
-export const LeaveGroupChatRequest = new RequestType0(METHOD_LEAVE_GROUP_CHAT);
-export const GetGroupChatStateRequest = new RequestType0(METHOD_GET_GROUP_CHAT_STATE);
-export const GetMessageHistoryRequest = new RequestType(METHOD_GET_MESSAGE_HISTORY);
-export const FetchMessagesSinceRequest = new RequestType(METHOD_FETCH_MESSAGES_SINCE);
-export const GetChatHistoryFileRequest = new RequestType0(METHOD_GET_CHAT_HISTORY_FILE);
-export const UpdateCharacterStateNotification = new NotificationType(METHOD_UPDATE_CHARACTER_STATE);
-export const BoardWriteRequest = new RequestType(METHOD_BOARD_WRITE);
+const CharacterReadyRequest = new RequestType0(METHOD_CHARACTER_READY);
+const LeaveGroupChatRequest = new RequestType0(METHOD_LEAVE_GROUP_CHAT);
+const GetGroupChatStateRequest = new RequestType0(METHOD_GET_GROUP_CHAT_STATE);
+const GetMessageHistoryRequest = new RequestType(METHOD_GET_MESSAGE_HISTORY);
+const FetchMessagesSinceRequest = new RequestType(METHOD_FETCH_MESSAGES_SINCE);
+const GetChatHistoryFileRequest = new RequestType0(METHOD_GET_CHAT_HISTORY_FILE);
+const UpdateCharacterStateNotification = new NotificationType(METHOD_UPDATE_CHARACTER_STATE);
+const BoardWriteRequest = new RequestType(METHOD_BOARD_WRITE);
 // board_query 无参（同 RequestType0 规则）。
-export const BoardQueryRequest = new RequestType0(METHOD_BOARD_QUERY);
-export const SpeakRequest = new RequestType(METHOD_SPEAK);
+const BoardQueryRequest = new RequestType0(METHOD_BOARD_QUERY);
+const SpeakRequest = new RequestType(METHOD_SPEAK);
 
 type DispatchHandler = (
 	deps: DispatchDependencies,

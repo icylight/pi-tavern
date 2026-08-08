@@ -6,7 +6,7 @@ import { JSONRPC_VERSION, type ServerMessage } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 import { METHOD_GROUP_CHAT_UPDATE, METHOD_PUBLIC_MESSAGE, type ProtocolErrorCode } from "../shared/messages.js";
 
-export interface BroadcastHubOptions {
+interface BroadcastHubOptions {
 	/** 群聊状态对象（骨架持有实体，只读引用注入）。 */
 	state: GroupChatState;
 	/** 公共消息数组读取（骨架持有实体，getter 注入）。 */

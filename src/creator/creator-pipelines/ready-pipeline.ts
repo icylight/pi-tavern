@@ -22,14 +22,14 @@ import type { HeartbeatRegistry } from "../heartbeat-registry.js";
 type CharacterReadyMessage = Extract<ClientMessage, { method: "character_ready" }>;
 
 /** 连接上下文窄接口（creator-runtime 的 ConnectionContext 结构子集）。 */
-export interface ReadyConnectionLike {
+interface ReadyConnectionLike {
 	sessionId: string | null;
 	online: boolean;
 	reservedCharacterId: string | null;
 }
 
 /** 心跳簿记的本地窄接口（runtime HeartbeatState 结构子集）。 */
-export interface ReadyPipelineDependencies {
+interface ReadyPipelineDependencies {
 	state: GroupChatState;
 	connections: Map<string, WebSocket>;
 	heartbeatRegistry: HeartbeatRegistry;

@@ -6,12 +6,12 @@ import { ERROR_CODE_NOT_IN_GROUP, ERROR_LEFT_GROUP_CHAT, ERROR_NOT_IN_GROUP_CHAT
 type LeaveGroupChatMessage = Extract<ClientMessage, { method: "leave_group_chat" }>;
 
 /** 连接上下文的本地窄接口（creator-runtime 的 ConnectionContext 结构子集）。 */
-export interface LeaveConnectionLike {
+interface LeaveConnectionLike {
 	online: boolean;
 	sessionId: string | null;
 }
 
-export interface LeavePipelineDependencies {
+interface LeavePipelineDependencies {
 	/**
 	 * 下线编排（runtime 方法注入）：清理连接表/心跳/在线表 + character_left
 	 * 广播 + 成员变更通知。跨消息状态编排归 runtime（决策 7），管线只安排时序。

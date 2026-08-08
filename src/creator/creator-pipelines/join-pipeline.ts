@@ -7,12 +7,12 @@ import { ERROR_ALREADY_IN_GROUP_CHAT, ERROR_CODE_ALREADY_IN_GROUP } from "../../
 type JoinGroupChatMessage = Extract<ClientMessage, { method: "join_group_chat" }>;
 
 /** 连接上下文的本地窄接口（creator-runtime 的 ConnectionContext 结构子集）。 */
-export interface JoinConnectionLike {
+interface JoinConnectionLike {
 	sessionId: string | null;
 	online: boolean;
 }
 
-export interface JoinPipelineDependencies {
+interface JoinPipelineDependencies {
 	/** 按 pi session id 索引的存活 socket 表（runtime 会话状态，管线只读）。 */
 	connections: ReadonlyMap<string, WebSocket>;
 	/** 可用角色查询（runtime 方法注入：预留表 + 在线表过滤）。 */

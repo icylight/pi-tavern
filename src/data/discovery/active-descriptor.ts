@@ -141,7 +141,7 @@ export async function removeOwnedActiveDescriptor(path: string, instanceId: stri
 	}
 }
 
-export function getProjectKey(cwd: string): string {
+function getProjectKey(cwd: string): string {
 	const normalizedCwd = resolve(cwd);
 	return `--${normalizedCwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
 }

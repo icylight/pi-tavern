@@ -11,7 +11,7 @@ import type { SessionStore } from "../data/session-store.js";
 import { SubmitMessagePipeline } from "./creator-pipelines/submit-message-pipeline.js";
 
 /** 门面 API 访问的骨架窄接口（结构类型；模块不 import CreatorRuntime 类本身）。 */
-export interface RuntimeFacadesHost {
+interface RuntimeFacadesHost {
 	state: GroupChatState;
 	sessionStore: SessionStore;
 	activeDescriptor: ActiveGroupChatDescriptor;

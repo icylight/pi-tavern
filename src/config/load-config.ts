@@ -25,7 +25,7 @@ export interface TavernConfig {
 	welcomeMessage?: string;
 }
 
-export interface LoadTavernConfigOptions {
+interface LoadTavernConfigOptions {
 	agentDir: string;
 	cwd: string;
 }

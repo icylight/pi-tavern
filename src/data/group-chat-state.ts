@@ -1,7 +1,7 @@
 import type { CharacterSummary } from "../config/character-card.js";
 import { ERROR_MAX_MESSAGES_INVALID } from "../shared/messages.js";
 
-export interface GroupChatInfo {
+interface GroupChatInfo {
 	groupChatId: string;
 	name: string | null;
 	createdAt: string;
@@ -13,7 +13,7 @@ export interface RoundState {
 	usedMessages: number;
 }
 
-export interface OnlineCharacterState {
+interface OnlineCharacterState {
 	sessionId: string;
 	character: CharacterSummary;
 	isStreaming: boolean;
@@ -28,7 +28,7 @@ export interface GroupChatState {
 	onlineCharacters: Map<string, OnlineCharacterState>;
 }
 
-export interface CreateGroupChatStateOptions {
+interface CreateGroupChatStateOptions {
 	groupChatId: string;
 	createdAt: string;
 	groupMaxMessages: number;
@@ -64,33 +64,6 @@ export function setGroupChatName(state: GroupChatState, name: string): string | 
 export function setGroupMaxMessages(state: GroupChatState, maxMessages: number): void {
 	assertValidMaxMessages(maxMessages);
 	state.groupChat.groupMaxMessages = maxMessages;
-}
-
-export function startNewRound(state: GroupChatState): RoundState {
-	// 清空上一轮的举手标记
-	for (const character of state.onlineCharacters.values()) {
-		character.handRaised = false;
-	}
-
-	const round: RoundState = {
-		roundMaxMessages: state.groupChat.groupMaxMessages,
-		usedMessages: 0,
-	};
-	state.round = round;
-	return round;
-}
-
-export function advanceSequence(state: GroupChatState): number {
-	state.nextSequence += 1;
-	return state.nextSequence;
-}
-
-export function consumeRoundMessage(state: GroupChatState): boolean {
-	if (!state.round || state.round.usedMessages >= state.round.roundMaxMessages) {
-		return false;
-	}
-	state.round.usedMessages += 1;
-	return true;
 }
 
 export function setHandRaised(state: GroupChatState, sessionId: string, raised: boolean): void {

@@ -8,7 +8,7 @@ import type { BroadcastHub } from "./broadcast-hub.js";
 import type { ConnectionContext } from "./connection-manager.js";
 import type { HeartbeatRegistry } from "./heartbeat-registry.js";
 
-export interface MemberBookkeepingOptions {
+interface MemberBookkeepingOptions {
 	state: GroupChatState;
 	connections: Map<string, WebSocket>;
 	characters: ReadonlyMap<string, CharacterCard>;

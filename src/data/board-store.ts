@@ -20,19 +20,19 @@ import { unlink } from "node:fs/promises";
 import { join } from "node:path";
 
 /** 每角色白板默认条数上限（issue #114：默认 5 条，可配置）。 */
-export const DEFAULT_MAX_NOTES_PER_BOARD = 5;
+const DEFAULT_MAX_NOTES_PER_BOARD = 5;
 /** 单条默认长度上限（码点，issue #114：默认 140，可配置）。 */
-export const DEFAULT_MAX_NOTE_LENGTH = 140;
+const DEFAULT_MAX_NOTE_LENGTH = 140;
 
 export interface BoardNote {
 	id: string;
 	content: string;
 }
 
-export type BoardWriteAction = "set" | "remove" | "clear";
+type BoardWriteAction = "set" | "remove" | "clear";
 
 /** 白板条 id 定向目标（remove 必带 id；set 带 id = 改条 edit）。 */
-export interface BoardNoteRef {
+interface BoardNoteRef {
 	id?: string;
 	content?: string;
 }
