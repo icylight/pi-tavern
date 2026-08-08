@@ -66,3 +66,10 @@
 
 - 术语建议：本文档术语（静态常驻/动态常驻/流式滚动；主动查询）如需进 terminology.md，由 PM 统一收录；
 - 实现变更时（白板状态进 ②）本文档与 buildContent 同步更新。
+
+## 7. 钉测锚点挂钩（验收可引用）
+
+- ③ 一次性条目语义：welcome-message.test.ts（#123 WL1-6）钉 system_message 帧序/信封/单播/零推送/分页——本设计「欢迎语 = ③ 一次性条目」的验收实例；
+- ① 静态常驻锚：identity-consistency.test.ts（ISSUE-003）钉身份行/来源声明同批注入——常驻锚契约的验收实例；
+- 角色侧主动查询：board 测试（#114）与 paging 测试（WL3）钉 board_query / get_message_history 通道——「状态/历史按需拉取」的验收实例；
+- 新增注入内容验收前，先按 §3 归区，再写钉测（评审基准与验收锚点同源）。
