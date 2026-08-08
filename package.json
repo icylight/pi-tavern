@@ -32,9 +32,11 @@
 		"test:integration": "node scripts/run-tests.mjs integration",
 		"test:acceptance": "node scripts/run-tests.mjs acceptance",
 		"test:full": "npm run test:unit -- --all && npm run test:integration -- --all && npm run test:acceptance -- --all",
-		"check": "biome check . && tsc --noEmit",
+		"check": "biome check --error-on-warnings . && tsc --noEmit && node scripts/generate-schema.mjs --check",
 		"format": "biome check --write .",
 		"lint:layers": "node scripts/lint-layers.mjs",
+		"docs:api": "typedoc",
+		"docs:types": "node scripts/generate-schema.mjs",
 		"health": "node scripts/health.mjs",
 		"prepare": "husky || echo \"husky init skipped/inactive\" >&2 || true"
 	},
@@ -44,6 +46,7 @@
 		]
 	},
 	"dependencies": {
+		"jsonc-parser": "^3.3.1",
 		"typebox": "^1.1.38",
 		"vscode-jsonrpc": "^9.0.1",
 		"ws": "^8.18.0"
@@ -59,6 +62,8 @@
 		"@types/node": "24.12.4",
 		"@types/ws": "8.18.1",
 		"husky": "^9.1.7",
+		"json-schema-to-typescript": "^15.0.4",
+		"typedoc": "^0.28.20",
 		"typescript": "5.9.3",
 		"vitest": "4.1.9"
 	},

@@ -1,0 +1,288 @@
+// ===== 协议 schema 定义：client.jsonc =====
+// 客户端消息判别联合（#119 M1 信封层校验）：request 带 id + method + params
+// （update_character_state 为无 id notification）；未知 method / 形状 fail-close。
+// 纯 docs-first：本文件为唯一手写源头，程序用的 schema 对象由它自动生成。
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    // 客户端消息全量判别联合（16 分支，按 method 判别）。
+    "ClientMessage": {
+      "anyOf": [
+        // join_group_chat 请求：session_id 建立群聊会话。
+        {
+          "type": "object",
+          "required": ["jsonrpc", "id", "method", "params"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "method": { "type": "string", "const": "join_group_chat" },
+            "params": {
+              "type": "object",
+              "required": ["session_id"],
+              "properties": {
+                "session_id": { "type": "string" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        // claim_character 请求：认领角色。
+        {
+          "type": "object",
+          "required": ["jsonrpc", "id", "method", "params"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "method": { "type": "string", "const": "claim_character" },
+            "params": {
+              "type": "object",
+              "required": ["character_id"],
+              "properties": {
+                "character_id": { "type": "string" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        // character_ready 请求：无参（params 可选）。
+        {
+          "type": "object",
+          "required": ["jsonrpc", "id", "method"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "method": { "type": "string", "const": "character_ready" },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        // leave_group_chat 请求：无参（params 可选）。
+        {
+          "type": "object",
+          "required": ["jsonrpc", "id", "method"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "method": { "type": "string", "const": "leave_group_chat" },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        // get_group_chat_state 请求：无参（params 可选）。
+        {
+          "type": "object",
+          "required": ["jsonrpc", "id", "method"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "method": { "type": "string", "const": "get_group_chat_state" },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        // get_message_history 请求：cursor 向更早翻页（可选，null 可接受）。
+        {
+          "type": "object",
+          "required": ["jsonrpc", "id", "method", "params"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "method": { "type": "string", "const": "get_message_history" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "cursor": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        // fetch_messages_since 请求：增量拉取（#138 上下文窗口服务端侧）。
+        {
+          "type": "object",
+          "required": ["jsonrpc", "id", "method", "params"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "method": { "type": "string", "const": "fetch_messages_since" },
+            "params": {
+              "type": "object",
+              "required": ["since_sequence"],
+              "properties": {
+                "since_sequence": { "type": "integer", "minimum": 0 }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        // get_chat_history_file 请求：无参（params 可选）。
+        {
+          "type": "object",
+          "required": ["jsonrpc", "id", "method"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "method": { "type": "string", "const": "get_chat_history_file" },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        // 通知（无 id）：update_character_state 不要求响应（原协议同语义）。
+        {
+          "type": "object",
+          "required": ["jsonrpc", "method", "params"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "method": { "type": "string", "const": "update_character_state" },
+            "params": {
+              "type": "object",
+              "required": ["is_streaming"],
+              "properties": {
+                "is_streaming": { "type": "boolean" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        // board_write set：note 全可选——「update 不带 content = note_unchanged」
+        // 是契约定义的业务幂等；空串由 store 拦为 noop。不带 actor——服务端从
+        // session 推导，操作永远作用于发送者自己的白板。
+        {
+          "type": "object",
+          "required": ["jsonrpc", "id", "method", "params"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "method": { "type": "string", "const": "board_write" },
+            "params": {
+              "type": "object",
+              "required": ["action"],
+              "properties": {
+                "action": { "type": "string", "const": "set" },
+                "note": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string" },
+                    "content": { "type": "string" }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        // board_write remove：必带 id 定向（无 id = 协议级拒绝而非业务 no-op）；
+        // content 禁止（被撕条完整内容由服务端在 board_update 广播中回带）。
+        {
+          "type": "object",
+          "required": ["jsonrpc", "id", "method", "params"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "method": { "type": "string", "const": "board_write" },
+            "params": {
+              "type": "object",
+              "required": ["action", "note"],
+              "properties": {
+                "action": { "type": "string", "const": "remove" },
+                "note": {
+                  "type": "object",
+                  "required": ["id"],
+                  "properties": {
+                    "id": { "type": "string" }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        // board_write clear：禁携带 note（清空语义无目标条）。
+        {
+          "type": "object",
+          "required": ["jsonrpc", "id", "method", "params"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "method": { "type": "string", "const": "board_write" },
+            "params": {
+              "type": "object",
+              "required": ["action"],
+              "properties": {
+                "action": { "type": "string", "const": "clear" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        // board_query 请求：查全量（per-character 条目）。无参——groupId 由
+        // session 隐含；跨群聊隔离由服务端按 session 关联保证。
+        {
+          "type": "object",
+          "required": ["jsonrpc", "id", "method"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "method": { "type": "string", "const": "board_query" },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        // speak 请求：content 必带；based_on_sequence 可选——缺省 = 旧版客户端，
+        // 服务端跳过 stale 检查（平滑演进）。存在时服务端拒绝过期发言
+        // （reason: "stale"）而不是发布它们。
+        {
+          "type": "object",
+          "required": ["jsonrpc", "id", "method", "params"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "method": { "type": "string", "const": "speak" },
+            "params": {
+              "type": "object",
+              "required": ["content"],
+              "properties": {
+                "content": { "type": "string" },
+                "based_on_sequence": { "type": "integer", "minimum": 0 }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

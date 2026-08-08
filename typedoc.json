@@ -1,0 +1,10 @@
+{
+	"$schema": "https://typedoc.org/schema.json",
+	"entryPoints": ["src/index.ts", "src/protocol"],
+	"entryPointStrategy": "expand",
+	"out": "docs/api",
+	"tsconfig": "tsconfig.json",
+	"excludeExternals": true,
+	"includeVersion": true,
+	"name": "pi-tavern"
+}

@@ -1,735 +1,82 @@
-import { type Static, Type } from "typebox";
+import type { Static } from "typebox";
 
-import {
-	METHOD_BOARD_QUERY,
-	METHOD_BOARD_UPDATE,
-	METHOD_BOARD_WRITE,
-	METHOD_CHARACTER_JOINED,
-	METHOD_CHARACTER_LEFT,
-	METHOD_CHARACTER_READY,
-	METHOD_CLAIM_CHARACTER,
-	METHOD_FETCH_MESSAGES_SINCE,
-	METHOD_GET_CHAT_HISTORY_FILE,
-	METHOD_GET_GROUP_CHAT_STATE,
-	METHOD_GET_MESSAGE_HISTORY,
-	METHOD_GROUP_CHAT_CLOSED,
-	METHOD_GROUP_CHAT_UPDATE,
-	METHOD_JOIN_GROUP_CHAT,
-	METHOD_LEAVE_GROUP_CHAT,
-	METHOD_MESSAGE_HISTORY,
-	METHOD_PUBLIC_MESSAGE,
-	METHOD_SPEAK,
-	METHOD_SYSTEM_MESSAGE,
-	METHOD_UPDATE_CHARACTER_STATE,
-	PROTOCOL_ERROR_CODES,
-} from "../shared/messages.js";
+import type {
+	BoardNoteSchema,
+	BoardWriteDataSchema,
+	CharacterSummarySchema,
+	ClaimedCharacterSchema,
+	ClientMessageSchema,
+	OnlineCharacterSchema,
+	PublicMessageSchema,
+	ServerMessageSchema,
+} from "./generated/schema.js";
 
 /**
  * JSON-RPC 2.0 标准信封（#119 M1 迁移，User 拍板豁免零漂移——特例仅此一次）。
  * 判别字段 type → method；请求/响应/通知统一 {jsonrpc:"2.0"}；载荷进 params；
  * 响应 {command, success, data} → {result} / {error:{code,message}}。
  * F 类 method 判别常量（#109 欠账）挂 M2 同批抽取，M1 先用字面量。
+ *
+ * docs-first（#145）：schema 定义已迁移至 src/protocol/schema/*.jsonc（唯一手写
+ * 源头），本文件从生成产物 re-export——生成产物不得手改；类型继续由 Static
+ * 从同一 schema 对象推导（消费面零变化）。
  */
 export const JSONRPC_VERSION = "2.0";
 
-export const CharacterSummarySchema = Type.Object(
-	{
-		character_id: Type.String(),
-		name: Type.String(),
-		description: Type.String(),
-	},
-	{ additionalProperties: false },
-);
+export {
+	BoardNoteSchema,
+	BoardQueryResponseSchema,
+	BoardReasonCodeSchema,
+	BoardUpdateSchema,
+	BoardWriteDataSchema,
+	BoardWriteResponseSchema,
+	CharacterJoinedSchema,
+	CharacterLeftSchema,
+	CharacterSummarySchema,
+	ClaimCharacterResponseSchema,
+	ClaimedCharacterSchema,
+	ClientMessageSchema,
+	EmptySuccessResponseSchema,
+	FailureResponseSchema,
+	FetchMessagesSinceResponseSchema,
+	GetChatHistoryFileResponseSchema,
+	GetMessageHistoryResponseSchema,
+	GroupChatClosedSchema,
+	GroupChatStateResponseSchema,
+	GroupChatUpdateSchema,
+	JoinGroupChatResponseSchema,
+	MessageHistorySchema,
+	NullResultSchema,
+	OnlineCharacterSchema,
+	ProtocolErrorObjectSchema,
+	PublicMessageSchema,
+	ReadyResponseSchema,
+	RoundSnapshotSchema,
+	ServerMessageSchema,
+	SpeakResponseSchema,
+	SystemMessageSchema,
+} from "./generated/schema.js";
 
+/** 角色摘要（join 响应 available_characters 成员 / 成员通知 character 字段）。 */
 export type CharacterSummaryMessage = Static<typeof CharacterSummarySchema>;
+export type CharacterSummaryWire = Static<typeof CharacterSummarySchema>;
 
-export const OnlineCharacterSchema = Type.Object(
-	{
-		character_id: Type.String(),
-		name: Type.String(),
-		description: Type.String(),
-		is_self: Type.Boolean(),
-		is_streaming: Type.Boolean(),
-		hand_raised: Type.Boolean(),
-	},
-	{ additionalProperties: false },
-);
-
-/**
- * 请求/响应必带 id（仅 update_character_state 为无 id notification；
- * 服务端通知同样无 id——由各自 schema 形状区分）。阻断修复（PR #137
- * 评审）：无 id 的 request/response 一律 fail-close——前者服务端无法
- * 关联响应，后者客户端命不中 pendingRequests。
- *
- * id 类型 = string | number（JSON-RPC 2.0 标准；vscode-jsonrpc 库
- * sendRequest 自增数字 id，手写握手用 string——双兼容）。
- */
-const RequestIdSchema = Type.Union([Type.String(), Type.Integer()]);
-
-/**
- * JSON-RPC 2.0 标准错误码（vscode-jsonrpc 库会自行产生：handler 抛普通 Error →
- * -32603、无 handler → -32601、参数无效 → -32602、解析失败 → -32700、无效请求
- * → -32600）。connection 模式下这些是库在本端生成的**合法**响应——必须纳入
- * schema，否则 decodeServerMessage 拒帧 → 客户端把库产响应当协议破坏断线。
- */
-const JSON_RPC_STANDARD_ERROR_CODES = [-32700, -32600, -32601, -32602, -32603] as const;
-
-/** JSON-RPC 错误对象（code = 业务 10 码 + 库标准码；未知 code = schema fail-close）。 */
-export const ProtocolErrorObjectSchema = Type.Object(
-	{
-		code: Type.Union([
-			...PROTOCOL_ERROR_CODES.map((value) => Type.Literal(value)),
-			...JSON_RPC_STANDARD_ERROR_CODES.map((value) => Type.Literal(value)),
-		]),
-		message: Type.String(),
-	},
-	{ additionalProperties: false },
-);
-
-export const ClientMessageSchema = Type.Union([
-	Type.Object(
-		{
-			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			id: RequestIdSchema,
-			method: Type.Literal(METHOD_JOIN_GROUP_CHAT),
-			params: Type.Object({ session_id: Type.String() }, { additionalProperties: false }),
-		},
-		{ additionalProperties: false },
-	),
-	Type.Object(
-		{
-			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			id: RequestIdSchema,
-			method: Type.Literal(METHOD_CLAIM_CHARACTER),
-			params: Type.Object({ character_id: Type.String() }, { additionalProperties: false }),
-		},
-		{ additionalProperties: false },
-	),
-	Type.Object(
-		{
-			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			id: RequestIdSchema,
-			method: Type.Literal(METHOD_CHARACTER_READY),
-			params: Type.Optional(Type.Object({}, { additionalProperties: false })),
-		},
-		{ additionalProperties: false },
-	),
-	Type.Object(
-		{
-			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			id: RequestIdSchema,
-			method: Type.Literal(METHOD_LEAVE_GROUP_CHAT),
-			params: Type.Optional(Type.Object({}, { additionalProperties: false })),
-		},
-		{ additionalProperties: false },
-	),
-	Type.Object(
-		{
-			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			id: RequestIdSchema,
-			method: Type.Literal(METHOD_GET_GROUP_CHAT_STATE),
-			params: Type.Optional(Type.Object({}, { additionalProperties: false })),
-		},
-		{ additionalProperties: false },
-	),
-	Type.Object(
-		{
-			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			id: RequestIdSchema,
-			method: Type.Literal(METHOD_GET_MESSAGE_HISTORY),
-			params: Type.Object(
-				{
-					cursor: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-				},
-				{ additionalProperties: false },
-			),
-		},
-		{ additionalProperties: false },
-	),
-	Type.Object(
-		{
-			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			id: RequestIdSchema,
-			method: Type.Literal(METHOD_FETCH_MESSAGES_SINCE),
-			params: Type.Object({ since_sequence: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
-		},
-		{ additionalProperties: false },
-	),
-	Type.Object(
-		{
-			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			id: RequestIdSchema,
-			method: Type.Literal(METHOD_GET_CHAT_HISTORY_FILE),
-			params: Type.Optional(Type.Object({}, { additionalProperties: false })),
-		},
-		{ additionalProperties: false },
-	),
-	// 通知（无 id）：update_character_state 不要求响应（原协议同语义）。
-	Type.Object(
-		{
-			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			method: Type.Literal(METHOD_UPDATE_CHARACTER_STATE),
-			params: Type.Object({ is_streaming: Type.Boolean() }, { additionalProperties: false }),
-		},
-		{ additionalProperties: false },
-	),
-	// 白板模型（#114）：board_write = 贴/改/撕/清（PR #116 review 修正：按 action
-	// 判别 union，跨字段不变量 schema 层 fail-close——F1）。不带 actor 字段——
-	// 服务端从 session 推导，操作永远作用于发送者自己的白板（actor 限定本人板）。
-	// set：note 全可选——「update 不带 content = note_unchanged」是契约定义的业务
-	// 幂等（09:26 定案），schema 不得灭掉该告知场景；空串由 store 拦为 noop。
-	Type.Object(
-		{
-			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			id: RequestIdSchema,
-			method: Type.Literal(METHOD_BOARD_WRITE),
-			params: Type.Object(
-				{
-					action: Type.Literal("set"),
-					note: Type.Optional(
-						Type.Object(
-							{
-								id: Type.Optional(Type.String()),
-								content: Type.Optional(Type.String()),
-							},
-							{ additionalProperties: false },
-						),
-					),
-				},
-				{ additionalProperties: false },
-			),
-		},
-		{ additionalProperties: false },
-	),
-	// remove：必带 id 定向（无 id = 协议级拒绝而非业务 no-op——P1 fail-close）；
-	// content 禁止（被撕条完整内容由服务端在 board_update 广播中回带）。
-	Type.Object(
-		{
-			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			id: RequestIdSchema,
-			method: Type.Literal(METHOD_BOARD_WRITE),
-			params: Type.Object(
-				{
-					action: Type.Literal("remove"),
-					note: Type.Object(
-						{
-							id: Type.String(),
-						},
-						{ additionalProperties: false },
-					),
-				},
-				{ additionalProperties: false },
-			),
-		},
-		{ additionalProperties: false },
-	),
-	// clear：禁携带 note（清空语义无目标条）。
-	Type.Object(
-		{
-			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			id: RequestIdSchema,
-			method: Type.Literal(METHOD_BOARD_WRITE),
-			params: Type.Object({ action: Type.Literal("clear") }, { additionalProperties: false }),
-		},
-		{ additionalProperties: false },
-	),
-	// 白板模型（#114）：board_query 查全量（per-character 条目）。无参——
-	// groupId 由 session 隐含；跨群聊隔离由服务端按 session 关联保证。
-	Type.Object(
-		{
-			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			id: RequestIdSchema,
-			method: Type.Literal(METHOD_BOARD_QUERY),
-			params: Type.Optional(Type.Object({}, { additionalProperties: false })),
-		},
-		{ additionalProperties: false },
-	),
-	Type.Object(
-		{
-			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			id: RequestIdSchema,
-			method: Type.Literal(METHOD_SPEAK),
-			params: Type.Object(
-				{
-					content: Type.String(),
-					// ISSUE-013：可选字段——缺省 = 旧版客户端，服务端跳过 stale
-					// 检查（平滑演进）。存在时服务端拒绝过期发言（reason: "stale"）
-					// 而不是发布它们。
-					based_on_sequence: Type.Optional(Type.Integer({ minimum: 0 })),
-				},
-				{ additionalProperties: false },
-			),
-		},
-		{ additionalProperties: false },
-	),
-]);
+/** 在线角色（group_chat_state 的 members 成员；is_self = 本 session 身份）。 */
+export type OnlineCharacterWire = Static<typeof OnlineCharacterSchema>;
 
 export type ClientMessage = Static<typeof ClientMessageSchema>;
 
 export type SpeakMessage = Extract<ClientMessage, { method: "speak" }>;
 
-/** 空成功响应 result（character_ready / leave_group_chat）。 */
-const NullResultSchema = Type.Null();
-
-const JoinGroupChatResponseSchema = Type.Object(
-	{
-		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		id: RequestIdSchema,
-		result: Type.Object({ available_characters: Type.Array(CharacterSummarySchema) }, { additionalProperties: false }),
-	},
-	{ additionalProperties: false },
-);
-
-const ClaimedCharacterSchema = Type.Object(
-	{
-		character_id: Type.String(),
-		name: Type.String(),
-		description: Type.String(),
-		path: Type.String(),
-	},
-	{ additionalProperties: false },
-);
-
-const ClaimCharacterResponseSchema = Type.Object(
-	{
-		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		id: RequestIdSchema,
-		result: Type.Object({ character: ClaimedCharacterSchema }, { additionalProperties: false }),
-	},
-	{ additionalProperties: false },
-);
-
-const EmptySuccessResponseSchema = Type.Object(
-	{
-		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		id: RequestIdSchema,
-		result: NullResultSchema,
-	},
-	{ additionalProperties: false },
-);
-
-/** #144 P1-4 方案 a：character_ready 成功响应——携带进入时刻水位，客户端游标精确锚定。 */
-const ReadyResponseSchema = Type.Object(
-	{
-		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		id: RequestIdSchema,
-		result: Type.Object({ latest_sequence: Type.Integer() }, { additionalProperties: false }),
-	},
-	{ additionalProperties: false },
-);
-
-/** 业务失败响应（id 关联请求；code ∈ 10 码枚举，message = 文案原样保留）。 */
-const FailureResponseSchema = Type.Object(
-	{
-		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		id: RequestIdSchema,
-		error: ProtocolErrorObjectSchema,
-	},
-	{ additionalProperties: false },
-);
-
-const GroupChatStateResponseSchema = Type.Object(
-	{
-		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		id: RequestIdSchema,
-		result: Type.Object(
-			{
-				group_chat: Type.Object(
-					{
-						group_chat_id: Type.String(),
-						name: Type.Union([Type.String(), Type.Null()]),
-						created_at: Type.String(),
-						group_max_messages: Type.Integer({ minimum: 0 }),
-					},
-					{ additionalProperties: false },
-				),
-				round: Type.Union([
-					Type.Object(
-						{
-							round_max_messages: Type.Integer({ minimum: 0 }),
-							used_messages: Type.Integer({ minimum: 0 }),
-							remaining_messages: Type.Integer({ minimum: 0 }),
-						},
-						{ additionalProperties: false },
-					),
-					Type.Null(),
-				]),
-				online_characters: Type.Array(OnlineCharacterSchema),
-			},
-			{ additionalProperties: false },
-		),
-	},
-	{ additionalProperties: false },
-);
-
-const CharacterJoinedSchema = Type.Object(
-	{
-		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		method: Type.Literal(METHOD_CHARACTER_JOINED),
-		params: Type.Object({ character: CharacterSummarySchema }, { additionalProperties: false }),
-	},
-	{ additionalProperties: false },
-);
-
-const CharacterLeftSchema = Type.Object(
-	{
-		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		method: Type.Literal(METHOD_CHARACTER_LEFT),
-		params: Type.Object(
-			{
-				character: CharacterSummarySchema,
-				reason: Type.Union([Type.Literal("left"), Type.Literal("disconnected")]),
-			},
-			{ additionalProperties: false },
-		),
-	},
-	{ additionalProperties: false },
-);
-
-/**
- * #123：系统消息（ready 后欢迎语单播；通知帧无 id，与 character_joined 同族）。
- * params 仅 content——非公共消息：无 sequence/round/source，不落消息流、不计轮次
- * （WL1 语义）；additionalProperties:false 下未知字段 fail-close。
- */
-const SystemMessageSchema = Type.Object(
-	{
-		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		method: Type.Literal(METHOD_SYSTEM_MESSAGE),
-		params: Type.Object({ content: Type.String() }, { additionalProperties: false }),
-	},
-	{ additionalProperties: false },
-);
-
-const GroupChatClosedSchema = Type.Object(
-	{
-		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		method: Type.Literal(METHOD_GROUP_CHAT_CLOSED),
-		params: Type.Object({ group_chat_id: Type.String() }, { additionalProperties: false }),
-	},
-	{ additionalProperties: false },
-);
-
-const RoundSnapshotSchema = Type.Object(
-	{
-		round_max_messages: Type.Integer({ minimum: 0 }),
-		used_messages: Type.Integer({ minimum: 0 }),
-		remaining_messages: Type.Integer({ minimum: 0 }),
-	},
-	{ additionalProperties: false },
-);
-
-const PublicMessageSchema = Type.Object(
-	{
-		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		method: Type.Literal(METHOD_PUBLIC_MESSAGE),
-		params: Type.Object(
-			{
-				event_id: Type.String(),
-				sequence: Type.Integer({ minimum: 1 }),
-				timestamp: Type.String(),
-				sender: Type.Union([
-					Type.Object({ type: Type.Literal("user_persona") }, { additionalProperties: false }),
-					Type.Object(
-						{ type: Type.Literal("character"), character_id: Type.String(), name: Type.String() },
-						{ additionalProperties: false },
-					),
-				]),
-				// #97 来源显式化（S1）：群聊消息显式携带 source="group"；
-				// 缺省 = 视为 group（旧消息/旧客户端向后兼容，不拒帧）。
-				source: Type.Optional(Type.Literal("group")),
-				content: Type.String(),
-				round: RoundSnapshotSchema,
-			},
-			{ additionalProperties: false },
-		),
-	},
-	{ additionalProperties: false },
-);
-
-const MessageHistorySchema = Type.Object(
-	{
-		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		method: Type.Literal(METHOD_MESSAGE_HISTORY),
-		params: Type.Object(
-			{
-				messages: Type.Array(PublicMessageSchema),
-				cursor: Type.Union([Type.String(), Type.Null()]),
-				has_more: Type.Boolean(),
-				total_messages: Type.Integer({ minimum: 0 }),
-			},
-			{ additionalProperties: false },
-		),
-	},
-	{ additionalProperties: false },
-);
-
-const GetMessageHistoryResponseSchema = Type.Object(
-	{
-		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		id: RequestIdSchema,
-		result: Type.Object(
-			{
-				messages: Type.Array(PublicMessageSchema),
-				cursor: Type.Union([Type.String(), Type.Null()]),
-				has_more: Type.Boolean(),
-				total_messages: Type.Integer({ minimum: 0 }),
-			},
-			{ additionalProperties: false },
-		),
-	},
-	{ additionalProperties: false },
-);
-
-const FetchMessagesSinceResponseSchema = Type.Object(
-	{
-		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		id: RequestIdSchema,
-		result: Type.Object(
-			{
-				messages: Type.Array(PublicMessageSchema),
-				latest_sequence: Type.Integer({ minimum: 0 }),
-				total_messages: Type.Integer({ minimum: 0 }),
-			},
-			{ additionalProperties: false },
-		),
-	},
-	{ additionalProperties: false },
-);
-
-const GroupChatUpdateSchema = Type.Object(
-	{
-		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		method: Type.Literal(METHOD_GROUP_CHAT_UPDATE),
-		params: Type.Object(
-			{
-				latest_sequence: Type.Integer({ minimum: 0 }),
-				preview_messages: Type.Array(PublicMessageSchema),
-				total_messages: Type.Integer({ minimum: 0 }),
-			},
-			{ additionalProperties: false },
-		),
-	},
-	{ additionalProperties: false },
-);
-
-const GetChatHistoryFileResponseSchema = Type.Object(
-	{
-		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		id: RequestIdSchema,
-		result: Type.Object({ path: Type.String() }, { additionalProperties: false }),
-	},
-	{ additionalProperties: false },
-);
-
-const SpeakResponseSchema = Type.Union([
-	Type.Object(
-		{
-			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			id: RequestIdSchema,
-			result: Type.Object(
-				{
-					published: Type.Literal(true),
-					event_id: Type.String(),
-					sequence: Type.Integer({ minimum: 1 }),
-					round: RoundSnapshotSchema,
-					// ISSUE-013 B6：让客户端能把 last-seen sequence 推进到
-					// 自己的消息之后（回声被过滤，游标不会自行推进），
-					// 而不会被误判为 stale。
-					latest_sequence: Type.Integer({ minimum: 1 }),
-				},
-				{ additionalProperties: false },
-			),
-		},
-		{ additionalProperties: false },
-	),
-	Type.Object(
-		{
-			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			id: RequestIdSchema,
-			result: Type.Object(
-				{
-					published: Type.Literal(false),
-					reason: Type.Literal("round_limit_reached"),
-					hand_raised: Type.Literal(true),
-					round: RoundSnapshotSchema,
-				},
-				{ additionalProperties: false },
-			),
-		},
-		{ additionalProperties: false },
-	),
-	Type.Object(
-		{
-			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			id: RequestIdSchema,
-			result: Type.Object(
-				{
-					// ISSUE-013 B2：stale 拒绝镜像 round_limit_reached——业务拒绝
-					// 而非协议错误。只携带缺失的 sequence 区间；客户端通过既有的
-					// fetch_messages_since 拉增量（不引入第二个拉取协议）。
-					published: Type.Literal(false),
-					reason: Type.Literal("stale"),
-					missing_sequences: Type.Object(
-						{
-							from: Type.Integer({ minimum: 0 }),
-							to: Type.Integer({ minimum: 1 }),
-						},
-						{ additionalProperties: false },
-					),
-					round: RoundSnapshotSchema,
-				},
-				{ additionalProperties: false },
-			),
-		},
-		{ additionalProperties: false },
-	),
-]);
-
-// ===== 白板模型（#114，ADR-0007）：board_write / board_query / board_update =====
-
-/** 白板条（wire 形态）：稳定条 id 由 store 分配，remove/edit 按 id 定向。 */
-export const BoardNoteSchema = Type.Object(
-	{
-		id: Type.String(),
-		content: Type.String(),
-	},
-	{ additionalProperties: false },
-);
-
-export type BoardNoteWire = Static<typeof BoardNoteSchema>;
-
-/**
- * 白板 reason_code 五码（09:24 版定案，取值区分告知/拒绝）：
- * - 拒绝码（资源约束，未执行）：max_notes_exceeded / note_length_exceeded
- * - 告知码（幂等成立，changed:false 静默）：note_not_found / board_empty / note_unchanged
- * 群聊静默规则：所有 changed:false 均不广播 board_update；告知/拒绝差异在接口层可见。
- */
-export const BoardReasonCodeSchema = Type.Union([
-	Type.Literal("max_notes_exceeded"),
-	Type.Literal("note_length_exceeded"),
-	Type.Literal("note_not_found"),
-	Type.Literal("board_empty"),
-	Type.Literal("note_unchanged"),
-]);
-
-/**
- * board_write 成功响应 result（嵌套两态）：
- * - { changed: true, note? }：有变化；set 新贴/改条回带 { id, content }（id 回带闭环，
- *   业务规则由 pipeline 保证必带）；remove/clear applied 不带 note
- * - { changed: false, code }：无变化——五码取值区分告知（幂等）与拒绝（资源约束）
- * 编解码层排除无意义组合（changed:true 不能带 code 等）。
- */
-export const BoardWriteDataSchema = Type.Union([
-	Type.Object(
-		{
-			changed: Type.Literal(true),
-			note: Type.Optional(BoardNoteSchema),
-		},
-		{ additionalProperties: false },
-	),
-	Type.Object(
-		{
-			changed: Type.Literal(false),
-			code: BoardReasonCodeSchema,
-		},
-		{ additionalProperties: false },
-	),
-]);
-
-export type BoardWriteDataWire = Static<typeof BoardWriteDataSchema>;
-
-/** board_write 响应：业务变体（协议失败走 FailureResponseSchema error）。 */
-export const BoardWriteResponseSchema = Type.Object(
-	{
-		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		id: RequestIdSchema,
-		result: BoardWriteDataSchema,
-	},
-	{ additionalProperties: false },
-);
-
-/** board_query 响应：全量 per-character 条目（boards: sender → 条列表）。 */
-export const BoardQueryResponseSchema = Type.Object(
-	{
-		jsonrpc: Type.Literal(JSONRPC_VERSION),
-		id: RequestIdSchema,
-		result: Type.Object(
-			{
-				boards: Type.Record(Type.String(), Type.Array(BoardNoteSchema)),
-			},
-			{ additionalProperties: false },
-		),
-	},
-	{ additionalProperties: false },
-);
-
-/**
- * board_update 服务器通知（复用 broadcast() 通道，不混入 group_chat_update）：
- * actor + action 四值（set 映射：新贴→add、改条→update）；remove 携带被撕条内容
- * （增量摘要含删除标记，锚点 2 支撑）；clear 无 note。无 sequence 字段——不在消息流里、
- * 无消息流水位语义；字符侧不得视为水位（B4 接线约束）。
- * PR #116 review 修正（F3）：按 action 判别 union——add/update/remove 必带 note
- * （完整条 {id, content}），clear 禁 note；非法组合 codec 层即拒。
- */
-export const BoardUpdateSchema = Type.Union([
-	Type.Object(
-		{
-			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			method: Type.Literal(METHOD_BOARD_UPDATE),
-			params: Type.Object(
-				{
-					actor: Type.String(),
-					action: Type.Union([Type.Literal("add"), Type.Literal("update"), Type.Literal("remove")]),
-					note: BoardNoteSchema,
-				},
-				{ additionalProperties: false },
-			),
-		},
-		{ additionalProperties: false },
-	),
-	Type.Object(
-		{
-			jsonrpc: Type.Literal(JSONRPC_VERSION),
-			method: Type.Literal(METHOD_BOARD_UPDATE),
-			params: Type.Object(
-				{
-					actor: Type.String(),
-					action: Type.Literal("clear"),
-				},
-				{ additionalProperties: false },
-			),
-		},
-		{ additionalProperties: false },
-	),
-]);
-
-export const ServerMessageSchema = Type.Union([
-	JoinGroupChatResponseSchema,
-	ClaimCharacterResponseSchema,
-	EmptySuccessResponseSchema,
-	ReadyResponseSchema,
-	FailureResponseSchema,
-	GroupChatStateResponseSchema,
-	GetMessageHistoryResponseSchema,
-	FetchMessagesSinceResponseSchema,
-	GetChatHistoryFileResponseSchema,
-	SpeakResponseSchema,
-	CharacterJoinedSchema,
-	CharacterLeftSchema,
-	SystemMessageSchema,
-	GroupChatClosedSchema,
-	MessageHistorySchema,
-	PublicMessageSchema,
-	GroupChatUpdateSchema,
-	BoardWriteResponseSchema,
-	BoardQueryResponseSchema,
-	BoardUpdateSchema,
-]);
-
 export type ServerMessage = Static<typeof ServerMessageSchema>;
 export type PublicMessage = Static<typeof PublicMessageSchema>;
 
-export type CharacterSummaryWire = Static<typeof CharacterSummarySchema>;
+/** 白板条（wire 形态）：稳定条 id 由 store 分配，remove/edit 按 id 定向。 */
+export type BoardNoteWire = Static<typeof BoardNoteSchema>;
+
+/** board_write 成功响应 result（嵌套两态）。 */
+export type BoardWriteDataWire = Static<typeof BoardWriteDataSchema>;
+
 export type JoinGroupChatSuccess = Extract<
 	ServerMessage,
 	{ result: { available_characters: CharacterSummaryMessage[] } }

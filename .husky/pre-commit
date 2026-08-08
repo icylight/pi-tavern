@@ -1,0 +1,1 @@
+npx biome check --error-on-warnings --staged

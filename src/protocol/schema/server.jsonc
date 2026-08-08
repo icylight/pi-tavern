@@ -1,0 +1,470 @@
+// ===== 协议 schema 定义：server.jsonc =====
+// 服务端消息判别联合（#119 M1）：响应帧（id 关联请求）+ 通知帧（无 id，method
+// 判别）。业务错误 = error 信封（10 码 + 库标准码）；未知形状 fail-close。
+// 纯 docs-first：本文件为唯一手写源头，程序用的 schema 对象由它自动生成。
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    // join_group_chat 成功响应：available_characters = 群聊角色清单（#25 懒刷新入口）。
+    "JoinGroupChatResponse": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "id": { "$ref": "#/$defs/RequestId" },
+        "result": {
+          "type": "object",
+          "required": ["available_characters"],
+          "properties": {
+            "available_characters": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/CharacterSummary" }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    // 已认领角色（claim 响应 result.character；join 后加载卡片用 path）。
+    "ClaimedCharacter": {
+      "type": "object",
+      "required": ["character_id", "name", "description", "path"],
+      "properties": {
+        "character_id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "path": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    // claim_character 成功响应：携带已认领角色摘要。
+    "ClaimCharacterResponse": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "id": { "$ref": "#/$defs/RequestId" },
+        "result": {
+          "type": "object",
+          "required": ["character"],
+          "properties": {
+            "character": { "$ref": "#/$defs/ClaimedCharacter" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    // 空成功响应（leave_group_chat / character_ready 旧帧 result=null）。
+    "EmptySuccessResponse": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "id": { "$ref": "#/$defs/RequestId" },
+        "result": { "$ref": "#/$defs/NullResult" }
+      },
+      "additionalProperties": false
+    },
+    // #144 P1-4 方案 a：character_ready 成功响应——携带进入时刻水位，客户端游标精确锚定。
+    "ReadyResponse": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "id": { "$ref": "#/$defs/RequestId" },
+        "result": {
+          "type": "object",
+          "required": ["latest_sequence"],
+          "properties": {
+            "latest_sequence": { "type": "integer" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    // 业务失败响应（id 关联请求；code ∈ 10 码枚举，message = 文案原样保留）。
+    "FailureResponse": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "error"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "id": { "$ref": "#/$defs/RequestId" },
+        "error": { "$ref": "#/$defs/ProtocolErrorObject" }
+      },
+      "additionalProperties": false
+    },
+    // get_group_chat_state 成功响应：群聊全量状态快照（TUI widget 投影源）。
+    "GroupChatStateResponse": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "id": { "$ref": "#/$defs/RequestId" },
+        "result": {
+          "type": "object",
+          "required": ["group_chat", "round", "online_characters"],
+          "properties": {
+            "group_chat": {
+              "type": "object",
+              "required": ["group_chat_id", "name", "created_at", "group_max_messages"],
+              "properties": {
+                "group_chat_id": { "type": "string" },
+                "name": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "created_at": { "type": "string" },
+                "group_max_messages": { "type": "integer", "minimum": 0 }
+              },
+              "additionalProperties": false
+            },
+            // 无活跃讨论轮次时为 null。
+            "round": {
+              "anyOf": [{ "$ref": "#/$defs/RoundSnapshot" }, { "type": "null" }]
+            },
+            "online_characters": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/OnlineCharacter" }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    // 成员加入通知（无 id；params 携带角色摘要）。
+    "CharacterJoined": {
+      "type": "object",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "character_joined" },
+        "params": {
+          "type": "object",
+          "required": ["character"],
+          "properties": {
+            "character": { "$ref": "#/$defs/CharacterSummary" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    // 成员离开通知（无 id；reason 区分主动离开/断线）。
+    "CharacterLeft": {
+      "type": "object",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "character_left" },
+        "params": {
+          "type": "object",
+          "required": ["character", "reason"],
+          "properties": {
+            "character": { "$ref": "#/$defs/CharacterSummary" },
+            "reason": {
+              "anyOf": [
+                { "type": "string", "const": "left" },
+                { "type": "string", "const": "disconnected" }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    // #123：系统消息（ready 后欢迎语单播；通知帧无 id）。params 仅 content——
+    // 非公共消息：无 sequence/round/source，不落消息流、不计轮次（WL1 语义）。
+    "SystemMessage": {
+      "type": "object",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "system_message" },
+        "params": {
+          "type": "object",
+          "required": ["content"],
+          "properties": {
+            "content": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    // 群聊关闭通知（无 id；owner 终止群聊时广播，消费端 finishDisconnected）。
+    "GroupChatClosed": {
+      "type": "object",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "group_chat_closed" },
+        "params": {
+          "type": "object",
+          "required": ["group_chat_id"],
+          "properties": {
+            "group_chat_id": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    // 公共消息帧（无 id 通知；sequence 单调递增、消息流唯一水位载体）。
+    "PublicMessage": {
+      "type": "object",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "public_message" },
+        "params": {
+          "type": "object",
+          "required": ["event_id", "sequence", "timestamp", "sender", "content", "round"],
+          "properties": {
+            "event_id": { "type": "string" },
+            "sequence": { "type": "integer", "minimum": 1 },
+            "timestamp": { "type": "string" },
+            "sender": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": ["type"],
+                  "properties": {
+                    "type": { "type": "string", "const": "user_persona" }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": ["type", "character_id", "name"],
+                  "properties": {
+                    "type": { "type": "string", "const": "character" },
+                    "character_id": { "type": "string" },
+                    "name": { "type": "string" }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            },
+            // #97 来源显式化（S1）：群聊消息显式携带 source="group"；缺省 =
+            // 视为 group（旧消息/旧客户端向后兼容，不拒帧）。
+            "source": { "type": "string", "const": "group" },
+            "content": { "type": "string" },
+            "round": { "$ref": "#/$defs/RoundSnapshot" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    // message_history 推送（join 后最近 10 条 + cursor 续页；ISSUE-008）。
+    "MessageHistory": {
+      "type": "object",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "message_history" },
+        "params": {
+          "type": "object",
+          "required": ["messages", "cursor", "has_more", "total_messages"],
+          "properties": {
+            "messages": { "type": "array", "items": { "$ref": "#/$defs/PublicMessage" } },
+            "cursor": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+            "has_more": { "type": "boolean" },
+            "total_messages": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    // get_message_history 响应（显式翻页请求，cursor 向更早推进）。
+    "GetMessageHistoryResponse": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "id": { "$ref": "#/$defs/RequestId" },
+        "result": {
+          "type": "object",
+          "required": ["messages", "cursor", "has_more", "total_messages"],
+          "properties": {
+            "messages": { "type": "array", "items": { "$ref": "#/$defs/PublicMessage" } },
+            "cursor": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+            "has_more": { "type": "boolean" },
+            "total_messages": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    // fetch_messages_since 响应（增量拉取：seq > since 全部消息 + 最新水位）。
+    "FetchMessagesSinceResponse": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "id": { "$ref": "#/$defs/RequestId" },
+        "result": {
+          "type": "object",
+          "required": ["messages", "latest_sequence", "total_messages"],
+          "properties": {
+            "messages": { "type": "array", "items": { "$ref": "#/$defs/PublicMessage" } },
+            "latest_sequence": { "type": "integer", "minimum": 0 },
+            "total_messages": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    // group_chat_update 通知（拉取触发标记 + preview + 最新水位；#64 纯标记）。
+    "GroupChatUpdate": {
+      "type": "object",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "group_chat_update" },
+        "params": {
+          "type": "object",
+          "required": ["latest_sequence", "preview_messages", "total_messages"],
+          "properties": {
+            "latest_sequence": { "type": "integer", "minimum": 0 },
+            "preview_messages": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/PublicMessage" }
+            },
+            "total_messages": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    // get_chat_history_file 响应（聊天记录文件绝对路径）。
+    "GetChatHistoryFileResponse": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "id": { "$ref": "#/$defs/RequestId" },
+        "result": {
+          "type": "object",
+          "required": ["path"],
+          "properties": {
+            "path": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    // speak 响应三态：
+    // - published:true 成功含 event_id/sequence/latest_sequence（回声被过滤，
+    //   游标不会自行推进，latest_sequence 让客户端把 last-seen 推进到自己消息之后，
+    //   而不会被误判为 stale——ISSUE-013 B6）
+    // - published:false + round_limit_reached（拒绝镜像，hand_raised:true）
+    // - published:false + stale（业务拒绝而非协议错误；只携带缺失的 sequence
+    //   区间，客户端经 fetch_messages_since 拉增量——ISSUE-013 B2）
+    "SpeakResponse": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": ["jsonrpc", "id", "result"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "result": {
+              "type": "object",
+              "required": ["published", "event_id", "sequence", "round", "latest_sequence"],
+              "properties": {
+                "published": { "type": "boolean", "const": true },
+                "event_id": { "type": "string" },
+                "sequence": { "type": "integer", "minimum": 1 },
+                "round": { "$ref": "#/$defs/RoundSnapshot" },
+                "latest_sequence": { "type": "integer", "minimum": 1 }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["jsonrpc", "id", "result"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "result": {
+              "type": "object",
+              "required": ["published", "reason", "hand_raised", "round"],
+              "properties": {
+                "published": { "type": "boolean", "const": false },
+                "reason": { "type": "string", "const": "round_limit_reached" },
+                "hand_raised": { "type": "boolean", "const": true },
+                "round": { "$ref": "#/$defs/RoundSnapshot" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["jsonrpc", "id", "result"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "result": {
+              "type": "object",
+              "required": ["published", "reason", "missing_sequences", "round"],
+              "properties": {
+                "published": { "type": "boolean", "const": false },
+                "reason": { "type": "string", "const": "stale" },
+                "missing_sequences": {
+                  "type": "object",
+                  "required": ["from", "to"],
+                  "properties": {
+                    "from": { "type": "integer", "minimum": 0 },
+                    "to": { "type": "integer", "minimum": 1 }
+                  },
+                  "additionalProperties": false
+                },
+                "round": { "$ref": "#/$defs/RoundSnapshot" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    // 服务端消息全量判别联合（20 分支）：响应帧（id 关联请求）+ 通知帧（无 id）。
+    "ServerMessage": {
+      "anyOf": [
+        { "$ref": "#/$defs/JoinGroupChatResponse" },
+        { "$ref": "#/$defs/ClaimCharacterResponse" },
+        { "$ref": "#/$defs/EmptySuccessResponse" },
+        { "$ref": "#/$defs/ReadyResponse" },
+        { "$ref": "#/$defs/FailureResponse" },
+        { "$ref": "#/$defs/GroupChatStateResponse" },
+        { "$ref": "#/$defs/GetMessageHistoryResponse" },
+        { "$ref": "#/$defs/FetchMessagesSinceResponse" },
+        { "$ref": "#/$defs/GetChatHistoryFileResponse" },
+        { "$ref": "#/$defs/SpeakResponse" },
+        { "$ref": "#/$defs/CharacterJoined" },
+        { "$ref": "#/$defs/CharacterLeft" },
+        { "$ref": "#/$defs/SystemMessage" },
+        { "$ref": "#/$defs/GroupChatClosed" },
+        { "$ref": "#/$defs/MessageHistory" },
+        { "$ref": "#/$defs/PublicMessage" },
+        { "$ref": "#/$defs/GroupChatUpdate" },
+        { "$ref": "#/$defs/BoardWriteResponse" },
+        { "$ref": "#/$defs/BoardQueryResponse" },
+        { "$ref": "#/$defs/BoardUpdate" }
+      ]
+    }
+  }
+}

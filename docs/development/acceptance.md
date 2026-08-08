@@ -164,6 +164,16 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 
 验收方式：acceptance 断言存在且非空 + 单测 + check 全绿 + 协议文档无语义分歧。
 
+### 文档生成化（#145，PM 布置，2026-08-08 开工，docs-first 定稿：TypeDoc + 协议定义文件双轨）
+
+1. **D1 docs:api 可生成且含 protocol 层导出**：`npm run docs:api` 0 errors，docs/api/ 产物含 ClientMessageSchema/ServerMessageSchema 等全 Schema 导出（docs/api/ 为生成物不入库，.gitignore）；
+2. **D2 协议定义文件为唯一手写处（docs-first，2026-08-08 苍蓝星拍板）**：src/protocol/schema/*.jsonc（common/client/server/board 4 文件）含全部消息格式定义与注释；程序用 schema 由翻译器（generate-schema）自动生成（src/protocol/generated/，含 "请勿手改" 声明）；改消息格式 = 只改定义文件 + 重新生成；
+3. **D3 翻译器等价保真**：生成产物与定义文件等价（等价抽验 20/20 + Arch 两道关卡 + 翻译器单测 14/14 覆盖全部类型构造）；minimum/required/additionalProperties/枚举等约束全保真；
+4. **D4 websocket-protocol.md 字段节引用定义文件**：信封/字段形状以 src/protocol/schema/*.jsonc 为权威（链接引用），时序/语义/边界节手写保留；字段节与定义文件抽样无语义分歧；
+5. **D5 收口门禁 + 消费链**：`npm run check` = biome --error-on-warnings && tsc && generate-schema --check（只读比较，改定义忘生成即红）全绿 exit 0；**消费链** = 定义文件 JSONC（唯一手写处）→ schema-merge（**生成期**加载合并）→ generated/schema.ts（生成产物）→ **codec 运行时 Compile**（直接消费生成产物，不 import 合并器）；messages.ts = re-export + Static 类型保留（消费面零改动）；旧生成链（docs:check 判空 / docs:schema 脚本 / docs/protocol/schema 产物）已退役。
+
+验收方式：acceptance 断言存在且非空 + 单测 + check 全绿 + 协议文档无语义分歧。
+
 ### 测试门控命令
 
 RPC 模式没有输入通道、也无法调用扩展工具，因此 `PITAVERN_TEST=1`（acceptance 门卫自动设置）时额外注册：
