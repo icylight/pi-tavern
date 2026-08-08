@@ -340,9 +340,14 @@ Character 已经被预留或已经在线等失败情况使用 pi-coding-agent �
 {
   "jsonrpc": "2.0",
   "id": "req-4",
-  "result": null
+  "result": {
+    "latest_sequence": 12
+  }
 }
 ```
+
+- `result.latest_sequence`（#144 方案 a，Optional 向后兼容）：角色**进入时刻**的公开消息水位（当前已聊到的最后一条序号）——客户端据此预置 Session 游标：进入前历史不自动注入（经 `tavern_history` 按需自查），进入时刻之后的消息一条不漏（增量拉取基线 = 进入时刻，误差窗口归零）。
+- 旧服务端/旧客户端兼容：缺省 `result: null` 时客户端回退「预置查询」路径（join 后一次 `fetchMessageHistoryPage(null)` 取水位 CAS 写，有毫秒级误差窗口，见「最近群聊消息」节）。
 
 处理 `character_ready` 时，群聊创建者原子执行：
 
