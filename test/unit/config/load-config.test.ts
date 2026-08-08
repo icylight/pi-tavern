@@ -147,6 +147,12 @@ describe("loadTavernConfig", () => {
 			expect(blank.welcomeMessage).toBeUndefined();
 		});
 
+		it("W2b P1-3 反例：项目空白 + 全局有效 → 全局生效（归一化在合并前，回退链不截断）", async () => {
+			const root = await createTemporaryDirectory();
+			const config = await configWithWelcome(root, "", "全局欢迎");
+			expect(config.welcomeMessage).toBe("全局欢迎");
+		});
+
 		it("W3 超 WebSocket 帧上限的完整信封 → 配置错误 fail-fast", async () => {
 			const root = await createTemporaryDirectory();
 			// 1 MiB+ 字符：信封（jsonrpc/method/params 包裹 + 转义膨胀）必然超限。
