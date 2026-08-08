@@ -267,7 +267,7 @@ flowchart LR
 - 首版不提供独立的 Group 实体——成员关系绑定在群聊实例上。
 - 不提供每角色保底发言机会；不提供接收者列表广播。
 - 通知携带的公共消息预览不直接注入 Agent 上下文：完整正文由扩展拉取；闲态经固定窗口聚合，忙态在 steer 安全边界打断并 settle 后一次拉全。
-- 消息上限 64 KiB；加入时首个历史分页最多携带 100 条，存在更早消息时由扩展继续分页获取。
+- 消息上限 64 KiB；加入时不再自动推送历史（#123）：历史经 `get_message_history` / `fetch_messages_since` 主动分页获取（每页 10 条，游标不重不漏）；ready 后单播一条 `system_message` 欢迎语（内容可配置，项目 > 全局 > 默认）。
 - 无 `disconnected`/`reconnecting` 状态——连接断开直接清理回 `idle`。
 - 无独立全屏 TUI；创建者 Pi 复用 pi 原生界面。
 - 固定 `references/pi` 版本（测试门禁锚定）。
