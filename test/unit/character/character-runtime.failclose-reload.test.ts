@@ -100,7 +100,7 @@ describe("CharacterRuntime reload 延续后 fail-close（#139 方案 B 回归）
 	/** 跨 reload 构造新 runtime（detach → takeHandoff，连接延续）。 */
 	async function reloadRuntime(runtime: CharacterRuntime, socket: MockSocket): Promise<CharacterRuntime> {
 		const handoff = await runtime.detachForReload("session-2");
-		const taken = await CharacterRuntime.takeHandoff(handoff, undefined, () => undefined);
+		const taken = await CharacterRuntime.takeHandoff(handoff);
 		runtimes.push(taken);
 		return taken;
 	}

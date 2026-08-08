@@ -31,7 +31,7 @@ function createMockRuntime(
 		isAgentActive: false,
 		loadCursor: () => null,
 		saveCursor: () => undefined,
-		fetchMessagesSince: async () => ({ messages: [], latestSequence: 0, totalMessages: 0 }),
+		fetchMessagesSince: async () => ({ messages: [], latestSequence: 0, totalMessages: 0, contextCount: 0 }),
 		refreshGroupChatState: async () => undefined,
 	} as unknown as CharacterRuntime;
 }
@@ -82,7 +82,7 @@ describe("GroupChatInput #85 J1 长工具循环忙态投递回归", () => {
 			for (let seq = since + 1; seq <= latestSeq; seq += 1) {
 				messages.push(aPublicMessage(seq));
 			}
-			return { messages, latestSequence: latestSeq, totalMessages: latestSeq };
+			return { messages, latestSequence: latestSeq, totalMessages: latestSeq, contextCount: 0 };
 		});
 		runtime.isAgentActive = true;
 
