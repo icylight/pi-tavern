@@ -32,6 +32,7 @@ import {
  */
 export const JSONRPC_VERSION = "2.0";
 
+/** 角色摘要（join 响应 available_characters 成员 / 成员通知 character 字段）。 */
 export const CharacterSummarySchema = Type.Object(
 	{
 		character_id: Type.String(),
@@ -43,6 +44,7 @@ export const CharacterSummarySchema = Type.Object(
 
 export type CharacterSummaryMessage = Static<typeof CharacterSummarySchema>;
 
+/** 在线角色（group_chat_state 的 members 成员；is_self = 本 session 身份）。 */
 export const OnlineCharacterSchema = Type.Object(
 	{
 		character_id: Type.String(),
@@ -86,6 +88,10 @@ export const ProtocolErrorObjectSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/**
+ * 客户端消息判别联合（#119 M1 信封层校验）：request 带 id + method + params
+ * （update_character_state 为无 id notification）；未知 method / 形状 fail-close。
+ */
 export const ClientMessageSchema = Type.Union([
 	Type.Object(
 		{
@@ -271,6 +277,7 @@ export type SpeakMessage = Extract<ClientMessage, { method: "speak" }>;
 /** 空成功响应 result（character_ready / leave_group_chat）。 */
 const NullResultSchema = Type.Null();
 
+/** join_group_chat 成功响应：available_characters = 群聊角色清单（#25 懒刷新入口）。 */
 const JoinGroupChatResponseSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
@@ -280,6 +287,7 @@ const JoinGroupChatResponseSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/** 已认领角色（claim 响应 result.character；join 后加载卡片用 path）。 */
 const ClaimedCharacterSchema = Type.Object(
 	{
 		character_id: Type.String(),
@@ -290,6 +298,7 @@ const ClaimedCharacterSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/** claim_character 成功响应：携带已认领角色摘要。 */
 const ClaimCharacterResponseSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
@@ -299,6 +308,7 @@ const ClaimCharacterResponseSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/** 空成功响应（leave_group_chat / character_ready 旧帧 result=null）。 */
 const EmptySuccessResponseSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
@@ -328,6 +338,7 @@ const FailureResponseSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/** get_group_chat_state 成功响应：群聊全量状态快照（TUI widget 投影源）。 */
 const GroupChatStateResponseSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
@@ -362,6 +373,7 @@ const GroupChatStateResponseSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/** 成员加入通知（无 id；params 携带角色摘要）。 */
 const CharacterJoinedSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
@@ -371,6 +383,7 @@ const CharacterJoinedSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/** 成员离开通知（无 id；reason 区分主动离开/断线）。 */
 const CharacterLeftSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
@@ -400,6 +413,7 @@ const SystemMessageSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/** 群聊关闭通知（无 id；owner 终止群聊时广播，消费端 finishDisconnected）。 */
 const GroupChatClosedSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
@@ -409,6 +423,7 @@ const GroupChatClosedSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/** 轮次快照（发言上限/已用/剩余；消息与 speak 响应内嵌）。 */
 const RoundSnapshotSchema = Type.Object(
 	{
 		round_max_messages: Type.Integer({ minimum: 0 }),
@@ -418,6 +433,7 @@ const RoundSnapshotSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/** 公共消息帧（无 id 通知；sequence 单调递增、消息流唯一水位载体）。 */
 const PublicMessageSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
@@ -446,6 +462,7 @@ const PublicMessageSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/** message_history 推送（join 后最近 10 条 + cursor 续页；ISSUE-008）。 */
 const MessageHistorySchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
@@ -463,6 +480,7 @@ const MessageHistorySchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/** get_message_history 响应（显式翻页请求，cursor 向更早推进）。 */
 const GetMessageHistoryResponseSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
@@ -480,6 +498,7 @@ const GetMessageHistoryResponseSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/** fetch_messages_since 响应（增量拉取：seq > since 全部消息 + 最新水位）。 */
 const FetchMessagesSinceResponseSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
@@ -496,6 +515,7 @@ const FetchMessagesSinceResponseSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/** group_chat_update 通知（拉取触发标记 + preview + 最新水位；#64 纯标记）。 */
 const GroupChatUpdateSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
@@ -512,6 +532,7 @@ const GroupChatUpdateSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/** get_chat_history_file 响应（聊天记录文件绝对路径）。 */
 const GetChatHistoryFileResponseSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
@@ -521,6 +542,7 @@ const GetChatHistoryFileResponseSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/** speak 响应两态（published:true 成功含 event_id/sequence；false + stale 拒绝镜像）。 */
 const SpeakResponseSchema = Type.Union([
 	Type.Object(
 		{
@@ -703,6 +725,10 @@ export const BoardUpdateSchema = Type.Union([
 	),
 ]);
 
+/**
+ * 服务端消息判别联合（#119 M1）：响应帧（id 关联请求）+ 通知帧（无 id，
+ * method 判别）。业务错误 = error 信封（10 码 + 库标准码）；未知形状 fail-close。
+ */
 export const ServerMessageSchema = Type.Union([
 	JoinGroupChatResponseSchema,
 	ClaimCharacterResponseSchema,
