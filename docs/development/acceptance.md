@@ -164,13 +164,13 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 
 验收方式：acceptance 断言存在且非空 + 单测 + check 全绿 + 协议文档无语义分歧。
 
-### 文档生成化（#145，PM 布置，2026-08-08 开工，TypeDoc + TypeBox JSON Schema 双轨）
+### 文档生成化（#145，PM 布置，2026-08-08 开工，docs-first 定稿：TypeDoc + 协议定义文件双轨）
 
 1. **D1 docs:api 可生成且含 protocol 层导出**：`npm run docs:api` 0 errors，docs/api/ 产物含 ClientMessageSchema/ServerMessageSchema 等全 Schema 导出（docs/api/ 为生成物不入库，.gitignore）；
-2. **D2 生成产物与 codec 同源一致**：schema JSON 产物（docs/protocol/schema/*.json）用 typebox/compile Compile 独立抽样对照（Client/Server/Board 样本 type/required/additionalProperties 逐项）——与 codec 校验同源；
-3. **D3 覆盖式生成语义（代码为准，2026-08-08 苍蓝星拍板：不比较不判空）**：`npm run docs:schema` 每次覆盖写 docs/protocol/schema/*.json——产物恒为代码当前状态的投影；协议 schema 变更时同步跑生成并提交产物（生成即规范形态，不手改产物）；
-4. **D4 websocket-protocol.md 字段节引用生成产物**：信封/字段形状以 docs/protocol/schema/*.json 为权威（链接引用），时序/语义/边界节手写保留；字段节与 schema JSON 抽样无语义分歧；
-5. **D5 收口门禁**：`npm run check` = biome && tsc 全绿 exit 0；docs:schema / docs:api 为手动生成命令（覆盖式，按需运行）。
+2. **D2 协议定义文件为唯一手写处（docs-first，2026-08-08 苍蓝星拍板）**：src/protocol/schema/*.jsonc（common/client/server/board 4 文件）含全部消息格式定义与注释；程序用 schema 由翻译器（generate-schema）自动生成（src/protocol/generated/，含 "请勿手改" 声明）；改消息格式 = 只改定义文件 + 重新生成；
+3. **D3 翻译器等价保真**：生成产物与定义文件等价（等价抽验 20/20 + Arch 两道关卡 + 翻译器单测 14/14 覆盖全部类型构造）；minimum/required/additionalProperties/枚举等约束全保真；
+4. **D4 websocket-protocol.md 字段节引用定义文件**：信封/字段形状以 src/protocol/schema/*.jsonc 为权威（链接引用），时序/语义/边界节手写保留；字段节与定义文件抽样无语义分歧；
+5. **D5 收口门禁 + 消费链**：`npm run check` = biome && tsc 全绿 exit 0；codec 从生成产物消费（合并器 → Compile）；messages.ts = re-export + Static 类型保留（消费面零改动）；旧生成链（docs:check 判空 / docs:schema 脚本 / docs/protocol/schema 产物）已退役。
 
 验收方式：acceptance 断言存在且非空 + 单测 + check 全绿 + 协议文档无语义分歧。
 
