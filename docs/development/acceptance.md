@@ -135,6 +135,13 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 4. **WL4 配置优先级链三档**：welcome_message 项目 `.pi/tavern.json` > 全局 `~/.pi/tavern.json` > 代码默认值；项目覆盖全局、全局覆盖默认、均缺省用默认，三档各验；
 5. **WL5 resume 投影窗口**：resume 场景历史投影恰 10 条（JOIN_HISTORY_LIMIT 100→10）；
 6. **WL6 信封一致**：system_message 走 #119 新信封（method/params），与 #97 source 扩展位兼容；websocket-protocol.md 同步。
+7. **WL7 ready 响应携带进入时刻水位（方案 a，User 拍板）**：
+   - WL7-1：character_ready 成功响应 result 含 `latest_sequence`（整数 ≥0 = 进入时刻水位）；旧帧（result: null）兼容——客户端回退查询预置路径，行为不降级；
+   - WL7-2：join 游标预置 = 进入时刻水位——无游标态消除；join 后新消息（>进入时刻）增量不重不漏到达，严格区间 = 预置完成后（业务场景：进场即知「聊到第几条」，之后一条不漏）；进入前历史属 WL8 主动查询域，不自动注入。
+8. **WL8 tavern_history 历史主动查询（P1-4）**：
+   - WL8-1：工具可用（角色状态）——分页 10 条/页、cursor 续页向更早、返回 has_more/total 元数据供 AI 自主决策；
+   - WL8-2：非 character 状态调用被拒绝（TOOL_NOT_JOINED_AS_CHARACTER 语义）；
+   - WL8-3：业务场景——新角色入场已有 12 条历史、随后无人发言：历史不自动注入，经 tavern_history 可分页完整拉取（10 + 续页 2），欢迎语含 tavern_history 指引。
 
 验收方式：acceptance 断言存在且非空 + 单测 + check 全绿 + 协议文档无语义分歧。
 
