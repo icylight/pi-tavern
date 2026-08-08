@@ -1,6 +1,6 @@
 # PiTavern Interaction Model
 
-本文记录当前已经确认的 PiTavern 交互逻辑。尚未确认的实现细节不在本文中预设。文中的名词遵循[术语规范](./terminology.md)。
+本文记录当前已经确认的 PiTavern 交互逻辑。尚未确认的实现细节不在本文中预设。文中的名词遵循[术语规范](../reference/terminology.md)。
 
 ## 产品形态
 

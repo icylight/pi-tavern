@@ -456,7 +456,7 @@ class CreatorRuntime {
 
 pi 原生 `SessionManager.create()` 可以在不立即创建 session 文件的情况下先建立内存 session 和预定文件路径，因此新群聊从创建时即可持有 `SessionManager`，同时保持第一条 User Persona 消息前没有群聊记录文件。
 
-第一条 User Persona 消息立即触发群聊专用 session 的首次落盘，不等待 Character 或任何 LLM 回复。首次落盘按照 [persistence.md](persistence.md) 已经确定的 `empty → started` 流程执行。
+第一条 User Persona 消息立即触发群聊专用 session 的首次落盘，不等待 Character 或任何 LLM 回复。首次落盘按照 [persistence.md](../reference/persistence.md) 已经确定的 `empty → started` 流程执行。
 
 ### 创建者 TUI 消息投影
 
@@ -1201,4 +1201,4 @@ quit 清理最多等待 5 秒通用短期协调超时。超时后不再等待远
 - Creator 失效由 Character 通过 WebSocket close 或心跳超时检测；
 - 残留活动描述由后续发现流程通过 PID 和实际 WebSocket 身份校验清理。
 
-具体运行状态及已经确认的产品转换规则见 [runtime-state-machine.md](runtime-state-machine.md)。
+具体运行状态及已经确认的产品转换规则见 [runtime-state-machine.md](../reference/runtime-state-machine.md)。
