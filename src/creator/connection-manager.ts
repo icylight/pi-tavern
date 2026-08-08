@@ -157,7 +157,7 @@ export class ConnectionManager {
 		let message: ClientMessage;
 		try {
 			message = decodeClientMessage(data);
-		} catch (e) {
+		} catch (_e) {
 			socket.close(1002, ERROR_PROTOCOL);
 			return;
 		}

@@ -54,7 +54,7 @@ export interface ReadyPipelineDependencies {
 export class ReadyPipeline {
 	constructor(private readonly deps: ReadyPipelineDependencies) {}
 
-	run(socket: WebSocket, connection: ReadyConnectionLike, message: CharacterReadyMessage): null {
+	run(socket: WebSocket, connection: ReadyConnectionLike, _message: CharacterReadyMessage): null {
 		const { sessionId, reservedCharacterId } = connection;
 		const character = reservedCharacterId ? this.deps.characters.get(reservedCharacterId) : undefined;
 		if (

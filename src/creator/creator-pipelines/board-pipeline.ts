@@ -117,7 +117,7 @@ export class BoardPipeline {
 	}
 
 	/** 成员资格校验（与 speak 管线同规）：非成员 / 未连接 = 协议级拒绝。 */
-	private requireOnlineCharacter(connection: BoardConnectionLike, message: { id?: string | number }): string {
+	private requireOnlineCharacter(connection: BoardConnectionLike, _message: { id?: string | number }): string {
 		if (!connection.online || connection.sessionId === null) {
 			throw new ResponseError(ERROR_CODE_NOT_IN_GROUP, ERROR_NOT_GROUP_MEMBER);
 		}

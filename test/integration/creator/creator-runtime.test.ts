@@ -1290,13 +1290,12 @@ describe("CreatorRuntime", () => {
 		});
 		const welcome = await welcomePromise;
 		expect(welcome.params).toEqual({
-			content: "欢迎来到 PiTavern 群聊！你可以发送公开消息（tavern_speak）与大家交流，也可以使用白板（tavern_board）记录要点。",
+			content:
+				"欢迎来到 PiTavern 群聊！你可以发送公开消息（tavern_speak）与大家交流，也可以使用白板（tavern_board）记录要点。",
 		});
 
 		// WL3：历史仍可主动拉取——get_message_history 无 cursor 返回最近 10 条窗口。
-		client.send(
-			JSON.stringify({ jsonrpc: "2.0", id: "4", method: "get_message_history", params: {} }),
-		);
+		client.send(JSON.stringify({ jsonrpc: "2.0", id: "4", method: "get_message_history", params: {} }));
 		const historyResponse = await waitForMessage(client, "response");
 		expect(historyResponse.error).toBeUndefined();
 		const historyParams = historyResponse.result as Record<string, unknown>;

@@ -40,7 +40,7 @@ export class QueryPipeline {
 	runGetGroupChatState(
 		socket: WebSocket,
 		connection: QueryConnectionLike,
-		message: Extract<ClientMessage, { method: "get_group_chat_state" }>,
+		_message: Extract<ClientMessage, { method: "get_group_chat_state" }>,
 	): unknown {
 		void socket;
 		if (!connection.online || connection.sessionId === null) {
@@ -161,7 +161,7 @@ export class QueryPipeline {
 	runGetChatHistoryFile(
 		socket: WebSocket,
 		connection: QueryConnectionLike,
-		message: Extract<ClientMessage, { method: "get_chat_history_file" }>,
+		_message: Extract<ClientMessage, { method: "get_chat_history_file" }>,
 	): { path: string } {
 		void socket;
 		if (!connection.online || connection.sessionId === null) {

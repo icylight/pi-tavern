@@ -114,7 +114,7 @@ const DISPATCH_TABLE: Readonly<Record<string, DispatchHandler>> = {
 		}
 		return new QueryPipeline(deps.queryDeps).runGetChatHistoryFile(socket, connection, message);
 	},
-	[UpdateCharacterStateNotification.method]: (deps, socket, connection, message) => {
+	[UpdateCharacterStateNotification.method]: (deps, _socket, connection, message) => {
 		if (message.method !== METHOD_UPDATE_CHARACTER_STATE) {
 			throw new Error(`dispatch table key mismatch: ${message.method}`);
 		}

@@ -36,10 +36,10 @@ function createMockSocket(): MockSocket {
 /** 从 mock socket 已发送帧中提取最近一次请求的 id（v9 库数字 id / schema 已放宽 string|number）。 */
 function lastRequestId(socket: MockSocket): string | number {
 	const sent = socket.sent.at(-1) as Record<string, unknown>;
-	if (typeof sent["id"] !== "string" && typeof sent["id"] !== "number") {
+	if (typeof sent.id !== "string" && typeof sent.id !== "number") {
 		throw new Error(`expected a request with string|number id, got ${JSON.stringify(sent)}`);
 	}
-	return sent["id"];
+	return sent.id;
 }
 
 function injectResponse(socket: MockSocket, id: string | number, payload: Record<string, unknown>): void {
@@ -104,7 +104,6 @@ describe("CharacterRuntime pending 响应按 method 校验（阻断②）", () =
 		const request = (runtime as unknown as { request(m: { method: string; params: unknown }): Promise<unknown> })
 			.request;
 		const promise = request.call(runtime, { method: "speak", params: { content: "hello" } });
-		const id = lastRequestId(socket);
 
 		// 断线：dispose 库内拒绝（-32097）→ request() 映射断线原因立即 reject。
 		socket.readyState = WebSocket.CLOSED;
