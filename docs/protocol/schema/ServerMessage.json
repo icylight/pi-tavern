@@ -1,0 +1,1875 @@
+{
+  "anyOf": [
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "result": {
+          "type": "object",
+          "required": [
+            "available_characters"
+          ],
+          "properties": {
+            "available_characters": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "character_id",
+                  "name",
+                  "description"
+                ],
+                "properties": {
+                  "character_id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "result": {
+          "type": "object",
+          "required": [
+            "character"
+          ],
+          "properties": {
+            "character": {
+              "type": "object",
+              "required": [
+                "character_id",
+                "name",
+                "description",
+                "path"
+              ],
+              "properties": {
+                "character_id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "result": {
+          "type": "null"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "result": {
+          "type": "object",
+          "required": [
+            "latest_sequence"
+          ],
+          "properties": {
+            "latest_sequence": {
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "error"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "error": {
+          "type": "object",
+          "required": [
+            "code",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "const": -32100
+                },
+                {
+                  "type": "number",
+                  "const": -32101
+                },
+                {
+                  "type": "number",
+                  "const": -32102
+                },
+                {
+                  "type": "number",
+                  "const": -32103
+                },
+                {
+                  "type": "number",
+                  "const": -32104
+                },
+                {
+                  "type": "number",
+                  "const": -32105
+                },
+                {
+                  "type": "number",
+                  "const": -32106
+                },
+                {
+                  "type": "number",
+                  "const": -32107
+                },
+                {
+                  "type": "number",
+                  "const": -32108
+                },
+                {
+                  "type": "number",
+                  "const": -32109
+                },
+                {
+                  "type": "number",
+                  "const": -32700
+                },
+                {
+                  "type": "number",
+                  "const": -32600
+                },
+                {
+                  "type": "number",
+                  "const": -32601
+                },
+                {
+                  "type": "number",
+                  "const": -32602
+                },
+                {
+                  "type": "number",
+                  "const": -32603
+                }
+              ]
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "result": {
+          "type": "object",
+          "required": [
+            "group_chat",
+            "round",
+            "online_characters"
+          ],
+          "properties": {
+            "group_chat": {
+              "type": "object",
+              "required": [
+                "group_chat_id",
+                "name",
+                "created_at",
+                "group_max_messages"
+              ],
+              "properties": {
+                "group_chat_id": {
+                  "type": "string"
+                },
+                "name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "group_max_messages": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            },
+            "round": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": [
+                    "round_max_messages",
+                    "used_messages",
+                    "remaining_messages"
+                  ],
+                  "properties": {
+                    "round_max_messages": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "used_messages": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "remaining_messages": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "online_characters": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "character_id",
+                  "name",
+                  "description",
+                  "is_self",
+                  "is_streaming",
+                  "hand_raised"
+                ],
+                "properties": {
+                  "character_id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "is_self": {
+                    "type": "boolean"
+                  },
+                  "is_streaming": {
+                    "type": "boolean"
+                  },
+                  "hand_raised": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "result": {
+          "type": "object",
+          "required": [
+            "messages",
+            "cursor",
+            "has_more",
+            "total_messages"
+          ],
+          "properties": {
+            "messages": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "jsonrpc",
+                  "method",
+                  "params"
+                ],
+                "properties": {
+                  "jsonrpc": {
+                    "type": "string",
+                    "const": "2.0"
+                  },
+                  "method": {
+                    "type": "string",
+                    "const": "public_message"
+                  },
+                  "params": {
+                    "type": "object",
+                    "required": [
+                      "event_id",
+                      "sequence",
+                      "timestamp",
+                      "sender",
+                      "content",
+                      "round"
+                    ],
+                    "properties": {
+                      "event_id": {
+                        "type": "string"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "timestamp": {
+                        "type": "string"
+                      },
+                      "sender": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "required": [
+                              "type"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "const": "user_persona"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "character_id",
+                              "name"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "const": "character"
+                              },
+                              "character_id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      "source": {
+                        "type": "string",
+                        "const": "group"
+                      },
+                      "content": {
+                        "type": "string"
+                      },
+                      "round": {
+                        "type": "object",
+                        "required": [
+                          "round_max_messages",
+                          "used_messages",
+                          "remaining_messages"
+                        ],
+                        "properties": {
+                          "round_max_messages": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "used_messages": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "remaining_messages": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "cursor": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "has_more": {
+              "type": "boolean"
+            },
+            "total_messages": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "result": {
+          "type": "object",
+          "required": [
+            "messages",
+            "latest_sequence",
+            "total_messages"
+          ],
+          "properties": {
+            "messages": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "jsonrpc",
+                  "method",
+                  "params"
+                ],
+                "properties": {
+                  "jsonrpc": {
+                    "type": "string",
+                    "const": "2.0"
+                  },
+                  "method": {
+                    "type": "string",
+                    "const": "public_message"
+                  },
+                  "params": {
+                    "type": "object",
+                    "required": [
+                      "event_id",
+                      "sequence",
+                      "timestamp",
+                      "sender",
+                      "content",
+                      "round"
+                    ],
+                    "properties": {
+                      "event_id": {
+                        "type": "string"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "timestamp": {
+                        "type": "string"
+                      },
+                      "sender": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "required": [
+                              "type"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "const": "user_persona"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "character_id",
+                              "name"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "const": "character"
+                              },
+                              "character_id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      "source": {
+                        "type": "string",
+                        "const": "group"
+                      },
+                      "content": {
+                        "type": "string"
+                      },
+                      "round": {
+                        "type": "object",
+                        "required": [
+                          "round_max_messages",
+                          "used_messages",
+                          "remaining_messages"
+                        ],
+                        "properties": {
+                          "round_max_messages": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "used_messages": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "remaining_messages": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "latest_sequence": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "total_messages": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "result": {
+          "type": "object",
+          "required": [
+            "path"
+          ],
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "jsonrpc",
+            "id",
+            "result"
+          ],
+          "properties": {
+            "jsonrpc": {
+              "type": "string",
+              "const": "2.0"
+            },
+            "id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "result": {
+              "type": "object",
+              "required": [
+                "published",
+                "event_id",
+                "sequence",
+                "round",
+                "latest_sequence"
+              ],
+              "properties": {
+                "published": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "event_id": {
+                  "type": "string"
+                },
+                "sequence": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "round": {
+                  "type": "object",
+                  "required": [
+                    "round_max_messages",
+                    "used_messages",
+                    "remaining_messages"
+                  ],
+                  "properties": {
+                    "round_max_messages": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "used_messages": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "remaining_messages": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "latest_sequence": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "jsonrpc",
+            "id",
+            "result"
+          ],
+          "properties": {
+            "jsonrpc": {
+              "type": "string",
+              "const": "2.0"
+            },
+            "id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "result": {
+              "type": "object",
+              "required": [
+                "published",
+                "reason",
+                "hand_raised",
+                "round"
+              ],
+              "properties": {
+                "published": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "reason": {
+                  "type": "string",
+                  "const": "round_limit_reached"
+                },
+                "hand_raised": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "round": {
+                  "type": "object",
+                  "required": [
+                    "round_max_messages",
+                    "used_messages",
+                    "remaining_messages"
+                  ],
+                  "properties": {
+                    "round_max_messages": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "used_messages": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "remaining_messages": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "jsonrpc",
+            "id",
+            "result"
+          ],
+          "properties": {
+            "jsonrpc": {
+              "type": "string",
+              "const": "2.0"
+            },
+            "id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "result": {
+              "type": "object",
+              "required": [
+                "published",
+                "reason",
+                "missing_sequences",
+                "round"
+              ],
+              "properties": {
+                "published": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "reason": {
+                  "type": "string",
+                  "const": "stale"
+                },
+                "missing_sequences": {
+                  "type": "object",
+                  "required": [
+                    "from",
+                    "to"
+                  ],
+                  "properties": {
+                    "from": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "to": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "round": {
+                  "type": "object",
+                  "required": [
+                    "round_max_messages",
+                    "used_messages",
+                    "remaining_messages"
+                  ],
+                  "properties": {
+                    "round_max_messages": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "used_messages": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "remaining_messages": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string",
+          "const": "character_joined"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "character"
+          ],
+          "properties": {
+            "character": {
+              "type": "object",
+              "required": [
+                "character_id",
+                "name",
+                "description"
+              ],
+              "properties": {
+                "character_id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string",
+          "const": "character_left"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "character",
+            "reason"
+          ],
+          "properties": {
+            "character": {
+              "type": "object",
+              "required": [
+                "character_id",
+                "name",
+                "description"
+              ],
+              "properties": {
+                "character_id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "left"
+                },
+                {
+                  "type": "string",
+                  "const": "disconnected"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string",
+          "const": "system_message"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "content"
+          ],
+          "properties": {
+            "content": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string",
+          "const": "group_chat_closed"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "group_chat_id"
+          ],
+          "properties": {
+            "group_chat_id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string",
+          "const": "message_history"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "messages",
+            "cursor",
+            "has_more",
+            "total_messages"
+          ],
+          "properties": {
+            "messages": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "jsonrpc",
+                  "method",
+                  "params"
+                ],
+                "properties": {
+                  "jsonrpc": {
+                    "type": "string",
+                    "const": "2.0"
+                  },
+                  "method": {
+                    "type": "string",
+                    "const": "public_message"
+                  },
+                  "params": {
+                    "type": "object",
+                    "required": [
+                      "event_id",
+                      "sequence",
+                      "timestamp",
+                      "sender",
+                      "content",
+                      "round"
+                    ],
+                    "properties": {
+                      "event_id": {
+                        "type": "string"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "timestamp": {
+                        "type": "string"
+                      },
+                      "sender": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "required": [
+                              "type"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "const": "user_persona"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "character_id",
+                              "name"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "const": "character"
+                              },
+                              "character_id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      "source": {
+                        "type": "string",
+                        "const": "group"
+                      },
+                      "content": {
+                        "type": "string"
+                      },
+                      "round": {
+                        "type": "object",
+                        "required": [
+                          "round_max_messages",
+                          "used_messages",
+                          "remaining_messages"
+                        ],
+                        "properties": {
+                          "round_max_messages": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "used_messages": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "remaining_messages": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "cursor": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "has_more": {
+              "type": "boolean"
+            },
+            "total_messages": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string",
+          "const": "public_message"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "event_id",
+            "sequence",
+            "timestamp",
+            "sender",
+            "content",
+            "round"
+          ],
+          "properties": {
+            "event_id": {
+              "type": "string"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "timestamp": {
+              "type": "string"
+            },
+            "sender": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": [
+                    "type"
+                  ],
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "user_persona"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "type",
+                    "character_id",
+                    "name"
+                  ],
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "character"
+                    },
+                    "character_id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "source": {
+              "type": "string",
+              "const": "group"
+            },
+            "content": {
+              "type": "string"
+            },
+            "round": {
+              "type": "object",
+              "required": [
+                "round_max_messages",
+                "used_messages",
+                "remaining_messages"
+              ],
+              "properties": {
+                "round_max_messages": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "used_messages": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "remaining_messages": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string",
+          "const": "group_chat_update"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "latest_sequence",
+            "preview_messages",
+            "total_messages"
+          ],
+          "properties": {
+            "latest_sequence": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "preview_messages": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "jsonrpc",
+                  "method",
+                  "params"
+                ],
+                "properties": {
+                  "jsonrpc": {
+                    "type": "string",
+                    "const": "2.0"
+                  },
+                  "method": {
+                    "type": "string",
+                    "const": "public_message"
+                  },
+                  "params": {
+                    "type": "object",
+                    "required": [
+                      "event_id",
+                      "sequence",
+                      "timestamp",
+                      "sender",
+                      "content",
+                      "round"
+                    ],
+                    "properties": {
+                      "event_id": {
+                        "type": "string"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "timestamp": {
+                        "type": "string"
+                      },
+                      "sender": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "required": [
+                              "type"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "const": "user_persona"
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "type",
+                              "character_id",
+                              "name"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "const": "character"
+                              },
+                              "character_id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      "source": {
+                        "type": "string",
+                        "const": "group"
+                      },
+                      "content": {
+                        "type": "string"
+                      },
+                      "round": {
+                        "type": "object",
+                        "required": [
+                          "round_max_messages",
+                          "used_messages",
+                          "remaining_messages"
+                        ],
+                        "properties": {
+                          "round_max_messages": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "used_messages": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "remaining_messages": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "total_messages": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "result": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": [
+                "changed"
+              ],
+              "properties": {
+                "changed": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "note": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "content"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": [
+                "changed",
+                "code"
+              ],
+              "properties": {
+                "changed": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "code": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "max_notes_exceeded"
+                    },
+                    {
+                      "type": "string",
+                      "const": "note_length_exceeded"
+                    },
+                    {
+                      "type": "string",
+                      "const": "note_not_found"
+                    },
+                    {
+                      "type": "string",
+                      "const": "board_empty"
+                    },
+                    {
+                      "type": "string",
+                      "const": "note_unchanged"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        },
+        "result": {
+          "type": "object",
+          "required": [
+            "boards"
+          ],
+          "properties": {
+            "boards": {
+              "type": "object",
+              "patternProperties": {
+                "^.*$": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "content"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "content": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "jsonrpc",
+            "method",
+            "params"
+          ],
+          "properties": {
+            "jsonrpc": {
+              "type": "string",
+              "const": "2.0"
+            },
+            "method": {
+              "type": "string",
+              "const": "board_update"
+            },
+            "params": {
+              "type": "object",
+              "required": [
+                "actor",
+                "action",
+                "note"
+              ],
+              "properties": {
+                "actor": {
+                  "type": "string"
+                },
+                "action": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "add"
+                    },
+                    {
+                      "type": "string",
+                      "const": "update"
+                    },
+                    {
+                      "type": "string",
+                      "const": "remove"
+                    }
+                  ]
+                },
+                "note": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "content"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "jsonrpc",
+            "method",
+            "params"
+          ],
+          "properties": {
+            "jsonrpc": {
+              "type": "string",
+              "const": "2.0"
+            },
+            "method": {
+              "type": "string",
+              "const": "board_update"
+            },
+            "params": {
+              "type": "object",
+              "required": [
+                "actor",
+                "action"
+              ],
+              "properties": {
+                "actor": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string",
+                  "const": "clear"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "anyOf": [
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string",
+          "const": "board_update"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "actor",
+            "action",
+            "note"
+          ],
+          "properties": {
+            "actor": {
+              "type": "string"
+            },
+            "action": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "add"
+                },
+                {
+                  "type": "string",
+                  "const": "update"
+                },
+                {
+                  "type": "string",
+                  "const": "remove"
+                }
+              ]
+            },
+            "note": {
+              "type": "object",
+              "required": [
+                "id",
+                "content"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string",
+          "const": "board_update"
+        },
+        "params": {
+          "type": "object",
+          "required": [
+            "actor",
+            "action"
+          ],
+          "properties": {
+            "actor": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string",
+              "const": "clear"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

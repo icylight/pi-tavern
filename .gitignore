@@ -13,3 +13,4 @@ tmp/
 *.key
 *.p12
 *.pfx
+docs/api/

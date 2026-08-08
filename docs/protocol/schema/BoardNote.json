@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "required": [
+    "id",
+    "content"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "content": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}
