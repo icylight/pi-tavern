@@ -45,6 +45,71 @@ afterEach(async () => {
 });
 
 describe("CreatorRuntime Character join lifecycle", () => {
+	it("#123 WL1/WL2 红钉：ready 后收 1 条 system_message 且不再自动推 message_history", async () => {
+		// 与 #123 指定默认文案一致（DEFAULT_WELCOME_MESSAGE 待实现落定后引用）。
+		const WELCOME = "欢迎来到 PiTavern 群聊！你可以发送公开消息（tavern_speak）与大家交流，也可以使用白板（tavern_board）记录要点。";
+
+		const runtime = await startRuntime();
+		const peer = await connectPeer(runtime);
+
+		peer.send({
+			jsonrpc: "2.0",
+			id: "join",
+			method: "join_group_chat",
+			params: { session_id: "session-1" },
+		});
+		expect(await peer.next()).toEqual({
+			jsonrpc: "2.0",
+			id: "join",
+			result: {
+				available_characters: characters.map(toSummaryMessage),
+			},
+		});
+
+		peer.send({
+			jsonrpc: "2.0",
+			id: "claim",
+			method: "claim_character",
+			params: { character_id: characters[0]?.characterId },
+		});
+		expect(await peer.next()).toEqual({
+			jsonrpc: "2.0",
+			id: "claim",
+			result: {
+				character: {
+					...toSummaryMessage(characters[0] as CharacterCard),
+					path: characters[0]?.path,
+				},
+			},
+		});
+
+		// ready 后帧序：响应 → system_message 单播 → character_joined 广播。
+		peer.send({ jsonrpc: "2.0", id: "ready", method: "character_ready" });
+		expect(await peer.next()).toEqual({
+			jsonrpc: "2.0",
+			id: "ready",
+			result: null,
+		});
+		expect(await peer.next()).toEqual({
+			jsonrpc: "2.0",
+			method: "system_message",
+			params: { content: WELCOME },
+		});
+		expect(await peer.next()).toEqual({
+			jsonrpc: "2.0",
+			method: "character_joined",
+			params: { character: toSummaryMessage(characters[0] as CharacterCard) },
+		});
+
+		expect(runtime.state.onlineCharacters.get("session-1")).toMatchObject({
+			sessionId: "session-1",
+			character: {
+				characterId: characters[0]?.characterId,
+				name: "Architect",
+			},
+		});
+	});
+
 	it("keeps a Character pending until ready, then exposes state and broadcasts", async () => {
 		const runtime = await startRuntime();
 		const peer = await connectPeer(runtime);

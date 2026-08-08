@@ -354,4 +354,39 @@ describe("PiTavern protocol codec", () => {
 			expect(() => decodeServerMessage(Buffer.from(JSON.stringify(badSource)))).toThrow(ProtocolError);
 		});
 	});
+
+	describe("system_message（#123 WL1/WL6，红钉）", () => {
+		// 与 #123 指定默认文案一致（DEFAULT_WELCOME_MESSAGE 待实现落定后引用）。
+		const WELCOME = "欢迎来到 PiTavern 群聊！你可以发送公开消息（tavern_speak）与大家交流，也可以使用白板（tavern_board）记录要点。";
+		const systemMessage = (params: Record<string, unknown>) => ({
+			jsonrpc: "2.0",
+			method: "system_message",
+			params,
+		});
+
+		it("W1 合法 system_message 通知帧解码通过且值可读（WL1 信封一致）", () => {
+			const frame = systemMessage({ content: WELCOME });
+			expect(decodeServerMessage(Buffer.from(JSON.stringify(frame)))).toEqual(frame);
+		});
+
+		it("W2 params 未知字段 fail-close（additionalProperties:false 严格校验）", () => {
+			expect(() =>
+				decodeServerMessage(Buffer.from(JSON.stringify(systemMessage({ content: WELCOME, extra: 1 })))),
+			).toThrow(ProtocolError);
+		});
+
+		it("W3 带 id 的 system_message 拒帧（通知不得携带 id，与 A4 同族）", () => {
+			expect(() =>
+				decodeServerMessage(
+					Buffer.from(JSON.stringify({ ...systemMessage({ content: WELCOME }), id: "req-1" })),
+				),
+			).toThrow(ProtocolError);
+		});
+
+		it("W4 缺 content 拒帧（params 仅 content 必填）", () => {
+			expect(() =>
+				decodeServerMessage(Buffer.from(JSON.stringify(systemMessage({})))),
+			).toThrow(ProtocolError);
+		});
+	});
 });
