@@ -173,6 +173,46 @@ describe("CharacterRuntime pending 响应按 method 校验（阻断②）", () =
 		const response = (await promise) as { result: { published: boolean } };
 		expect(response.result.published).toBe(true);
 	});
+
+	it("B4 发送路径 id 恒为数字且递增（#139 A 组转库行为验证——id 由库语义保证）", async () => {
+		const { runtime, socket } = createRuntime();
+		const request = (runtime as unknown as { request(m: { method: string; params: unknown }): Promise<unknown> })
+			.request;
+		const first = request.call(runtime, { method: "speak", params: { content: "a" } });
+		const firstId = lastRequestId(socket);
+		const second = request.call(runtime, { method: "speak", params: { content: "b" } });
+		const secondId = lastRequestId(socket);
+
+		// v9 库 sendRequest 数字自增 id：类型恒 number（schema 已放宽 string|number，
+		// 但库语义保证 = 数字且逐请求递增；codec 强制三态为防御纵深，双保险显式锚定）。
+		expect(typeof firstId).toBe("number");
+		expect(typeof secondId).toBe("number");
+		if (typeof firstId === "number" && typeof secondId === "number") {
+			expect(secondId).toBeGreaterThan(firstId);
+		}
+
+		// 清理两个 in-flight（注入正确响应使 settle，避免超时断链）。
+		injectResponse(socket, firstId, {
+			result: {
+				published: true,
+				event_id: "e1",
+				sequence: 1,
+				latest_sequence: 1,
+				round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
+			},
+		});
+		injectResponse(socket, secondId, {
+			result: {
+				published: true,
+				event_id: "e2",
+				sequence: 2,
+				latest_sequence: 2,
+				round: { round_max_messages: 10, used_messages: 2, remaining_messages: 8 },
+			},
+		});
+		await first;
+		await second;
+	});
 });
 
 describe("JoinAttempt pending 响应按 method 校验（阻断②同步）", () => {

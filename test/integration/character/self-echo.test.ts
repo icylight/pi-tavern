@@ -74,11 +74,15 @@ async function joinCharacter(
 	creator: CreatorRuntime,
 	character: CharacterCard,
 	sessionId: string,
+	options: { getFetchContextWindow?: () => number } = {},
 ): Promise<{ runtime: CharacterRuntime; pi: ExtensionAPI }> {
 	// cursorStorePath 必需：saveCursor 仅在有存储路径时推进内存游标（B6 同款）。
 	const root = await createTemporaryDirectory();
 	const cursorPath = join(root, "cursors", `${sessionId}.json`);
-	const attempt = await JoinAttempt.connect(creator.activeDescriptor, sessionId, { cursorStorePath: cursorPath });
+	const attempt = await JoinAttempt.connect(creator.activeDescriptor, sessionId, {
+		cursorStorePath: cursorPath,
+		...(options.getFetchContextWindow !== undefined ? { getFetchContextWindow: options.getFetchContextWindow } : {}),
+	});
 	const pi = createMockPi();
 	const runtime = await attempt.claimCharacter(character.characterId, pi);
 	return { runtime, pi };
@@ -192,4 +196,35 @@ describe("#68 self-echo", () => {
 		await creator.submitUserPersonaMessage("from user");
 		await waitFor(() => (runtime.loadCursor() ?? 0) >= 3);
 	});
+
+	it(
+		"E5/WL-F: 窗口旧他人消息 + 连续自身回显 → 不投递不唤醒（#146 P1 修复目标，红钉先行）",
+		{ timeout: 20_000 },
+		async () => {
+			const { creator, character } = await startCreator();
+			// seq 1 = 他人已读旧消息（进入前水位，join 预置游标 = 1 不投递）。
+			await creator.submitUserPersonaMessage("old other message");
+			const { runtime, pi } = await joinCharacter(creator, character, "session-e5", {
+				getFetchContextWindow: () => 1,
+			});
+			await settleJoin(runtime, pi);
+			const sendMessage = pi.sendMessage as ReturnType<typeof vi.fn>;
+			expect(runtime.isAgentActive).toBe(false);
+
+			// 自己连续 speak（seq 2..5，4 条回显）→ preview 只带最近 3 条（creator slice(-3)）
+			// → 第 4 条回声广播时 preview 截断（expected=4 > unseen=3）→ classifySelfPreview =
+			// incomplete-with-self → 保守拉取：since' = max(0, 1-1) = 0 → 返回
+			// [seq1 他人已读窗口, seq2-5 自身回显]。未读区间（>1）全为自身回显：
+			// 不得因窗口带入的 seq1 投递/唤醒 Agent（WL-F）。
+			for (let i = 0; i < 4; i += 1) {
+				const mine = await runtime.speak(`mine echo ${i}`);
+				expect(mine.published).toBe(true);
+			}
+
+			// 等待 idle 窗口（1s）+ 拉取完成（1.5s 余量）。
+			await new Promise((resolve) => setTimeout(resolve, 2_500));
+			expect(sendMessage).not.toHaveBeenCalled();
+			expect(runtime.isAgentActive).toBe(false);
+		},
+	);
 });

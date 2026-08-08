@@ -1,4 +1,3 @@
-import type { ServerMessage } from "../protocol/messages.js";
 import {
 	ERROR_UNEXPECTED_BOARD_QUERY_RESPONSE,
 	ERROR_UNEXPECTED_BOARD_WRITE_RESPONSE,
@@ -32,9 +31,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * 响应 result 形状判别（feed 前校验）：JSON-RPC response 无 method，库只按 id
- * 关联——同 id 错 result（board_query result 冒充 speak 等）必须 fail-close，
- * 不能 resolve 成错误形状让调用方踩 undefined/运行时异常。
+ * 响应 result 形状判别（#137 阻断② fail-close）：JSON-RPC 响应无 method，库
+ * sendRequest 只按 id 关联、不校验 result 形状——同 id 错 result（board_query
+ * result 冒充 speak 等）必须 fail-close，不能 resolve 成错误形状让调用方踩
+ * undefined/运行时异常。方法在 request() 调用点已知，故校验在解析时执行
+ * （#139 方案 B：feed 前拦截 + id→method 关联表删除，语义等价）。
  */
 export const RESPONSE_RESULT_MATCHERS: Record<string, (result: unknown) => boolean> = {
 	[METHOD_JOIN_GROUP_CHAT]: (result) => isRecord(result) && "available_characters" in result,
@@ -67,53 +68,14 @@ const RESPONSE_METHOD_ERRORS: Record<string, string> = {
 };
 
 /**
- * 请求 id → method 精确关联 + 响应 result 形状校验（feed 前 gate，owner =
- * JoinAttempt / CharacterRuntime 共用）。
- *
- * 精确关联：并发同 method 多请求互不干扰（T2 livelock 教训——集合近似在
- * 并发同 method 场景第一个 resolve 后清空 → 后续响应全丢 → pending 悬挂）。
- *
- * 丢弃决策 = 数据面操作，只允许精确关联：未知 id 响应（旧代际迟到帧）→ 喂
- * 库由库丢弃或结算旧 pending，不静默丢弃不误杀（连接跨 handoff 延续后 id
- * 单调，旧响应不可能撞新请求）。
+ * 解析时形状校验（#139 方案 B：替代 ResponseCorrelator feed 前拦截）。
+ * 返回 null = 形状匹配（正常 resolve）；返回 Error = 协议错位 fail-close
+ * （调用方以 ERROR_UNEXPECTED_* reject + 断链，不悬挂不静默）。
  */
-export class ResponseCorrelator {
-	private readonly pendingMethodById = new Map<string | number, string>();
-
-	/** writer 请求写出时登记（id → method）。 */
-	register(id: string | number, method: string): void {
-		this.pendingMethodById.set(id, method);
+export function validateResult(method: string, result: unknown): Error | null {
+	const matched = RESPONSE_RESULT_MATCHERS[method]?.(result) ?? false;
+	if (!matched) {
+		return new Error(RESPONSE_METHOD_ERRORS[method] ?? ERROR_UNEXPECTED_STATE_RESPONSE);
 	}
-
-	/** 响应已喂库（消费即删，防表膨胀；重复帧由库丢弃）。 */
-	consume(id: string | number): void {
-		this.pendingMethodById.delete(id);
-	}
-
-	clear(): void {
-		this.pendingMethodById.clear();
-	}
-
-	/**
-	 * 响应 gate：返回 null = 可喂 connection（正常路径）；返回 Error = 协议
-	 * 错位 fail-close——喂入之前必须按 error 关闭连接（库内 pending 经
-	 * dispose 立即拒绝，请求方拿到 ERROR_UNEXPECTED_*，不悬挂不静默）。
-	 */
-	gate(message: ServerMessage): Error | null {
-		if (!("result" in message) || "error" in message) {
-			// error 响应自描述（业务码 + 库标准码），无条件喂库。
-			return null;
-		}
-		const expectedMethod = this.pendingMethodById.get(message.id);
-		if (expectedMethod === undefined) {
-			// 未知 id（旧代际迟到响应或服务端异常帧）：喂库——库按 id 找
-			// pending（旧代际 = 结算死 pending；无 pending = 静默丢弃）。
-			return null;
-		}
-		const matched = RESPONSE_RESULT_MATCHERS[expectedMethod]?.(message.result) ?? false;
-		if (!matched) {
-			return new Error(RESPONSE_METHOD_ERRORS[expectedMethod] ?? ERROR_UNEXPECTED_STATE_RESPONSE);
-		}
-		return null;
-	}
+	return null;
 }

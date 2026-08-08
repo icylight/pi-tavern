@@ -30,7 +30,7 @@ function createMockRuntime(
 		saveCursor: () => undefined,
 		// P1-4 方案 a：进入时刻水位（新帧数字 / 旧帧 null）。mock 默认 null = 旧帧回退路径。
 		readyLatestSequence: null,
-		fetchMessagesSince: async () => ({ messages: [], latestSequence: 0, totalMessages: 0 }),
+		fetchMessagesSince: async () => ({ messages: [], latestSequence: 0, totalMessages: 0, contextCount: 0 }),
 		// #77：标记机制已删除（agent_start 无条件点亮）。
 		refreshGroupChatState: async () => undefined,
 	} as unknown as CharacterRuntime;
@@ -588,6 +588,7 @@ describe("GroupChatInput", () => {
 			messages: [aPublicMessage("user_persona", { sequence: since + 1 })],
 			latestSequence: since + 1,
 			totalMessages: since + 1,
+			contextCount: 0,
 		}));
 		runtime.loadCursor = vi.fn(() => 4);
 		runtime.saveCursor = vi.fn();
@@ -632,7 +633,7 @@ describe("GroupChatInput", () => {
 			const messages = [2, 3, 4, 5]
 				.filter((seq) => seq > since)
 				.map((seq) => aPublicMessage("user_persona", { sequence: seq }));
-			return { messages, latestSequence: 5, totalMessages: 5 };
+			return { messages, latestSequence: 5, totalMessages: 5, contextCount: 0 };
 		});
 		runtime.loadCursor = vi.fn(() => 1);
 		runtime.saveCursor = vi.fn();
@@ -680,6 +681,7 @@ describe("GroupChatInput", () => {
 			messages: [7].filter((seq) => seq > since).map((seq) => aPublicMessage("user_persona", { sequence: seq })),
 			latestSequence: 7,
 			totalMessages: 7,
+			contextCount: 0,
 		}));
 		let cursor = 6;
 		runtime.loadCursor = vi.fn(() => cursor);
@@ -748,6 +750,7 @@ describe("GroupChatInput", () => {
 			messages: [7, 8, 9].filter((seq) => seq > since).map((seq) => aPublicMessage("user_persona", { sequence: seq })),
 			latestSequence: 9,
 			totalMessages: 9,
+			contextCount: 0,
 		}));
 		runtime.isAgentActive = true;
 
@@ -809,9 +812,10 @@ describe("GroupChatInput", () => {
 					messages: [7, 8, 9].map((seq) => aPublicMessage("user_persona", { sequence: seq })),
 					latestSequence: 9,
 					totalMessages: 9,
+					contextCount: 0,
 				};
 			}
-			return { messages: [], latestSequence: since, totalMessages: since };
+			return { messages: [], latestSequence: since, totalMessages: since, contextCount: 0 };
 		});
 		let cursor = 6;
 		runtime.loadCursor = vi.fn(() => cursor);
@@ -897,6 +901,7 @@ describe("GroupChatInput", () => {
 			messages: [aPublicMessage("user_persona", { sequence: since + 1 })],
 			latestSequence: since + 1,
 			totalMessages: since + 1,
+			contextCount: 0,
 		}));
 		runtime.isAgentActive = true;
 		const input = new GroupChatInput(runtime, pi);
@@ -933,7 +938,7 @@ describe("GroupChatInput", () => {
 			await new Promise<void>((resolveWait) => {
 				resolveFirst = resolveWait;
 			});
-			return { messages: [], latestSequence: calls, totalMessages: calls };
+			return { messages: [], latestSequence: calls, totalMessages: calls, contextCount: 0 };
 		});
 		runtime.loadCursor = vi.fn(() => 0);
 		runtime.saveCursor = vi.fn();
@@ -988,6 +993,7 @@ describe("GroupChatInput", () => {
 			messages: [5, 6, 7].map((seq) => aPublicMessage("user_persona", { sequence: seq })),
 			latestSequence: 7,
 			totalMessages: 7,
+			contextCount: 0,
 		}));
 		runtime.loadCursor = vi.fn(() => 4);
 		runtime.saveCursor = vi.fn();
@@ -1034,6 +1040,7 @@ describe("GroupChatInput", () => {
 			messages: [aPublicMessage("user_persona", { sequence: (since as number) + 1 })],
 			latestSequence: (since as number) + 1,
 			totalMessages: (since as number) + 1,
+			contextCount: 0,
 		}));
 		runtime.loadCursor = vi.fn(() => 4);
 		runtime.saveCursor = vi.fn();
@@ -1075,6 +1082,7 @@ describe("GroupChatInput", () => {
 			messages: [],
 			latestSequence: 0,
 			totalMessages: 0,
+			contextCount: 0,
 		}));
 		runtime.fetchMessagesSince = fetchMock;
 		runtime.loadCursor = vi.fn(() => 4);
@@ -1124,6 +1132,7 @@ describe("GroupChatInput", () => {
 			messages: [5, 6, 7].filter((seq) => seq > since).map((seq) => aPublicMessage("user_persona", { sequence: seq })),
 			latestSequence: 7,
 			totalMessages: 7,
+			contextCount: 0,
 		}));
 		runtime.fetchMessagesSince = fetchMock;
 		runtime.loadCursor = vi.fn(() => 4);
@@ -1171,6 +1180,7 @@ describe("GroupChatInput", () => {
 			messages: [5, 6, 7].filter((seq) => seq > since).map((seq) => aPublicMessage("user_persona", { sequence: seq })),
 			latestSequence: 7,
 			totalMessages: 7,
+			contextCount: 0,
 		}));
 		runtime.fetchMessagesSince = fetchMock;
 		let cursor = 4;
@@ -1227,6 +1237,7 @@ describe("GroupChatInput", () => {
 			messages: [5].filter((seq) => seq > since).map((seq) => aPublicMessage("user_persona", { sequence: seq })),
 			latestSequence: 5,
 			totalMessages: 5,
+			contextCount: 0,
 		}));
 		runtime.fetchMessagesSince = fetchMock;
 		runtime.loadCursor = vi.fn(() => 4);
@@ -1283,6 +1294,7 @@ describe("GroupChatInput", () => {
 			messages: [5].filter((seq) => seq > since).map((seq) => aPublicMessage("user_persona", { sequence: seq })),
 			latestSequence: 5,
 			totalMessages: 5,
+			contextCount: 0,
 		}));
 		runtime.fetchMessagesSince = fetchMock;
 		runtime.loadCursor = vi.fn(() => 4);
@@ -1330,5 +1342,92 @@ describe("GroupChatInput", () => {
 		expect(fetchMock.mock.calls[0]?.[0]).toBe(4);
 
 		resumed.stop();
+	});
+
+	it("P1-F1 窗口含已读他人消息 + 连续自身回显 → 不投递不唤醒（#146 P1 评审回归，红钉）", async () => {
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({
+			getGroupChatState: async () => ({}),
+		});
+		// #138 窗口语义：since=4 前移 1 → 服务端返回 seq>3 的集合 = 已读游标自身
+		// （seq4 他人消息，窗口带入）+ 未读自身回显（seq5/seq6）。
+		runtime.fetchMessagesSince = vi.fn(
+			async (_since: number): Promise<Awaited<ReturnType<CharacterRuntime["fetchMessagesSince"]>>> => ({
+				messages: [
+					aPublicMessage("user_persona", { event_id: "evt-4", sequence: 4 }),
+					{
+						jsonrpc: "2.0",
+						method: "public_message",
+						params: {
+							event_id: "evt-5",
+							sequence: 5,
+							timestamp: "2026-01-01T00:00:00.000Z",
+							sender: { type: "character", character_id: "dev", name: "Dev" },
+							content: "Hello",
+							round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
+						},
+					},
+					{
+						jsonrpc: "2.0",
+						method: "public_message",
+						params: {
+							event_id: "evt-6",
+							sequence: 6,
+							timestamp: "2026-01-01T00:00:00.000Z",
+							sender: { type: "character", character_id: "dev", name: "Dev" },
+							content: "Hello",
+							round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
+						},
+					},
+				],
+				latestSequence: 6,
+				totalMessages: 6,
+				// P1-F1：seq4 = 已读窗口内容（contextCount=1），seq5/seq6 = 未读自身回显。
+				contextCount: 1,
+			}),
+		);
+		runtime.loadCursor = vi.fn(() => 4);
+		runtime.saveCursor = vi.fn();
+		runtime.isAgentActive = false;
+
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+
+		// preview 只带最近 1 条自身回显（latest=6 而 preview 仅 seq6）→
+		// classifySelfPreview = incomplete-with-self → 保守拉取（QA E5 同款场景）。
+		handler({
+			jsonrpc: "2.0",
+			method: "group_chat_update",
+			params: {
+				latest_sequence: 6,
+				preview_messages: [
+					{
+						jsonrpc: "2.0",
+						method: "public_message",
+						params: {
+							event_id: "evt-6",
+							sequence: 6,
+							timestamp: "2026-01-01T00:00:00.000Z",
+							sender: { type: "character", character_id: "dev", name: "Dev" },
+							content: "Hello",
+							round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
+						},
+					},
+				],
+				total_messages: 6,
+			},
+		} as unknown as ServerMessage);
+		await vi.advanceTimersByTimeAsync(1000);
+
+		// 修复目标（WL-F）：未读区间（>4）无可投递事件（全自身回显）→
+		// 不投递不唤醒，仅消费水位。修复前：messages 含 seq4 已读他人消息
+		// → 误投递（红钉首跑 1 failed 实证）。
+		expect(pi.sendMessage).not.toHaveBeenCalled();
+		expect(runtime.saveCursor).toHaveBeenCalledWith(6);
+
+		input.stop();
 	});
 });

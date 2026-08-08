@@ -58,7 +58,7 @@ import {
 } from "../shared/messages.js";
 import { GroupChatInput } from "./group-chat-input.js";
 import { CHARACTER_REQUEST_TYPES } from "./request-types.js";
-import { PENDING_RESPONSE_REJECTED_CODE, ResponseCorrelator } from "./response-gate.js";
+import { PENDING_RESPONSE_REJECTED_CODE, validateResult } from "./response-gate.js";
 
 export interface CharacterConnectionTransfer {
 	socket: WebSocket;
@@ -91,6 +91,13 @@ export interface PrepareCharacterRuntimeOptions {
 	agentWedgedTimeoutMs?: number;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	triggerDebounceMs?: number;
+	/**
+	 * #138：增量拉取上下文窗口 getter（getter 闭包注入，每轮拉取实时取值，
+	 * 非快照）。拉取起点前移至 max(0, cursor - window)——额外 N 条已读上下文
+	 * 不更新游标、不污染未读语义。缺省 undefined → 窗口 0（行为不变）；
+	 * 生产接线 = 客户端域组合根注入 getFetchContextWindow（默认 1）。
+	 */
+	getFetchContextWindow?: () => number;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
@@ -130,6 +137,8 @@ export class CharacterRuntime {
 	private readonly agentWedgedTimeoutMs: number;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	private readonly triggerDebounceMs: number | undefined;
+	/** #138：增量拉取上下文窗口 getter（undefined → 窗口 0，行为不变）。 */
+	private readonly getFetchContextWindow: (() => number) | undefined;
 	/** 新鲜状态快照到达后触发（TUI 刷新钩子）。 */
 	onStateSnapshot: ((snapshot: GroupChatStateMessage) => void) | undefined;
 	/**
@@ -162,8 +171,6 @@ export class CharacterRuntime {
 	 * 连接实例跨 owner 延续（JoinAttempt → runtime → reload 新 runtime），
 	 * 断线终态才 dispose。 */
 	private jsonrpcConnection: MessageConnection | null = null;
-	/** 请求 id → method 精确关联 + 响应形状校验（feed 前 gate，fail-close）。 */
-	private readonly responseCorrelator = new ResponseCorrelator();
 	/** reader 引用：响应帧 deliver 喂入 connection。 */
 	private jsonrpcReader: WebSocketMessageReader | null = null;
 	/** writer 引用：跨 handoff 延续时重设请求登记回调到新 owner。 */
@@ -248,6 +255,7 @@ export class CharacterRuntime {
 		this.cursorStorePath = options.cursorStorePath;
 		this.agentWedgedTimeoutMs = options.agentWedgedTimeoutMs ?? DEFAULT_AGENT_WEDGED_TIMEOUT_MS;
 		this.triggerDebounceMs = options.triggerDebounceMs;
+		this.getFetchContextWindow = options.getFetchContextWindow;
 	}
 
 	static prepare(options: PrepareCharacterRuntimeOptions): CharacterRuntime {
@@ -259,7 +267,6 @@ export class CharacterRuntime {
 	private attachJsonRpc(socket: WebSocket): void {
 		const reader = new WebSocketMessageReader();
 		const writer = new WebSocketMessageWriter(socket);
-		writer.setRequestWrittenHandler((id, method) => this.responseCorrelator.register(id, method));
 		const jsonrpcConnection = createMessageConnection(reader, writer);
 		this.jsonrpcConnection = jsonrpcConnection;
 		this.jsonrpcReader = reader;
@@ -268,13 +275,11 @@ export class CharacterRuntime {
 	}
 
 	/** #119 connection 延续：接管既有 JSON-RPC 连接（不重建 = 库内序列单调，
-	 * 代际 id 不撞车——评审阻断②）。writer 登记回调重指向本 runtime 的关联表。 */
+	 * 代际 id 不撞车——评审阻断②）。 */
 	private adoptJsonRpc(jsonrpc: CharacterJsonRpcTransfer): void {
-		this.responseCorrelator.clear();
 		this.jsonrpcConnection = jsonrpc.connection;
 		this.jsonrpcReader = jsonrpc.reader;
 		this.jsonrpcWriter = jsonrpc.writer;
-		jsonrpc.writer.setRequestWrittenHandler((id, method) => this.responseCorrelator.register(id, method));
 	}
 
 	activate(transfer: CharacterConnectionTransfer, pi?: ExtensionAPI): void {
@@ -468,16 +473,33 @@ export class CharacterRuntime {
 	 * 服务端按 sequence 过滤，因此漏掉的通知（gap）由下一次拉取补齐。
 	 * 连接中途断开时返回 null。
 	 */
-	async fetchMessagesSince(sinceSequence: number): Promise<{
+	/**
+	 * #138：拉取起点前移游标前 N 条已读上下文（方案 A，零协议变更）。
+	 * 额外 N 条仅作上下文窗口：不更新游标、不污染未读语义；前移只作用
+	 * 增量拉取路径（pageOlderHistory 走 fetchMessageHistoryPage，不叠加）。
+	 * 默认 0 行为不变（无注入/显式传 0 = 既有语义，测试零影响）。
+	 */
+	async fetchMessagesSince(
+		sinceSequence: number,
+		contextWindow: number = this.getFetchContextWindow?.() ?? 0,
+	): Promise<{
 		messages: ServerMessage[];
 		latestSequence: number;
 		totalMessages: number;
+		/**
+		 * #146 P1（Copilot）：前导上下文条数 = seq ≤ sinceSequence 的窗口内容
+		 * （含游标自身最近已读）。未读 = 本字段之后（seq > sinceSequence）。
+		 * 下游据此只在未读区间存在可投递事件时才携带上下文投递。
+		 */
+		contextCount: number;
 	} | null> {
+		// 前移起点 clamp 到 0（历史不足 N 条时取实际可用全量）。
+		const adjustedSince = Math.max(0, sinceSequence - contextWindow);
 		let response: ServerMessage;
 		try {
 			response = await this.request({
 				method: METHOD_FETCH_MESSAGES_SINCE,
-				params: { since_sequence: sinceSequence },
+				params: { since_sequence: adjustedSince },
 			});
 		} catch (error) {
 			if (this.disconnected) {
@@ -496,10 +518,17 @@ export class CharacterRuntime {
 			latest_sequence: number;
 			total_messages: number;
 		};
+		// #146 P1：上下文/未读分界 = 原始 since（窗口前移前的拉取起点）。
+		// 服务端按 sequence 升序返回（submit 原子 +1 无空洞），上下文恒为前缀。
+		const contextCount = data.messages.filter((m) => {
+			const sequence = "params" in m && (m.params as { sequence?: unknown }).sequence;
+			return typeof sequence === "number" && sequence <= sinceSequence;
+		}).length;
 		return {
 			messages: data.messages,
 			latestSequence: data.latest_sequence,
 			totalMessages: data.total_messages,
+			contextCount,
 		};
 	}
 
@@ -775,6 +804,8 @@ export class CharacterRuntime {
 			socket,
 			character: this.character,
 			...(this.cursorStorePath !== undefined ? { cursorStorePath: this.cursorStorePath } : {}),
+			// #138：上下文窗口 getter 跨 reload 携带（reload 后与 join 路径行为一致）。
+			...(this.getFetchContextWindow !== undefined ? { getFetchContextWindow: this.getFetchContextWindow } : {}),
 			// #119 connection 延续：连接实例随 handoff 移交（新 runtime 不重建——
 			// 库内序列单调，旧代际响应撞不上新请求 id，评审阻断②）。
 			...(this.jsonrpcConnection && this.jsonrpcReader && this.jsonrpcWriter
@@ -811,7 +842,6 @@ export class CharacterRuntime {
 			inflight.reject(new Error(ERROR_CONNECTION_CLOSED_DURING_RELOAD));
 		}
 		this.inflightRequests.clear();
-		this.responseCorrelator.clear();
 		this.jsonrpcConnection = null;
 		this.jsonrpcReader = null;
 		this.jsonrpcWriter = null;
@@ -860,6 +890,8 @@ export class CharacterRuntime {
 			sessionId: handoff.piSessionId,
 			character,
 			...(handoff.cursorStorePath !== undefined ? { cursorStorePath: handoff.cursorStorePath } : {}),
+			// #138：上下文窗口 getter 跨 reload 延续（reload 后与 join 路径行为一致）。
+			...(handoff.getFetchContextWindow !== undefined ? { getFetchContextWindow: handoff.getFetchContextWindow } : {}),
 		});
 		runtime.activateFromHandoff(handoff, pi);
 		return runtime;
@@ -996,6 +1028,15 @@ export class CharacterRuntime {
 		});
 		return withTimeout.then(
 			(result) => {
+				// #139 方案 B：解析时形状校验（method 调用点已知，替代 feed 前 gate）。
+				// 同 id 错 result = 协议错位 fail-close：显式 ERROR_UNEXPECTED_* reject +
+				// 断链（failConnection → finishDisconnected，其他 in-flight 经 dispose
+				// -32097 → disconnectError 路径，文案同源）。
+				const failCloseError = validateResult(message.method, result);
+				if (failCloseError) {
+					this.failConnection(failCloseError);
+					return Promise.reject(failCloseError);
+				}
 				return { jsonrpc: JSONRPC_VERSION, id: "", result } as ServerMessage;
 			},
 			(error) => {
@@ -1028,20 +1069,12 @@ export class CharacterRuntime {
 	}
 
 	private handleServerMessage(message: ServerMessage): void {
-		// #119 connection 接线：响应帧（result/error + id）喂 connection——
-		// 库按 id 关联原请求；通知帧（method）走本类消费（receivedMessages/
-		// 环境消息/群聊关闭）。
+		// #139 方案 B：响应帧直接喂 connection（库按 id 关联原请求，id 关联/丢弃
+		// 由库承担）；result 形状校验移到 request() 解析时（method 在调用点已知，
+		// 同 id 错 result 仍 fail-close——#137 阻断②语义保留）。error 自描述、
+		// 未知 id（旧代际迟到响应 / reload 缓冲重放）→ 库按 id 结算或丢弃；
+		// 代际隔离由连接延续保证。
 		if (("result" in message || "error" in message) && message.id !== undefined) {
-			// feed 前 gate：同 id 错 result 形状 = 协议错位 fail-close（立即拒绝 + 断
-			// 链，不静默丢弃不悬挂——评审阻断①）；error 自描述、未知 id（旧代际迟到
-			// 响应 / reload 缓冲重放）→ 喂库——库按 id 结算（旧 pending 已在 detach
-			// 显式取消 = resolve 无害）或丢弃；代际隔离由连接延续保证（阻断②⑨）。
-			const failCloseError = this.responseCorrelator.gate(message);
-			if (failCloseError) {
-				this.failConnection(failCloseError);
-				return;
-			}
-			this.responseCorrelator.consume(message.id);
 			this.jsonrpcReader?.deliver(message);
 			return;
 		}
@@ -1119,7 +1152,6 @@ export class CharacterRuntime {
 			inflight.reject(error ?? new Error(ERROR_CONNECTION_CLOSED));
 		}
 		this.inflightRequests.clear();
-		this.responseCorrelator.clear();
 		const jsonrpcConnection = this.jsonrpcConnection;
 		this.jsonrpcConnection = null;
 		this.jsonrpcReader = null;

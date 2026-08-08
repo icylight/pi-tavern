@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { type ExtensionAPI, type InputEventResult, SessionManager } from "@earendil-works/pi-coding-agent";
 import { setTestNotify } from "./character/group-chat-input.js";
+import { JoinAttempt } from "./character/join-attempt.js";
 import { registerCommands } from "./commands.js";
 import { TavernController } from "./controller/tavern-controller.js";
 import type { CreatorRuntime } from "./creator/creator-runtime.js";
@@ -64,7 +65,18 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	const triggerDebounceMs = Number(process.env.PITAVERN_TRIGGER_DEBOUNCE_MS ?? "1000");
 	const injectTriggerDebounce =
 		Number.isFinite(triggerDebounceMs) && triggerDebounceMs >= 0 ? triggerDebounceMs : undefined;
-	const ctrl = controller ?? new TavernController();
+	// #138：增量拉取上下文窗口——拉取起点前移游标前 N 条已读（默认 1，暂不配置）。
+	// getter 闭包注入（每轮拉取实时取值，非快照）；显式传入优先，undefined → 窗口 0 行为不变。
+	const DEFAULT_FETCH_CONTEXT_WINDOW = 1;
+	const getFetchContextWindow = () => DEFAULT_FETCH_CONTEXT_WINDOW;
+	const ctrl =
+		controller ??
+		new TavernController(undefined, (descriptor, sessionId, options) =>
+			JoinAttempt.connect(descriptor, sessionId, {
+				...options,
+				...(options.getFetchContextWindow === undefined ? { getFetchContextWindow } : {}),
+			}),
+		);
 	const presenter = new TavernUiPresenter();
 	// 组合根装配（ADR-0005 层方向，Phase 4）：adapter 行为默认实现在此注入——
 	// commands/headless 只留注入面与类型/纯函数导入。

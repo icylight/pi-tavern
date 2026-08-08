@@ -24,18 +24,21 @@
 | speak 断言宽收窄（W1） | 2026-08-06 W1 对抗验证（QA）：当前 3 种 result 形状全覆盖，未来新增 reason 分支会静默误分类 | 新增 reason 时同步 character 侧断言 | 待内嵌 |
 | claim 错误文案测试覆盖缺口（W6） | 2026-08-06 W6 对抗验证（QA）：acceptance 仅覆盖 claim 1 条，error.message 10 码映射同源有保障 | 补覆盖非 1 条 claim 错误路径的断言 | 待内嵌 |
 | preview 条目字段级断言不全 | 2026-08-06 Arch 弱点 3 对抗验证（QA）：content 只断一条，字段形状有 codec schema 兜底 | 低优先：对 round/sender/event_id 补字段级断言 | 待内嵌 |
-| 注入文案集中化（身份行/sourceLine/前缀 → shared/messages.ts） | 2026-08-08 #97 交付弱点自曝（后端）：buildContent 硬编码文案与 identity 既有惯例一致，未来文案集中管理时一并抽取 | 随常量集中化批次落地（#109 先例）；纯移动零行为变化 + 钉测保持 | 待内嵌 |
+| ~~注入文案集中化~~ | 2026-08-08 #97 交付弱点自曝（后端）：buildContent 硬编码文案与 identity 既有惯例一致，未来文案集中管理时一并抽取 | 随 #144 B2 落地：src/character/injection-text.ts 单一来源（PM 裁决方案 b，C 类红线留消费端） | 随 #144 落地 |
 | 去重路径压力测试 | 2026-08-06 Arch 弱点 4 对抗验证（QA）：message_history 展开 vs preview 交叉去重主路径已覆盖（T2/T3+paging） | 增强项：压力化覆盖交叉去重 | 待内嵌 |
 | writer.onRequestWritten 登记先于 OPEN 检查 | 2026-08-06 QA 独立抽查观察项：非 OPEN 场景登记未发出请求（pendingMethodById 残留），靠 failConnection/attachJsonRpc 清空兜底 | 低风险：可改登记顺序或补注释确认；无数据面危害 | 待内嵌 |
 | handler 异常端到端故障注入测试（-32603 路径） | 2026-08-06 二轮阻断④ 收敛（后端论证：error 帧不过 gate 结构性闭合；A5 钉 schema 接受） | 测试强度项：creator 侧故障注入普通 Error → 端到端验证 -32603 收敛 | 待内嵌 |
-| 存量 lint 欠账清理（9 文件：codec.ts/broadcast-hub.ts 等，biome 2.3.5 新报） | 2026-08-08 #123 code review 扫描（Arch 建议登记，PM 代登） | 随下一个碰触文件的批次顺手修（客户端 catch{} 已有先例），或收口统一 biome 版本对齐；不阻塞功能交付 | 待内嵌 |
+| ~~存量 lint 欠账清理~~（9 文件：codec.ts/broadcast-hub.ts 等，biome 2.3.5 新报） | 2026-08-08 #123 code review 扫描（Arch 建议登记，PM 代登） | 随 #144 B-4（ba0603c）清零 src 12 处 + test 6 处；main 验证 biome lint src test 全绿（118 files, 0 error） | 随 #144 落地 |
 | 欢迎语动态化（群名/在线成员/轮次状态入 system_message） | 2026-08-08 #123 第一性原理复盘（PM 提出，Arch 待复核） | 当前固定文本定位足够（群聊输入每轮注入状态不重复）；增强候选：welcome 内容模板化，含群名/在线成员数/轮次摘要 | 待内嵌 |
 | 协议文档生成化（typebox schema → JSON Schema → 文档渲染） | 2026-08-08 #144 P1-2 手写同步暴露（Arch 调研：vscode-jsonrpc 无注释生成功能；TypeBox ToJsonSchema 可输出 schema） | 结构化字段节改生成产物（schema 单一事实源），时序/语义/边界节保留手写——混合模式防文档漂移（P1-2 同类问题的根因级方案） | 待内嵌 |
 | BufferedWsClient.waitFor 超时基建缺陷（已修复，留痕） | 2026-08-08 #123 it1 定位（QA）：无新帧到达时 waiter 永不 resolve、deadline 永不检查——测试挂起而非报错 | 已修：独立 timer + 帧到达清除（ws-helper.ts）；后续新增 waiter 类基建照此模式 | 随 af19d8c 落地 |
 
 ## 已落地
 
-<!-- Arch 勾销：注明随哪个 commit/里程碑落地 -->
+| 优化点 | 落地记录 |
+| --- | --- |
+| 注入文案集中化（身份行/sourceLine/前缀 → shared/messages.ts） | 随 #144 B2 落地（src/character/injection-text.ts 单一来源，PM 裁决方案 b C 类红线留消费端，2026-08-08） |
+| 存量 lint 欠账清理（9 文件，biome 2.3.5 新报） | 随 #144 B-4 落地（ba0603c，src 12 处 + test 6 处；main biome lint 全绿验证，2026-08-08） |
 
 ## 不采纳（留痕理由）
 

@@ -78,6 +78,8 @@ export interface CharacterReloadHandoff {
 	character: CharacterCard;
 	/** M7 (ISSUE-012/#24)：跨 reload 携带的游标文件路径。 */
 	cursorStorePath?: string;
+	/** #138：增量拉取上下文窗口 getter（reload 移交后与 join 路径行为一致）。 */
+	getFetchContextWindow?: () => number;
 	pendingEvents: ServerMessage[];
 	debounceDueAt: number | null;
 	/** 可选仅为兼容这些字段加入前创建的跨版本 reload handoff。 */

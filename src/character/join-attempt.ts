@@ -26,7 +26,7 @@ import {
 } from "../shared/messages.js";
 import { type CharacterConnectionTransfer, CharacterRuntime } from "./character-runtime.js";
 import { CHARACTER_REQUEST_TYPES } from "./request-types.js";
-import { PENDING_RESPONSE_REJECTED_CODE, ResponseCorrelator } from "./response-gate.js";
+import { PENDING_RESPONSE_REJECTED_CODE, validateResult } from "./response-gate.js";
 
 export interface JoinAttemptOptions {
 	requestTimeoutMs?: number;
@@ -42,6 +42,8 @@ export interface JoinAttemptOptions {
 	cursorStorePath?: string;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	triggerDebounceMs?: number;
+	/** #138：增量拉取上下文窗口 getter（getter 闭包，每轮实时取值），转发给 CharacterRuntime。 */
+	getFetchContextWindow?: () => number;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
@@ -49,16 +51,14 @@ const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
 /**
  * join 三阶段握手（#119 #139 完整迁移）：join/claim/ready 经 vscode-jsonrpc
  * connection 发送（库内建 id 关联/超时取消），手工 pending/matcher 由
- * RequestManager 替代；响应 feed 前仍走 ResponseCorrelator 形状 gate——
- * 同 id 错 result fail-close（与 CharacterRuntime 同机制，阻断②回归保持）。
+ * RequestManager 替代；响应 result 形状校验在 request() 解析时执行（#139 方案 B，
+ * 同 id 错 result fail-close 语义保留，与 CharacterRuntime 同机制）。
  */
 export class JoinAttempt {
 	readonly availableCharacters: CharacterSummaryWire[];
 
 	private socket: WebSocket | null;
 	private readonly bufferedMessages: ServerMessage[] = [];
-	/** 请求 id → method 精确关联 + 形状校验（feed 前 gate，fail-close）。 */
-	private readonly responseCorrelator = new ResponseCorrelator();
 	private jsonrpcConnection: MessageConnection | null = null;
 	private jsonrpcReader: WebSocketMessageReader | null = null;
 	private jsonrpcWriter: WebSocketMessageWriter | null = null;
@@ -70,6 +70,7 @@ export class JoinAttempt {
 	private readonly heartbeatTimeoutMs: number | undefined;
 	private readonly cursorStorePath: string | undefined;
 	private readonly triggerDebounceMs: number | undefined;
+	private readonly getFetchContextWindow: (() => number) | undefined;
 	private transferred = false;
 	private closed = false;
 
@@ -90,14 +91,8 @@ export class JoinAttempt {
 			return;
 		}
 		if (("result" in message || "error" in message) && message.id !== undefined) {
-			// feed 前 gate：同 id 错 result 形状 = 协议错位 fail-close（立即拒绝 +
-			// 关闭，不悬挂）；error 自描述、未知 id 响应 → 喂库（库按 id 结算或丢弃）。
-			const failCloseError = this.responseCorrelator.gate(message);
-			if (failCloseError) {
-				void this.closeWithError(failCloseError);
-				return;
-			}
-			this.responseCorrelator.consume(message.id);
+			// #139 方案 B：响应帧直接喂库（id 关联/丢弃由库承担）；result 形状校验
+			// 在 request() 解析时（method 调用点已知）——同 id 错 result 仍 fail-close。
 			this.jsonrpcReader?.deliver(message);
 			return;
 		}
@@ -125,6 +120,7 @@ export class JoinAttempt {
 		this.heartbeatTimeoutMs = options.heartbeatTimeoutMs;
 		this.cursorStorePath = options.cursorStorePath;
 		this.triggerDebounceMs = options.triggerDebounceMs;
+		this.getFetchContextWindow = options.getFetchContextWindow;
 		this.socket.on("message", this.onMessage);
 		this.socket.on("close", this.onClose);
 		this.socket.on("error", this.onError);
@@ -132,7 +128,6 @@ export class JoinAttempt {
 		// （不重建 = 库内序列单调，代际 id 不撞车）。
 		const reader = new WebSocketMessageReader();
 		const writer = new WebSocketMessageWriter(socket);
-		writer.setRequestWrittenHandler((id, method) => this.responseCorrelator.register(id, method));
 		const jsonrpcConnection = createMessageConnection(reader, writer);
 		this.jsonrpcConnection = jsonrpcConnection;
 		this.jsonrpcReader = reader;
@@ -207,6 +202,7 @@ export class JoinAttempt {
 				...(this.heartbeatTimeoutMs !== undefined ? { heartbeatTimeoutMs: this.heartbeatTimeoutMs } : {}),
 				...(this.cursorStorePath !== undefined ? { cursorStorePath: this.cursorStorePath } : {}),
 				...(this.triggerDebounceMs !== undefined ? { triggerDebounceMs: this.triggerDebounceMs } : {}),
+				...(this.getFetchContextWindow !== undefined ? { getFetchContextWindow: this.getFetchContextWindow } : {}),
 			});
 			const readyResponse = await this.request({ method: METHOD_CHARACTER_READY, params: {} });
 			if ("error" in readyResponse) {
@@ -299,7 +295,6 @@ export class JoinAttempt {
 				socket.terminate();
 			}
 		}
-		this.responseCorrelator.clear();
 		// 断线终态 dispose connection：库内 pending 立即拒绝（-32097 →
 		// request 映射 closeError 收敛，不悬挂到超时）。
 		const jsonrpcConnection = this.jsonrpcConnection;
@@ -342,6 +337,14 @@ export class JoinAttempt {
 		});
 		return withTimeout.then(
 			(result) => {
+				// #139 方案 B：解析时形状校验（method 调用点已知，替代 feed 前 gate）。
+				// 同 id 错 result = 协议错位 fail-close：显式 ERROR_UNEXPECTED_* reject +
+				// 关链（closeWithError → dispose，其他 in-flight 经 -32097 → closeError）。
+				const failCloseError = validateResult(message.method, result);
+				if (failCloseError) {
+					void this.closeWithError(failCloseError);
+					return Promise.reject(failCloseError);
+				}
 				return { jsonrpc: JSONRPC_VERSION, id: "", result } as ServerMessage;
 			},
 			(error) => {

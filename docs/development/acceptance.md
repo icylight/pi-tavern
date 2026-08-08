@@ -143,6 +143,25 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
    - WL8-2：非 character 状态调用被拒绝（TOOL_NOT_JOINED_AS_CHARACTER 语义）；
    - WL8-3：业务场景——新角色入场已有 12 条历史、随后无人发言：历史不自动注入，经 tavern_history 可分页拉取（首页 10 条 + 元数据 has_more/total 供 AI 决策是否续页）；连续翻页（携 cursor 向更早）为独立逻辑，不在本条验收范围（2026-08-08 苍蓝星裁决）。
 
+### 拉取附加上下文窗口（#138，PM 布置，2026-08-08 开工，方案 A 零协议变更）
+
+1. **WL-A 上下文窗口注入**：进入后首拉（无游标）全量历史零改动；消费若干条后（游标=C）增量拉取注入 = 起点退 N 返回集——窗口含**游标自身最近已读**（sequence=C，重复出现属预期）+ 未读全量（>C 升序），无缺失无重复（2026-08-08 语义实证：服务端 `> since` 排他过滤，since'=max(0,C-N)）；
+2. **WL-B 游标隔离**：上述拉取后游标存储值不变（断言锚 = loadCursor() 存储值，非注入文本）；再次增量拉取窗口滑移——旧窗口消息移出、新窗口重复注入（跨 run 重复注入 = 预期设计，非缺陷）；
+3. **WL-C 历史翻页不叠加**：pageOlderHistory 翻页路径不受窗口影响（窗口仅作用增量拉取 pullIncrement）；
+4. **WL-D 默认 0 行为不变**：回调窗口=0（或无注入）时增量拉取只取未读，与现状逐字等价（既有测试零影响）；
+5. **WL-E reload 窗口延续**：reload 移交后上下文窗口仍生效（与 join 一致，对抗模式⑬：跨移交依赖显式转移）；reload 无 getter 时兜底窗口 0 行为不变；
+6. **WL-F 自身回显不唤醒（Copilot P1 修复目标）**：拉取窗口含旧他人消息 + 新增全为自身回显 → 不投递不唤醒 Agent（仅消费水位）——上下文与未读可区分，仅未读区间存在可投递事件时才携带上下文投递。
+
+验收方式：acceptance 断言存在且非空 + 单测 + check 全绿 + 协议文档无语义分歧。
+
+### createMessageConnection 收尾（#139，PM 布置，2026-08-08 开工，方案 B 零协议变更）
+
+1. **WL-A fail-close 保留**：同 id 错 result（board_query 冒充 speak 等）仍显式 reject ERROR_UNEXPECTED_* + 断链（#137 阻断② 红线，对抗模式⑪）；
+2. **WL-B 错误帧断线**：二进制帧 / 非法 JSON / 协议拒帧 → failConnection 断线（不悬挂不静默）；
+3. **WL-C reload 不绕过校验**：reload 延续连接（adopt 路径）上错形状响应仍 fail-close；正确响应正常 resolve；
+4. **WL-D 发送 id 库语义**：发送路径 id 恒为 number（v9 库数字自增）且逐请求递增；codec 三态强制保留为防御纵深；
+5. **WL-E 行为零变化**：三层全量对比——实现前后除新增钉外零失败（基线 81fc403 vs 实现后树）；10 码 ResponseError 映射、手工超时、-32097→disconnectError 文案均不变。
+
 验收方式：acceptance 断言存在且非空 + 单测 + check 全绿 + 协议文档无语义分歧。
 
 ### 测试门控命令

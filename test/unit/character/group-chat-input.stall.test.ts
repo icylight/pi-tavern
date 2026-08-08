@@ -14,7 +14,12 @@ import type { PublicMessage, ServerMessage } from "../../../src/protocol/message
 function createMockRuntime(
 	overrides: {
 		isAgentActive?: boolean;
-		fetchMessagesSince?: () => Promise<{ messages: ServerMessage[]; latestSequence: number; totalMessages: number }>;
+		fetchMessagesSince?: () => Promise<{
+			messages: ServerMessage[];
+			latestSequence: number;
+			totalMessages: number;
+			contextCount: number;
+		}>;
 	} = {},
 ): CharacterRuntime {
 	return {
@@ -83,7 +88,7 @@ describe("GroupChatInput #83 会话侧投递挂起（单飞行锁形态）", () 
 		});
 		const fetch = vi.fn(async () => {
 			await stalled;
-			return { messages: [aPublicMessage(6)], latestSequence: 6, totalMessages: 1 };
+			return { messages: [aPublicMessage(6)], latestSequence: 6, totalMessages: 1, contextCount: 0 };
 		});
 		const runtime = createMockRuntime({ fetchMessagesSince: fetch });
 		const pi = createMockPi();
@@ -122,9 +127,9 @@ describe("GroupChatInput #83 会话侧投递挂起（单飞行锁形态）", () 
 			calls += 1;
 			if (calls === 1) {
 				await stalled;
-				return { messages: [aPublicMessage(6)], latestSequence: 6, totalMessages: 1 };
+				return { messages: [aPublicMessage(6)], latestSequence: 6, totalMessages: 1, contextCount: 0 };
 			}
-			return { messages: [], latestSequence: 7, totalMessages: 0 };
+			return { messages: [], latestSequence: 7, totalMessages: 0, contextCount: 0 };
 		});
 		const runtime = createMockRuntime({ fetchMessagesSince: fetch, isAgentActive: true });
 		const pi = createMockPi();
@@ -155,7 +160,12 @@ describe("GroupChatInput #83 会话侧投递挂起（单飞行锁形态）", () 
 	});
 
 	it("S3: sendMessage 同步抛错（入队拒绝）→ 游标不推进（A5 双通道判定，settle 兜底重投）", async () => {
-		const fetch = vi.fn(async () => ({ messages: [aPublicMessage(6)], latestSequence: 6, totalMessages: 1 }));
+		const fetch = vi.fn(async () => ({
+			messages: [aPublicMessage(6)],
+			latestSequence: 6,
+			totalMessages: 1,
+			contextCount: 0,
+		}));
 		const runtime = createMockRuntime({ fetchMessagesSince: fetch, isAgentActive: true });
 		const pi = createMockPi();
 		// 入队拒绝（pi 队列不可用/取消瞬间）的同步抛错形态

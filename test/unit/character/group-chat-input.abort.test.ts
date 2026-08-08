@@ -21,7 +21,7 @@ function createMockRuntime(characterId = "dev"): CharacterRuntime {
 		isAgentActive: false,
 		loadCursor: () => null,
 		saveCursor: () => undefined,
-		fetchMessagesSince: async () => ({ messages: [], latestSequence: 0, totalMessages: 0 }),
+		fetchMessagesSince: async () => ({ messages: [], latestSequence: 0, totalMessages: 0, contextCount: 0 }),
 		refreshGroupChatState: async () => undefined,
 	} as unknown as CharacterRuntime;
 }
@@ -75,6 +75,7 @@ describe("GroupChatInput steer 安全边界打断", () => {
 			messages: [publicMessage(1), publicMessage(2)],
 			latestSequence: 2,
 			totalMessages: 2,
+			contextCount: 0,
 		}));
 		const pi = createMockPi();
 		const input = new GroupChatInput(runtime, pi);
@@ -141,6 +142,7 @@ describe("GroupChatInput steer 安全边界打断", () => {
 			messages: [1, 2, 3, 4].map((sequence) => publicMessage(sequence, "dev")),
 			latestSequence: 4,
 			totalMessages: 4,
+			contextCount: 0,
 		}));
 		const pi = createMockPi();
 		const input = new GroupChatInput(runtime, pi);
@@ -187,6 +189,7 @@ describe("GroupChatInput steer 安全边界打断", () => {
 			messages: [publicMessage(1)],
 			latestSequence: 1,
 			totalMessages: 1,
+			contextCount: 0,
 		}));
 		const pi = createMockPi();
 		const input = new GroupChatInput(runtime, pi, 1000);
@@ -227,6 +230,7 @@ describe("GroupChatInput steer 安全边界打断", () => {
 			messages: [publicMessage(1), ...[2, 3, 4].map((sequence) => publicMessage(sequence, "dev"))],
 			latestSequence: 4,
 			totalMessages: 4,
+			contextCount: 0,
 		}));
 		const pi = createMockPi();
 		const input = new GroupChatInput(runtime, pi, 1000);
@@ -267,6 +271,7 @@ describe("GroupChatInput steer 安全边界打断", () => {
 			messages: [publicMessage(1)],
 			latestSequence: 1,
 			totalMessages: 1,
+			contextCount: 0,
 		}));
 		const input = new GroupChatInput(runtime, createMockPi());
 		input.start();
@@ -300,6 +305,7 @@ describe("GroupChatInput steer 安全边界打断", () => {
 			messages: [],
 			latestSequence: 0,
 			totalMessages: 0,
+			contextCount: 0,
 		}));
 		const input = new GroupChatInput(runtime, createMockPi());
 		input.start();
