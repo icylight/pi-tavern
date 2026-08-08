@@ -68,12 +68,12 @@ function isMessageEnvelope(value: unknown): value is Message {
 		return false;
 	}
 	const record = value as Record<string, unknown>;
-	if (record["jsonrpc"] !== "2.0") {
+	if (record.jsonrpc !== "2.0") {
 		return false;
 	}
-	if (typeof record["method"] === "string") {
+	if (typeof record.method === "string") {
 		// 请求或通知：id 可选（string|number），params 可选
-		return isId(record["id"]);
+		return isId(record.id);
 	}
 	// 响应：id（可选）+ result 或 error 二选一
 	const hasResult = "result" in record;
@@ -81,7 +81,7 @@ function isMessageEnvelope(value: unknown): value is Message {
 	if (hasResult === hasError) {
 		return false;
 	}
-	return isId(record["id"]);
+	return isId(record.id);
 }
 
 function parseJson(data: RawData): unknown {

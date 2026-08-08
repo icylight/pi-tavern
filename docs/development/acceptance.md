@@ -121,11 +121,11 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 3. **S3 私聊无协议标识**：私聊消息无 `source` 字段/无群聊协议标记，角色侧可判定非群聊；私聊不进入公共消息流与持久化（回归 isolation 系）；
 4. **S4 判定确定性**：同输入重复解析来源判定一致；群聊判定不依赖隐式文本模式；
 5. **S5 处理规则落文档**：角色卡/workflow 私聊处理规则（不广播、需群知时显式发布并注明来源）；terminology.md 收录「私聊」；
-6. **S6 文档同步**：websocket-protocol.md 记录 source 字段与默认语义（契约变更四方已确认后生效）。
+6. **S6 文档同步**：websocket-protocol.md 记录 source 字段与默认语义（契约变更团队已确认后生效）。
 
 验收方式：acceptance 断言存在且非空 + 单测 + check 全绿 + 协议文档无语义分歧。
 
-> 注：注入变化影响 identity-consistency.test.ts:188 增量断言（welcome/来源声明后 speaker 一致，后端钉测扩展）与 abort-steer 注入解析；客户端集成层仅透传零代码变更。协议变更仍须遵守契约零漂移流程（四方确认后落 schema）。
+> 注：注入变化影响 identity-consistency.test.ts:188 增量断言（welcome/来源声明后 speaker 一致，后端钉测扩展）与 abort-steer 注入解析；客户端集成层仅透传零代码变更。协议变更仍须遵守契约零漂移流程（团队确认后落 schema）。
 
 ### 欢迎消息与历史行为（#123，PM 布置，P2 后置，验收条目 QA 提供场景文本）
 
@@ -135,6 +135,13 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 4. **WL4 配置优先级链三档**：welcome_message 项目 `.pi/tavern.json` > 全局 `~/.pi/tavern.json` > 代码默认值；项目覆盖全局、全局覆盖默认、均缺省用默认，三档各验；
 5. **WL5 resume 投影窗口**：resume 场景历史投影恰 10 条（JOIN_HISTORY_LIMIT 100→10）；
 6. **WL6 信封一致**：system_message 走 #119 新信封（method/params），与 #97 source 扩展位兼容；websocket-protocol.md 同步。
+7. **WL7 ready 响应携带进入时刻水位（方案 a，User 拍板）**：
+   - WL7-1：character_ready 成功响应 result 含 `latest_sequence`（整数 ≥0 = 进入时刻水位）；旧帧（result: null）兼容——客户端回退查询预置路径，行为不降级；
+   - WL7-2：join 游标预置 = 进入时刻水位——无游标态消除；join 后新消息（>进入时刻）增量不重不漏到达，严格区间 = 预置完成后（业务场景：进场即知「聊到第几条」，之后一条不漏）；进入前历史属 WL8 主动查询域，不自动注入。
+8. **WL8 tavern_history 历史主动查询（P1-4）**：
+   - WL8-1：工具可用（角色状态）——分页 10 条/页、cursor 续页向更早、返回 has_more/total 元数据供 AI 自主决策；
+   - WL8-2：非 character 状态调用被拒绝（TOOL_NOT_JOINED_AS_CHARACTER 语义）；
+   - WL8-3：业务场景——新角色入场已有 12 条历史、随后无人发言：历史不自动注入，经 tavern_history 可分页拉取（首页 10 条 + 元数据 has_more/total 供 AI 决策是否续页）；连续翻页（携 cursor 向更早）为独立逻辑，不在本条验收范围（2026-08-08 苍蓝星裁决）。
 
 验收方式：acceptance 断言存在且非空 + 单测 + check 全绿 + 协议文档无语义分歧。
 

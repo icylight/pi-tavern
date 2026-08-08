@@ -147,6 +147,16 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 					(e.widgetLines as string[])?.[0]?.startsWith("2 人在线") === true,
 				60_000,
 			);
+			// #123 适配（QA 属主，Arch 裁决）：join 注入批次（system_message +
+			// character_joined）触发一次群聊 turn（#77 正常机制——欢迎语可见性必需，
+			// 与有历史 join/白板更新同路径）——等该 turn 点亮「正在工作」并熄灭
+			// （settled 收敛）后再取 baseline，使窗口只覆盖后续 RPC 直聊回合。
+			// 断言意图不变：RPC turn 无 agent_start 不点亮（机制，非语义拒绝）。
+			await creator.waitFor((e) => widgetHasStreaming(e), 60_000);
+			await creator.waitFor(
+				(e) => e.type === "extension_ui_request" && e.method === "setWidget" && !widgetHasStreaming(e),
+				60_000,
+			);
 			const baseline = creator.countEvents();
 
 			// 直接 RPC 提示 = 用户直聊回合，而非群聊输入。

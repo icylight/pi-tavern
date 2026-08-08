@@ -180,6 +180,13 @@ export class CharacterRuntime {
 	private readonly heartbeatTimeoutMs: number;
 	private readonly cursorStorePath: string | undefined;
 	private cursorSequence: number | null = null;
+	/**
+	 * P1-4 方案 a：ready 响应携带的进入时刻水位（latest_sequence）。
+	 * 新帧有值 → 游标预置直接用（精确锚点，误差窗口归零）；旧帧 null →
+	 * 回退查询预置（双路径兼容旧服务端）。只读快照语义（join 时写入，
+	 * 值传豁免）。
+	 */
+	readyLatestSequence: number | null = null;
 
 	/**
 	 * ISSUE-013 B5：每轮 stale 自动恢复预算。按每次 speak 响应带回的轮次
@@ -380,7 +387,9 @@ export class CharacterRuntime {
 		try {
 			await this.getGroupChatState();
 		} catch {
-			// 仅刷新展示，不影响协议与成员资格。
+			// 仅刷新展示，不影响协议与成员资格。副作用注记：失败时
+			// lastGroupChatState 保持旧值（不置空），onStateSnapshot 不触发
+			// ——展示态陈旧可接受（下个消息边界重试），不静默清空缓存。
 		}
 	}
 
@@ -544,6 +553,9 @@ export class CharacterRuntime {
 	/**
 	 * M7：成功投递后持久化游标。写入是原子的（tmp 文件 + rename），
 	 * 写中途崩溃不会损坏游标；投递失败绝不能推进游标（重试语义）。
+	 * 内存先行窗口：cursorSequence 先推进、文件后写——写失败时同进程
+	 * loadCursor 仍回读新值（QA 场景 7 钉）；跨进程恢复以文件为准（
+	 * 内存先行不落盘则下次 join 从更早位置重拉，按 sequence 幂等）。
 	 */
 	saveCursor(sequence: number): void {
 		if (!this.cursorStorePath) {
@@ -1099,6 +1111,14 @@ export class CharacterRuntime {
 		// #119 connection 接线：断线终态 dispose connection——v9 实证 reader close
 		// 只置 Closed 不拒 pending，dispose() 才遍历 reject responsePromises
 		// （评审阻断③）。request() 把 -32097 映射为断线原因立即 reject。
+		// B3（W3 补全）：显式清本地 in-flight 登记（clearTimeout + reject 断线原因）
+		// ——与 detach 先例对称；dispose() 虽已拒库内 pending，但本地 timer 若不
+		// 清则悬挂至超时（QA 对抗坐实，超时兜底存在但延迟 5s）。
+		for (const inflight of this.inflightRequests) {
+			clearTimeout(inflight.timer);
+			inflight.reject(error ?? new Error(ERROR_CONNECTION_CLOSED));
+		}
+		this.inflightRequests.clear();
 		this.responseCorrelator.clear();
 		const jsonrpcConnection = this.jsonrpcConnection;
 		this.jsonrpcConnection = null;

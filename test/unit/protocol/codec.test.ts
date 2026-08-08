@@ -8,6 +8,8 @@ import {
 	ProtocolError,
 } from "../../../src/protocol/codec.js";
 
+import { DEFAULT_WELCOME_MESSAGE } from "../../../src/shared/constants.js";
+
 describe("PiTavern protocol codec", () => {
 	// #119 阻断①（苍蓝星 2026-08-06）：request/notification/response 三态 schema 区分。
 	// 红测先行：当前 RequestIdSchema = Optional，无 id 帧可通过 codec（红）；
@@ -352,6 +354,57 @@ describe("PiTavern protocol codec", () => {
 				},
 			};
 			expect(() => decodeServerMessage(Buffer.from(JSON.stringify(badSource)))).toThrow(ProtocolError);
+		});
+	});
+
+	describe("ready 响应携带 latest_sequence（#144 P1-4 方案 a，红钉）", () => {
+		it("ready 响应 result 含 latest_sequence（进入时刻水位）可解码", () => {
+			const frame = Buffer.from(
+				JSON.stringify({
+					jsonrpc: "2.0",
+					id: 5,
+					result: { latest_sequence: 12 },
+				}),
+			);
+			// 当前实现（EmptySuccess result: null）下红；方案 a 拆 ReadyResponseSchema 后绿。
+			expect(() => decodeServerMessage(frame)).not.toThrow();
+			const decoded = decodeServerMessage(frame);
+			expect(decoded).toEqual({ jsonrpc: "2.0", id: 5, result: { latest_sequence: 12 } });
+		});
+
+		it("旧帧兼容：result: null 仍可解码（双路径）", () => {
+			const frame = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: 5, result: null }));
+			expect(() => decodeServerMessage(frame)).not.toThrow();
+		});
+	});
+
+	describe("system_message（#123 WL1/WL6，红钉）", () => {
+		const WELCOME = DEFAULT_WELCOME_MESSAGE;
+		const systemMessage = (params: Record<string, unknown>) => ({
+			jsonrpc: "2.0",
+			method: "system_message",
+			params,
+		});
+
+		it("W1 合法 system_message 通知帧解码通过且值可读（WL1 信封一致）", () => {
+			const frame = systemMessage({ content: WELCOME });
+			expect(decodeServerMessage(Buffer.from(JSON.stringify(frame)))).toEqual(frame);
+		});
+
+		it("W2 params 未知字段 fail-close（additionalProperties:false 严格校验）", () => {
+			expect(() =>
+				decodeServerMessage(Buffer.from(JSON.stringify(systemMessage({ content: WELCOME, extra: 1 })))),
+			).toThrow(ProtocolError);
+		});
+
+		it("W3 带 id 的 system_message 拒帧（通知不得携带 id，与 A4 同族）", () => {
+			expect(() =>
+				decodeServerMessage(Buffer.from(JSON.stringify({ ...systemMessage({ content: WELCOME }), id: "req-1" }))),
+			).toThrow(ProtocolError);
+		});
+
+		it("W4 缺 content 拒帧（params 仅 content 必填）", () => {
+			expect(() => decodeServerMessage(Buffer.from(JSON.stringify(systemMessage({}))))).toThrow(ProtocolError);
 		});
 	});
 });

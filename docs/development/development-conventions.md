@@ -27,7 +27,7 @@
 
 可选用自动化工具辅助（pangu.js、autocorrect），但以人工审查为准。
 
-## package.json prepare 红线（四方收敛）
+## package.json prepare 红线（团队收敛）
 
 - `scripts.prepare` 的语义是**纯 husky 开发便利**（初始化 git hooks），不得混入构建/生成等必须步骤。
 - 现状容错形态：`"prepare": "husky || echo \"husky init skipped/inactive\" >&2 || true"`——pi 从 git 安装包时跑 `npm install --omit=dev`（不装 devDependencies，husky 为 devDep），prepare 在安装时必执行；`|| true` 保证 husky 缺失时静默跳过不报错（本地开发有 husky 时正常初始化 hooks）。

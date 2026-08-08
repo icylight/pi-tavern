@@ -33,7 +33,7 @@ export class JoinPipeline {
 	constructor(private readonly deps: JoinPipelineDependencies) {}
 
 	run(
-		socket: WebSocket,
+		_socket: WebSocket,
 		connection: JoinConnectionLike,
 		message: JoinGroupChatMessage,
 	): {

@@ -38,6 +38,8 @@ function creatorHandoff(piSessionId: string, expiresAt: number, cleanup: () => P
 		activeDescriptor: descriptor,
 		activeDescriptorPath: "/agent/chats/group-1.jsonl",
 		configMaxMessages: 10,
+		// #123：欢迎文案（配置快照随 handoff 传递）。
+		welcomeMessage: "welcome-default",
 		characters: [],
 		publicMessages: [],
 		persistedCount: 0,

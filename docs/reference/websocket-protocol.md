@@ -126,7 +126,7 @@ PiTavern 使用两层硬性大小限制：
 
 正文大小使用 `Buffer.byteLength(content, "utf8")` 检查，不使用 JavaScript 字符数量估算。1 MiB frame 上限同时配置在 WebSocket Server 和 Character 客户端；发送前的 codec 也必须检查编码结果，不能只依赖接收方断开。
 
-64 KiB 正文上限保证最近 10 条公开消息及其 sender、Round 和 JSON 元数据能够稳定组成一个不超过 1 MiB 的 `message_history` frame。
+64 KiB 正文上限保证最近 10 条公开消息及其 sender、Round 和 JSON 元数据能够稳定组成一个不超过 1 MiB 的 `message_history` 分页 frame（#123 起为主动查询响应）。
 
 超限时：
 
@@ -340,9 +340,14 @@ Character 已经被预留或已经在线等失败情况使用 pi-coding-agent �
 {
   "jsonrpc": "2.0",
   "id": "req-4",
-  "result": null
+  "result": {
+    "latest_sequence": 12
+  }
 }
 ```
+
+- `result.latest_sequence`（#144 方案 a，Optional 向后兼容）：角色**进入时刻**的公开消息水位（当前已聊到的最后一条序号）——客户端据此预置 Session 游标：进入前历史不自动注入（经 `tavern_history` 按需自查），进入时刻之后的消息一条不漏（增量拉取基线 = 进入时刻，误差窗口归零）。
+- 旧服务端/旧客户端兼容：缺省 `result: null` 时客户端回退「预置查询」路径（join 后一次 `fetchMessageHistoryPage(null)` 取水位 CAS 写，有毫秒级误差窗口，见「最近群聊消息」节）。
 
 处理 `character_ready` 时，群聊创建者原子执行：
 
@@ -350,7 +355,7 @@ Character 已经被预留或已经在线等失败情况使用 pi-coding-agent �
 2. 将 `session_id` 与 WebSocket 写入正式连接集合；
 3. 将 `session_id` 与 Character 写入在线 Character 状态。
 
-成功响应发出后，群聊创建者先向新 Character 发送最近 10 条 `message_history`，再向全部在线 Character 广播 `character_joined`。加入方收到成功响应后把准备好的 `CharacterRuntime` 激活，转交 WebSocket，并将 Controller 从 `joining` 切换为 `character`；激活前已到达的历史和广播由 `JoinAttempt` 缓冲并按接收顺序转交。Character 在环境批次窗口结束后主动请求 `get_group_chat_state`。
+成功响应发出后，群聊创建者先向新 Character 单播 `system_message` 欢迎语（#123：替代历史自动推送），再向全部在线 Character 广播 `character_joined`。加入方收到成功响应后把准备好的 `CharacterRuntime` 激活，转交 WebSocket，并将 Controller 从 `joining` 切换为 `character`；激活前已到达的欢迎消息和广播由 `JoinAttempt` 缓冲并按接收顺序转交。Character 在环境批次窗口结束后主动请求 `get_group_chat_state`。
 
 加入方在发送 `character_ready` 前本地准备失败时，关闭 WebSocket 并回到 `idle`；群聊创建者随连接关闭释放预留。首版不自动重试。
 
@@ -376,9 +381,9 @@ Character 完成 `character_ready` 并正式成为群成员后，群聊创建者
 - 消息只携带公开 Character 摘要，不携带 `is_streaming` 或 `hand_raised`。
 - 群聊已有公开消息时，该消息属于环境事件，进入每个接收方的环境聚合批次（闲态 1s 窗口，N→1）。
 - 群聊尚无公开消息时，该消息只用于界面通知，不进入环境批次，也不触发 Agent run。
-- 新加入的 Character 先处理 `message_history`，再处理自己的 `character_joined` 广播。
-- 群聊已有公开消息时，历史中的 `public_message` 按历史顺序排在自己的加入事件之前，二者合并到同一个首次环境批次。
-- 群聊尚无公开消息时，空 `message_history` 和自己的加入事件都不创建环境批次。
+- 新加入的 Character 先处理 `system_message`（欢迎语），再处理自己的 `character_joined` 广播。
+- 群聊已有公开消息时，历史中的 `public_message` 经主动查询（`get_message_history` / `fetch_messages_since`）按历史顺序排在自己的加入事件之前，二者合并到同一个首次环境批次。
+- 群聊尚无公开消息时，`system_message` 和 `character_joined` 不会因空历史额外触发拉取；欢迎语本身是注入内容，计入首次环境批次（#123：欢迎语必非空 → join 后必有首次可见注入）。
 - 群聊创建者界面同时显示一次 Character 加入通知。
 - 成员关系是临时状态；加入广播不写入群聊记录文件，也不使用 `event_id` 或 `sequence`。
 
@@ -494,34 +499,9 @@ PiTavern 与 pi-coding-agent session 一样，不持久化“已结束”状态�
 
 群聊创建者异常退出时无法发送关闭广播。加入方通过 WebSocket 断开退出当前群聊。恢复群聊时会建立新的活动实例和成员关系，不恢复旧连接。
 
-## 最近群聊消息
+## 最近群聊消息（历史主动查询）
 
-Character 加入成功后，群聊创建者自动发送最近 10 条公开消息：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "message_history",
-  "params": {
-    "messages": [],
-    "cursor": "opaque-cursor",
-    "has_more": true,
-    "total_messages": 128
-  }
-}
-```
-
-- `messages` 最多包含 10 条消息，按时间从旧到新排列。
-- 只包含 User Persona 和 Character 的公开发言。
-- 加入、离开和状态变化等事件不进入 `messages`。
-- 消息元素复用公开发言结构；该结构将在公开发言广播消息中定义。
-- `cursor` 标识当前批次最早一条公开消息之前的历史位置，用于继续获取更早消息。
-- `cursor` 只由群聊创建者生成和解释；Character 不解析其内容，只在后续请求中原样回传。
-- 没有更早消息时，`cursor` 为 `null`，`has_more` 为 `false`。
-- `total_messages` 是响应时群聊内公开消息的总数。
-- 空群聊返回空 `messages`、`cursor: null`、`has_more: false` 和 `total_messages: 0`；空历史不启动 Agent run。
-
-获取更早的 10 条消息：
+#123 起 join/ready 不再自动推送历史（改为单播 `system_message` 欢迎语）；历史全部经主动查询获取。Character 需要历史时发送 `get_message_history`：
 
 ```json
 {
@@ -550,8 +530,34 @@ Character 加入成功后，群聊创建者自动发送最近 10 条公开消息
 ```
 
 - 每次固定获取 10 条，首版不提供 `limit`。
+- `messages` 按时间从旧到新排列，最多 10 条，只包含 User Persona 和 Character 的公开发言；加入、离开和状态变化等事件不进入 `messages`。
+- 消息元素复用公开发言结构（含 `source` 字段语义，见「公开发言」节）。
+- `cursor` 标识当前批次最早一条公开消息之前的历史位置，用于继续获取更早消息；只由群聊创建者生成和解释，Character 不解析其内容，只在后续请求中原样回传。
+- 没有更早消息时，`cursor` 为 `null`，`has_more` 为 `false`；`total_messages` 是响应时群聊内公开消息的总数。
+- 空群聊返回空 `messages`、`cursor: null`、`has_more: false` 和 `total_messages: 0`；空历史不启动 Agent run。
 - 翻页期间产生新消息不会改变已有 cursor 所指向的历史位置。
 - 服务端可以使用 `sequence` 定位 cursor 的分页边界，但具体编码不属于 WebSocket 协议。
+
+## 欢迎消息（system_message）
+
+#123：`character_ready` 成功后，群聊创建者向新 Character **单播**一条 `system_message` 欢迎语（不再自动推送历史）：
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "system_message",
+  "params": {
+    "content": "欢迎来到 PiTavern 群聊！…"
+  }
+}
+```
+
+- **通知帧**（无 `id`），与 `character_joined` / `group_chat_update` 同族，由 `method` 判别。
+- `params` 仅 `content`；**非公共消息**：无 `sequence` / `round` / `source`，不落公共消息流、不计入轮次额度（与 `public_message` 的 `source` 字段互不干扰）。
+- **时序**：ready 响应（`result: null`）先到，随后单播 `system_message`，再广播 `character_joined`——新 Character 处理自己的 join 事件时欢迎语已就位。
+- **单播非广播**：欢迎语只发送给 ready 的角色本人；`character_joined` 才是全员广播。
+- **配置**：文案优先级 = 项目 `.pi/tavern.json` 的 `welcome_message` > 全局 `~/.pi/tavern.json` > 代码默认值；空串视为未配置回退默认值；UTF-8 字节数超过 WebSocket 帧上限（1 MiB）的完整信封在配置加载阶段拒绝（配置错误）。
+- 欢迎语属于首次环境注入内容：join 后必有首次可见注入（旧行为空历史 join 为静默入群，无注入批次）。
 
 ## 获取群聊记录文件
 
@@ -654,7 +660,7 @@ Character 加入成功后，群聊创建者自动发送最近 10 条公开消息
 
 环境批次触发的状态响应与该批次合并后，作为一次群聊输入提交给当前 pi Agent。Character 提示词由加入期间持续生效的 system prompt 扩展提供，不进入该输入。手动状态命令取得的响应只更新界面，不触发 Agent。
 
-Character 成功领取角色后，群聊创建者自动发送 `message_history`。历史非空时，Character 将其加入首次环境批次；批次窗口（1 秒合并防抖）结束后主动请求群聊状态，再将历史批次和最新状态作为群聊输入提交给当前 pi Agent。空历史只更新界面，不创建环境批次。
+Character 成功领取角色后，群聊创建者单播 `system_message` 欢迎语（#123：替代旧的自动发送 `message_history`）。欢迎语非空时，Character 将其加入首次环境批次；批次窗口（1 秒合并防抖）结束后主动请求群聊状态，再将批次和最新状态作为群聊输入提交给当前 pi Agent。历史经 `get_message_history` / `fetch_messages_since` 主动拉取，按游标不重不漏。
 
 首次处理没有特殊的禁言规则。`tavern_speak` 是否被接受只由收到请求时当前 Round 的剩余发言次数判断；没有当前 Round 或当前 Round 没有剩余次数时，公开消息不能进入群聊。
 
@@ -679,7 +685,7 @@ WebSocket 环境消息不会逐条直接追加到 pi session。Agent 输入只�
 
 聚合批次适用于：
 
-- 加入时 `message_history` 中的公共历史
+- 加入时主动查询的 `message_history`（`get_message_history` 响应）中的公共历史
 - User Persona 的公开消息
 - 其他 Character 的公开消息
 
@@ -966,7 +972,7 @@ User Persona 消息：
 
 - `messages`：`sequence > since_sequence` 的全部公开消息（严格递增、无重复）；按序号过滤天然补齐缺口。
 - `latest_sequence`：服务端当前最新序号。
-- 与 `message_history`（join 全量/分页）并存：无游标时 join 走历史分页；有持久化游标时 join/重连走增量拉取（差分同步）。
+- 与 `message_history`（主动查询分页）并存：无持久化游标时经 `fetch_messages_since(0)` 拉全量；有持久化游标时 join/重连走增量拉取（差分同步）。
 
 Character 发言成功时，群聊创建者原子分配 `sequence`、更新 Round 次数并通过 `SessionManager` 写入 `custom_message`，使用返回的 entry `id` 作为 `event_id`，然后先广播 `group_chat_update`，再返回对应的 `speak` 成功响应。
 

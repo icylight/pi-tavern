@@ -22,6 +22,7 @@ import {
 	CMD_DESC_SET_MAX,
 	CMD_DESC_STATUS,
 	CMD_DESC_TEST_BUSY,
+	CMD_DESC_TEST_HISTORY,
 	CMD_DESC_TEST_MESSAGE,
 	CMD_DESC_TEST_RELOAD,
 	CMD_DESC_TEST_WHOAMI,
@@ -117,6 +118,8 @@ export function registerCommands(
 					// 白板模型（#114）：白板额度透传（缺省 undefined → store 默认 5/140）。
 					...(config.boardMaxNotes !== undefined ? { boardMaxNotes: config.boardMaxNotes } : {}),
 					...(config.boardMaxNoteLength !== undefined ? { boardMaxNoteLength: config.boardMaxNoteLength } : {}),
+					// #123：欢迎文案透传（缺省 undefined → creator-factory 回落代码默认值）。
+					...(config.welcomeMessage !== undefined ? { welcomeMessage: config.welcomeMessage } : {}),
 					characters: config.characters,
 				});
 				ctx.ui.notify(
@@ -182,6 +185,8 @@ export function registerCommands(
 					// 白板模型（#114）：白板额度透传（缺省 undefined → store 默认 5/140）。
 					...(config.boardMaxNotes !== undefined ? { boardMaxNotes: config.boardMaxNotes } : {}),
 					...(config.boardMaxNoteLength !== undefined ? { boardMaxNoteLength: config.boardMaxNoteLength } : {}),
+					// #123：欢迎文案透传（缺省 undefined → creator-factory 回落代码默认值）。
+					...(config.welcomeMessage !== undefined ? { welcomeMessage: config.welcomeMessage } : {}),
 					characters: config.characters,
 				});
 				ctx.ui.notify(
@@ -376,6 +381,31 @@ export function registerCommands(
 					`[tavern-test-whoami] name=${character.name} character_id=${character.characterId} description=${character.description}`,
 					"info",
 				);
+			},
+		});
+		pi.registerCommand("tavern-test-history", {
+			description: CMD_DESC_TEST_HISTORY,
+			handler: async (args, ctx) => {
+				const state = controller.getState();
+				if (state.type !== "character") {
+					ctx.ui.notify(NOTIFY_NOT_IN_CHARACTER_STATE, "error");
+					return;
+				}
+				try {
+					// P1-4：工具等价路径观察通道——RPC 模式 LLM 无法调工具，
+					// 经 notify 重发拉取结果摘要供 acceptance 断言（QA 要求）。
+					const page = await state.runtime.fetchMessageHistoryPage(args.trim() || null);
+					if (page === null) {
+						ctx.ui.notify("[tavern-test-history] unavailable", "error");
+						return;
+					}
+					ctx.ui.notify(
+						`[tavern-test-history] count=${page.messages.length} has_more=${page.hasMore} cursor=${page.cursor ?? ""} total=${page.totalMessages}`,
+						"info",
+					);
+				} catch (error) {
+					notifyError(ctx.ui.notify, error);
+				}
 			},
 		});
 		pi.registerCommand("tavern-test-busy", {

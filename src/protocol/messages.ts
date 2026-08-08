@@ -19,6 +19,7 @@ import {
 	METHOD_MESSAGE_HISTORY,
 	METHOD_PUBLIC_MESSAGE,
 	METHOD_SPEAK,
+	METHOD_SYSTEM_MESSAGE,
 	METHOD_UPDATE_CHARACTER_STATE,
 	PROTOCOL_ERROR_CODES,
 } from "../shared/messages.js";
@@ -307,6 +308,16 @@ const EmptySuccessResponseSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/** #144 P1-4 方案 a：character_ready 成功响应——携带进入时刻水位，客户端游标精确锚定。 */
+const ReadyResponseSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
+		id: RequestIdSchema,
+		result: Type.Object({ latest_sequence: Type.Integer() }, { additionalProperties: false }),
+	},
+	{ additionalProperties: false },
+);
+
 /** 业务失败响应（id 关联请求；code ∈ 10 码枚举，message = 文案原样保留）。 */
 const FailureResponseSchema = Type.Object(
 	{
@@ -371,6 +382,20 @@ const CharacterLeftSchema = Type.Object(
 			},
 			{ additionalProperties: false },
 		),
+	},
+	{ additionalProperties: false },
+);
+
+/**
+ * #123：系统消息（ready 后欢迎语单播；通知帧无 id，与 character_joined 同族）。
+ * params 仅 content——非公共消息：无 sequence/round/source，不落消息流、不计轮次
+ * （WL1 语义）；additionalProperties:false 下未知字段 fail-close。
+ */
+const SystemMessageSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
+		method: Type.Literal(METHOD_SYSTEM_MESSAGE),
+		params: Type.Object({ content: Type.String() }, { additionalProperties: false }),
 	},
 	{ additionalProperties: false },
 );
@@ -682,6 +707,7 @@ export const ServerMessageSchema = Type.Union([
 	JoinGroupChatResponseSchema,
 	ClaimCharacterResponseSchema,
 	EmptySuccessResponseSchema,
+	ReadyResponseSchema,
 	FailureResponseSchema,
 	GroupChatStateResponseSchema,
 	GetMessageHistoryResponseSchema,
@@ -690,6 +716,7 @@ export const ServerMessageSchema = Type.Union([
 	SpeakResponseSchema,
 	CharacterJoinedSchema,
 	CharacterLeftSchema,
+	SystemMessageSchema,
 	GroupChatClosedSchema,
 	MessageHistorySchema,
 	PublicMessageSchema,
@@ -711,5 +738,7 @@ export type ClaimCharacterSuccess = Extract<
 	ServerMessage,
 	{ result: { character: Static<typeof ClaimedCharacterSchema> } }
 >;
+/** #144 P1-4 方案 a：ready 成功响应（result 含进入时刻水位）。 */
+export type ReadyResponse = Extract<ServerMessage, { result: { latest_sequence: number } }>;
 export type GroupChatStateSuccess = Extract<ServerMessage, { result: { group_chat: unknown } }>;
 export type GroupChatStateMessage = GroupChatStateSuccess["result"];

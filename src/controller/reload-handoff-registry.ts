@@ -54,6 +54,8 @@ export interface CreatorReloadHandoff {
 	activeDescriptor: ActiveGroupChatDescriptor;
 	activeDescriptorPath: string;
 	configMaxMessages: number;
+	/** #123：欢迎文案（配置快照随 handoff 传递，reload 后 ready 行为一致）。 */
+	welcomeMessage: string;
 	characters: CharacterCard[];
 	publicMessages: PublicMessageState[];
 	persistedCount: number;

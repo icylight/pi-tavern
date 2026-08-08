@@ -39,7 +39,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export const RESPONSE_RESULT_MATCHERS: Record<string, (result: unknown) => boolean> = {
 	[METHOD_JOIN_GROUP_CHAT]: (result) => isRecord(result) && "available_characters" in result,
 	[METHOD_CLAIM_CHARACTER]: (result) => isRecord(result) && "character" in result,
-	[METHOD_CHARACTER_READY]: (result) => result === null,
+	[METHOD_CHARACTER_READY]: (result) =>
+		result === null || (isRecord(result) && typeof result.latest_sequence === "number"),
 	[METHOD_LEAVE_GROUP_CHAT]: (result) => result === null,
 	[METHOD_GET_GROUP_CHAT_STATE]: (result) => isRecord(result) && "group_chat" in result,
 	[METHOD_GET_MESSAGE_HISTORY]: (result) => isRecord(result) && "messages" in result && "has_more" in result,

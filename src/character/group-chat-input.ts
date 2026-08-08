@@ -7,8 +7,16 @@ import {
 	METHOD_GROUP_CHAT_UPDATE,
 	METHOD_MESSAGE_HISTORY,
 	METHOD_PUBLIC_MESSAGE,
+	METHOD_SYSTEM_MESSAGE,
 } from "../shared/messages.js";
 import type { CharacterRuntime } from "./character-runtime.js";
+import {
+	INJECTION_HEADER_TITLE,
+	INJECTION_IDENTITY_PREFIX,
+	INJECTION_SOURCE_GROUP,
+	INJECTION_TEST_IDENTITY_NOTIFY_PREFIX,
+	INJECTION_TEST_NOTIFY_PREFIX,
+} from "./injection-text.js";
 
 /**
  * 仅供验收套件使用的观察通道（ISSUE-003 身份行契约，cab1fd7）。RPC 模式
@@ -112,6 +120,16 @@ export class GroupChatInput {
 	private readonly onSettled: () => void;
 
 	start(): void {
+		// P1-4（Arch 定案 + 四方收敛，零 wire 变化）：进入时刻游标预置——
+		// 新 Session 无游标时调一次 get_message_history 取水位（totalMessages，
+		// 丢弃消息内容）作游标基线，消除「无游标未知态」：
+		//   1. 进入前历史 = tavern_history 主动分页拉取（欢迎语指引，AI 自主）；
+		//   2. 进入后增量 = fetchMessagesSince(游标) 不重不漏（严格区间 = 预置完成后）；
+		//   3. 误差窗口（ready→预置查询毫秒级）内到达的消息走 public_message 广播
+		//      直注路径（isEnvironmentEvent，不经游标）——正常送达必注入，
+		//      与预置游标值无关（「跳过不可接受」不破坏）。
+		// 失败静默：拉取失败保持游标 null，既有「无游标完整历史兜底」语义不变。
+		void this.primeJoinCursor();
 		this.handler = (message: ServerMessage) => {
 			if ("method" in message && message.method === METHOD_MESSAGE_HISTORY && Array.isArray(message.params.messages)) {
 				// join 时快照：展开为单个 public_message 事件。
@@ -185,6 +203,39 @@ export class GroupChatInput {
 	 * 前重查 isAgentActive 决定通道（空闲 → followUp 触发新 run；活跃 → steer
 	 * 兜底，绝不打断 run）。
 	 */
+	/**
+	 * P1-4 游标预置（方案 a 定案版）：新 Session 无游标时预置 = 进入时刻水位。
+	 * 优先路径：ready 响应携带 latest_sequence（新帧）→ 直接写（零 RPC）；
+	 * 回退路径：旧帧缺字段 → fetchMessageHistoryPage(null) 取水位 CAS 写。
+	 * 失败静默：游标保持 null，既有「无游标完整历史兜底」语义不变。
+	 */
+	private async primeJoinCursor(): Promise<void> {
+		if (this.runtime.loadCursor() !== null) {
+			return;
+		}
+		// 新帧：ready 响应水位（进入时刻精确锚点，误差窗口归零——方案 a）。
+		// 用 nullish 判断：mock/旧帧下属性可能为 undefined，与 null 同语义（未设置）。
+		if (this.runtime.readyLatestSequence != null) {
+			this.runtime.saveCursor(this.runtime.readyLatestSequence);
+			return;
+		}
+		// 旧帧回退：查询水位（进入时刻 ≈ 查询时刻，双路径兼容旧服务端）。
+		let page: Awaited<ReturnType<CharacterRuntime["fetchMessageHistoryPage"]>>;
+		try {
+			page = await this.runtime.fetchMessageHistoryPage(null);
+		} catch {
+			// 预置失败不阻塞 join：游标保持 null，既有兜底语义不变。
+			return;
+		}
+		if (page === null || this.stopped) {
+			return;
+		}
+		// CAS：fetch 期间其他路径已写游标 → 放弃（避免覆盖其已推进的位置）。
+		if (this.runtime.loadCursor() === null) {
+			this.runtime.saveCursor(page.totalMessages);
+		}
+	}
+
 	private async pullIncrement(): Promise<void> {
 		if (this.stopped || this.fetchInFlight) {
 			this.refetchRequested = true;
@@ -312,7 +363,7 @@ export class GroupChatInput {
 		this.abortRequested = true;
 		abort();
 		if (process.env.PITAVERN_TEST === "1") {
-			testNotify?.(`[tavern-inject] group=${this.runtime.groupChatId} abort=1 boundary=steer`);
+			testNotify?.(`${INJECTION_TEST_NOTIFY_PREFIX} group=${this.runtime.groupChatId} abort=1 boundary=steer`);
 		}
 		return true;
 	}
@@ -332,7 +383,7 @@ export class GroupChatInput {
 				{ triggerTurn: true, deliverAs: "steer" },
 			);
 			if (process.env.PITAVERN_TEST === "1") {
-				testNotify?.(`[tavern-inject] group=${this.runtime.groupChatId} abort=0 token=queued`);
+				testNotify?.(`${INJECTION_TEST_NOTIFY_PREFIX} group=${this.runtime.groupChatId} abort=0 token=queued`);
 			}
 		} catch {
 			this.abortTokenQueued = false;
@@ -456,6 +507,12 @@ export class GroupChatInput {
 			// 结果、actor 限定本人板——自回显 100% 冗余）；他人更新不受影响。
 			case METHOD_BOARD_UPDATE:
 				return message.params.actor !== this.runtime.character.characterId;
+			// #123：system_message = 入群欢迎等系统通知（Arch 裁决消费端 2 处小改之一）。
+			// 与 board_update 同族「通知渲染」语义：进 pendingEvents 批处理（ready 后
+			// 帧序 system_message 先于 character_joined，同批注入顺序自然）；无
+			// sequence/round，绝不挂 incrementPending、不进拉取流程。
+			case METHOD_SYSTEM_MESSAGE:
+				return true;
 			default:
 				return false;
 		}
@@ -593,7 +650,7 @@ export class GroupChatInput {
 		let groupChatState: unknown = null;
 		try {
 			groupChatState = await this.runtime.getGroupChatState();
-		} catch (e) {}
+		} catch {}
 
 		if (this.stopped) return;
 
@@ -621,14 +678,24 @@ export class GroupChatInput {
 				.sort((a, b) => a - b);
 			if (sequences.length > 0) {
 				testNotify?.(
-					`[tavern-inject] group=${this.runtime.groupChatId} latest_seq=${sequences[sequences.length - 1]} count=${sequences.length}`,
+					`${INJECTION_TEST_NOTIFY_PREFIX} group=${this.runtime.groupChatId} latest_seq=${sequences[sequences.length - 1]} count=${sequences.length}`,
 				);
 			}
 			// 白板模型（#114）：白板更新事件计数（无 sequence——不在消息流）。
 			// 断言：门闸放行（进批处理）→ 白板桶渲染可达。
 			const boardUpdates = toDeliver.filter((e) => "method" in e && e.method === METHOD_BOARD_UPDATE).length;
 			if (boardUpdates > 0) {
-				testNotify?.(`[tavern-inject] group=${this.runtime.groupChatId} board_updates=${boardUpdates}`);
+				testNotify?.(`${INJECTION_TEST_NOTIFY_PREFIX} group=${this.runtime.groupChatId} board_updates=${boardUpdates}`);
+			}
+			// #123：system_message 通知（无 sequence——不在消息流、非公共消息）。
+			// 携带文案原文非仅计数（QA WL1 验收：断言注入批次含欢迎文案内容）。
+			const systemContents = toDeliver
+				.filter((e) => "method" in e && e.method === METHOD_SYSTEM_MESSAGE)
+				.map((e) => e.params.content);
+			if (systemContents.length > 0) {
+				testNotify?.(
+					`${INJECTION_TEST_NOTIFY_PREFIX} group=${this.runtime.groupChatId} system_messages=${systemContents.join("|")}`,
+				);
 			}
 		}
 
@@ -707,13 +774,13 @@ export class GroupChatInput {
 				.sort((a, b) => a - b);
 			if (sequences.length > 0) {
 				testNotify?.(
-					`[tavern-inject] group=${this.runtime.groupChatId} latest_seq=${sequences[sequences.length - 1]} count=${sequences.length}`,
+					`${INJECTION_TEST_NOTIFY_PREFIX} group=${this.runtime.groupChatId} latest_seq=${sequences[sequences.length - 1]} count=${sequences.length}`,
 				);
 			}
 			// 白板模型（#114）：白板更新事件计数（与 idle flush 同通道）。
 			const boardUpdates = events.filter((e) => "method" in e && e.method === METHOD_BOARD_UPDATE).length;
 			if (boardUpdates > 0) {
-				testNotify?.(`[tavern-inject] group=${this.runtime.groupChatId} board_updates=${boardUpdates}`);
+				testNotify?.(`${INJECTION_TEST_NOTIFY_PREFIX} group=${this.runtime.groupChatId} board_updates=${boardUpdates}`);
 			}
 		}
 
@@ -721,7 +788,7 @@ export class GroupChatInput {
 	}
 
 	private buildContent(events: ServerMessage[], state: unknown): string {
-		const parts: string[] = ["PiTavern 群聊环境更新"];
+		const parts: string[] = [INJECTION_HEADER_TITLE];
 
 		// #104：注入时点统一基准（Arch 评审 B 级观察）——头部当前时间与
 		// 每条消息间隔共用同一 now，避免毫秒级基准漂移。
@@ -732,20 +799,20 @@ export class GroupChatInput {
 		// Character，模型无需从上下文或可用技能猜测自己的身份。格式：
 		// 你的当前角色：<persona 名>（character_id=<characterId>，注册名=<name>）
 		const identity =
-			`你的当前角色：${this.runtime.character.name}` +
+			`${INJECTION_IDENTITY_PREFIX}${this.runtime.character.name}` +
 			`（character_id=${this.runtime.character.characterId}，注册名=${this.runtime.character.name}）`;
 		parts.push(`\n${identity}`);
 
 		// #97 来源显式化（S2）：本注入来自群聊通道，显式声明来源（契约文案，
 		// 全角冒号）。与身份行同批注入；私聊不经此函数，天然无此声明（S3）。
-		const sourceLine = "来源：群聊";
+		const sourceLine = INJECTION_SOURCE_GROUP;
 		parts.push(`\n${sourceLine}`);
 
 		if (process.env.PITAVERN_TEST === "1") {
 			// 验收套件的观察通道（RPC 模式把 notify 呈现为 extension_ui_request；
 			// 参见 identity-consistency.test.ts）——与身份行同一 notify 同批携带
 			// 来源声明（QA 钉测：identity-consistency.test.ts:208 断言同批含「来源：群聊」）。
-			testNotify?.(`[tavern-test-injection] ${identity}\n${sourceLine}`);
+			testNotify?.(`${INJECTION_TEST_IDENTITY_NOTIFY_PREFIX} ${identity}\n${sourceLine}`);
 		}
 
 		// 群聊名
@@ -757,6 +824,20 @@ export class GroupChatInput {
 		const name = stateObj?.group_chat?.name;
 		if (name) {
 			parts.push(`\n群聊：${name}`);
+		}
+
+		// #123：system_message = 入群欢迎等系统通知（Arch 裁决消费端 2 处小改之二）。
+		// 独立小节渲染 content 原文，无 sender/时间戳——不混入「新消息」（非公共
+		// 消息、无 sequence）；不挂 incrementPending、不进拉取流程。
+		const systemMessages = events.filter((e) => "method" in e && e.method === METHOD_SYSTEM_MESSAGE);
+		if (systemMessages.length > 0) {
+			parts.push("\n系统消息：");
+			for (const message of systemMessages) {
+				if (!("method" in message) || message.method !== METHOD_SYSTEM_MESSAGE) {
+					continue;
+				}
+				parts.push(message.params.content);
+			}
 		}
 
 		// 新消息

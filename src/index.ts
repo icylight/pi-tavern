@@ -323,8 +323,8 @@ function appendCreatorDisplayEntry(pi: ExtensionAPI, runtime: CreatorRuntime, ms
  * 当前 pi 会话内本群聊 creator-display 条目最大 sequence——fresh 会话
  * （无条目）→ 全窗口投影（每次 fresh resume 都有历史）；continued 会话
  * → 跳过已显示段防重复；同会话重复 resume → 幂等空。窗口 =
- * JOIN_HISTORY_LIMIT 对称（与 join 拉取视图一致）。中断重入按已投影
- * 最大 sequence 补尾段。新消息增量路径不受影响（A4）。
+ * JOIN_HISTORY_LIMIT 对称（#123：join 不再推送历史，resume 窗口 = 10）。
+ * 中断重入按已投影最大 sequence 补尾段。新消息增量路径不受影响（A4）。
  */
 function projectResumeHistory(pi: ExtensionAPI, runtime: CreatorRuntime): void {
 	const anchor = computeSessionProjectionAnchor(sessionManagerRef, runtime.state.groupChat.groupChatId);

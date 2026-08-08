@@ -28,7 +28,7 @@ PiTavern 是 pi-coding-agent 的本地扩展：多个独立 pi session 以 Chara
 
 - TypeScript + biome（`npm run check` = biome + tsc，CI 门禁）+ vitest 三层：`test/unit/`（进程内，快）、`test/integration/`（进程内 WS，秒级）、`test/acceptance/`（真实 pi 进程 e2e，慢——共享端口与临时目录，须与 check 串行）。
 - 测试门禁锚定 `references/pi` 子模块版本（升级即触发受影响层重跑）；acceptance 由 run-tests 自动注入 `PITAVERTEST=1`；`PITAVERN_AUTO_JOIN_DELAY_MS` 可注入 auto-join 延迟（默认 3000，测试用短值 ≥50ms）。
-- 游标按 Session 隔离：`cursors/<groupId>/<sessionId>.json`；旧群聊级单文件不读不写不删；新 Session 无游标 = 从完整历史拉取（重复可接受、跳过不可接受）。
+- 游标按 Session 隔离：`cursors/<groupId>/<sessionId>.json`；旧群聊级单文件不读不写不删；join 消费路径预置游标 = 进入时刻水位（ready 响应 `latest_sequence`，方案 a；旧帧缺字段回退查询 CAS 写）；进入前历史不自动注入，经 `tavern_history` 工具 AI 主动分页拉取（欢迎语指引；重复可接受、跳过不可接受，严格区间 = 预置完成后）。
 - 重构行为零变化：声明"测试零改动"时公开 API 与断言必须真的不动；**值拷贝注入是已知陷阱**——可重赋值字段/回调必须用 getter 闭包或实例引用传递（纯快照语义如配置/常量才允许值传）。
 - 依赖注入窄接口化：模块不 import 所属 runtime 类型，回调/getter 注入，防循环依赖。
 

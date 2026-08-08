@@ -113,11 +113,19 @@ describe("#104 env time", () => {
 
 	it("T2: 消息行含发言时间 + 距当前间隔", { timeout: 15_000 }, async () => {
 		const { creator, character } = await startCreator();
-		await creator.submitUserPersonaMessage("hello 1");
 		const { pi } = await joinCharacter(creator, character, "env-time-t2");
+		// #123：ready 不再推 message_history——存量历史不自动注入；submit 新消息触发
+		// group_chat_update 水位 → fetchMessagesSince 拉取路径，消息行进入注入。
+		await creator.submitUserPersonaMessage("hello 1");
 		const sendMessage = pi.sendMessage as ReturnType<typeof vi.fn>;
-		await waitFor(() => sendMessage.mock.calls.length > 0, 5_000);
-		const content = sendMessage.mock.calls[0]?.[0]?.content as string;
+		await waitFor(() => {
+			return sendMessage.mock.calls.some((call) => {
+				const content = call[0]?.content as string | undefined;
+				return typeof content === "string" && content.includes("hello 1");
+			});
+		}, 5_000);
+		const content = sendMessage.mock.calls.find((call) => (call[0]?.content as string).includes("hello 1"))?.[0]
+			?.content as string;
 
 		// A1/A2：消息行含发言时间（YYYY-MM-DD HH:MM）+ 间隔（x 分钟前/x 秒前）
 		// Dev 实现格式：发送者（YYYY-MM-DD HH:MM（x 分钟前/x 秒前））: 内容

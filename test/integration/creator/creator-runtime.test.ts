@@ -8,6 +8,7 @@ import WebSocket from "ws";
 
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 import { readActiveDescriptor } from "../../../src/data/discovery/active-descriptor.js";
+import { DEFAULT_WELCOME_MESSAGE } from "../../../src/shared/constants.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -1242,7 +1243,7 @@ describe("CreatorRuntime", () => {
 		await runtime.close();
 	});
 
-	it("sends recent public messages in message_history on join", async () => {
+	it("ready 后收 system_message 欢迎（#123 WL1）；历史经 get_message_history 主动拉取（WL3）", async () => {
 		const root = await createTemporaryDirectory();
 		const runtime = await CreatorRuntime.startNew({
 			cwd: join(root, "project"),
@@ -1277,23 +1278,31 @@ describe("CreatorRuntime", () => {
 		await waitForMessage(client, "response");
 		client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
 
-		// 等待 message_history
-		const historyPromise = new Promise<Record<string, unknown>>((resolve) => {
+		// #123：ready 后只推 system_message 欢迎（内容 = 默认文案），零 message_history。
+		const welcomePromise = new Promise<Record<string, unknown>>((resolve) => {
 			const onMessage = (data: WebSocket.RawData) => {
 				const msg = JSON.parse(data.toString()) as Record<string, unknown>;
-				if (msg.method === "message_history") {
+				if (msg.method === "system_message") {
 					client.off("message", onMessage);
 					resolve(msg);
 				}
 			};
 			client.on("message", onMessage);
 		});
+		const welcome = await welcomePromise;
+		expect(welcome.params).toEqual({
+			content: DEFAULT_WELCOME_MESSAGE,
+		});
 
-		const history = await historyPromise;
-		const historyParams = history.params as Record<string, unknown>;
-		expect(historyParams.messages).toHaveLength(2);
-		expect((historyParams.messages as Array<{ params?: { content: string } }>)[0]?.params?.content).toBe("First");
-		expect((historyParams.messages as Array<{ params?: { content: string } }>)[1]?.params?.content).toBe("Second");
+		// WL3：历史仍可主动拉取——get_message_history 无 cursor 返回最近 10 条窗口。
+		client.send(JSON.stringify({ jsonrpc: "2.0", id: "4", method: "get_message_history", params: {} }));
+		const historyResponse = await waitForMessage(client, "response");
+		expect(historyResponse.error).toBeUndefined();
+		const historyParams = historyResponse.result as Record<string, unknown>;
+		expect((historyParams.messages as Array<{ params?: { content: string } }>).map((m) => m.params?.content)).toEqual([
+			"First",
+			"Second",
+		]);
 		expect(historyParams.total_messages).toBe(2);
 		expect(historyParams.has_more).toBe(false);
 		expect(historyParams.cursor).toBeNull();
@@ -1302,7 +1311,7 @@ describe("CreatorRuntime", () => {
 		await runtime.close();
 	});
 
-	it("sends at most 100 recent messages in message_history on join (User 2026-08-01: 10→100)", async () => {
+	it("get_message_history 主动分页拉全量历史（15 条两页，WL3）", async () => {
 		const root = await createTemporaryDirectory();
 		const runtime = await CreatorRuntime.startNew({
 			cwd: join(root, "project"),
@@ -1318,27 +1327,45 @@ describe("CreatorRuntime", () => {
 			],
 		});
 
-		// 15 条消息在 100 条快照窗口内：加入
-		// 历史一次携带全部，无需分页。
+		// 15 条消息（超过每页 10 条窗口）：主动查询分页拉全量。
 		for (let i = 1; i <= 15; i++) {
 			await runtime.submitUserPersonaMessage(`Message ${i}`);
 		}
 
-		const { client, messageHistory } = await joinCharacter(runtime, "session-1", "dev");
-		const historyParams = messageHistory.params as Record<string, unknown>;
-		const messages = historyParams.messages as Array<{ params: { sequence: number } }>;
-		expect(messages).toHaveLength(15);
-		expect(messages[0]?.params?.sequence).toBe(1);
-		expect(messages[14]?.params?.sequence).toBe(15);
-		expect(historyParams.total_messages).toBe(15);
-		expect(historyParams.has_more).toBe(false);
-		expect(historyParams.cursor).toBeNull();
+		const { client } = await joinCharacter(runtime, "session-1", "dev");
+		// 首页：最近 10 条（序号 6..15）+ has_more + cursor。
+		client.send(JSON.stringify({ jsonrpc: "2.0", id: "4", method: "get_message_history", params: {} }));
+		const firstPage = await waitForMessage(client, "response");
+		expect(firstPage.error).toBeUndefined();
+		const firstData = firstPage.result as Record<string, unknown>;
+		const firstMessages = (firstData.messages as Array<{ params: { sequence: number } }>) ?? [];
+		expect(firstMessages.map((m) => m.params.sequence)).toEqual([6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+		expect(firstData.total_messages).toBe(15);
+		expect(firstData.has_more).toBe(true);
+		expect(typeof firstData.cursor).toBe("string");
+
+		// 第二页：游标后剩余 5 条（序号 1..5），无更多。
+		client.send(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: "5",
+				method: "get_message_history",
+				params: { cursor: firstData.cursor },
+			}),
+		);
+		const secondPage = await waitForMessage(client, "response");
+		const secondData = secondPage.result as Record<string, unknown>;
+		const secondMessages = (secondData.messages as Array<{ params: { sequence: number } }>) ?? [];
+		expect(secondMessages.map((m) => m.params.sequence)).toEqual([1, 2, 3, 4, 5]);
+		expect(secondData.total_messages).toBe(15);
+		expect(secondData.has_more).toBe(false);
+		expect(secondData.cursor).toBeNull();
 
 		client.close();
 		await runtime.close();
 	});
 
-	it("pages beyond the 100-message snapshot window on join", async () => {
+	it("get_message_history 大历史分页（105 条，首页 10 条 + has_more，WL3）", async () => {
 		const root = await createTemporaryDirectory();
 		const runtime = await CreatorRuntime.startNew({
 			cwd: join(root, "project"),
@@ -1354,18 +1381,20 @@ describe("CreatorRuntime", () => {
 			],
 		});
 
-		// 105 条消息超过 100 条窗口：快照为
-		// 最新 100 条（序号 6..105），其余以分页告知。
+		// 105 条消息：每页 10 条窗口，分页告知，更早历史经游标获取。
 		for (let i = 1; i <= 105; i++) {
 			await runtime.submitUserPersonaMessage(`Message ${i}`);
 		}
 
-		const { client, messageHistory } = await joinCharacter(runtime, "session-2", "dev");
-		const historyParams = messageHistory.params as Record<string, unknown>;
-		const messages = historyParams.messages as Array<{ params: { sequence: number } }>;
-		expect(messages).toHaveLength(100);
-		expect(messages[0]?.params?.sequence).toBe(6);
-		expect(messages[99]?.params?.sequence).toBe(105);
+		const { client } = await joinCharacter(runtime, "session-2", "dev");
+		client.send(JSON.stringify({ jsonrpc: "2.0", id: "4", method: "get_message_history", params: {} }));
+		const firstPage = await waitForMessage(client, "response");
+		expect(firstPage.error).toBeUndefined();
+		const historyParams = firstPage.result as Record<string, unknown>;
+		const messages = (historyParams.messages as Array<{ params: { sequence: number } }>) ?? [];
+		expect(messages).toHaveLength(10);
+		expect(messages[0]?.params?.sequence).toBe(96);
+		expect(messages[9]?.params?.sequence).toBe(105);
 		expect(historyParams.total_messages).toBe(105);
 		expect(historyParams.has_more).toBe(true);
 		expect(typeof historyParams.cursor).toBe("string");
@@ -1390,33 +1419,34 @@ describe("CreatorRuntime", () => {
 			],
 		});
 
-		// 105 条消息超过 100 条加入窗口：分页
-		// 被告知，更早的历史可通过游标获取。
+		// 105 条消息：先主动查询首页拿 opaque cursor。
 		for (let i = 1; i <= 105; i++) {
 			await runtime.submitUserPersonaMessage(`Message ${i}`);
 		}
 
-		const { client, messageHistory } = await joinCharacter(runtime, "session-1", "dev");
-		expect(typeof (messageHistory.params as Record<string, unknown>).cursor).toBe("string");
+		const { client } = await joinCharacter(runtime, "session-1", "dev");
+		client.send(JSON.stringify({ jsonrpc: "2.0", id: "4", method: "get_message_history", params: {} }));
+		const firstPage = await waitForMessage(client, "response");
+		expect(firstPage.error).toBeUndefined();
+		const firstData = firstPage.result as Record<string, unknown>;
+		expect(typeof firstData.cursor).toBe("string");
 
-		// 请求初始 100 条批次之前的页：序号
-		// 1..5 早于加入窗口（6..105），可通过
-		// 游标获取，每次 10 条一页。
+		// 游标翻页：首页之后（seq 86..95）一页 10 条。
 		client.send(
 			JSON.stringify({
 				jsonrpc: "2.0",
-				id: "4",
+				id: "5",
 				method: "get_message_history",
-				params: { cursor: (messageHistory.params as Record<string, unknown>).cursor },
+				params: { cursor: firstData.cursor },
 			}),
 		);
-		const firstPage = await waitForMessage(client, "response");
-		expect(firstPage.error).toBeUndefined();
-		const data = firstPage.result as Record<string, unknown>;
+		const secondPage = await waitForMessage(client, "response");
+		expect(secondPage.error).toBeUndefined();
+		const data = secondPage.result as Record<string, unknown>;
 		const olderMessages = (data.messages as Array<{ params: { sequence: number } }>) ?? [];
-		expect(olderMessages.map((m) => m.params.sequence)).toEqual([1, 2, 3, 4, 5]);
-		expect(data.cursor).toBeNull();
-		expect(data.has_more).toBe(false);
+		expect(olderMessages.map((m) => m.params.sequence)).toEqual([86, 87, 88, 89, 90, 91, 92, 93, 94, 95]);
+		expect(data.cursor).toBeTruthy();
+		expect(data.has_more).toBe(true);
 		expect(data.total_messages).toBe(105);
 
 		// 游标之后的新消息不会移动分页边界
@@ -1424,16 +1454,16 @@ describe("CreatorRuntime", () => {
 		client.send(
 			JSON.stringify({
 				jsonrpc: "2.0",
-				id: "5",
+				id: "6",
 				method: "get_message_history",
-				params: { cursor: (messageHistory.params as Record<string, unknown>).cursor },
+				params: { cursor: firstData.cursor },
 			}),
 		);
-		const secondPage = await waitForMessage(client, "response");
-		const secondData = secondPage.result as Record<string, unknown>;
-		const secondMessages = (secondData.messages as Array<{ params: { sequence: number } }>) ?? [];
-		expect(secondMessages.map((m) => m.params.sequence)).toEqual([1, 2, 3, 4, 5]);
-		expect(secondData.total_messages).toBe(106);
+		const thirdPage = await waitForMessage(client, "response");
+		const thirdData = thirdPage.result as Record<string, unknown>;
+		const thirdMessages = (thirdData.messages as Array<{ params: { sequence: number } }>) ?? [];
+		expect(thirdMessages.map((m) => m.params.sequence)).toEqual([86, 87, 88, 89, 90, 91, 92, 93, 94, 95]);
+		expect(thirdData.total_messages).toBe(106);
 
 		client.close();
 		await runtime.close();
@@ -1455,8 +1485,11 @@ describe("CreatorRuntime", () => {
 			],
 		});
 
-		const { client, messageHistory } = await joinCharacter(runtime, "session-1", "dev");
-		const historyParams = messageHistory.params as Record<string, unknown>;
+		const { client } = await joinCharacter(runtime, "session-1", "dev");
+		client.send(JSON.stringify({ jsonrpc: "2.0", id: "4", method: "get_message_history", params: {} }));
+		const firstResponse = await waitForMessage(client, "response");
+		expect(firstResponse.error).toBeUndefined();
+		const historyParams = firstResponse.result as Record<string, unknown>;
 		expect(historyParams.messages).toEqual([]);
 		expect(historyParams.cursor).toBeNull();
 		expect(historyParams.has_more).toBe(false);
@@ -1585,10 +1618,13 @@ describe("CreatorRuntime", () => {
 		const lastEntry = JSON.parse(lines[lines.length - 1] as string) as { details: { sequence: number } };
 		expect(lastEntry.details.sequence).toBe(4);
 
-		// 新角色加入时收到由磁盘重建的历史
+		// #123：新角色 ready 后不再自动推历史——主动 get_message_history 拉取磁盘重建的历史。
 		const joined = await joinCharacter(resumed, "session-2", "dev");
-		const historyParams = (joined.messageHistory.params as Record<string, unknown>) ?? {};
-		const historyMessages = (historyParams.messages as Array<{ params: { sequence: number; content: string } }>) ?? [];
+		joined.client.send(JSON.stringify({ jsonrpc: "2.0", id: "6", method: "get_message_history", params: {} }));
+		const historyResponse = await waitForMessage(joined.client, "response");
+		expect(historyResponse.error).toBeUndefined();
+		const historyParams = (historyResponse.result as Record<string, unknown>) ?? {};
+		const historyMessages = (historyParams.messages as Array<{ params: { sequence: number } }>) ?? [];
 		expect(historyParams.total_messages).toBe(4);
 		expect(historyMessages.map((m) => m.params.sequence)).toEqual([1, 2, 3, 4]);
 		joined.client.close();
@@ -2148,7 +2184,7 @@ async function joinCharacter(
 	sessionId: string,
 	characterId: string,
 	options: { autoPong?: boolean } = {},
-): Promise<{ client: WebSocket; messageHistory: Record<string, unknown> }> {
+): Promise<{ client: WebSocket; welcomeMessage: Record<string, unknown> }> {
 	const client = new WebSocket(
 		`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		{ autoPong: options.autoPong ?? true },
@@ -2163,11 +2199,10 @@ async function joinCharacter(
 	);
 	await waitForMessage(client, "response");
 	client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
-	// 在等待响应之前注册 message_history 监听器：
-	// 响应与 message_history 相继到达，若在
-	// 响应解析后才添加监听器会错过历史帧。
-	const historyPromise = waitForMessage(client, "message_history");
+	// #123：ready 后不再自动推 message_history，改等 system_message 欢迎单播。
+	// 响应与 system_message 相继到达，若在响应解析后才添加监听器会错过欢迎帧。
+	const welcomePromise = waitForMessage(client, "system_message");
 	await waitForMessage(client, "response");
-	const messageHistory = await historyPromise;
-	return { client, messageHistory };
+	const welcomeMessage = await welcomePromise;
+	return { client, welcomeMessage };
 }

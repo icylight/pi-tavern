@@ -215,6 +215,15 @@ export class JoinAttempt {
 			if (!("result" in readyResponse)) {
 				throw new Error(ERROR_UNEXPECTED_READY_RESPONSE);
 			}
+			// P1-4 方案 a：ready 响应携带进入时刻水位（latest_sequence，新帧 Optional）——
+			// 游标预置精确锚点（误差窗口归零）；旧帧 result=null 保持 readyLatestSequence=null
+			// → GroupChatInput 回退查询预置（双路径兼容）。
+			if (
+				readyResponse.result !== null &&
+				typeof (readyResponse.result as { latest_sequence?: unknown }).latest_sequence === "number"
+			) {
+				runtime.readyLatestSequence = (readyResponse.result as { latest_sequence: number }).latest_sequence;
+			}
 			runtime.activate(this.takeConnection(), pi);
 			// ISSUE-014/#21：join 后立即拉取群聊状态快照，
 			// 让 widget 马上显示真实成员数——在第一条公共消息

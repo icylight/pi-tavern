@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 
 import { type Static, Type } from "typebox";
 import { Compile } from "typebox/compile";
+import { encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import {
 	ERROR_INVALID_CONFIG_PREFIX,
 	ERROR_PARSE_CONFIG_PREFIX,
@@ -20,6 +21,8 @@ export interface TavernConfig {
 	 */
 	boardMaxNotes?: number;
 	boardMaxNoteLength?: number;
+	/** #123：欢迎文案（可选——缺省 = DEFAULT_WELCOME_MESSAGE 代码默认值）。 */
+	welcomeMessage?: string;
 }
 
 export interface LoadTavernConfigOptions {
@@ -34,6 +37,8 @@ const TavernConfigFileSchema = Type.Object(
 		// 白板模型（#114）：白板额度（可选；最小 1——额度 0 无业务意义）。
 		board_max_notes: Type.Optional(Type.Integer({ minimum: 1 })),
 		board_max_note_length: Type.Optional(Type.Integer({ minimum: 1 })),
+		// #123：欢迎文案（可选——缺省 = 代码默认；旧配置兼容，缺省键不报错）。
+		welcome_message: Type.Optional(Type.String()),
 	},
 	{ additionalProperties: false },
 );
@@ -60,12 +65,39 @@ export async function loadTavernConfig(options: LoadTavernConfigOptions): Promis
 
 	const boardMaxNotes = projectConfig?.board_max_notes ?? globalConfig?.board_max_notes;
 	const boardMaxNoteLength = projectConfig?.board_max_note_length ?? globalConfig?.board_max_note_length;
+	// #123：欢迎文案三档合并（项目 > 全局 > 代码默认），沿用 board 先例；
+	// 未配置 = undefined（管线侧回落 DEFAULT_WELCOME_MESSAGE）。
+	// PR #144 P1-3（User 评论）：空白归一化必须在合并**之前**分别进行——否则
+	// `??` 先选中项目空串（空串非 null/undefined），再归一化 undefined 后直接回落
+	// 代码默认，截断三档回退链（反例：全局有效 + 项目空串 → 应回全局，实际默认）。
+	// 归一化语义：空白串视为未配置（PM 口径，与「欢迎语必非空 → join 后必有首次
+	// 可见注入」文档依据一致）。
+	const effectiveWelcomeMessage =
+		normalizeWelcomeMessage(projectConfig?.welcome_message) ?? normalizeWelcomeMessage(globalConfig?.welcome_message);
+	// 超 WebSocket 帧上限 → 配置错误 fail-fast。校验完整信封字节（Arch 补充：content
+	// 单独校验留边界窗口——信封包裹 + JSON 转义膨胀可令完整帧超限，运行时 encodeMessage
+	// 仍抛错断线；直接复用运行时同一 encodeMessage 校验最终帧，零窗口）。
+	if (effectiveWelcomeMessage !== undefined) {
+		const systemMessageFrame = {
+			jsonrpc: "2.0",
+			method: "system_message",
+			params: { content: effectiveWelcomeMessage },
+		};
+		try {
+			encodeMessage(systemMessageFrame);
+		} catch {
+			throw new Error(
+				`${ERROR_INVALID_CONFIG_PREFIX}welcome_message exceeds the WebSocket frame limit (${MAX_WEBSOCKET_FRAME_BYTES} bytes)`,
+			);
+		}
+	}
 
 	return {
 		configMaxMessages:
 			projectConfig?.config_max_messages ?? globalConfig?.config_max_messages ?? DEFAULT_CONFIG_MAX_MESSAGES,
 		...(boardMaxNotes !== undefined ? { boardMaxNotes } : {}),
 		...(boardMaxNoteLength !== undefined ? { boardMaxNoteLength } : {}),
+		...(effectiveWelcomeMessage !== undefined ? { welcomeMessage: effectiveWelcomeMessage } : {}),
 		characters: await loadCharacterCards(imports),
 	};
 }
@@ -91,6 +123,10 @@ async function readConfigFile(path: string): Promise<TavernConfigFile | null> {
 		throw new Error(`${ERROR_INVALID_CONFIG_PREFIX}${path}`);
 	}
 	return value;
+}
+
+function normalizeWelcomeMessage(value: string | undefined): string | undefined {
+	return value !== undefined && value.trim().length > 0 ? value : undefined;
 }
 
 function toCharacterImports(config: TavernConfigFile | null, configPath: string): CharacterImport[] {

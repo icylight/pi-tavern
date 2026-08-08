@@ -22,6 +22,7 @@ import { createGroupChatState, type GroupChatState } from "../data/group-chat-st
 import { SessionStore } from "../data/session-store.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 import {
+	DEFAULT_WELCOME_MESSAGE,
 	HEARTBEAT_PING_INTERVAL_MS,
 	HEARTBEAT_TIMEOUT_MS,
 	SHORT_COORDINATION_TIMEOUT_MS,
@@ -75,6 +76,8 @@ export async function createNewRuntime(
 	const createdAt = runtimeDeps.now().toISOString();
 	const cwd = resolve(options.cwd);
 	const configMaxMessages = options.configMaxMessages ?? DEFAULT_CONFIG_MAX_MESSAGES;
+	// #123：欢迎文案（缺省 = 代码默认值；与 board 先例一致，值传快照）。
+	const welcomeMessage = options.welcomeMessage ?? DEFAULT_WELCOME_MESSAGE;
 	const state = createGroupChatState({
 		groupChatId,
 		createdAt,
@@ -115,6 +118,7 @@ export async function createNewRuntime(
 		activeDescriptor,
 		activeDescriptorPath,
 		configMaxMessages,
+		welcomeMessage,
 		options.characters ?? [],
 		runtimeDeps.readyTimeoutMs,
 		runtimeDeps,
@@ -151,6 +155,8 @@ export async function resumeRuntime(
 	};
 	const cwd = resolve(options.cwd);
 	const configMaxMessages = options.configMaxMessages ?? DEFAULT_CONFIG_MAX_MESSAGES;
+	// #123：欢迎文案（缺省 = 代码默认值；与 board 先例一致，值传快照）。
+	const welcomeMessage = options.welcomeMessage ?? DEFAULT_WELCOME_MESSAGE;
 	// 前置拒绝缺失/空文件：SessionManager.open() 在文件不存在或为空时静默
 	// 创建全新随机会话，会导致为幽灵群聊发布 active descriptor。
 	const sessionStat = statSync(options.sessionPath, { throwIfNoEntry: false });
@@ -264,6 +270,7 @@ export async function resumeRuntime(
 		activeDescriptor,
 		activeDescriptorPath,
 		configMaxMessages,
+		welcomeMessage,
 		options.characters ?? [],
 		runtimeDeps.readyTimeoutMs,
 		runtimeDeps,
@@ -299,6 +306,7 @@ export function createFromHandoff(
 		handoff.activeDescriptor,
 		handoff.activeDescriptorPath,
 		handoff.configMaxMessages,
+		handoff.welcomeMessage,
 		handoff.characters,
 		dependencies.readyTimeoutMs,
 		dependencies,

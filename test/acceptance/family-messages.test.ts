@@ -134,8 +134,15 @@ describe("acceptance family: message sync + fetch + history paging (shared creat
 			sockets.push(memberA.socket);
 			const memberB = await joinCharacterWs(descriptor, "ws-smoke-b", "characters/reviewer.md");
 			sockets.push(memberB.socket);
-			await memberA.waitFor((m) => m.method === "message_history");
-			await memberB.waitFor((m) => m.method === "message_history");
+			// #123（WL1/WL2）：ready 后只推 system_message（内容=生效欢迎文案），
+			// 零 message_history 自动推送（旧 100 条行为取消）。
+			const welcomeA = await memberA.waitFor((m) => m.method === "system_message");
+			expect(welcomeA.params).toMatchObject({ content: expect.any(String) });
+			const welcomeB = await memberB.waitFor((m) => m.method === "system_message");
+			expect(welcomeB.params).toMatchObject({ content: expect.any(String) });
+			for (const member of [memberA, memberB]) {
+				expect(member.allFrames().some((m) => m.method === "message_history")).toBe(false);
+			}
 
 			// 发布面（sync B2 正向 + speak 管线）：非 stale speak 发布为 seq 2。
 			memberA.send({

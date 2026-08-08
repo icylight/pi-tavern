@@ -47,6 +47,8 @@ export interface StartNewCreatorRuntimeOptions {
 	/** 白板模型（#114）：白板额度（缺省 = store 默认 5/140，PR #116 F4）。 */
 	boardMaxNotes?: number;
 	boardMaxNoteLength?: number;
+	/** #123：欢迎文案（缺省 = DEFAULT_WELCOME_MESSAGE 代码默认值）。 */
+	welcomeMessage?: string;
 	characters?: CharacterCard[];
 	/**
 	 * #25：角色清单按需刷新（懒刷新）——join/claim/query 前重扫磁盘。
@@ -64,6 +66,8 @@ export interface ResumeCreatorRuntimeOptions {
 	/** 白板模型（#114）：白板额度（缺省 = store 默认 5/140，PR #116 F4）。 */
 	boardMaxNotes?: number;
 	boardMaxNoteLength?: number;
+	/** #123：欢迎文案（缺省 = DEFAULT_WELCOME_MESSAGE 代码默认值）。 */
+	welcomeMessage?: string;
 	characters?: CharacterCard[];
 	/** #25：同 StartNewCreatorRuntimeOptions.loadCharacters。 */
 	loadCharacters?: () => Promise<CharacterCard[]>;
@@ -183,6 +187,7 @@ export class CreatorRuntime {
 		readonly activeDescriptor: ActiveGroupChatDescriptor,
 		readonly activeDescriptorPath: string,
 		readonly configMaxMessages: number,
+		readonly welcomeMessage: string,
 		characters: CharacterCard[],
 		private readonly readyTimeoutMs: number,
 		deps: CreatorRuntimeDependencies,
@@ -268,6 +273,7 @@ export class CreatorRuntime {
 			characters: this.characters,
 			sessionStore: this.sessionStore,
 			boardStore: this.boardStore,
+			welcomeMessage: this.welcomeMessage,
 			persistedCount: {
 				get: () => this.persistedCount,
 				add: (delta) => {

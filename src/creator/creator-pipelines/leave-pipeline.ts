@@ -26,7 +26,7 @@ export interface LeavePipelineDependencies {
 export class LeavePipeline {
 	constructor(private readonly deps: LeavePipelineDependencies) {}
 
-	run(socket: WebSocket, connection: LeaveConnectionLike, message: LeaveGroupChatMessage): null {
+	run(socket: WebSocket, connection: LeaveConnectionLike, _message: LeaveGroupChatMessage): null {
 		// validate：非成员拒绝
 		if (!connection.online) {
 			throw new ResponseError(ERROR_CODE_NOT_IN_GROUP, ERROR_NOT_IN_GROUP_CHAT);

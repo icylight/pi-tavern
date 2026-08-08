@@ -8,6 +8,7 @@ import WebSocket from "ws";
 import type { CharacterCard } from "../../../src/config/character-card.js";
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 import { decodeServerMessage, encodeMessage } from "../../../src/protocol/codec.js";
+import { DEFAULT_WELCOME_MESSAGE } from "../../../src/shared/constants.js";
 
 const temporaryDirectories: string[] = [];
 const runtimes: CreatorRuntime[] = [];
@@ -45,6 +46,72 @@ afterEach(async () => {
 });
 
 describe("CreatorRuntime Character join lifecycle", () => {
+	it("#123 WL1/WL2 红钉：ready 后收 1 条 system_message 且不再自动推 message_history", async () => {
+		// 与 #123 指定默认文案一致（DEFAULT_WELCOME_MESSAGE 待实现落定后引用）。
+		const WELCOME = DEFAULT_WELCOME_MESSAGE;
+
+		const runtime = await startRuntime();
+		const peer = await connectPeer(runtime);
+
+		peer.send({
+			jsonrpc: "2.0",
+			id: "join",
+			method: "join_group_chat",
+			params: { session_id: "session-1" },
+		});
+		expect(await peer.next()).toEqual({
+			jsonrpc: "2.0",
+			id: "join",
+			result: {
+				available_characters: characters.map(toSummaryMessage),
+			},
+		});
+
+		peer.send({
+			jsonrpc: "2.0",
+			id: "claim",
+			method: "claim_character",
+			params: { character_id: characters[0]?.characterId },
+		});
+		expect(await peer.next()).toEqual({
+			jsonrpc: "2.0",
+			id: "claim",
+			result: {
+				character: {
+					...toSummaryMessage(characters[0] as CharacterCard),
+					path: characters[0]?.path,
+				},
+			},
+		});
+
+		// ready 后帧序：响应 → system_message 单播 → character_joined 广播。
+		peer.send({ jsonrpc: "2.0", id: "ready", method: "character_ready" });
+		expect(await peer.next()).toEqual({
+			jsonrpc: "2.0",
+			id: "ready",
+			// P1-4 方案 a：ready 携带进入时刻水位 latest_sequence（契约流程 WL1 帧序钉更新）。
+			result: { latest_sequence: 0 },
+		});
+		expect(await peer.next()).toEqual({
+			jsonrpc: "2.0",
+			method: "system_message",
+			params: { content: WELCOME },
+		});
+		expect(await peer.next()).toEqual({
+			jsonrpc: "2.0",
+			method: "character_joined",
+			params: { character: toSummaryMessage(characters[0] as CharacterCard) },
+		});
+
+		expect(runtime.state.onlineCharacters.get("session-1")).toMatchObject({
+			sessionId: "session-1",
+			character: {
+				characterId: characters[0]?.characterId,
+				name: "Architect",
+			},
+		});
+	});
+
 	it("keeps a Character pending until ready, then exposes state and broadcasts", async () => {
 		const runtime = await startRuntime();
 		const peer = await connectPeer(runtime);
@@ -87,12 +154,16 @@ describe("CreatorRuntime Character join lifecycle", () => {
 		expect(await peer.next()).toEqual({
 			jsonrpc: "2.0",
 			id: "ready",
-			result: null,
+			// P1-4 方案 a：ready 携带进入时刻水位 latest_sequence（契约流程 WL1 帧序钉更新）。
+			result: { latest_sequence: 0 },
 		});
+		// #123：ready 后不再自动推 message_history，改发 system_message 欢迎单播。
 		expect(await peer.next()).toEqual({
 			jsonrpc: "2.0",
-			method: "message_history",
-			params: { messages: [], cursor: null, has_more: false, total_messages: 0 },
+			method: "system_message",
+			params: {
+				content: DEFAULT_WELCOME_MESSAGE,
+			},
 		});
 		expect(await peer.next()).toEqual({
 			jsonrpc: "2.0",

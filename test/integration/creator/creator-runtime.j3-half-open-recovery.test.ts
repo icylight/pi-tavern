@@ -52,7 +52,7 @@ async function joinCharacter(
 	sessionId: string,
 	characterId: string,
 	options: { autoPong?: boolean } = {},
-): Promise<{ client: WebSocket; messageHistory: Record<string, unknown> }> {
+): Promise<{ client: WebSocket }> {
 	const client = new WebSocket(
 		`ws://127.0.0.1:${runtime.activeDescriptor.port}/${encodeURIComponent(runtime.state.groupChat.groupChatId)}/${encodeURIComponent(runtime.activeDescriptor.instanceId)}`,
 		{ autoPong: options.autoPong ?? true },
@@ -67,17 +67,19 @@ async function joinCharacter(
 	);
 	await waitForMessage(client, "response");
 	client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
-	const historyPromise = waitForMessage(client, "message_history");
+	// #123：ready 后不再自动推 message_history，改等 system_message 欢迎单播。
+	const welcomePromise = waitForMessage(client, "system_message");
 	await waitForMessage(client, "response");
-	const messageHistory = await historyPromise;
-	return { client, messageHistory };
+	await welcomePromise;
+	return { client };
 }
 
-function historySequences(messageHistory: Record<string, unknown>): number[] {
+/** get_message_history 首页（最近 10 条窗口）的 sequence 列表。 */
+async function historySequences(client: WebSocket, nextId: number): Promise<number[]> {
+	client.send(JSON.stringify({ jsonrpc: "2.0", id: String(nextId), method: "get_message_history", params: {} }));
+	const response = await waitForMessage(client, "response");
 	const messages =
-		((messageHistory.params as Record<string, unknown>).messages as Array<{
-			params?: { sequence?: number };
-		}>) ?? [];
+		((response.result as Record<string, unknown>)?.messages as Array<{ params?: { sequence?: number } }>) ?? [];
 	return messages.map((m) => m.params?.sequence ?? -1);
 }
 
@@ -111,10 +113,11 @@ describe("CreatorRuntime #85 J3 半开断连恢复一致性", () => {
 		runtime.submitUserPersonaMessage("during-half-open-1");
 		runtime.submitUserPersonaMessage("during-half-open-2");
 
-		// ④ 同 session 重连（恢复）：message_history 完整——半开期间 2 条无遗漏。
-		const { client: revived, messageHistory } = await joinCharacter(runtime, "session-j3", "qa", { autoPong: true });
-		// 半开期间 2 条全部进入历史——恢复无遗漏。
-		expect(historySequences(messageHistory)).toEqual([1, 2]);
+		// ④ 同 session 重连（恢复）：历史无遗漏——主动 get_message_history 拉取，
+		// 半开期间 2 条（seq 1..2）全部进入（无遗漏语义保留，WL3 路径）。
+		const { client: revived } = await joinCharacter(runtime, "session-j3", "qa", { autoPong: true });
+		const sequences = await historySequences(revived, 9);
+		expect(sequences).toEqual([1, 2]);
 		expect(runtime.state.onlineCharacters.has("session-j3")).toBe(true);
 
 		// ⑤ 重连后投递恢复：新消息正常广播到达（sequence 3 在预览中）。

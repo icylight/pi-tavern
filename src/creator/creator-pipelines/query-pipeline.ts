@@ -40,7 +40,7 @@ export class QueryPipeline {
 	runGetGroupChatState(
 		socket: WebSocket,
 		connection: QueryConnectionLike,
-		message: Extract<ClientMessage, { method: "get_group_chat_state" }>,
+		_message: Extract<ClientMessage, { method: "get_group_chat_state" }>,
 	): unknown {
 		void socket;
 		if (!connection.online || connection.sessionId === null) {
@@ -77,8 +77,8 @@ export class QueryPipeline {
 
 		// 游标是绝对 sequence 边界：返回 sequence < cursorSeq 的最近 10 条。
 		// 新消息不会使其移位。
-		// 注：分页大小保持 10（增量分页粒度）；只有 join 推送窗口用
-		// JOIN_HISTORY_LIMIT（User 2026-08-01）。
+		// 注：分页大小保持 10（增量分页粒度）；#123 起 join 不再推送历史，
+		// JOIN_HISTORY_LIMIT 仅剩 resume 投影使用。
 		const cursorSeq =
 			message.params.cursor === undefined || message.params.cursor === null
 				? null
@@ -161,7 +161,7 @@ export class QueryPipeline {
 	runGetChatHistoryFile(
 		socket: WebSocket,
 		connection: QueryConnectionLike,
-		message: Extract<ClientMessage, { method: "get_chat_history_file" }>,
+		_message: Extract<ClientMessage, { method: "get_chat_history_file" }>,
 	): { path: string } {
 		void socket;
 		if (!connection.online || connection.sessionId === null) {
