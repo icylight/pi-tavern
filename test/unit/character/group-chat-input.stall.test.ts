@@ -33,6 +33,8 @@ function createMockRuntime(
 		isAgentActive: overrides.isAgentActive ?? true,
 		loadCursor: () => null,
 		saveCursor: vi.fn(),
+		// P1-4 方案 a：旧帧（null）回退查询预置——无 fetchMessageHistoryPage mock 时静默，不污染 saveCursor 断言。
+		readyLatestSequence: null,
 		fetchMessagesSince:
 			overrides.fetchMessagesSince ?? (async () => ({ messages: [], latestSequence: 0, totalMessages: 0 })),
 		refreshGroupChatState: async () => undefined,

@@ -214,7 +214,8 @@ export class GroupChatInput {
 			return;
 		}
 		// 新帧：ready 响应水位（进入时刻精确锚点，误差窗口归零——方案 a）。
-		if (this.runtime.readyLatestSequence !== null) {
+		// 用 nullish 判断：mock/旧帧下属性可能为 undefined，与 null 同语义（未设置）。
+		if (this.runtime.readyLatestSequence != null) {
 			this.runtime.saveCursor(this.runtime.readyLatestSequence);
 			return;
 		}
