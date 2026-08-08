@@ -16,6 +16,7 @@
  * 覆盖类型构造：object / string / integer / number / boolean / null /
  * array / anyOf(union) / enum / const(literal) / $ref 局部引用 /
  * patternProperties(Record) / description / required(Optional)。
+ * 约束键仅支持 minimum（#147 P1-B 评审收窄：其余 8 键 0 处使用，User 拍板不实现）。
  */
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -31,18 +32,16 @@ const HEADER = `// 由 scripts/generate-schema.mjs 生成（docs-first：#145）
 import { Type } from "typebox";
 `;
 
-/** JSON Schema 约束键 → TypeBox 选项（minimum 等，保真必需）。 */
-const CONSTRAINT_KEYS = [
-	"minimum",
-	"maximum",
-	"exclusiveMinimum",
-	"exclusiveMaximum",
-	"minLength",
-	"maxLength",
-	"minItems",
-	"maxItems",
-	"pattern",
-];
+/** 只读检查模式（--check）：内存生成 + biome 格式化后与已提交产物逐字比较，
+ * 不一致 exit 1（不写文件、不破坏工作区）。接入 npm run check 尾部，防
+ * “改定义忘生成 → 产物静默过期”的漂移（评审 #147 P1）。 */
+const CHECK_MODE = process.argv.includes("--check");
+
+/** JSON Schema 约束键 → TypeBox 选项（保真必需）。
+ * #147 P1-B 评审处置（User 拍板）：仅保留实际使用的 minimum；
+ * maximum/exclusiveMinimum/exclusiveMaximum/minLength/maxLength/
+ * minItems/maxItems/pattern 均 0 处使用，承诺收窄、不实现。 */
+const CONSTRAINT_KEYS = ["minimum"];
 
 function constraintOptions(schema) {
 	const opts = [];
@@ -86,9 +85,17 @@ function collectOptions(schema) {
 }
 
 function withOptions(expr, opts) {
-	return opts.length > 0 ? `${expr}({ ${opts.join(", ")} })` : `${expr}()`;
+	if (opts.length === 0) {
+		return expr.endsWith(")") ? expr : `${expr}()`;
+	}
+	if (expr.endsWith(")")) {
+		// 已调用形态（Type.Array(...) / Type.Union([...]) / Type.Literal(...)）：
+		// 选项插入括号内作为末尾参数。
+		return `${expr.slice(0, -1)}, { ${opts.join(", ")} })`;
+	}
+	return `${expr}({ ${opts.join(", ")} })`;
 }
-	// 无 type 的联合/枚举/常量（anyOf/enum/const 形态）。
+	// 无 type 的联合/枚举/常量（anyOf/enum/const 形态；不携带选项，见 CONSTRAINT_KEYS 注）。
 	if (schema.anyOf !== undefined) {
 		return `Type.Union([${schema.anyOf.map((s) => toTypeBox(s, defs, indent + 1)).join(", ")}])`;
 	}
@@ -198,16 +205,53 @@ async function main() {
 			return `export const ${name}Schema = ${expr};\n`;
 		});
 
-		// 4. 覆盖写产物 + biome 格式化（产物须过 check 门禁）。
+		// 4. 内容生成（biome 格式化，与提交产物风格一致）。
+		const raw = `${HEADER}${blocks.join("\n")}`;
+		const formatted = await formatWithBiome(raw);
+		if (CHECK_MODE) {
+			// 只读检查：内存比较，不写文件。
+			const { readFileSync } = await import("node:fs");
+			let current;
+			try {
+				current = readFileSync(OUT_FILE, "utf8");
+			} catch {
+				process.stderr.write(`[generate-schema] --check 失败：产物不存在 ${OUT_FILE}\n`);
+				process.exit(1);
+			}
+			if (current !== formatted) {
+				process.stderr.write(
+					`[generate-schema] --check 失败：产物与协议定义漂移——请运行 npm run docs:types 重新生成并提交产物\n`,
+				);
+				process.exit(1);
+			}
+			process.stderr.write(`[generate-schema] --check 通过（${order.length} defs 与产物一致）\n`);
+			return;
+		}
+		// 5. 覆盖写产物。
 		mkdirSync(dirname(OUT_FILE), { recursive: true });
-		writeFileSync(OUT_FILE, `${HEADER}${blocks.join("\n")}`);
-		execFileSync(process.execPath, [join(ROOT, "node_modules", "@biomejs", "biome", "bin", "biome"), "check", "--write", OUT_FILE], {
-			cwd: ROOT,
-			stdio: "inherit",
-		});
+		writeFileSync(OUT_FILE, formatted);
 		process.stderr.write(`[generate-schema] wrote ${OUT_FILE} (${order.length} defs)\n`);
 	} finally {
 		rmSync(cacheDir, { recursive: true, force: true });
+	}
+}
+
+/** 用 biome 格式化生成内容（临时文件中转，与写盘路径完全一致）。 */
+async function formatWithBiome(content) {
+	const { writeFileSync: writeTmp, readFileSync: readTmp, rmSync: rmTmp } = await import("node:fs");
+	const { randomUUID } = await import("node:crypto");
+	// 临时文件放项目根单文件（biome files.includes 白名单含根级 *.ts；
+	// 子目录/tmp/隐藏目录均会被忽略）。用完即删。
+	const tmpFile = join(ROOT, `biome-fmt-${randomUUID()}.ts`);
+	try {
+		writeTmp(tmpFile, content);
+		execFileSync(process.execPath, [join(ROOT, "node_modules", "@biomejs", "biome", "bin", "biome"), "check", "--write", tmpFile], {
+			cwd: ROOT,
+			stdio: "pipe",
+		});
+		return readTmp(tmpFile, "utf8");
+	} finally {
+		rmTmp(tmpFile, { force: true });
 	}
 }
 

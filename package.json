@@ -32,7 +32,7 @@
 		"test:integration": "node scripts/run-tests.mjs integration",
 		"test:acceptance": "node scripts/run-tests.mjs acceptance",
 		"test:full": "npm run test:unit -- --all && npm run test:integration -- --all && npm run test:acceptance -- --all",
-		"check": "biome check . && tsc --noEmit",
+		"check": "biome check . && tsc --noEmit && node scripts/generate-schema.mjs --check",
 		"format": "biome check --write .",
 		"lint:layers": "node scripts/lint-layers.mjs",
 		"docs:api": "typedoc",
