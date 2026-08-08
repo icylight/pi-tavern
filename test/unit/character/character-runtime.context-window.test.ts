@@ -69,7 +69,10 @@ describe("CharacterRuntime.fetchMessagesSince 上下文窗口（#138）", () => 
 		sockets.length = 0;
 	});
 
-	function createRuntime(options?: { getFetchContextWindow?: () => number }): { runtime: CharacterRuntime; socket: MockSocket } {
+	function createRuntime(options?: { getFetchContextWindow?: () => number }): {
+		runtime: CharacterRuntime;
+		socket: MockSocket;
+	} {
 		const socket = createMockSocket();
 		sockets.push(socket);
 		const runtime = CharacterRuntime.prepare({
@@ -79,9 +82,7 @@ describe("CharacterRuntime.fetchMessagesSince 上下文窗口（#138）", () => 
 			heartbeatIntervalMs: 60_000,
 			heartbeatTimeoutMs: 60_000,
 			requestTimeoutMs: 5_000,
-			...(options?.getFetchContextWindow !== undefined
-				? { getFetchContextWindow: options.getFetchContextWindow }
-				: {}),
+			...(options?.getFetchContextWindow !== undefined ? { getFetchContextWindow: options.getFetchContextWindow } : {}),
 		});
 		runtime.activate({ socket: socket as unknown as WebSocket, bufferedMessages: [] });
 		runtimes.push(runtime);
@@ -94,7 +95,8 @@ describe("CharacterRuntime.fetchMessagesSince 上下文窗口（#138）", () => 
 		since: number,
 		window?: number,
 	): Promise<void> {
-		const pending = window === undefined ? runtime.fetchMessagesSince(since) : runtime.fetchMessagesSince(since, window);
+		const pending =
+			window === undefined ? runtime.fetchMessagesSince(since) : runtime.fetchMessagesSince(since, window);
 		const frame = lastSentFrame(socket);
 		const id = frame.id as string | number;
 		injectResponse(socket, id, {

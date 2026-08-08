@@ -1,13 +1,12 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-
 import { CharacterRuntime } from "../../../src/character/character-runtime.js";
 import { JoinAttempt } from "../../../src/character/join-attempt.js";
 import { type CharacterCard, loadCharacterCard } from "../../../src/config/character-card.js";
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 import type { ServerMessage } from "../../../src/protocol/messages.js";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 const temporaryDirectories: string[] = [];
 const creatorRuntimes: CreatorRuntime[] = [];
@@ -97,7 +96,8 @@ describe("#138 context window: 拉取附加上下文窗口（方案 A，零协�
 		expect(sequences(pulled?.messages)).toEqual([3]);
 	});
 
-	it("窗口拉取不更新游标存储值（额外 N 条不消费未读水位）", async () => {		const { creator, character } = await startCreator();
+	it("窗口拉取不更新游标存储值（额外 N 条不消费未读水位）", async () => {
+		const { creator, character } = await startCreator();
 		await creator.submitUserPersonaMessage("seed 1");
 		await creator.submitUserPersonaMessage("seed 2");
 		await creator.submitUserPersonaMessage("seed 3");

@@ -1,10 +1,11 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AddressInfo } from "node:net";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import WebSocket, { WebSocketServer } from "ws";
+import type WebSocket from "ws";
+import { WebSocketServer } from "ws";
 
 import { JoinAttempt } from "../../../src/character/join-attempt.js";
 import type { ActiveGroupChatDescriptor } from "../../../src/data/discovery/active-descriptor.js";

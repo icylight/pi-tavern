@@ -4,9 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 
 import { CharacterRuntime } from "../../../src/character/character-runtime.js";
-import {
-	ERROR_UNEXPECTED_SPEAK_RESPONSE,
-} from "../../../src/shared/messages.js";
+import { ERROR_UNEXPECTED_SPEAK_RESPONSE } from "../../../src/shared/messages.js";
 
 /**
  * #139 方案 B 回归钉（Arch 属主，对抗模式⑪实证）：response-gate feed 前拦截
@@ -100,10 +98,7 @@ describe("CharacterRuntime reload 延续后 fail-close（#139 方案 B 回归）
 	}
 
 	/** 跨 reload 构造新 runtime（detach → takeHandoff，连接延续）。 */
-	async function reloadRuntime(
-		runtime: CharacterRuntime,
-		socket: MockSocket,
-	): Promise<CharacterRuntime> {
+	async function reloadRuntime(runtime: CharacterRuntime, socket: MockSocket): Promise<CharacterRuntime> {
 		const handoff = await runtime.detachForReload("session-2");
 		const taken = await CharacterRuntime.takeHandoff(handoff, undefined, () => undefined);
 		runtimes.push(taken);
@@ -114,8 +109,7 @@ describe("CharacterRuntime reload 延续后 fail-close（#139 方案 B 回归）
 		const { runtime, socket } = createRuntime();
 		const taken = await reloadRuntime(runtime, socket);
 
-		const request = (taken as unknown as { request(m: { method: string; params: unknown }): Promise<unknown> })
-			.request;
+		const request = (taken as unknown as { request(m: { method: string; params: unknown }): Promise<unknown> }).request;
 		const promise = request.call(taken, { method: "speak", params: { content: "hello" } });
 		const id = lastRequestId(socket);
 
@@ -132,8 +126,7 @@ describe("CharacterRuntime reload 延续后 fail-close（#139 方案 B 回归）
 		const { runtime, socket } = createRuntime();
 		const taken = await reloadRuntime(runtime, socket);
 
-		const request = (taken as unknown as { request(m: { method: string; params: unknown }): Promise<unknown> })
-			.request;
+		const request = (taken as unknown as { request(m: { method: string; params: unknown }): Promise<unknown> }).request;
 		const promise = request.call(taken, { method: "speak", params: { content: "hello" } });
 		const id = lastRequestId(socket);
 
