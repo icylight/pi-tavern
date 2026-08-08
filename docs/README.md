@@ -42,11 +42,9 @@
 
 > 归档文档均已在头部标注归档原因；引用计数应为零（新增引用即视为漂移）。
 
-- acceptance-baseline-0.1.0 / 34 / 45 — 历史验收基线
-- brainstorm-convergence.md — 被 ADR-0007 固化
-- abort-delivery.md — 被 ADR-0008 固化
-- new-message-fetch.md — 被 #64 拉取模型覆盖
-- refactor-coverage.md — 重构历史态
+- [abort-delivery.md](archive/abort-delivery.md) — 被 ADR-0008 固化
+- [brainstorm-convergence.md](archive/brainstorm-convergence.md) — 被 ADR-0007 固化
+- [issue-123-review.md](archive/issue-123-review.md) — #123 评审留痕（2026-08-08 归档）
 
 ## 维护纪律
 
