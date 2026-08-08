@@ -388,5 +388,38 @@ describe("acceptance: #123 welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => 
 		);
 		expect(String(configError.message)).toContain("Invalid PiTavern config");
 		await creator5.kill("SIGTERM");
+
+		// P1-3 反例（User 评论 3）：全局有效 + 项目空串 → 回退链不截断，
+		// 生效值 = 全局文案（修复前 project ?? global 先选空串 → 错误回退代码默认）。
+		const root6 = await mkdtemp(join(tmpdir(), "pi-tavern-acc-welcome-chain-"));
+		roots.push(root6);
+		const agentDir6 = join(root6, "agent");
+		const projectDir6 = join(root6, "project");
+		await mkdir(join(agentDir6, "characters"), { recursive: true });
+		await mkdir(join(projectDir6, ".pi"), { recursive: true });
+		await writeFile(
+			join(agentDir6, "characters", "architect.md"),
+			"---\nname: Architect\ndescription: Architecture\n---\nArchitect prompt",
+		);
+		await writeFile(
+			join(agentDir6, "tavern.json"),
+			JSON.stringify({ characters: ["characters/architect.md"], welcome_message: "全局欢迎语" }),
+		);
+		await writeFile(join(projectDir6, ".pi", "tavern.json"), JSON.stringify({ welcome_message: "" }));
+		const creator6 = spawnCreator({
+			label: "creator6",
+			agentDir: agentDir6,
+			sessionDir: join(agentDir6, "sessions", "creator"),
+			cwd: projectDir6,
+		});
+		extraProcesses.push(creator6);
+		await creator6.waitForTavernReady(60_000);
+		const { descriptor: descriptor6 } = await startFreshGroup(creator6, projectDir6, agentDir6);
+		const memberChain = await joinCharacterWs(descriptor6, "ws-welcome-chain", "characters/architect.md");
+		sockets.push(memberChain.socket);
+		const chainWelcome = await memberChain.waitFor((m) => m.method === "system_message");
+		expect((chainWelcome.params as { content: string }).content).toBe("全局欢迎语");
+		await leaveAndReset(creator6, creator6.checkpoint(), 10_000);
+		await creator6.kill("SIGTERM");
 	});
 });
