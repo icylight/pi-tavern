@@ -1,5 +1,8 @@
 # #123 方案评审（Arch，2026-08-08）
 
+> **已归档**：评审留痕（#123 已合入，评审结论在 PR/issue 留痕，本文件全仓 0 引用）。
+> 本文件不再维护，索引见 docs/README.md。
+
 > 输入：PM 布置（分支 feat/welcome-system-message，基点 main=7fa5e2f）；QA 预研检查点 4 项；
 > #132 开工前收敛第 3 条（system_message schema 与 #119 新信封统一设计）。
 > 评审结论：无阻断项，可开工。本文覆盖 schema 形状、ready-pipeline 时序、hasPublicMessages
