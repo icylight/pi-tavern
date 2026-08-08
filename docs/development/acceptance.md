@@ -141,7 +141,7 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 8. **WL8 tavern_history 历史主动查询（P1-4）**：
    - WL8-1：工具可用（角色状态）——分页 10 条/页、cursor 续页向更早、返回 has_more/total 元数据供 AI 自主决策；
    - WL8-2：非 character 状态调用被拒绝（TOOL_NOT_JOINED_AS_CHARACTER 语义）；
-   - WL8-3：业务场景——新角色入场已有 12 条历史、随后无人发言：历史不自动注入，经 tavern_history 可分页完整拉取（10 + 续页 2），欢迎语含 tavern_history 指引。
+   - WL8-3：业务场景——新角色入场已有 12 条历史、随后无人发言：历史不自动注入，经 tavern_history 可分页拉取（首页 10 条 + 元数据 has_more/total 供 AI 决策是否续页）；连续翻页（携 cursor 向更早）为独立逻辑，不在本条验收范围（2026-08-08 苍蓝星裁决）。
 
 验收方式：acceptance 断言存在且非空 + 单测 + check 全绿 + 协议文档无语义分歧。
 
