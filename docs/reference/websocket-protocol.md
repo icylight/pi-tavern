@@ -42,7 +42,7 @@ PiTavern 使用标准 WebSocket `ping` / `pong` 控制帧检测半开连接，�
 - 白板模型：[BoardUpdate.json](../protocol/schema/BoardUpdate.json) / [BoardWriteResponse.json](../protocol/schema/BoardWriteResponse.json) / [BoardQueryResponse.json](../protocol/schema/BoardQueryResponse.json) / [BoardNote.json](../protocol/schema/BoardNote.json) / [BoardWriteData.json](../protocol/schema/BoardWriteData.json) / [BoardReasonCode.json](../protocol/schema/BoardReasonCode.json)
 - 摘要：[CharacterSummary.json](../protocol/schema/CharacterSummary.json) / [OnlineCharacter.json](../protocol/schema/OnlineCharacter.json) / [ProtocolErrorObject.json](../protocol/schema/ProtocolErrorObject.json)
 
-生成来源 = `src/protocol/messages.ts`（TypeBox，codec 校验同源单一事实源），由 `npm run docs:schema` 重新生成；`npm run docs:check` 门禁对 `docs/protocol/schema/` 判空——schema 变更后未同步产物 = 门禁红（#144 P1-2 类漂移根上拦截）。本文档其余部分**只描述时序、语义与边界**，不再内联字段形状；文中的 JSON 仅为语义示意，字段以 schema 文件为准。
+生成来源 = `src/protocol/messages.ts`（TypeBox，codec 校验同源单一事实源），由 `npm run docs:schema` **覆盖式生成**（苍蓝星拍板 #145）：产物 = 代码当前状态的精确投影，每次运行以代码为准重写（含清理不再导出的陈旧产物），不做比较/判空；**协议代码变更时须运行本命令并同步提交产物**。本文档其余部分**只描述时序、语义与边界**，不再内联字段形状；文中的 JSON 仅为语义示意，字段以 schema 文件为准。
 
 业务错误码枚举（10 码，`-32100` 起，避开 JSON-RPC 标准码与 vscode-jsonrpc 已用码；`code → message` 映射表单一数据源在 `src/shared/messages.ts`，message 文案与原 `success: false` 的 `error` 字符串原样一致）：
 

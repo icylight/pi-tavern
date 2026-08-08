@@ -32,14 +32,13 @@
 		"test:integration": "node scripts/run-tests.mjs integration",
 		"test:acceptance": "node scripts/run-tests.mjs acceptance",
 		"test:full": "npm run test:unit -- --all && npm run test:integration -- --all && npm run test:acceptance -- --all",
-		"check": "biome check . && tsc --noEmit && npm run docs:check",
+		"check": "biome check . && tsc --noEmit",
 		"format": "biome check --write .",
 		"lint:layers": "node scripts/lint-layers.mjs",
 		"docs:schema": "node scripts/generate-protocol-schema.mjs",
 		"docs:api": "typedoc",
 		"health": "node scripts/health.mjs",
-		"prepare": "husky || echo \"husky init skipped/inactive\" >&2 || true",
-		"docs:check": "node scripts/docs-check.mjs"
+		"prepare": "husky || echo \"husky init skipped/inactive\" >&2 || true"
 	},
 	"pi": {
 		"extensions": [
