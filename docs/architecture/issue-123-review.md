@@ -25,9 +25,17 @@
    互不引用、互不干扰；同一 ServerMessageSchema 判别域共存。
 4. **METHOD_SYSTEM_MESSAGE 入 shared/messages.ts**（F 类判别常量，与 METHOD_* 同源——#119 M2 抽取惯例）。
 5. **归属：send 单播给 ready 角色本人，非 broadcast**。欢迎语是个人化告知；broadcast 会让全员重复收帧。
-6. **消费端零改动**：character 侧 handleServerMessage 对通知帧走通用路径（push receivedMessages +
-   onEnvironmentMessage，method 无关），system_message 进 ServerMessageSchema 即自动消费，无拒帧。
-   ui/extension 侧无 METHOD_* 专项消费（已核查），零改动。
+6. **消费端 2 处小改（客户端认领，客户端核查 2026-08-08 12:42 修正 §1.6 初版「零改动」结论）**：
+   - handleServerMessage 通知帧通用路径不变（push receivedMessages，帧层可达）；
+   - 但下一跳 group-chat-input.start() handler 经 isEnvironmentEvent 白名单
+     （:443，仅 public_message / message_history / board_update，default→return 丢弃）——
+     system_message 命中 default 被丢弃，不进 pendingEvents，Agent 环境看不到欢迎文案；
+   - 裁决：欢迎意图 = 替代原历史推送的可见性引导（原 message_history 会渲染进 buildContent），
+     ｜仅帧层可断言不满足产品意图。消费端改 2 处：
+     a) isEnvironmentEvent 加 `case METHOD_SYSTEM_MESSAGE: return true`（进 pendingEvents 批处理）；
+     b) buildContent 加独立「系统消息」小节（渲染 content；不混入「新消息」小节——
+        非公共消息、无 sender/sequence，WL1 语义）；
+   - hasPublicMessages getter 不变：system_message 不算公共消息（不误判）。
 
 ## 2. ready-pipeline 时序
 
@@ -83,8 +91,9 @@ message_history 非空 / group_chat_update preview 非空。
 | src/shared/messages.ts | +METHOD_SYSTEM_MESSAGE | 后端 |
 | src/config/load-config.ts | schema + welcome_message；TavernConfig.welcomeMessage；三档合并 | 后端 |
 | src/protocol/messages.ts | +SystemMessageSchema；ServerMessageSchema union 注册 | 后端 |
-| src/creator/creator-pipelines/ready-pipeline.ts | 删 message_history 推送 → send(system_message)；deps.welcomeMessage | 后端 |
+| src/creator/creator-pipelines/ready-pipeline.ts | 删 message_history 推送 → send(system_message) 单播；deps.welcomeMessage | 后端 |
 | 装配侧（creator-factory） | welcomeMessage 注入 ready-pipeline | 后端 |
+| src/character/group-chat-input.ts | isEnvironmentEvent 白名单 + SYSTEM_MESSAGE；buildContent 独立「系统消息」小节 | 客户端 |
 | docs/reference/websocket-protocol.md | system_message 文档（WL6） | PM 归口落盘 |
 | test/unit/protocol/codec.test.ts | system_message 编解码 + 判别（红钉先行） | Arch |
 | test/integration/creator/creator-join-lifecycle.test.ts | ready 后恰 1 条 system_message、零 message_history（红钉先行） | Arch |
