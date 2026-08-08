@@ -32,6 +32,7 @@
 | 欢迎语动态化（群名/在线成员/轮次状态入 system_message） | 2026-08-08 #123 第一性原理复盘（PM 提出，Arch 待复核） | 当前固定文本定位足够（群聊输入每轮注入状态不重复）；增强候选：welcome 内容模板化，含群名/在线成员数/轮次摘要 | 待内嵌 |
 | 协议文档生成化（typebox schema → JSON Schema → 文档渲染） | 2026-08-08 #144 P1-2 手写同步暴露（Arch 调研：vscode-jsonrpc 无注释生成功能；TypeBox ToJsonSchema 可输出 schema） | 结构化字段节改生成产物（schema 单一事实源），时序/语义/边界节保留手写——混合模式防文档漂移（P1-2 同类问题的根因级方案） | 待内嵌 |
 | BufferedWsClient.waitFor 超时基建缺陷（已修复，留痕） | 2026-08-08 #123 it1 定位（QA）：无新帧到达时 waiter 永不 resolve、deadline 永不检查——测试挂起而非报错 | 已修：独立 timer + 帧到达清除（ws-helper.ts）；后续新增 waiter 类基建照此模式 | 随 af19d8c 落地 |
+| group-chat-state.round 字段半死数据（3 操作函数删除后无写入方，恒 null） | 2026-08-08 dead-exports 评审（Arch）：startNewRound/advanceSequence/consumeRoundMessage 删除后 round 无写入方，ui 层只读展示（tavern-ui-presenter.ts:62） | 评估 ui 展示语义后移除 round 字段或补写入方；低优先 | 待内嵌 |
 
 ## 已落地
 
