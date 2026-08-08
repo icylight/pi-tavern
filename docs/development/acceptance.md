@@ -121,11 +121,11 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 3. **S3 私聊无协议标识**：私聊消息无 `source` 字段/无群聊协议标记，角色侧可判定非群聊；私聊不进入公共消息流与持久化（回归 isolation 系）；
 4. **S4 判定确定性**：同输入重复解析来源判定一致；群聊判定不依赖隐式文本模式；
 5. **S5 处理规则落文档**：角色卡/workflow 私聊处理规则（不广播、需群知时显式发布并注明来源）；terminology.md 收录「私聊」；
-6. **S6 文档同步**：websocket-protocol.md 记录 source 字段与默认语义（契约变更四方已确认后生效）。
+6. **S6 文档同步**：websocket-protocol.md 记录 source 字段与默认语义（契约变更团队已确认后生效）。
 
 验收方式：acceptance 断言存在且非空 + 单测 + check 全绿 + 协议文档无语义分歧。
 
-> 注：注入变化影响 identity-consistency.test.ts:188 增量断言（welcome/来源声明后 speaker 一致，后端钉测扩展）与 abort-steer 注入解析；客户端集成层仅透传零代码变更。协议变更仍须遵守契约零漂移流程（四方确认后落 schema）。
+> 注：注入变化影响 identity-consistency.test.ts:188 增量断言（welcome/来源声明后 speaker 一致，后端钉测扩展）与 abort-steer 注入解析；客户端集成层仅透传零代码变更。协议变更仍须遵守契约零漂移流程（团队确认后落 schema）。
 
 ### 欢迎消息与历史行为（#123，PM 布置，P2 后置，验收条目 QA 提供场景文本）
 
