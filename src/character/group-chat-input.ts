@@ -204,20 +204,26 @@ export class GroupChatInput {
 	 * 兜底，绝不打断 run）。
 	 */
 	/**
-	 * P1-4 游标预置：仅当本 Session 尚无游标（首次 join）时执行一次。
-	 * fetchMessageHistoryPage(null) 取水位（丢弃消息内容，只取 totalMessages），
-	 * CAS 写入：fetch 后重读仍 null 才 saveCursor——重读与写之间无 await（原子），
-	 * fetch 期间并发 pullIncrement 已写游标则放弃（保留其全量拉取结果，不覆盖）。
+	 * P1-4 游标预置（方案 a 定案版）：新 Session 无游标时预置 = 进入时刻水位。
+	 * 优先路径：ready 响应携带 latest_sequence（新帧）→ 直接写（零 RPC）；
+	 * 回退路径：旧帧缺字段 → fetchMessageHistoryPage(null) 取水位 CAS 写。
+	 * 失败静默：游标保持 null，既有「无游标完整历史兜底」语义不变。
 	 */
 	private async primeJoinCursor(): Promise<void> {
 		if (this.runtime.loadCursor() !== null) {
 			return;
 		}
+		// 新帧：ready 响应水位（进入时刻精确锚点，误差窗口归零——方案 a）。
+		if (this.runtime.readyLatestSequence !== null) {
+			this.runtime.saveCursor(this.runtime.readyLatestSequence);
+			return;
+		}
+		// 旧帧回退：查询水位（进入时刻 ≈ 查询时刻，双路径兼容旧服务端）。
 		let page: Awaited<ReturnType<CharacterRuntime["fetchMessageHistoryPage"]>>;
 		try {
 			page = await this.runtime.fetchMessageHistoryPage(null);
 		} catch {
-			// 预置失败不阻塞 join：游标保持 null，既有兜底语义（无游标完整历史分页）不变。
+			// 预置失败不阻塞 join：游标保持 null，既有兜底语义不变。
 			return;
 		}
 		if (page === null || this.stopped) {

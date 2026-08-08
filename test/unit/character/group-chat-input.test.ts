@@ -28,6 +28,8 @@ function createMockRuntime(
 		isAgentActive: false,
 		loadCursor: () => null,
 		saveCursor: () => undefined,
+		// P1-4 方案 a：进入时刻水位（新帧数字 / 旧帧 null）。mock 默认 null = 旧帧回退路径。
+		readyLatestSequence: null,
 		fetchMessagesSince: async () => ({ messages: [], latestSequence: 0, totalMessages: 0 }),
 		// #77：标记机制已删除（agent_start 无条件点亮）。
 		refreshGroupChatState: async () => undefined,
@@ -548,6 +550,30 @@ describe("GroupChatInput", () => {
 
 		expect(saveCursor).not.toHaveBeenCalledWith(12);
 		expect(cursor).toBe(7);
+
+		input.stop();
+	});
+
+	it("P1-4 游标预置新帧路径：readyLatestSequence 非 null → 直接 saveCursor（零 RPC）", async () => {
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({
+			getGroupChatState: async () => ({}),
+		});
+		runtime.loadCursor = vi.fn(() => null);
+		const saveCursor = vi.fn();
+		runtime.saveCursor = saveCursor;
+		runtime.readyLatestSequence = 12;
+		runtime.fetchMessageHistoryPage = vi.fn();
+
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+		input.start();
+		await vi.advanceTimersByTimeAsync(0);
+
+		// 新帧：进入时刻精确水位直接写，不触发查询 RPC。
+		expect(saveCursor).toHaveBeenCalledWith(12);
+		expect(runtime.fetchMessageHistoryPage).not.toHaveBeenCalled();
 
 		input.stop();
 	});

@@ -89,7 +89,8 @@ describe("CreatorRuntime Character join lifecycle", () => {
 		expect(await peer.next()).toEqual({
 			jsonrpc: "2.0",
 			id: "ready",
-			result: null,
+			// P1-4 方案 a：ready 携带进入时刻水位 latest_sequence（契约流程 WL1 帧序钉更新）。
+			result: { latest_sequence: 0 },
 		});
 		expect(await peer.next()).toEqual({
 			jsonrpc: "2.0",
@@ -153,7 +154,8 @@ describe("CreatorRuntime Character join lifecycle", () => {
 		expect(await peer.next()).toEqual({
 			jsonrpc: "2.0",
 			id: "ready",
-			result: null,
+			// P1-4 方案 a：ready 携带进入时刻水位 latest_sequence（契约流程 WL1 帧序钉更新）。
+			result: { latest_sequence: 0 },
 		});
 		// #123：ready 后不再自动推 message_history，改发 system_message 欢迎单播。
 		expect(await peer.next()).toEqual({

@@ -101,6 +101,8 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 			send: (socket, message) => broadcastHub.send(socket, message),
 			broadcast: (message) => broadcastHub.broadcast(message),
 			onMembersChanged: () => host.readOnMembersChanged()?.(),
+			/** #144 P1-4 方案 a：进入时刻水位 = 当前公开消息总数（与 group_chat_update 同源）。 */
+			latestSequence: () => host.publicMessages.length,
 		},
 		queryDeps: {
 			state: host.state,

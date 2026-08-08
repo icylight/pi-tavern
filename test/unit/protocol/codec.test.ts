@@ -357,6 +357,27 @@ describe("PiTavern protocol codec", () => {
 		});
 	});
 
+	describe("ready 响应携带 latest_sequence（#144 P1-4 方案 a，红钉）", () => {
+		it("ready 响应 result 含 latest_sequence（进入时刻水位）可解码", () => {
+			const frame = Buffer.from(
+				JSON.stringify({
+					jsonrpc: "2.0",
+					id: 5,
+					result: { latest_sequence: 12 },
+				}),
+			);
+			// 当前实现（EmptySuccess result: null）下红；方案 a 拆 ReadyResponseSchema 后绿。
+			expect(() => decodeServerMessage(frame)).not.toThrow();
+			const decoded = decodeServerMessage(frame);
+			expect(decoded).toEqual({ jsonrpc: "2.0", id: 5, result: { latest_sequence: 12 } });
+		});
+
+		it("旧帧兼容：result: null 仍可解码（双路径）", () => {
+			const frame = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: 5, result: null }));
+			expect(() => decodeServerMessage(frame)).not.toThrow();
+		});
+	});
+
 	describe("system_message（#123 WL1/WL6，红钉）", () => {
 		const WELCOME = DEFAULT_WELCOME_MESSAGE;
 		const systemMessage = (params: Record<string, unknown>) => ({

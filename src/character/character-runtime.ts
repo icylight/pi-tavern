@@ -180,6 +180,13 @@ export class CharacterRuntime {
 	private readonly heartbeatTimeoutMs: number;
 	private readonly cursorStorePath: string | undefined;
 	private cursorSequence: number | null = null;
+	/**
+	 * P1-4 方案 a：ready 响应携带的进入时刻水位（latest_sequence）。
+	 * 新帧有值 → 游标预置直接用（精确锚点，误差窗口归零）；旧帧 null →
+	 * 回退查询预置（双路径兼容旧服务端）。只读快照语义（join 时写入，
+	 * 值传豁免）。
+	 */
+	readyLatestSequence: number | null = null;
 
 	/**
 	 * ISSUE-013 B5：每轮 stale 自动恢复预算。按每次 speak 响应带回的轮次

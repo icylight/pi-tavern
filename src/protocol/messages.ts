@@ -308,6 +308,16 @@ const EmptySuccessResponseSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/** #144 P1-4 方案 a：character_ready 成功响应——携带进入时刻水位，客户端游标精确锚定。 */
+const ReadyResponseSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
+		id: RequestIdSchema,
+		result: Type.Object({ latest_sequence: Type.Integer() }, { additionalProperties: false }),
+	},
+	{ additionalProperties: false },
+);
+
 /** 业务失败响应（id 关联请求；code ∈ 10 码枚举，message = 文案原样保留）。 */
 const FailureResponseSchema = Type.Object(
 	{
@@ -697,6 +707,7 @@ export const ServerMessageSchema = Type.Union([
 	JoinGroupChatResponseSchema,
 	ClaimCharacterResponseSchema,
 	EmptySuccessResponseSchema,
+	ReadyResponseSchema,
 	FailureResponseSchema,
 	GroupChatStateResponseSchema,
 	GetMessageHistoryResponseSchema,
@@ -727,5 +738,7 @@ export type ClaimCharacterSuccess = Extract<
 	ServerMessage,
 	{ result: { character: Static<typeof ClaimedCharacterSchema> } }
 >;
+/** #144 P1-4 方案 a：ready 成功响应（result 含进入时刻水位）。 */
+export type ReadyResponse = Extract<ServerMessage, { result: { latest_sequence: number } }>;
 export type GroupChatStateSuccess = Extract<ServerMessage, { result: { group_chat: unknown } }>;
 export type GroupChatStateMessage = GroupChatStateSuccess["result"];

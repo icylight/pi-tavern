@@ -2,7 +2,12 @@ import { ResponseError } from "vscode-jsonrpc";
 import type WebSocket from "ws";
 import type { CharacterCard, CharacterSummary } from "../../config/character-card.js";
 import type { GroupChatState } from "../../data/group-chat-state.js";
-import { type ClientMessage, JSONRPC_VERSION, type ServerMessage } from "../../protocol/messages.js";
+import {
+	type ClientMessage,
+	JSONRPC_VERSION,
+	type ReadyResponse,
+	type ServerMessage,
+} from "../../protocol/messages.js";
 import { DEFAULT_WELCOME_MESSAGE } from "../../shared/constants.js";
 import {
 	ERROR_ALREADY_IN_GROUP_CHAT,
@@ -44,6 +49,8 @@ export interface ReadyPipelineDependencies {
 	/** 组播通道（载荷 = 完整 ServerMessage 通知帧，B1 收窄）。 */
 	broadcast: (message: ServerMessage) => void;
 	onMembersChanged: (() => void) | undefined;
+	/** #144 P1-4 方案 a：ready 响应携带的进入时刻水位（公开消息总数，与 group_chat_update 同源）。 */
+	latestSequence: () => number;
 }
 
 /**
@@ -55,7 +62,7 @@ export interface ReadyPipelineDependencies {
 export class ReadyPipeline {
 	constructor(private readonly deps: ReadyPipelineDependencies) {}
 
-	run(socket: WebSocket, connection: ReadyConnectionLike, _message: CharacterReadyMessage): null {
+	run(socket: WebSocket, connection: ReadyConnectionLike, _message: CharacterReadyMessage): ReadyResponse["result"] {
 		const { sessionId, reservedCharacterId } = connection;
 		const character = reservedCharacterId ? this.deps.characters.get(reservedCharacterId) : undefined;
 		if (
@@ -84,12 +91,17 @@ export class ReadyPipeline {
 		});
 		connection.online = true;
 
-		// 时序语义（重构前 = 同步 send 顺序）：ready 响应（result: null）先到，
+		// #144 P1-4 方案 a（User 拍板）：ready 响应携带进入时刻水位 latest_sequence——
+		// 客户端游标以此为锚（join 时刻）精确预置，误差窗口归零（此前查询预置的
+		// round-trip 窗口可吞 join 后立即到达的消息，T2 稳定复现）。响应先到（result），
 		// 随后 system_message 欢迎单播 + character_joined 广播。connection 模式下
 		// 响应由库在 handler resolve 后（微任务）reply——通知帧延迟到宏任务，
 		// 事件循环保证响应先发。
-		// #123：system_message 单播（Arch 评审 §1.5——欢迎语个人化，非 broadcast）；
-		// 在 character_joined 之前发送，使新角色处理自己的 join 事件时欢迎语已就位。
+		// 库封装语义：handler 返回纯 result 值（query-pipeline 同款）——返回完整信封
+		// 会被二次包装（result 里嵌信封），客户端 decode 失败（T2 定位实证）。
+		const response: ReadyResponse["result"] = {
+			latest_sequence: this.deps.latestSequence(),
+		};
 		setImmediate(() => {
 			this.deps.send(socket, {
 				jsonrpc: JSONRPC_VERSION,
@@ -107,6 +119,6 @@ export class ReadyPipeline {
 			});
 			this.deps.onMembersChanged?.();
 		});
-		return null;
+		return response;
 	}
 }

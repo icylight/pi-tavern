@@ -153,6 +153,12 @@ describe("acceptance: #123 welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => 
 			expect(welcomeIndex).toBeGreaterThan(readyIndex);
 			expect(joinedIndex).toBeGreaterThan(welcomeIndex);
 
+			// 方案 a（User 拍板）：ready 响应携带进入时刻水位 latest_sequence
+			// （业务语义：入场即告诉角色「你进来时聊到第几条」，之后一条不漏）——
+			// 红钉先行：当前实现 result 仍为 null → 红；实现后转绿。
+			const readyFrame = framesA.find((m) => m.id === "3" && "result" in m);
+			expect(readyFrame?.result).toMatchObject({ latest_sequence: expect.any(Number) });
+
 			// WL2：零 message_history 自动推送。
 			expect(framesA.some((m) => m.method === "message_history")).toBe(false);
 
