@@ -151,9 +151,7 @@ describe("loadTavernConfig", () => {
 			const root = await createTemporaryDirectory();
 			// 1 MiB+ 字符：信封（jsonrpc/method/params 包裹 + 转义膨胀）必然超限。
 			const oversized = "x".repeat(1024 * 1024 + 64);
-			await expect(configWithWelcome(root, oversized, undefined)).rejects.toThrow(
-				/Invalid PiTavern config/,
-			);
+			await expect(configWithWelcome(root, oversized, undefined)).rejects.toThrow(/Invalid PiTavern config/);
 		});
 	});
 });
