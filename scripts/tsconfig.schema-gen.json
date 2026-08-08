@@ -12,5 +12,5 @@
 		"sourceMap": false,
 		"rootDir": "../src"
 	},
-	"files": ["../src/protocol/messages.ts"]
+	"files": ["../src/protocol/messages.ts", "../src/protocol/schema-merge.ts"]
 }
