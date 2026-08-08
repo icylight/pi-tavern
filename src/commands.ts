@@ -72,7 +72,7 @@ import {
 	UI_UNNAMED_GROUP_CHAT,
 } from "./shared/messages.js";
 
-export interface RegisterCommandsOptions {
+interface RegisterCommandsOptions {
 	agentDir?: string;
 	configMaxMessages?: number;
 	loadConfig?: (options: { agentDir: string; cwd: string }) => Promise<TavernConfig>;

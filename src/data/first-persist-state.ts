@@ -5,7 +5,7 @@ export const FIRST_PERSIST_NAME_APPENDED = 1 << 2;
 export const FIRST_PERSIST_SETTINGS_APPENDED = 1 << 3;
 export const FIRST_PERSIST_MESSAGE_APPENDED = 1 << 4;
 
-export type FirstPersistStep =
+type FirstPersistStep =
 	| typeof FIRST_PERSIST_HEADER_WRITTEN
 	| typeof FIRST_PERSIST_SESSION_OPENED
 	| typeof FIRST_PERSIST_NAME_APPENDED

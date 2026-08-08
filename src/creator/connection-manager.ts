@@ -27,7 +27,7 @@ export interface ConnectionContext {
 	jsonrpcReader: WebSocketMessageReaderT | null;
 }
 
-export interface ConnectionManagerOptions {
+interface ConnectionManagerOptions {
 	/** runtime 是否处于 active 生命周期（决定消息接受与错误关闭策略）。 */
 	isActive: () => boolean;
 	/** 运行时串行队列（socket 事件处理入队，防并发交错）。 */

@@ -69,7 +69,7 @@ JSON-RPC 标准错误码（vscode-jsonrpc 库自产，connection 模式下为本
 | -32602 | Invalid params | 参数校验失败 |
 | -32603 | Internal error | handler 抛非 ResponseError 异常 |
 
-通用 JSON 命名规则见 [development-conventions.md](development-conventions.md)。
+通用 JSON 命名规则见 [development-conventions.md](../development/development-conventions.md)。
 
 ### 非法消息
 

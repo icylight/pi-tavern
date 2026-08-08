@@ -38,7 +38,7 @@ export interface TrashResult {
  * 会话摘要的本地结构接口（pi SessionInfo 的结构子集）。skills 不 import pi
  * 包（ADR-0005 §2），真实现由 adapter 层（commands.ts）装配。
  */
-export interface GroupChatSessionInfoLike {
+interface GroupChatSessionInfoLike {
 	id: string;
 	path: string;
 	name?: string | null;
@@ -46,13 +46,13 @@ export interface GroupChatSessionInfoLike {
 }
 
 /** 会话条目的本地结构接口（pi SessionEntry 的结构子集）。 */
-export interface GroupChatSessionEntryLike {
+interface GroupChatSessionEntryLike {
 	type: string;
 	customType?: string;
 	content?: unknown;
 }
 
-export interface GroupChatSessionReaderLike {
+interface GroupChatSessionReaderLike {
 	getEntries(): GroupChatSessionEntryLike[];
 }
 
@@ -62,7 +62,7 @@ export interface GroupChatSessionManagerLike {
 	open(path: string, sessionDir: string, cwd: string): GroupChatSessionReaderLike;
 }
 
-export interface GroupChatSessionDependencies {
+interface GroupChatSessionDependencies {
 	/** pi SessionManager 注入面（skills 不 import pi 包）。 */
 	sessionManager: GroupChatSessionManagerLike;
 	trash: (path: string) => TrashResult;
@@ -71,7 +71,7 @@ export interface GroupChatSessionDependencies {
 	readActiveDescriptor: (path: string) => Promise<ActiveGroupChatDescriptor | null>;
 }
 
-export type DeleteGroupChatSessionDependencies = Pick<GroupChatSessionDependencies, "trash" | "exists" | "unlink">;
+type DeleteGroupChatSessionDependencies = Pick<GroupChatSessionDependencies, "trash" | "exists" | "unlink">;
 
 /** 非 pi 依赖的默认实现（node 原语 + data/discovery），供调用方与 sessionManager 拼装。 */
 export const defaultGroupChatSessionIoDependencies: Omit<GroupChatSessionDependencies, "sessionManager"> = {

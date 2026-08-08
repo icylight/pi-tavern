@@ -65,7 +65,7 @@ export interface SessionHeaderLike {
 	timestamp: string;
 }
 
-export interface SessionStoreDeps {
+interface SessionStoreDeps {
 	writeFile: (path: string, data: string) => Promise<void>;
 	rm: (path: string) => Promise<void>;
 }
@@ -75,7 +75,7 @@ export function formatEntryContent(senderLabel: string, body: string): string {
 	return `${senderLabel}:\n${trimmed}\n`;
 }
 
-export interface FirstPersistInput {
+interface FirstPersistInput {
 	/** 会话文件路径（首次持久化前可能尚无文件；由 getSessionFilePath 供给）。 */
 	sessionPath: string;
 	/** 规范 header（已用 createdAt 对齐 timestamp）。 */
@@ -91,7 +91,7 @@ export interface FirstPersistInput {
 	content: string;
 }
 
-export interface FirstPersistResult {
+interface FirstPersistResult {
 	entryId: string;
 	/** 本次实际持久化的条目数（1-3），供调用方推进 persistedCount。 */
 	entriesPersisted: number;

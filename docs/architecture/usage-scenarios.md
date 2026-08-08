@@ -1,6 +1,6 @@
 # PiTavern 工作流实战：使用场景与问题模拟（用户视角 × Agent 视角）
 
-> 本文把 PiTavern 群聊在**本仓库自身协作中的真实用法**当作产品用例：完整模拟一个任务从提出到收口的生命周期（用户视角 + agent 视角），记录每一步遇到的实际问题、当时的解法、以及问题对产品开发的指导。这是 dogfooding 记录——文档里每一个问题都有群聊实测出处（附 issue/序列号）。交互规范见 [interaction-model.md](./interaction-model.md)，协作规则见 [workflow.md](./workflow.md)。
+> 本文把 PiTavern 群聊在**本仓库自身协作中的真实用法**当作产品用例：完整模拟一个任务从提出到收口的生命周期（用户视角 + agent 视角），记录每一步遇到的实际问题、当时的解法、以及问题对产品开发的指导。这是 dogfooding 记录——文档里每一个问题都有群聊实测出处（附 issue/序列号）。交互规范见 [interaction-model.md](./interaction-model.md)，协作规则见 [workflow.md](../development/workflow.md)。
 
 ## 1. 为什么要写这份文档
 

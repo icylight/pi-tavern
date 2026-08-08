@@ -30,7 +30,7 @@ import {
 	HEADLESS_SKIPPED_PREFIX,
 } from "./shared/messages.js";
 
-export interface AutoJoinOptions {
+interface AutoJoinOptions {
 	agentDir?: string;
 	character?: string;
 	groupChat?: string;

@@ -16,7 +16,7 @@ import {
 } from "../shared/messages.js";
 
 /** 页脚状态与底部 widget 共用的固定键。 */
-export const TAVERN_UI_KEY = "pi-tavern";
+const TAVERN_UI_KEY = "pi-tavern";
 
 export interface TavernViewModel {
 	status: string | null;

@@ -13,15 +13,15 @@ import {
 } from "../shared/messages.js";
 import { getReloadHandoffRegistry } from "./reload-handoff-registry.js";
 
-export type TavernState =
+type TavernState =
 	| { type: "idle" }
 	| { type: "joining"; attempt: JoinAttempt }
 	| { type: "creator"; runtime: CreatorRuntime }
 	| { type: "character"; runtime: CharacterRuntime };
 
 export type TavernControllerCreatorStarter = (options: StartNewCreatorRuntimeOptions) => Promise<CreatorRuntime>;
-export type TavernControllerResumeStarter = (options: ResumeCreatorRuntimeOptions) => Promise<CreatorRuntime>;
-export type TavernControllerJoinStarter = (
+type TavernControllerResumeStarter = (options: ResumeCreatorRuntimeOptions) => Promise<CreatorRuntime>;
+type TavernControllerJoinStarter = (
 	descriptor: ActiveGroupChatDescriptor,
 	sessionId: string,
 	options: JoinAttemptOptions,

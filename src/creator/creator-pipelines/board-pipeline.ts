@@ -15,7 +15,7 @@ type BoardWriteMessage = Extract<ClientMessage, { method: "board_write" }>;
 type BoardQueryMessage = Extract<ClientMessage, { method: "board_query" }>;
 
 /** 连接上下文窄接口（creator-runtime 的 ConnectionContext 结构子集）。 */
-export interface BoardConnectionLike {
+interface BoardConnectionLike {
 	sessionId: string | null;
 	online: boolean;
 }

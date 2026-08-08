@@ -16,7 +16,7 @@ export interface DiscoverGroupChatsOptions {
 	cwd: string;
 }
 
-export interface DiscoverGroupChatsDependencies {
+interface DiscoverGroupChatsDependencies {
 	isProcessAlive: (pid: number) => boolean;
 	verifyDescriptor: (descriptor: ActiveGroupChatDescriptor) => Promise<boolean>;
 }

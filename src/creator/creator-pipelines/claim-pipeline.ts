@@ -8,13 +8,13 @@ import { ERROR_CHARACTER_UNAVAILABLE, ERROR_CODE_CHARACTER_UNAVAILABLE } from ".
 type ClaimCharacterMessage = Extract<ClientMessage, { method: "claim_character" }>;
 
 /** 连接上下文窄接口（creator-runtime 的 ConnectionContext 结构子集）。 */
-export interface ClaimConnectionLike {
+interface ClaimConnectionLike {
 	sessionId: string | null;
 	online: boolean;
 	reservedCharacterId: string | null;
 }
 
-export interface ClaimPipelineDependencies {
+interface ClaimPipelineDependencies {
 	state: GroupChatState;
 	characters: ReadonlyMap<string, CharacterCard>;
 	isCharacterAvailable: (characterId: string) => boolean;

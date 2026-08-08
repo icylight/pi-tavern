@@ -16,7 +16,7 @@ import type { HeartbeatRegistry } from "./heartbeat-registry.js";
 import { closeWebSocketServer } from "./ws-utils.js";
 
 /** 生命周期流程访问的骨架窄接口（结构类型；模块不 import CreatorRuntime 类本身）。 */
-export interface RuntimeLifecycleHost {
+interface RuntimeLifecycleHost {
 	/** 生命周期 getter（构造期值拷贝会冻结守卫判定——Arch A.2，须调用时读取）。 */
 	readLifecycle: () => "active" | "detaching" | "disposed";
 	setLifecycle: (value: "active" | "detaching" | "disposed") => void;

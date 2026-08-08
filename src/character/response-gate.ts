@@ -37,7 +37,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * undefined/运行时异常。方法在 request() 调用点已知，故校验在解析时执行
  * （#139 方案 B：feed 前拦截 + id→method 关联表删除，语义等价）。
  */
-export const RESPONSE_RESULT_MATCHERS: Record<string, (result: unknown) => boolean> = {
+const RESPONSE_RESULT_MATCHERS: Record<string, (result: unknown) => boolean> = {
 	[METHOD_JOIN_GROUP_CHAT]: (result) => isRecord(result) && "available_characters" in result,
 	[METHOD_CLAIM_CHARACTER]: (result) => isRecord(result) && "character" in result,
 	[METHOD_CHARACTER_READY]: (result) =>

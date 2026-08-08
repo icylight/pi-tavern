@@ -30,7 +30,7 @@ export function setTestNotify(notify: ((message: string) => void) | undefined): 
 	testNotify = notify;
 }
 
-export interface GroupChatInputReloadSnapshot {
+interface GroupChatInputReloadSnapshot {
 	pendingEvents: ServerMessage[];
 	debounceDueAt: number | null;
 	/** 可选仅为兼容新字段加入前创建的进程内 handoff。 */
