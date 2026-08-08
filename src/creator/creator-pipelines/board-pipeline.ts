@@ -1,8 +1,8 @@
 import { ResponseError } from "vscode-jsonrpc";
 import type WebSocket from "ws";
-import type { BoardStore } from "../../data/board-store.js";
+import type { BoardNote, BoardStore } from "../../data/board-store.js";
 import type { GroupChatState } from "../../data/group-chat-state.js";
-import { type ClientMessage, JSONRPC_VERSION } from "../../protocol/messages.js";
+import { type ClientMessage, JSONRPC_VERSION, type ServerMessage } from "../../protocol/messages.js";
 import {
 	ERROR_CODE_INVALID_NOTE_ID,
 	ERROR_CODE_NOT_IN_GROUP,
@@ -23,8 +23,8 @@ export interface BoardConnectionLike {
 export interface BoardPipelineDependencies {
 	state: GroupChatState;
 	boardStore: BoardStore;
-	/** board_update 通知通道（复用 broadcast()，不混入 group_chat_update）。 */
-	broadcast: (message: unknown) => void;
+	/** board_update 通知通道（复用 broadcast()，不混入 group_chat_update）。载荷 = ServerMessage 通知帧（B1 收窄）。 */
+	broadcast: (message: ServerMessage) => void;
 	/** creator 实时提示（纯展示，组合根接线；每次 applied 广播触发）。 */
 	onBoardUpdated?: (update: {
 		actor: string;
@@ -81,15 +81,22 @@ export class BoardPipeline {
 			const action: "add" | "update" | "remove" | "clear" =
 				message.params.action === "set" ? (note?.id !== undefined ? "update" : "add") : message.params.action;
 			const broadcastNote = outcome.note ?? removedNote;
-			const wireUpdate = {
-				jsonrpc: JSONRPC_VERSION,
-				method: METHOD_BOARD_UPDATE,
-				params: {
-					actor: sender,
-					action,
-					...(broadcastNote ? { note: broadcastNote } : {}),
-				},
-			};
+			// B1 收窄：按 action 判别构造（BoardUpdateSchema 判别 union——add/update/remove
+			// 必带 note、clear 禁 note）；store 语义保证：set/update 必带 outcome.note、
+			// remove 必带 removedNote（applied 前提）、clear 两者皆 undefined。
+			// 显式分支让 tsc 验证 wire 形状（收窄前被 unknown 逃逸，运行时靠 codec 钉测兜底）。
+			const wireUpdate: ServerMessage =
+				action === "clear"
+					? {
+							jsonrpc: JSONRPC_VERSION,
+							method: METHOD_BOARD_UPDATE,
+							params: { actor: sender, action: "clear" },
+						}
+					: {
+							jsonrpc: JSONRPC_VERSION,
+							method: METHOD_BOARD_UPDATE,
+							params: { actor: sender, action, note: broadcastNote as BoardNote },
+						};
 			this.deps.broadcast(wireUpdate);
 			// creator 实时提示（纯展示）：每次 applied 广播同步通知组合根。
 			this.deps.onBoardUpdated?.({ actor: sender, action, ...(broadcastNote ? { note: broadcastNote } : {}) });

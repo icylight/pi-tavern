@@ -21,7 +21,7 @@ export interface MemberBookkeepingOptions {
 	toCharacterSummaryMessage: (character: CharacterSummary) => {
 		character_id: string;
 		name: string;
-		description: string | null;
+		description: string;
 	};
 }
 

@@ -2,7 +2,7 @@ import WebSocket from "ws";
 import type { CharacterSummary } from "../config/character-card.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
 import { encodeMessage } from "../protocol/codec.js";
-import { JSONRPC_VERSION } from "../protocol/messages.js";
+import { JSONRPC_VERSION, type ServerMessage } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 import { METHOD_GROUP_CHAT_UPDATE, METHOD_PUBLIC_MESSAGE, type ProtocolErrorCode } from "../shared/messages.js";
 
@@ -20,7 +20,7 @@ export interface BroadcastHubOptions {
 	toCharacterSummaryMessage: (character: CharacterSummary) => {
 		character_id: string;
 		name: string;
-		description: string | null;
+		description: string;
 	};
 }
 
@@ -86,7 +86,12 @@ export class BroadcastHub {
 		}
 	}
 
-	broadcast(message: unknown): void {
+	/**
+	 * 组播（服务端通知通道）。载荷 = 完整 ServerMessage 通知帧（Arch 顺手优化：
+	 * 对抗模式②实证过宽 unknown 类型逃逸 tsc——旧信封 4 处 wire 漂移；收窄后
+	 * 调用点形状错误在编译期即被捕获）。
+	 */
+	broadcast(message: ServerMessage): void {
 		let _count = 0;
 		this.options.iterateConnections((socket) => {
 			_count++;

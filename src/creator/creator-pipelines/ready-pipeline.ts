@@ -2,7 +2,7 @@ import { ResponseError } from "vscode-jsonrpc";
 import type WebSocket from "ws";
 import type { CharacterCard, CharacterSummary } from "../../config/character-card.js";
 import type { GroupChatState } from "../../data/group-chat-state.js";
-import { type ClientMessage, JSONRPC_VERSION } from "../../protocol/messages.js";
+import { type ClientMessage, JSONRPC_VERSION, type ServerMessage } from "../../protocol/messages.js";
 import { DEFAULT_WELCOME_MESSAGE } from "../../shared/constants.js";
 import {
 	ERROR_ALREADY_IN_GROUP_CHAT,
@@ -41,7 +41,8 @@ export interface ReadyPipelineDependencies {
 		description: string;
 	};
 	send: (socket: WebSocket, message: unknown) => void;
-	broadcast: (message: unknown) => void;
+	/** 组播通道（载荷 = 完整 ServerMessage 通知帧，B1 收窄）。 */
+	broadcast: (message: ServerMessage) => void;
 	onMembersChanged: (() => void) | undefined;
 }
 
