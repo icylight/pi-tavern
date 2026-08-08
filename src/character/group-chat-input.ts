@@ -9,6 +9,7 @@ import {
 	METHOD_PUBLIC_MESSAGE,
 	METHOD_SYSTEM_MESSAGE,
 } from "../shared/messages.js";
+import type { CharacterRuntime } from "./character-runtime.js";
 import {
 	INJECTION_HEADER_TITLE,
 	INJECTION_IDENTITY_PREFIX,
@@ -16,7 +17,6 @@ import {
 	INJECTION_TEST_IDENTITY_NOTIFY_PREFIX,
 	INJECTION_TEST_NOTIFY_PREFIX,
 } from "./injection-text.js";
-import type { CharacterRuntime } from "./character-runtime.js";
 
 /**
  * 仅供验收套件使用的观察通道（ISSUE-003 身份行契约，cab1fd7）。RPC 模式
@@ -650,7 +650,9 @@ export class GroupChatInput {
 				.filter((e) => "method" in e && e.method === METHOD_SYSTEM_MESSAGE)
 				.map((e) => e.params.content);
 			if (systemContents.length > 0) {
-				testNotify?.(`${INJECTION_TEST_NOTIFY_PREFIX} group=${this.runtime.groupChatId} system_messages=${systemContents.join("|")}`);
+				testNotify?.(
+					`${INJECTION_TEST_NOTIFY_PREFIX} group=${this.runtime.groupChatId} system_messages=${systemContents.join("|")}`,
+				);
 			}
 		}
 
