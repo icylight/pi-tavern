@@ -381,9 +381,11 @@ resources.
   interrupt token; it aborts only after the current tool batch and before the
   next model call. After settle, unread messages are fetched once and reopened
   through follow-up.
-- Messages are capped at 64 KiB; the first history page at join carries at
-  most 100 messages, and the extension keeps paging when older messages
-  exist.
+- Messages are capped at 64 KiB. Joining no longer pushes chat history
+  automatically: Characters can page backward on demand with `tavern_history`
+  (10 messages per page), while incremental catch-up uses per-session cursors.
+  After ready, the Character receives one configurable `system_message`
+  welcome message that is not added to the public message stream.
 - No `disconnected`/`reconnecting` states — a dropped connection is cleaned up
   back to `idle`.
 - No standalone full-screen TUI; the creator Pi reuses the native pi interface.
@@ -391,7 +393,7 @@ resources.
 
 ## Installation and First Use
 
-The current PiTavern release is 0.2.1 (2026-08-06). Install the stable package
+The current PiTavern release is 0.3.0 (2026-08-08). Install the stable package
 from npm:
 
 ```bash
@@ -483,13 +485,14 @@ replace its Character list when those files change later.
 
 ## Project Status
 
-Released 0.2.1 (2026-08-06). The core mechanisms — autonomous participation
+Released 0.3.0 (2026-08-08). The core mechanisms — autonomous participation
 without a speaker selector, a durable public message stream, lifecycle-aware
 delivery, and per-session cursors — are implemented and covered by automated
-acceptance suites. Version 0.2.0 added the whiteboard model, safe-boundary steer
-interrupts, and read-before-speak behavior; version 0.2.1 adds the bilingual
-introduction and Character Card first-use guide. Design details live in
-`docs/` (Chinese).
+acceptance suites. This release migrates transport messages to JSON-RPC 2.0
+(incompatible with 0.2.x), replaces automatic join-history delivery with a
+welcome message and on-demand history paging, and adds one preceding context
+message when delivering unread messages. Design details live in `docs/`
+(Chinese).
 
 ## Development setup
 
