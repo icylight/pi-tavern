@@ -193,24 +193,26 @@ async function joinAndReady(runtime: CreatorRuntime, sessionId: string, characte
 }
 
 describe("ISSUE-008 join snapshot paging contract (integration)", () => {
-	it("join message_history beyond the 100-message window advertises has_more + cursor", async () => {
+	it("get_message_history beyond the default window advertises has_more + cursor", async () => {
 		const runtime = await startRuntime();
 		for (let i = 1; i <= 102; i++) {
 			await runtime.submitUserPersonaMessage(`message ${i}`);
 		}
 
 		const peer = await joinAndReady(runtime, "session-paging", characters[0].characterId);
-		const history = await peer.waitFor((m) => m.method === "message_history");
-		const historyParams = history.params as Record<string, unknown>;
+		// #123：ready 不再推历史，分页语义经主动查询验证（WL3）。
+		peer.send({ jsonrpc: "2.0", id: "hist-1", method: "get_message_history", params: {} });
+		const response = await peer.waitFor((m) => m.id === "hist-1" && ("result" in m || "error" in m));
+		const historyParams = response.result as Record<string, unknown>;
 
 		const messages = historyParams.messages as Record<string, unknown>[];
-		expect(messages).toHaveLength(100);
+		expect(messages).toHaveLength(10);
 		expect(historyParams.has_more).toBe(true);
 		expect(historyParams.cursor).toBeTruthy();
 		expect(historyParams.total_messages).toBe(102);
-		// 窗口覆盖 seq 3..102（最早 2 条超出窗口），oldest-first（条目 = 信封化 public_message）。
-		expect((messages[0]?.params as Record<string, unknown>)?.sequence).toBe(3);
-		expect((messages[99]?.params as Record<string, unknown>)?.sequence).toBe(102);
+		// 首页窗口覆盖 seq 93..102（最早 92 条超出窗口），oldest-first（条目 = 信封化 public_message）。
+		expect((messages[0]?.params as Record<string, unknown>)?.sequence).toBe(93);
+		expect((messages[9]?.params as Record<string, unknown>)?.sequence).toBe(102);
 	});
 
 	it("under-100 history advertises no paging (has_more false, cursor null)", async () => {
@@ -219,8 +221,10 @@ describe("ISSUE-008 join snapshot paging contract (integration)", () => {
 		await runtime.submitUserPersonaMessage("hello 2");
 
 		const peer = await joinAndReady(runtime, "session-paging2", characters[0].characterId);
-		const history = await peer.waitFor((m) => m.method === "message_history");
-		const historyParams = history.params as Record<string, unknown>;
+		// #123：ready 不再推历史，主动查询验证全量（WL3）。
+		peer.send({ jsonrpc: "2.0", id: "hist-2", method: "get_message_history", params: {} });
+		const response = await peer.waitFor((m) => m.id === "hist-2" && ("result" in m || "error" in m));
+		const historyParams = response.result as Record<string, unknown>;
 
 		const messages = historyParams.messages as Record<string, unknown>[];
 		expect(messages).toHaveLength(2);

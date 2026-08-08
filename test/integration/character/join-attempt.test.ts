@@ -186,10 +186,11 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		const { creator, character } = await startCreator({ heartbeatIntervalMs: 30, heartbeatTimeoutMs: 120 });
 		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-1");
 		const runtime = await attempt.claimCharacter(character.characterId);
-		// 基线取点前先等 claim 链路的 message_history 通知到达：connection 重构后
-		// reply 异步化（ready result → mh → cj 宏任务投递），取点早于通知会误判。
+		// 基线取点前先等 claim 链路的 system_message 欢迎单播到达（#123 替代 message_history）：
+		// connection 重构后 reply 异步化（ready result → welcome → cj 宏任务投递），
+		// 取点早于通知会误判。
 		await vi.waitFor(() => {
-			expect(runtime.receivedMessages.some((m) => "method" in m && m.method === "message_history")).toBe(true);
+			expect(runtime.receivedMessages.some((m) => "method" in m && m.method === "system_message")).toBe(true);
 		});
 		const messageCountAfterJoin = runtime.receivedMessages.length;
 
