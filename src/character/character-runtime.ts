@@ -58,7 +58,7 @@ import {
 } from "../shared/messages.js";
 import { GroupChatInput } from "./group-chat-input.js";
 import { CHARACTER_REQUEST_TYPES } from "./request-types.js";
-import { PENDING_RESPONSE_REJECTED_CODE, ResponseCorrelator } from "./response-gate.js";
+import { PENDING_RESPONSE_REJECTED_CODE, validateResult } from "./response-gate.js";
 
 export interface CharacterConnectionTransfer {
 	socket: WebSocket;
@@ -171,8 +171,6 @@ export class CharacterRuntime {
 	 * 连接实例跨 owner 延续（JoinAttempt → runtime → reload 新 runtime），
 	 * 断线终态才 dispose。 */
 	private jsonrpcConnection: MessageConnection | null = null;
-	/** 请求 id → method 精确关联 + 响应形状校验（feed 前 gate，fail-close）。 */
-	private readonly responseCorrelator = new ResponseCorrelator();
 	/** reader 引用：响应帧 deliver 喂入 connection。 */
 	private jsonrpcReader: WebSocketMessageReader | null = null;
 	/** writer 引用：跨 handoff 延续时重设请求登记回调到新 owner。 */
@@ -269,7 +267,6 @@ export class CharacterRuntime {
 	private attachJsonRpc(socket: WebSocket): void {
 		const reader = new WebSocketMessageReader();
 		const writer = new WebSocketMessageWriter(socket);
-		writer.setRequestWrittenHandler((id, method) => this.responseCorrelator.register(id, method));
 		const jsonrpcConnection = createMessageConnection(reader, writer);
 		this.jsonrpcConnection = jsonrpcConnection;
 		this.jsonrpcReader = reader;
@@ -278,13 +275,11 @@ export class CharacterRuntime {
 	}
 
 	/** #119 connection 延续：接管既有 JSON-RPC 连接（不重建 = 库内序列单调，
-	 * 代际 id 不撞车——评审阻断②）。writer 登记回调重指向本 runtime 的关联表。 */
+	 * 代际 id 不撞车——评审阻断②）。 */
 	private adoptJsonRpc(jsonrpc: CharacterJsonRpcTransfer): void {
-		this.responseCorrelator.clear();
 		this.jsonrpcConnection = jsonrpc.connection;
 		this.jsonrpcReader = jsonrpc.reader;
 		this.jsonrpcWriter = jsonrpc.writer;
-		jsonrpc.writer.setRequestWrittenHandler((id, method) => this.responseCorrelator.register(id, method));
 	}
 
 	activate(transfer: CharacterConnectionTransfer, pi?: ExtensionAPI): void {
@@ -834,7 +829,6 @@ export class CharacterRuntime {
 			inflight.reject(new Error(ERROR_CONNECTION_CLOSED_DURING_RELOAD));
 		}
 		this.inflightRequests.clear();
-		this.responseCorrelator.clear();
 		this.jsonrpcConnection = null;
 		this.jsonrpcReader = null;
 		this.jsonrpcWriter = null;
@@ -1021,6 +1015,15 @@ export class CharacterRuntime {
 		});
 		return withTimeout.then(
 			(result) => {
+				// #139 方案 B：解析时形状校验（method 调用点已知，替代 feed 前 gate）。
+				// 同 id 错 result = 协议错位 fail-close：显式 ERROR_UNEXPECTED_* reject +
+				// 断链（failConnection → finishDisconnected，其他 in-flight 经 dispose
+				// -32097 → disconnectError 路径，文案同源）。
+				const failCloseError = validateResult(message.method, result);
+				if (failCloseError) {
+					this.failConnection(failCloseError);
+					return Promise.reject(failCloseError);
+				}
 				return { jsonrpc: JSONRPC_VERSION, id: "", result } as ServerMessage;
 			},
 			(error) => {
@@ -1053,20 +1056,12 @@ export class CharacterRuntime {
 	}
 
 	private handleServerMessage(message: ServerMessage): void {
-		// #119 connection 接线：响应帧（result/error + id）喂 connection——
-		// 库按 id 关联原请求；通知帧（method）走本类消费（receivedMessages/
-		// 环境消息/群聊关闭）。
+		// #139 方案 B：响应帧直接喂 connection（库按 id 关联原请求，id 关联/丢弃
+		// 由库承担）；result 形状校验移到 request() 解析时（method 在调用点已知，
+		// 同 id 错 result 仍 fail-close——#137 阻断②语义保留）。error 自描述、
+		// 未知 id（旧代际迟到响应 / reload 缓冲重放）→ 库按 id 结算或丢弃；
+		// 代际隔离由连接延续保证。
 		if (("result" in message || "error" in message) && message.id !== undefined) {
-			// feed 前 gate：同 id 错 result 形状 = 协议错位 fail-close（立即拒绝 + 断
-			// 链，不静默丢弃不悬挂——评审阻断①）；error 自描述、未知 id（旧代际迟到
-			// 响应 / reload 缓冲重放）→ 喂库——库按 id 结算（旧 pending 已在 detach
-			// 显式取消 = resolve 无害）或丢弃；代际隔离由连接延续保证（阻断②⑨）。
-			const failCloseError = this.responseCorrelator.gate(message);
-			if (failCloseError) {
-				this.failConnection(failCloseError);
-				return;
-			}
-			this.responseCorrelator.consume(message.id);
 			this.jsonrpcReader?.deliver(message);
 			return;
 		}
@@ -1144,7 +1139,6 @@ export class CharacterRuntime {
 			inflight.reject(error ?? new Error(ERROR_CONNECTION_CLOSED));
 		}
 		this.inflightRequests.clear();
-		this.responseCorrelator.clear();
 		const jsonrpcConnection = this.jsonrpcConnection;
 		this.jsonrpcConnection = null;
 		this.jsonrpcReader = null;
