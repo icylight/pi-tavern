@@ -91,6 +91,13 @@ export interface PrepareCharacterRuntimeOptions {
 	agentWedgedTimeoutMs?: number;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	triggerDebounceMs?: number;
+	/**
+	 * #138：增量拉取上下文窗口 getter（getter 闭包注入，每轮拉取实时取值，
+	 * 非快照）。拉取起点前移至 max(0, cursor - window)——额外 N 条已读上下文
+	 * 不更新游标、不污染未读语义。缺省 undefined → 窗口 0（行为不变）；
+	 * 生产接线 = 客户端域组合根注入 getFetchContextWindow（默认 1）。
+	 */
+	getFetchContextWindow?: () => number;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
@@ -130,6 +137,8 @@ export class CharacterRuntime {
 	private readonly agentWedgedTimeoutMs: number;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	private readonly triggerDebounceMs: number | undefined;
+	/** #138：增量拉取上下文窗口 getter（undefined → 窗口 0，行为不变）。 */
+	private readonly getFetchContextWindow: (() => number) | undefined;
 	/** 新鲜状态快照到达后触发（TUI 刷新钩子）。 */
 	onStateSnapshot: ((snapshot: GroupChatStateMessage) => void) | undefined;
 	/**
@@ -248,6 +257,7 @@ export class CharacterRuntime {
 		this.cursorStorePath = options.cursorStorePath;
 		this.agentWedgedTimeoutMs = options.agentWedgedTimeoutMs ?? DEFAULT_AGENT_WEDGED_TIMEOUT_MS;
 		this.triggerDebounceMs = options.triggerDebounceMs;
+		this.getFetchContextWindow = options.getFetchContextWindow;
 	}
 
 	static prepare(options: PrepareCharacterRuntimeOptions): CharacterRuntime {
@@ -468,16 +478,27 @@ export class CharacterRuntime {
 	 * 服务端按 sequence 过滤，因此漏掉的通知（gap）由下一次拉取补齐。
 	 * 连接中途断开时返回 null。
 	 */
-	async fetchMessagesSince(sinceSequence: number): Promise<{
+	/**
+	 * #138：拉取起点前移游标前 N 条已读上下文（方案 A，零协议变更）。
+	 * 额外 N 条仅作上下文窗口：不更新游标、不污染未读语义；前移只作用
+	 * 增量拉取路径（pageOlderHistory 走 fetchMessageHistoryPage，不叠加）。
+	 * 默认 0 行为不变（无注入/显式传 0 = 既有语义，测试零影响）。
+	 */
+	async fetchMessagesSince(
+		sinceSequence: number,
+		contextWindow: number = this.getFetchContextWindow?.() ?? 0,
+	): Promise<{
 		messages: ServerMessage[];
 		latestSequence: number;
 		totalMessages: number;
 	} | null> {
+		// 前移起点 clamp 到 0（历史不足 N 条时取实际可用全量）。
+		const adjustedSince = Math.max(0, sinceSequence - contextWindow);
 		let response: ServerMessage;
 		try {
 			response = await this.request({
 				method: METHOD_FETCH_MESSAGES_SINCE,
-				params: { since_sequence: sinceSequence },
+				params: { since_sequence: adjustedSince },
 			});
 		} catch (error) {
 			if (this.disconnected) {
@@ -775,6 +796,8 @@ export class CharacterRuntime {
 			socket,
 			character: this.character,
 			...(this.cursorStorePath !== undefined ? { cursorStorePath: this.cursorStorePath } : {}),
+			// #138：上下文窗口 getter 跨 reload 携带（reload 后与 join 路径行为一致）。
+			...(this.getFetchContextWindow !== undefined ? { getFetchContextWindow: this.getFetchContextWindow } : {}),
 			// #119 connection 延续：连接实例随 handoff 移交（新 runtime 不重建——
 			// 库内序列单调，旧代际响应撞不上新请求 id，评审阻断②）。
 			...(this.jsonrpcConnection && this.jsonrpcReader && this.jsonrpcWriter
@@ -860,6 +883,8 @@ export class CharacterRuntime {
 			sessionId: handoff.piSessionId,
 			character,
 			...(handoff.cursorStorePath !== undefined ? { cursorStorePath: handoff.cursorStorePath } : {}),
+			// #138：上下文窗口 getter 跨 reload 延续（reload 后与 join 路径行为一致）。
+			...(handoff.getFetchContextWindow !== undefined ? { getFetchContextWindow: handoff.getFetchContextWindow } : {}),
 		});
 		runtime.activateFromHandoff(handoff, pi);
 		return runtime;

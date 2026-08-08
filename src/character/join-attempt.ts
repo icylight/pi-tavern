@@ -42,6 +42,8 @@ export interface JoinAttemptOptions {
 	cursorStorePath?: string;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	triggerDebounceMs?: number;
+	/** #138：增量拉取上下文窗口 getter（getter 闭包，每轮实时取值），转发给 CharacterRuntime。 */
+	getFetchContextWindow?: () => number;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
@@ -70,6 +72,7 @@ export class JoinAttempt {
 	private readonly heartbeatTimeoutMs: number | undefined;
 	private readonly cursorStorePath: string | undefined;
 	private readonly triggerDebounceMs: number | undefined;
+	private readonly getFetchContextWindow: (() => number) | undefined;
 	private transferred = false;
 	private closed = false;
 
@@ -125,6 +128,7 @@ export class JoinAttempt {
 		this.heartbeatTimeoutMs = options.heartbeatTimeoutMs;
 		this.cursorStorePath = options.cursorStorePath;
 		this.triggerDebounceMs = options.triggerDebounceMs;
+		this.getFetchContextWindow = options.getFetchContextWindow;
 		this.socket.on("message", this.onMessage);
 		this.socket.on("close", this.onClose);
 		this.socket.on("error", this.onError);
@@ -207,6 +211,7 @@ export class JoinAttempt {
 				...(this.heartbeatTimeoutMs !== undefined ? { heartbeatTimeoutMs: this.heartbeatTimeoutMs } : {}),
 				...(this.cursorStorePath !== undefined ? { cursorStorePath: this.cursorStorePath } : {}),
 				...(this.triggerDebounceMs !== undefined ? { triggerDebounceMs: this.triggerDebounceMs } : {}),
+				...(this.getFetchContextWindow !== undefined ? { getFetchContextWindow: this.getFetchContextWindow } : {}),
 			});
 			const readyResponse = await this.request({ method: METHOD_CHARACTER_READY, params: {} });
 			if ("error" in readyResponse) {
