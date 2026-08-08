@@ -67,14 +67,16 @@ export async function loadTavernConfig(options: LoadTavernConfigOptions): Promis
 	const boardMaxNoteLength = projectConfig?.board_max_note_length ?? globalConfig?.board_max_note_length;
 	// #123：欢迎文案三档合并（项目 > 全局 > 代码默认），沿用 board 先例；
 	// 未配置 = undefined（管线侧回落 DEFAULT_WELCOME_MESSAGE）。
-	const welcomeMessage = projectConfig?.welcome_message ?? globalConfig?.welcome_message;
-	// PR #144 P1（User 评论）：欢迎文案 wire 安全校验——空串/空白串回退默认（视为未配置，
-	// 避免绕过 ?? DEFAULT 破坏「欢迎语必非空 → join 后必有首次可见注入」语义，PM 口径定案）；
+	// PR #144 P1-3（User 评论）：空白归一化必须在合并**之前**分别进行——否则
+	// `??` 先选中项目空串（空串非 null/undefined），再归一化 undefined 后直接回落
+	// 代码默认，截断三档回退链（反例：全局有效 + 项目空串 → 应回全局，实际默认）。
+	// 归一化语义：空白串视为未配置（PM 口径，与「欢迎语必非空 → join 后必有首次
+	// 可见注入」文档依据一致）。
+	const effectiveWelcomeMessage =
+		normalizeWelcomeMessage(projectConfig?.welcome_message) ?? normalizeWelcomeMessage(globalConfig?.welcome_message);
 	// 超 WebSocket 帧上限 → 配置错误 fail-fast。校验完整信封字节（Arch 补充：content
 	// 单独校验留边界窗口——信封包裹 + JSON 转义膨胀可令完整帧超限，运行时 encodeMessage
 	// 仍抛错断线；直接复用运行时同一 encodeMessage 校验最终帧，零窗口）。
-	const effectiveWelcomeMessage =
-		welcomeMessage !== undefined && welcomeMessage.trim().length > 0 ? welcomeMessage : undefined;
 	if (effectiveWelcomeMessage !== undefined) {
 		const systemMessageFrame = {
 			jsonrpc: "2.0",
@@ -121,6 +123,10 @@ async function readConfigFile(path: string): Promise<TavernConfigFile | null> {
 		throw new Error(`${ERROR_INVALID_CONFIG_PREFIX}${path}`);
 	}
 	return value;
+}
+
+function normalizeWelcomeMessage(value: string | undefined): string | undefined {
+	return value !== undefined && value.trim().length > 0 ? value : undefined;
 }
 
 function toCharacterImports(config: TavernConfigFile | null, configPath: string): CharacterImport[] {
