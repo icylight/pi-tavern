@@ -501,6 +501,10 @@ describe("acceptance: #123 welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => 
 		expect(report7).toContain("has_more=true");
 		expect(report7).toContain("total=12");
 
+		// P1-7（User 口径）：进入后查分页与连续翻页是分开逻辑——acceptance 覆盖
+		// 「进入后查最近 10 条 + 元数据提示可续页」；连续翻页属服务端分页既有契约
+		// （unit/integration 覆盖），不在此重复。
+
 		await member7.kill("SIGTERM");
 		await leaveAndReset(creator7, creator7.checkpoint(), 10_000);
 		await creator7.kill("SIGTERM");
