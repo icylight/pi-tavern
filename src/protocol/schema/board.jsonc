@@ -1,0 +1,148 @@
+// ===== 协议 schema 定义：board.jsonc =====
+// 白板模型（#114，ADR-0007）：board_write / board_query / board_update。
+// 纯 docs-first：本文件为唯一手写源头，程序用的 schema 对象由它自动生成，
+// 生成产物不得手改；改消息格式 = 改这里 → 重新生成 → 同步提交。
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    // 白板条（wire 形态）：稳定条 id 由 store 分配，remove/edit 按 id 定向。
+    "BoardNote": {
+      "type": "object",
+      "required": ["id", "content"],
+      "properties": {
+        "id": { "type": "string" },
+        "content": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    // 白板 reason_code 五码（取值区分告知/拒绝）：
+    // - 拒绝码（资源约束，未执行）：max_notes_exceeded / note_length_exceeded
+    // - 告知码（幂等成立，changed:false 静默）：note_not_found / board_empty / note_unchanged
+    // 群聊静默规则：所有 changed:false 均不广播 board_update。
+    "BoardReasonCode": {
+      "anyOf": [
+        { "type": "string", "const": "max_notes_exceeded" },
+        { "type": "string", "const": "note_length_exceeded" },
+        { "type": "string", "const": "note_not_found" },
+        { "type": "string", "const": "board_empty" },
+        { "type": "string", "const": "note_unchanged" }
+      ]
+    },
+    // board_write 成功响应 result（嵌套两态）：
+    // - { changed: true, note? }：有变化；set 新贴/改条回带 { id, content }
+    // - { changed: false, code }：无变化——五码取值区分告知（幂等）与拒绝（资源约束）
+    // 编解码层排除无意义组合（changed:true 不能带 code 等）。
+    "BoardWriteData": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": ["changed"],
+          "properties": {
+            "changed": { "type": "boolean", "const": true },
+            // set 新贴/改条回带（id 回带闭环）；remove/clear applied 不带 note
+            "note": { "$ref": "#/$defs/BoardNote" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["changed", "code"],
+          "properties": {
+            "changed": { "type": "boolean", "const": false },
+            "code": { "$ref": "#/$defs/BoardReasonCode" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    // board_write 响应：业务变体（协议失败走 error 信封）。
+    "BoardWriteResponse": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "id": { "$ref": "#/$defs/RequestId" },
+        "result": { "$ref": "#/$defs/BoardWriteData" }
+      },
+      "additionalProperties": false
+    },
+    // board_query 响应：全量 per-character 条目（boards: sender → 条列表）。
+    "BoardQueryResponse": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "id": { "$ref": "#/$defs/RequestId" },
+        "result": {
+          "type": "object",
+          "required": ["boards"],
+          "properties": {
+            "boards": {
+              "type": "object",
+              "patternProperties": {
+                "^.*$": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/BoardNote" }
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    // board_update 服务器通知（复用 broadcast() 通道，不混入 group_chat_update）：
+    // actor + action 四值（set 映射：新贴→add、改条→update）；remove 携带被撕条
+    // 内容；clear 无 note。无 sequence 字段——不在消息流里、无消息流水位语义。
+    // 按 action 判别 union——add/update/remove 必带 note（完整条 {id, content}），
+    // clear 禁 note；非法组合 codec 层即拒。
+    "BoardUpdate": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": ["jsonrpc", "method", "params"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "method": { "type": "string", "const": "board_update" },
+            "params": {
+              "type": "object",
+              "required": ["actor", "action", "note"],
+              "properties": {
+                "actor": { "type": "string" },
+                "action": {
+                  "anyOf": [
+                    { "type": "string", "const": "add" },
+                    { "type": "string", "const": "update" },
+                    { "type": "string", "const": "remove" }
+                  ]
+                },
+                "note": { "$ref": "#/$defs/BoardNote" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["jsonrpc", "method", "params"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "method": { "type": "string", "const": "board_update" },
+            "params": {
+              "type": "object",
+              "required": ["actor", "action"],
+              "properties": {
+                "actor": { "type": "string" },
+                "action": { "type": "string", "const": "clear" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}
