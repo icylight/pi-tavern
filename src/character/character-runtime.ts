@@ -486,6 +486,12 @@ export class CharacterRuntime {
 		messages: ServerMessage[];
 		latestSequence: number;
 		totalMessages: number;
+		/**
+		 * #146 P1（Copilot）：前导上下文条数 = seq ≤ sinceSequence 的窗口内容
+		 * （含游标自身最近已读）。未读 = 本字段之后（seq > sinceSequence）。
+		 * 下游据此只在未读区间存在可投递事件时才携带上下文投递。
+		 */
+		contextCount: number;
 	} | null> {
 		// 前移起点 clamp 到 0（历史不足 N 条时取实际可用全量）。
 		const adjustedSince = Math.max(0, sinceSequence - contextWindow);
@@ -512,10 +518,17 @@ export class CharacterRuntime {
 			latest_sequence: number;
 			total_messages: number;
 		};
+		// #146 P1：上下文/未读分界 = 原始 since（窗口前移前的拉取起点）。
+		// 服务端按 sequence 升序返回（submit 原子 +1 无空洞），上下文恒为前缀。
+		const contextCount = data.messages.filter((m) => {
+			const sequence = "params" in m && (m.params as { sequence?: unknown }).sequence;
+			return typeof sequence === "number" && sequence <= sinceSequence;
+		}).length;
 		return {
 			messages: data.messages,
 			latestSequence: data.latest_sequence,
 			totalMessages: data.total_messages,
+			contextCount,
 		};
 	}
 

@@ -251,13 +251,22 @@ export class GroupChatInput {
 					return;
 				}
 				const messages: ServerMessage[] = [];
-				for (const m of page.messages) {
+				// #146 P1（Copilot）：上下文窗口（seq ≤ since，前导 contextCount 条已读）
+				// 不得单独触发投递——仅在未读区间（seq > since）存在可投递事件时才
+				// 携带上下文投递；未读仅自身回显/为空 → 不生成 Agent 输入，只消费
+				// 水位（"只有自身回显不生成输入"语义不被窗口破坏——WL-F）。
+				let hasDeliverableUnread = false;
+				for (let i = 0; i < page.messages.length; i++) {
+					const m = page.messages[i];
 					if (m && typeof m === "object" && "method" in m && m.method === METHOD_PUBLIC_MESSAGE) {
 						if (!this.isEnvironmentEvent(m as ServerMessage)) continue;
 						messages.push(m as ServerMessage);
+						if (i >= page.contextCount) {
+							hasDeliverableUnread = true;
+						}
 					}
 				}
-				if (messages.length > 0) {
+				if (hasDeliverableUnread) {
 					// 游标推进移至投递成功判定（双通道契约：idle followUp /
 					// 忙态 steer 入队成功 = 投递成功 → saveCursor；失败不推进，
 					// settle 兜底重投——A5 强化实现）。
