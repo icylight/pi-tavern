@@ -19,6 +19,7 @@
 - [runtime-state-machine.md](reference/runtime-state-machine.md) — 运行时状态机
 - [terminology.md](reference/terminology.md) — 规范术语
 - [who-is-spy.md](reference/who-is-spy.md) — 「谁是卧底」玩法规则
+- [turtle-soup.md](reference/turtle-soup.md) — 「海龟汤」玩法规则（v2，2026-08-07 实战收敛）
 
 ## architecture/（架构解释）
 
