@@ -428,6 +428,8 @@ describe("GroupChatInput", () => {
 		const runtime = createMockRuntime({
 			getGroupChatState: async () => ({}),
 		});
+		// P1-4：模拟已有游标的会话——预置查询（primeJoinCursor）跳过，专注 message_history 兼容路径语义。
+		runtime.loadCursor = vi.fn(() => 20);
 		runtime.fetchMessageHistoryPage = vi.fn(async (_cursor: string | null) => {
 			// 服务器从不推进 cursor：客户端不得无限循环。
 			return { messages: page, cursor: "stuck-cursor", hasMore: true, totalMessages: 3 };
@@ -462,6 +464,8 @@ describe("GroupChatInput", () => {
 		const runtime = createMockRuntime({
 			getGroupChatState: async () => ({}),
 		});
+		// P1-4：模拟已有游标的会话——预置查询（primeJoinCursor）跳过，专注 message_history 兼容路径语义。
+		runtime.loadCursor = vi.fn(() => 2);
 		runtime.fetchMessageHistoryPage = vi.fn(async () => ({
 			messages: [],
 			cursor: null,
@@ -487,6 +491,63 @@ describe("GroupChatInput", () => {
 		await vi.advanceTimersByTimeAsync(2000);
 
 		expect(runtime.fetchMessageHistoryPage).not.toHaveBeenCalled();
+
+		input.stop();
+	});
+
+	it("P1-4 游标预置：无游标（首次 join）→ start 后一次水位查询 + saveCursor(totalMessages)", async () => {
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({
+			getGroupChatState: async () => ({}),
+		});
+		runtime.loadCursor = vi.fn(() => null);
+		const saveCursor = vi.fn();
+		runtime.saveCursor = saveCursor;
+		runtime.fetchMessageHistoryPage = vi.fn(async () => ({
+			messages: [],
+			cursor: null,
+			hasMore: false,
+			totalMessages: 12,
+		}));
+
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+		input.start();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(runtime.fetchMessageHistoryPage).toHaveBeenCalledTimes(1);
+		expect(runtime.fetchMessageHistoryPage).toHaveBeenCalledWith(null);
+		expect(saveCursor).toHaveBeenCalledWith(12);
+
+		input.stop();
+	});
+
+	it("P1-4 游标预置 CAS：查询在途时游标被并发写入 → 放弃预置（不覆盖）", async () => {
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({
+			getGroupChatState: async () => ({}),
+		});
+		let cursor: number | null = null;
+		runtime.loadCursor = vi.fn(() => cursor);
+		const saveCursor = vi.fn((next: number) => {
+			cursor = next;
+		});
+		runtime.saveCursor = saveCursor;
+		// 查询在途期间（await 前）由并发 pullIncrement 写入游标 7。
+		runtime.fetchMessageHistoryPage = vi.fn(async () => {
+			cursor = 7;
+			return { messages: [], cursor: null, hasMore: false, totalMessages: 12 };
+		});
+
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+		input.start();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(saveCursor).not.toHaveBeenCalledWith(12);
+		expect(cursor).toBe(7);
 
 		input.stop();
 	});

@@ -374,6 +374,9 @@ export const CMD_DESC_TEST_WHOAMI = "[test] Report the registered character iden
 export const CMD_DESC_TEST_BUSY = "[test] Hold the agent busy state for N ms (simulate busy run without LLM)";
 /** tavern-test-busy 用法提示（测试）。 */
 export const NOTIFY_USAGE_TEST_BUSY = "Usage: /tavern-test-busy <ms>";
+/** tavern-test-history 命令描述（测试，P1-4 观察通道）。 */
+export const CMD_DESC_TEST_HISTORY =
+	"[test] Fetch one history page via the character runtime (observation channel for acceptance)";
 /** tavern-leave 命令描述。 */
 export const CMD_DESC_LEAVE = "Close or leave the current PiTavern group chat";
 
@@ -392,6 +395,21 @@ export const TOOL_WHOAMI_ROLE_PREFIX = "当前角色：";
 export const TOOL_WHOAMI_ID_PREFIX = "character_id：";
 /** tavern_whoami 输出：描述前缀。 */
 export const TOOL_WHOAMI_DESC_PREFIX = "描述：";
+/** tavern_history 工具 label。 */
+export const TOOL_HISTORY_LABEL = "Tavern History";
+/** tavern_history 工具描述（P1-4：AI 主动拉取群聊历史，分页 10/页最新在前）。 */
+export const TOOL_HISTORY_DESCRIPTION =
+	"获取群聊历史消息（分页，每页 10 条，最新在前）。cursor 参数 = 向更早消息续页（用上次返回的 cursor）；不传 = 最近一页。返回含 cursor/has_more/total，可据 has_more 自主决定是否继续。";
+/** tavern_history 输出：cursor 行前缀。 */
+export const TOOL_HISTORY_CURSOR_PREFIX = "cursor=";
+/** tavern_history 输出：has_more 前缀。 */
+export const TOOL_HISTORY_HAS_MORE_PREFIX = "has_more=";
+/** tavern_history 输出：total 前缀。 */
+export const TOOL_HISTORY_TOTAL_PREFIX = "total=";
+/** tavern_history 输出：群聊暂无历史消息。 */
+export const TOOL_HISTORY_EMPTY = "群聊暂无历史消息。";
+/** tavern_history 输出：拉取不可用（连接已断开）。 */
+export const TOOL_HISTORY_UNAVAILABLE = "Error: 群聊历史暂不可用（连接可能已断开），请稍后重试。";
 /** 未以 Character 身份加入群聊（工具错误提示）。 */
 export const TOOL_NOT_JOINED_AS_CHARACTER = "Error: You are not currently joined to a group chat as a Character.";
 

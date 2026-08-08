@@ -7,6 +7,7 @@ import {
 	ERROR_ACCESS_BOARD_FAILED_PREFIX,
 	ERROR_REMOVE_MISSING_NOTE_ID,
 	ERROR_SEND_FAILED_PREFIX,
+	METHOD_PUBLIC_MESSAGE,
 	TOOL_BOARD_ACTION_INVALID,
 	TOOL_BOARD_ALL_EMPTY,
 	TOOL_BOARD_ARGS_INVALID,
@@ -24,6 +25,13 @@ import {
 	TOOL_BOARD_REMOVE_NEEDS_ID,
 	TOOL_BOARD_REMOVE_NO_CONTENT,
 	TOOL_BOARD_UNCHANGED_PREFIX,
+	TOOL_HISTORY_CURSOR_PREFIX,
+	TOOL_HISTORY_DESCRIPTION,
+	TOOL_HISTORY_EMPTY,
+	TOOL_HISTORY_HAS_MORE_PREFIX,
+	TOOL_HISTORY_LABEL,
+	TOOL_HISTORY_TOTAL_PREFIX,
+	TOOL_HISTORY_UNAVAILABLE,
 	TOOL_NOT_JOINED_AS_CHARACTER,
 	TOOL_SPEAK_DESCRIPTION,
 	TOOL_SPEAK_LABEL,
@@ -320,6 +328,56 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 				],
 				details: { name: character.name, character_id: character.characterId, description: character.description },
 			};
+		},
+	});
+
+	pi.registerTool({
+		name: "tavern_history",
+		label: TOOL_HISTORY_LABEL,
+		description: TOOL_HISTORY_DESCRIPTION,
+		parameters: Type.Object({ cursor: Type.Optional(Type.String()) }, { additionalProperties: false }),
+		execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) => {
+			const state = ctrl.getState();
+			if (state.type !== "character") {
+				return {
+					content: [{ type: "text", text: TOOL_NOT_JOINED_AS_CHARACTER }],
+					details: undefined,
+					isError: true,
+				};
+			}
+			try {
+				const page = await state.runtime.fetchMessageHistoryPage((params as { cursor?: string }).cursor ?? null);
+				if (page === null) {
+					return {
+						content: [{ type: "text", text: TOOL_HISTORY_UNAVAILABLE }],
+						details: undefined,
+						isError: true,
+					};
+				}
+				// P1-4：AI 自主拉取——消息列表 + 游标/分页元数据（has_more 决定续页）。
+				const lines = page.messages.map((m) => {
+					if (!("method" in m) || m.method !== METHOD_PUBLIC_MESSAGE) {
+						return "";
+					}
+					const sender = m.params.sender.type === "user_persona" ? "User Persona" : m.params.sender.name;
+					return `${sender}: ${m.params.content}`;
+				});
+				const text =
+					(page.messages.length === 0 ? TOOL_HISTORY_EMPTY : lines.join("\n")) +
+					`\n${TOOL_HISTORY_CURSOR_PREFIX}${page.cursor ?? ""} ${TOOL_HISTORY_HAS_MORE_PREFIX}${page.hasMore} ${TOOL_HISTORY_TOTAL_PREFIX}${page.totalMessages}`;
+				return { content: [{ type: "text", text }], details: undefined };
+			} catch (error) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+						},
+					],
+					details: undefined,
+					isError: true,
+				};
+			}
 		},
 	});
 }

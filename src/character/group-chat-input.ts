@@ -120,6 +120,16 @@ export class GroupChatInput {
 	private readonly onSettled: () => void;
 
 	start(): void {
+		// P1-4（Arch 定案 + 四方收敛，零 wire 变化）：进入时刻游标预置——
+		// 新 Session 无游标时调一次 get_message_history 取水位（totalMessages，
+		// 丢弃消息内容）作游标基线，消除「无游标未知态」：
+		//   1. 进入前历史 = tavern_history 主动分页拉取（欢迎语指引，AI 自主）；
+		//   2. 进入后增量 = fetchMessagesSince(游标) 不重不漏（严格区间 = 预置完成后）；
+		//   3. 误差窗口（ready→预置查询毫秒级）内到达的消息走 public_message 广播
+		//      直注路径（isEnvironmentEvent，不经游标）——正常送达必注入，
+		//      与预置游标值无关（「跳过不可接受」不破坏）。
+		// 失败静默：拉取失败保持游标 null，既有「无游标完整历史兜底」语义不变。
+		void this.primeJoinCursor();
 		this.handler = (message: ServerMessage) => {
 			if ("method" in message && message.method === METHOD_MESSAGE_HISTORY && Array.isArray(message.params.messages)) {
 				// join 时快照：展开为单个 public_message 事件。
@@ -193,6 +203,32 @@ export class GroupChatInput {
 	 * 前重查 isAgentActive 决定通道（空闲 → followUp 触发新 run；活跃 → steer
 	 * 兜底，绝不打断 run）。
 	 */
+	/**
+	 * P1-4 游标预置：仅当本 Session 尚无游标（首次 join）时执行一次。
+	 * fetchMessageHistoryPage(null) 取水位（丢弃消息内容，只取 totalMessages），
+	 * CAS 写入：fetch 后重读仍 null 才 saveCursor——重读与写之间无 await（原子），
+	 * fetch 期间并发 pullIncrement 已写游标则放弃（保留其全量拉取结果，不覆盖）。
+	 */
+	private async primeJoinCursor(): Promise<void> {
+		if (this.runtime.loadCursor() !== null) {
+			return;
+		}
+		let page: Awaited<ReturnType<CharacterRuntime["fetchMessageHistoryPage"]>>;
+		try {
+			page = await this.runtime.fetchMessageHistoryPage(null);
+		} catch {
+			// 预置失败不阻塞 join：游标保持 null，既有兜底语义（无游标完整历史分页）不变。
+			return;
+		}
+		if (page === null || this.stopped) {
+			return;
+		}
+		// CAS：fetch 期间其他路径已写游标 → 放弃（避免覆盖其已推进的位置）。
+		if (this.runtime.loadCursor() === null) {
+			this.runtime.saveCursor(page.totalMessages);
+		}
+	}
+
 	private async pullIncrement(): Promise<void> {
 		if (this.stopped || this.fetchInFlight) {
 			this.refetchRequested = true;

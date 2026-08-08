@@ -232,19 +232,82 @@ describe("PiTavern extension", () => {
 		}
 	}, 30_000); // Loader 做了两遍真实发现；并发负载（acceptance 套件）下可能超出 vitest 默认 5s 超时（#32）。按测试扩展逐个说明：对负载敏感，非功能失败；#34（maxWorkers: 2）降低争用，保留此裕量。
 
-	it("registers the tavern_speak, tavern_board and tavern_whoami tools and reports error when not a character", async () => {
+	it("registers the tavern_speak, tavern_board, tavern_whoami and tavern_history tools and reports error when not a character", async () => {
 		const { tools, api } = captureTools();
 		piTavern(api as unknown as ExtensionAPI);
 
-		expect(tools).toHaveLength(3);
+		expect(tools).toHaveLength(4);
 		expect(tools[0]?.name).toBe("tavern_speak");
 		expect(tools[1]?.name).toBe("tavern_board");
 		expect(tools[2]?.name).toBe("tavern_whoami");
+		expect(tools[3]?.name).toBe("tavern_history");
 
 		const tool = tools[0];
 		if (!tool) throw new Error("no tool");
 		expect(tool).toBeDefined();
 		const result = await tool.execute("call-1", { content: "Hello" });
+		expect(result.isError).toBe(true);
+		expect(result.content[0]?.text).toContain("not currently joined");
+	});
+
+	it("tavern_history returns a formatted history page and rejects when not a character (P1-4)", async () => {
+		const historyPage = {
+			messages: [
+				{
+					jsonrpc: "2.0",
+					method: "public_message",
+					params: {
+						event_id: "evt-1",
+						sequence: 12,
+						timestamp: "2026-08-08T00:00:00.000Z",
+						sender: { type: "user_persona" },
+						content: "hello from history",
+						round: { round_max_messages: 20, used_messages: 1, remaining_messages: 19 },
+					},
+				},
+			],
+			cursor: "opaque-1",
+			hasMore: true,
+			totalMessages: 12,
+		};
+		const runtime = {
+			character: { characterId: "dev", name: "Dev", description: "Dev" },
+			close: vi.fn(async () => undefined),
+			getGroupChatState: vi.fn(),
+			markIncrementPending: vi.fn(),
+			speak: vi.fn(),
+			boardWrite: vi.fn(),
+			fetchMessageHistoryPage: vi.fn(async () => historyPage),
+		} as unknown as CharacterRuntime;
+		const controller = await createCharacterControllerWithRuntime(runtime);
+		const { tools, api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI, controller);
+
+		const tool = tools.find((t) => t.name === "tavern_history");
+		if (!tool) throw new Error("no tavern_history tool");
+
+		// 无 cursor = 最近一页；输出含消息内容 + cursor/has_more/total 供 AI 自主续页。
+		const result = await tool.execute("call-1", {});
+		expect(result.isError).toBeUndefined();
+		const text = result.content[0]?.text as string;
+		expect(text).toContain("hello from history");
+		expect(text).toContain("cursor=opaque-1");
+		expect(text).toContain("has_more=true");
+		expect(text).toContain("total=12");
+		expect(runtime.fetchMessageHistoryPage).toHaveBeenCalledWith(null);
+
+		// 带 cursor = 向更早续页（透传）。
+		await tool.execute("call-2", { cursor: "opaque-1" });
+		expect(runtime.fetchMessageHistoryPage).toHaveBeenCalledWith("opaque-1");
+	});
+
+	it("tavern_history reports a clear error when not in character state (creator/idle)", async () => {
+		const { tools, api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI);
+
+		const tool = tools.find((t) => t.name === "tavern_history");
+		if (!tool) throw new Error("no tavern_history tool");
+		const result = await tool.execute("call-1", {});
 		expect(result.isError).toBe(true);
 		expect(result.content[0]?.text).toContain("not currently joined");
 	});

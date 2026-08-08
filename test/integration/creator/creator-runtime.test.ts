@@ -8,6 +8,7 @@ import WebSocket from "ws";
 
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 import { readActiveDescriptor } from "../../../src/data/discovery/active-descriptor.js";
+import { DEFAULT_WELCOME_MESSAGE } from "../../../src/shared/constants.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -1290,8 +1291,7 @@ describe("CreatorRuntime", () => {
 		});
 		const welcome = await welcomePromise;
 		expect(welcome.params).toEqual({
-			content:
-				"欢迎来到 PiTavern 群聊！你可以发送公开消息（tavern_speak）与大家交流，也可以使用白板（tavern_board）记录要点。",
+			content: DEFAULT_WELCOME_MESSAGE,
 		});
 
 		// WL3：历史仍可主动拉取——get_message_history 无 cursor 返回最近 10 条窗口。

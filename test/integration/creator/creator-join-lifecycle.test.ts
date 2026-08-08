@@ -8,6 +8,7 @@ import WebSocket from "ws";
 import type { CharacterCard } from "../../../src/config/character-card.js";
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 import { decodeServerMessage, encodeMessage } from "../../../src/protocol/codec.js";
+import { DEFAULT_WELCOME_MESSAGE } from "../../../src/shared/constants.js";
 
 const temporaryDirectories: string[] = [];
 const runtimes: CreatorRuntime[] = [];
@@ -47,8 +48,7 @@ afterEach(async () => {
 describe("CreatorRuntime Character join lifecycle", () => {
 	it("#123 WL1/WL2 红钉：ready 后收 1 条 system_message 且不再自动推 message_history", async () => {
 		// 与 #123 指定默认文案一致（DEFAULT_WELCOME_MESSAGE 待实现落定后引用）。
-		const WELCOME =
-			"欢迎来到 PiTavern 群聊！你可以发送公开消息（tavern_speak）与大家交流，也可以使用白板（tavern_board）记录要点。";
+		const WELCOME = DEFAULT_WELCOME_MESSAGE;
 
 		const runtime = await startRuntime();
 		const peer = await connectPeer(runtime);
@@ -156,13 +156,11 @@ describe("CreatorRuntime Character join lifecycle", () => {
 			result: null,
 		});
 		// #123：ready 后不再自动推 message_history，改发 system_message 欢迎单播。
-		// （与 #123 指定默认文案一致，DEFAULT_WELCOME_MESSAGE 待实现落定后引用。）
 		expect(await peer.next()).toEqual({
 			jsonrpc: "2.0",
 			method: "system_message",
 			params: {
-				content:
-					"欢迎来到 PiTavern 群聊！你可以发送公开消息（tavern_speak）与大家交流，也可以使用白板（tavern_board）记录要点。",
+				content: DEFAULT_WELCOME_MESSAGE,
 			},
 		});
 		expect(await peer.next()).toEqual({

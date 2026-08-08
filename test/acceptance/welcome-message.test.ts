@@ -422,4 +422,81 @@ describe("acceptance: #123 welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => 
 		await leaveAndReset(creator6, creator6.checkpoint(), 10_000);
 		await creator6.kill("SIGTERM");
 	});
+
+	it("WL7: tavern_history 历史可达 + 欢迎语指引 + join 无新消息场景（P1-4 定案）", async () => {
+		// 场景（User P1-4 反例）：新角色 join 已有 12 条消息、随后无人再发言的群聊。
+		// 验收：① 欢迎语含 tavern_history 指引（AI 自主决策拉历史）② 历史可经
+		// tavern_history 观察通道分页拉取（10 + has_more + total=12）③ 无机械拉取
+		// 注入（不依赖服务端推送）。游标预置（进入时刻水位）由 unit/integration 钉覆盖。
+		const root7 = await mkdtemp(join(tmpdir(), "pi-tavern-acc-welcome-history-"));
+		roots.push(root7);
+		const agentDir7 = join(root7, "agent");
+		const projectDir7 = join(root7, "project");
+		await mkdir(join(agentDir7, "characters"), { recursive: true });
+		await mkdir(projectDir7, { recursive: true });
+		await writeFile(
+			join(agentDir7, "characters", "architect.md"),
+			"---\nname: Architect\ndescription: Architecture\n---\nArchitect prompt",
+		);
+		await writeFile(join(agentDir7, "tavern.json"), JSON.stringify({ characters: ["characters/architect.md"] }));
+		const creator7 = spawnCreator({
+			label: "creator7",
+			agentDir: agentDir7,
+			sessionDir: join(agentDir7, "sessions", "creator"),
+			cwd: projectDir7,
+		});
+		extraProcesses.push(creator7);
+		await creator7.waitForTavernReady(60_000);
+		await startFreshGroup(creator7, projectDir7, agentDir7);
+
+		// 种子：12 条公开消息（WL7 场景：join 前已有历史）。
+		for (let i = 1; i <= 12; i += 1) {
+			await creator7.runCommand(`/tavern-test-message WL7 seed ${i}`);
+		}
+
+		// 真实 Character 进程 join（PITAVERN_AUTO_JOIN 路径），join 后无新消息。
+		const member7 = PiProcess.spawn({
+			label: "member7",
+			agentDir: agentDir7,
+			sessionDir: join(agentDir7, "sessions", "member7"),
+			cwd: projectDir7,
+		});
+		extraProcesses.push(member7);
+		await member7.waitForTavernReady(60_000);
+		await member7.joinGroupChat(projectDir7, agentDir7, "Architect — Architecture");
+
+		// ① 欢迎语指引：注入观察通道携带原文（WL1 角色可见同通道）。
+		const inject7 = await member7.waitFor(
+			(e) =>
+				e.type === "extension_ui_request" &&
+				e.method === "notify" &&
+				typeof e.message === "string" &&
+				e.message.startsWith("[tavern-inject] ") &&
+				e.message.includes("system_messages="),
+			60_000,
+		);
+		expect(String(inject7.message)).toContain("tavern_history");
+
+		// 静默窗口：join 后无新消息（settle 收敛）。
+		await new Promise((resolve) => setTimeout(resolve, 3000));
+
+		// ② tavern_history 观察通道：首页 10 条 + has_more + total=12（历史可达）。
+		await member7.runCommand("/tavern-test-history");
+		const hist7 = await member7.waitFor(
+			(e) =>
+				e.type === "extension_ui_request" &&
+				e.method === "notify" &&
+				typeof e.message === "string" &&
+				e.message.startsWith("[tavern-test-history] count="),
+			60_000,
+		);
+		const report7 = String(hist7.message);
+		expect(report7).toContain("count=10");
+		expect(report7).toContain("has_more=true");
+		expect(report7).toContain("total=12");
+
+		await member7.kill("SIGTERM");
+		await leaveAndReset(creator7, creator7.checkpoint(), 10_000);
+		await creator7.kill("SIGTERM");
+	});
 });

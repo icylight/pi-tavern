@@ -8,6 +8,8 @@ import {
 	ProtocolError,
 } from "../../../src/protocol/codec.js";
 
+import { DEFAULT_WELCOME_MESSAGE } from "../../../src/shared/constants.js";
+
 describe("PiTavern protocol codec", () => {
 	// #119 阻断①（苍蓝星 2026-08-06）：request/notification/response 三态 schema 区分。
 	// 红测先行：当前 RequestIdSchema = Optional，无 id 帧可通过 codec（红）；
@@ -356,9 +358,7 @@ describe("PiTavern protocol codec", () => {
 	});
 
 	describe("system_message（#123 WL1/WL6，红钉）", () => {
-		// 与 #123 指定默认文案一致（DEFAULT_WELCOME_MESSAGE 待实现落定后引用）。
-		const WELCOME =
-			"欢迎来到 PiTavern 群聊！你可以发送公开消息（tavern_speak）与大家交流，也可以使用白板（tavern_board）记录要点。";
+		const WELCOME = DEFAULT_WELCOME_MESSAGE;
 		const systemMessage = (params: Record<string, unknown>) => ({
 			jsonrpc: "2.0",
 			method: "system_message",

@@ -26,4 +26,4 @@ export const JOIN_HISTORY_LIMIT = 10;
 
 /** #123：欢迎文案代码默认值（配置链最底档；项目 .pi/tavern.json > 全局 > 本值）。 */
 export const DEFAULT_WELCOME_MESSAGE =
-	"欢迎来到 PiTavern 群聊！你可以发送公开消息（tavern_speak）与大家交流，也可以使用白板（tavern_board）记录要点。";
+	"欢迎来到 PiTavern 群聊！你可以发送公开消息（tavern_speak）与大家交流，也可以使用白板（tavern_board）记录要点。如需了解群聊历史，可查看最近消息（tavern_history）。";
