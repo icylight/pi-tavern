@@ -154,10 +154,14 @@ describe("CreatorRuntime Character join lifecycle", () => {
 			id: "ready",
 			result: null,
 		});
+		// #123：ready 后不再自动推 message_history，改发 system_message 欢迎单播。
+		// （与 #123 指定默认文案一致，DEFAULT_WELCOME_MESSAGE 待实现落定后引用。）
 		expect(await peer.next()).toEqual({
 			jsonrpc: "2.0",
-			method: "message_history",
-			params: { messages: [], cursor: null, has_more: false, total_messages: 0 },
+			method: "system_message",
+			params: {
+				content: "欢迎来到 PiTavern 群聊！你可以发送公开消息（tavern_speak）与大家交流，也可以使用白板（tavern_board）记录要点。",
+			},
 		});
 		expect(await peer.next()).toEqual({
 			jsonrpc: "2.0",
