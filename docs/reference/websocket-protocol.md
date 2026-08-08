@@ -33,39 +33,16 @@ PiTavern 使用标准 WebSocket `ping` / `pong` 控制帧检测半开连接，�
 - 请求/响应必带 `id` 关联（`id` = string | number，JSON-RPC 2.0 标准）；仅 `update_character_state` 为无 `id` notification（无响应语义）。缺 `id` 的 request/response = 协议错误 fail-close。
 - 请求/通知载荷一律位于 `params` 对象内。
 
-请求形状（`id` 必带；`update_character_state` 例外——无 `id` 通知）：
+### Schema 单一事实源（#145 文档生成化）
 
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-1",
-  "method": "command_name",
-  "params": {}
-}
-```
+**全部字段形状（信封/方法/参数/响应）以生成产物为权威**：
 
-成功响应形状：
+- 客户端消息（request/notification 判别联合）：[docs/protocol/schema/ClientMessage.json](../protocol/schema/ClientMessage.json)
+- 服务端消息（响应/广播/通知判别联合）：[docs/protocol/schema/ServerMessage.json](../protocol/schema/ServerMessage.json)
+- 白板模型：[BoardUpdate.json](../protocol/schema/BoardUpdate.json) / [BoardWriteResponse.json](../protocol/schema/BoardWriteResponse.json) / [BoardQueryResponse.json](../protocol/schema/BoardQueryResponse.json) / [BoardNote.json](../protocol/schema/BoardNote.json) / [BoardWriteData.json](../protocol/schema/BoardWriteData.json) / [BoardReasonCode.json](../protocol/schema/BoardReasonCode.json)
+- 摘要：[CharacterSummary.json](../protocol/schema/CharacterSummary.json) / [OnlineCharacter.json](../protocol/schema/OnlineCharacter.json) / [ProtocolErrorObject.json](../protocol/schema/ProtocolErrorObject.json)
 
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-1",
-  "result": {}
-}
-```
-
-业务失败响应形状（`code` 必须属于 10 码业务枚举 + 5 个 JSON-RPC 标准错误码，未知 code = 协议错误 fail-close）：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-1",
-  "error": {
-    "code": -32100,
-    "message": "Character is not in the group chat"
-  }
-}
-```
+生成来源 = `src/protocol/messages.ts`（TypeBox，codec 校验同源单一事实源），由 `npm run docs:schema` 重新生成；`npm run docs:check` 门禁对 `docs/protocol/schema/` 判空——schema 变更后未同步产物 = 门禁红（#144 P1-2 类漂移根上拦截）。本文档其余部分**只描述时序、语义与边界**，不再内联字段形状；文中的 JSON 仅为语义示意，字段以 schema 文件为准。
 
 业务错误码枚举（10 码，`-32100` 起，避开 JSON-RPC 标准码与 vscode-jsonrpc 已用码；`code → message` 映射表单一数据源在 `src/shared/messages.ts`，message 文案与原 `success: false` 的 `error` 字符串原样一致）：
 
@@ -152,15 +129,7 @@ PiTavern 使用两层硬性大小限制：
 
 ## Character 摘要
 
-公开的 Character 摘要来自角色卡 frontmatter：
-
-```json
-{
-  "character_id": "developer",
-  "name": "Developer",
-  "description": "负责方案实现、代码设计和技术风险分析"
-}
-```
+公开的 Character 摘要来自角色卡 frontmatter（字段形状：[CharacterSummary.json](../protocol/schema/CharacterSummary.json)）：
 
 - `character_id` 是角色的稳定标识。
 - `name` 是角色显示名称。
@@ -168,18 +137,7 @@ PiTavern 使用两层硬性大小限制：
 - Character Markdown 正文是角色的完整提示词，不通过角色列表发送。
 - Character 列表不包含 User Persona。
 
-在线 Character 在摘要基础上增加：
-
-```json
-{
-  "character_id": "developer",
-  "name": "Developer",
-  "description": "负责方案实现、代码设计和技术风险分析",
-  "is_self": true,
-  "is_streaming": true,
-  "hand_raised": false
-}
-```
+在线 Character 在摘要基础上增加 `is_self` / `is_streaming` / `hand_raised`（字段形状：[OnlineCharacter.json](../protocol/schema/OnlineCharacter.json)）：
 
 - `is_self` 表示该 Character 是否属于当前请求方，根据请求连接动态生成。
 - `is_streaming` 直接映射当前 pi Agent 的原生 `isStreaming` 状态，不区分本次处理由用户终端输入还是群聊输入触发。
@@ -216,36 +174,11 @@ character_ready
 
 ### 请求加入
 
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-2",
-  "method": "join_group_chat",
-  "params": {
-    "session_id": "pi-session-uuid"
-  }
-}
-```
+字段形状：[ClientMessage.json](../protocol/schema/ClientMessage.json) `join_group_chat` 分支；`params.session_id` = 当前 pi session 的 ID。
 
 群聊创建者使用 `session_id` 防止同一个当前 pi session 建立重复成员连接。首版不提供断线重连或成员恢复分支。
 
-加入响应：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-2",
-  "result": {
-    "available_characters": [
-      {
-        "character_id": "developer",
-        "name": "Developer",
-        "description": "负责方案实现、代码设计和技术风险分析"
-      }
-    ]
-  }
-}
-```
+加入响应：[ServerMessage.json](../protocol/schema/ServerMessage.json) `join_group_chat` 响应分支（`result.available_characters` = 角色摘要数组）。
 
 收到响应后，连接进入临时的加入阶段：
 
@@ -263,34 +196,9 @@ character_ready
 
 ### 领取 Character
 
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-3",
-  "method": "claim_character",
-  "params": {
-    "character_id": "developer"
-  }
-}
-```
+字段形状：[ClientMessage.json](../protocol/schema/ClientMessage.json) `claim_character` 分支。
 
-群聊创建者按照消息到达顺序原子检查并预留 Character（原子：检查与预留作为一个整体一次完成，不出现中间可见态）。已经预留或已经在线的 Character 不能再次预留。成功响应：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-3",
-  "result": {
-    "character": {
-      "character_id": "developer",
-      "name": "Developer",
-      "description": "负责方案实现、代码设计和技术风险分析",
-      "path": "/absolute/path/to/characters/developer.md"
-    }
-  }
-}
-```
-
+群聊创建者按照消息到达顺序原子检查并预留 Character（原子：检查与预留作为一个整体一次完成，不出现中间可见态）。已经预留或已经在线的 Character 不能再次预留。成功响应：[ServerMessage.json](../protocol/schema/ServerMessage.json) `claim_character` 响应分支（`result.character` 含 `path` = 角色卡本机绝对路径）。
 - `path` 是 Character Markdown 的本机绝对路径。
 - WebSocket 不发送 Character Markdown 正文；加入方在共享环境中直接读取该文件。
 - `claim_character` 成功只表示 Character 已由当前连接预留；该连接仍不是群成员，不接收群聊广播。
@@ -298,19 +206,7 @@ character_ready
 - 此时不为当前 pi Agent 启用群聊输入模块、system prompt 扩展或 `tavern_speak`。
 - 已经运行的 Character 不因角色卡文件后续变化自动替换提示词。
 
-Character 已经被预留或已经在线等失败情况使用 pi-coding-agent 风格的通用错误响应：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-3",
-  "error": {
-    "code": -32103,
-    "message": "Character is no longer available"
-  }
-}
-```
-
+Character 已经被预留或已经在线等失败情况使用 pi-coding-agent 风格的通用错误响应（形状：[ProtocolErrorObject.json](../protocol/schema/ProtocolErrorObject.json)）：
 失败时不预留 Character。加入方重新发送 `join_group_chat` 获取最新的可领取 Character 列表并再次选择。
 
 预留只属于当前 WebSocket 连接，不持久化，也不进入在线 Character 列表。连接在正式加入前关闭时，群聊创建者立即释放预留，不广播 `character_left`。
@@ -321,31 +217,11 @@ Character 已经被预留或已经在线等失败情况使用 pi-coding-agent �
 
 ### Character 准备完成
 
-本地角色卡读取、验证和 `CharacterRuntime` 准备成功后，加入方在同一连接上发送：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-4",
-  "method": "character_ready",
-  "params": {}
-}
-```
+本地角色卡读取、验证和 `CharacterRuntime` 准备成功后，加入方在同一连接上发送 `character_ready`（字段形状：[ClientMessage.json](../protocol/schema/ClientMessage.json) `character_ready` 分支，`params` 恒为空对象）。
 
 请求不携带 `character_id` 或 `session_id`。群聊创建者根据连接闭包中保存的预留确定身份。没有有效预留、预留已释放或连接已经在线时返回通用错误响应。
 
-成功响应：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-4",
-  "result": {
-    "latest_sequence": 12
-  }
-}
-```
-
+成功响应：[ServerMessage.json](../protocol/schema/ServerMessage.json) `character_ready` 响应分支（`result.latest_sequence` 或 `result: null`）。
 - `result.latest_sequence`（#144 方案 a，Optional 向后兼容）：角色**进入时刻**的公开消息水位（当前已聊到的最后一条序号）——客户端据此预置 Session 游标：进入前历史不自动注入（经 `tavern_history` 按需自查），进入时刻之后的消息一条不漏（增量拉取基线 = 进入时刻，误差窗口归零）。
 - 旧服务端/旧客户端兼容：缺省 `result: null` 时客户端回退「预置查询」路径（join 后一次 `fetchMessageHistoryPage(null)` 取水位 CAS 写，有毫秒级误差窗口，见「最近群聊消息」节）。
 
@@ -361,22 +237,7 @@ Character 已经被预留或已经在线等失败情况使用 pi-coding-agent �
 
 ### Character 加入广播
 
-Character 完成 `character_ready` 并正式成为群成员后，群聊创建者向此时的全部在线 Character 广播：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "character_joined",
-  "params": {
-    "character": {
-      "character_id": "developer",
-      "name": "Developer",
-      "description": "负责方案实现、代码设计和技术风险分析"
-    }
-  }
-}
-```
-
+Character 完成 `character_ready` 并正式成为群成员后，群聊创建者向此时的全部在线 Character 广播 `character_joined`（字段形状：[ServerMessage.json](../protocol/schema/ServerMessage.json) `character_joined` 通知分支，`params.character` = 公开摘要）。
 - 广播遵循协议的统一广播语义。
 - 消息只携带公开 Character 摘要，不携带 `is_streaming` 或 `hand_raised`。
 - 群聊已有公开消息时，该消息属于环境事件，进入每个接收方的环境聚合批次（闲态 1s 窗口，N→1）。
@@ -389,16 +250,7 @@ Character 完成 `character_ready` 并正式成为群成员后，群聊创建者
 
 ## 离开群聊
 
-Character 主动离开请求：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-4",
-  "method": "leave_group_chat",
-  "params": {}
-}
-```
+Character 主动离开请求（字段形状：[ClientMessage.json](../protocol/schema/ClientMessage.json) `leave_group_chat` 分支，`params` 恒为空对象）。
 
 群聊创建者按照以下顺序处理：
 
@@ -415,33 +267,9 @@ Character 主动离开请求：
 
 主动离开与后续 pi session 操作互不绑定，离开一旦完成即不可撤销。后续 pi session 操作失败或取消时，角色 pi 保持 `idle`，不自动重连或恢复 Character。
 
-成功响应：
+成功响应：[ServerMessage.json](../protocol/schema/ServerMessage.json) `leave_group_chat` 响应分支（`result: null`）。
 
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-4",
-  "result": null
-}
-```
-
-离开广播：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "character_left",
-  "params": {
-    "character": {
-      "character_id": "developer",
-      "name": "Developer",
-      "description": "负责方案实现、代码设计和技术风险分析"
-    },
-    "reason": "left"
-  }
-}
-```
-
+离开广播：`character_left` 通知（[ServerMessage.json](../protocol/schema/ServerMessage.json) 对应分支；`params.reason` 二值见下）。
 `reason` 首版支持：
 
 - `left`：Character 主动执行 `/tavern-leave`。
@@ -463,17 +291,7 @@ WebSocket 意外断开时没有离开请求和响应。群聊创建者立即执�
 
 群聊创建者在本地执行 `/tavern-leave` 关闭整个群聊，不通过 WebSocket 向自身发送请求。
 
-关闭广播：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "group_chat_closed",
-  "params": {
-    "group_chat_id": "chat-123"
-  }
-}
-```
+关闭广播：`group_chat_closed` 通知（字段形状：[ServerMessage.json](../protocol/schema/ServerMessage.json) 对应分支，`params.group_chat_id`）。
 
 群聊创建者按照以下顺序关闭：
 
@@ -501,34 +319,9 @@ PiTavern 与 pi-coding-agent session 一样，不持久化“已结束”状态�
 
 ## 最近群聊消息（历史主动查询）
 
-#123 起 join/ready 不再自动推送历史（改为单播 `system_message` 欢迎语）；历史全部经主动查询获取。Character 需要历史时发送 `get_message_history`：
+#123 起 join/ready 不再自动推送历史（改为单播 `system_message` 欢迎语）；历史全部经主动查询获取。Character 需要历史时发送 `get_message_history`（字段形状：[ClientMessage.json](../protocol/schema/ClientMessage.json) `get_message_history` 分支，`params.cursor` 可选）。
 
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-5",
-  "method": "get_message_history",
-  "params": {
-    "cursor": "opaque-cursor"
-  }
-}
-```
-
-响应：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-5",
-  "result": {
-    "messages": [],
-    "cursor": "older-opaque-cursor",
-    "has_more": true,
-    "total_messages": 128
-  }
-}
-```
-
+响应：[ServerMessage.json](../protocol/schema/ServerMessage.json) `get_message_history` 响应分支（`result.messages` / `cursor` / `has_more` / `total_messages`）。
 - 每次固定获取 10 条，首版不提供 `limit`。
 - `messages` 按时间从旧到新排列，最多 10 条，只包含 User Persona 和 Character 的公开发言；加入、离开和状态变化等事件不进入 `messages`。
 - 消息元素复用公开发言结构（含 `source` 字段语义，见「公开发言」节）。
@@ -540,18 +333,7 @@ PiTavern 与 pi-coding-agent session 一样，不持久化“已结束”状态�
 
 ## 欢迎消息（system_message）
 
-#123：`character_ready` 成功后，群聊创建者向新 Character **单播**一条 `system_message` 欢迎语（不再自动推送历史）：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "system_message",
-  "params": {
-    "content": "欢迎来到 PiTavern 群聊！…"
-  }
-}
-```
-
+#123：`character_ready` 成功后，群聊创建者向新 Character **单播**一条 `system_message` 欢迎语（不再自动推送历史；字段形状：[ServerMessage.json](../protocol/schema/ServerMessage.json) `system_message` 通知分支，`params` 仅 `content`）：
 - **通知帧**（无 `id`），与 `character_joined` / `group_chat_update` 同族，由 `method` 判别。
 - `params` 仅 `content`；**非公共消息**：无 `sequence` / `round` / `source`，不落公共消息流、不计入轮次额度（与 `public_message` 的 `source` 字段互不干扰）。
 - **时序**：ready 响应（`result: null`）先到，随后单播 `system_message`，再广播 `character_joined`——新 Character 处理自己的 join 事件时欢迎语已就位。
@@ -561,29 +343,9 @@ PiTavern 与 pi-coding-agent session 一样，不持久化“已结束”状态�
 
 ## 获取群聊记录文件
 
-请求：
+请求（字段形状：[ClientMessage.json](../protocol/schema/ClientMessage.json) `get_chat_history_file` 分支，`params` 恒为空对象）。
 
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-6",
-  "method": "get_chat_history_file",
-  "params": {}
-}
-```
-
-响应：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-6",
-  "result": {
-    "path": "/absolute/path/to/chats/group-chat-id.jsonl"
-  }
-}
-```
-
+响应：[ServerMessage.json](../protocol/schema/ServerMessage.json) `get_chat_history_file` 响应分支（`result.path`）。
 - 返回当前群聊完整 JSONL 记录文件的本机绝对路径。
 - WebSocket 不传输文件内容，请求方直接读取共享环境中的文件。
 - 返回成功前，群聊创建者确保已经接受的消息写入文件。
@@ -593,39 +355,9 @@ PiTavern 与 pi-coding-agent session 一样，不持久化“已结束”状态�
 
 ## 获取群聊状态
 
-请求：
+请求（字段形状：[ClientMessage.json](../protocol/schema/ClientMessage.json) `get_group_chat_state` 分支，`params` 恒为空对象）。
 
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-7",
-  "method": "get_group_chat_state",
-  "params": {}
-}
-```
-
-响应：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-7",
-  "result": {
-    "group_chat": {
-      "group_chat_id": "chat-123",
-      "name": "PiTavern 技术设计",
-      "created_at": "2026-07-26T10:30:00.000Z",
-      "group_max_messages": 10
-    },
-    "round": {
-      "round_max_messages": 10,
-      "used_messages": 3,
-      "remaining_messages": 7
-    },
-    "online_characters": []
-  }
-}
-```
+响应：[ServerMessage.json](../protocol/schema/ServerMessage.json) `get_group_chat_state` 响应分支（`result.group_chat` / `result.round` / `result.online_characters`，各字段语义见下）。
 
 `group_chat` 包含：
 
@@ -702,18 +434,7 @@ WebSocket 环境消息不会逐条直接追加到 pi session。Agent 输入只�
 
 Character 只向群聊创建者上报当前 pi Agent 的原生 `isStreaming` 状态，不承担向其他 Character 广播的职责。
 
-Character 上报：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "update_character_state",
-  "params": {
-    "is_streaming": true
-  }
-}
-```
-
+Character 上报（字段形状：[ClientMessage.json](../protocol/schema/ClientMessage.json) `update_character_state` 通知分支，`params.is_streaming`）：
 - 上报消息不携带 `character_id`；群聊创建者根据对应的 WebSocket 连接确定 Character 身份。
 - 每次都发送完整的 `is_streaming` 状态，不使用局部状态补丁。
 - `is_streaming` 不区分用户终端输入与群聊输入。
@@ -731,20 +452,7 @@ Character 上报：
 
 ### 发言请求
 
-Character 的 `tavern_speak` Agent tool 通过以下 WebSocket 请求原子尝试发布完整内容：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-8",
-  "method": "speak",
-  "params": {
-    "content": "我建议先实现持久化层。",
-    "based_on_sequence": 41
-  }
-}
-```
-
+Character 的 `tavern_speak` Agent tool 通过 WebSocket 请求原子尝试发布完整内容（字段形状：[ClientMessage.json](../protocol/schema/ClientMessage.json) `speak` 分支，`params.content` + 可选 `params.based_on_sequence`）：
 - `id` 用于将 WebSocket 响应关联回本次 `tavern_speak` 调用。
 - `content` 是准备公开发布的完整内容。
 - `based_on_sequence`（可选，ISSUE-013 B1）：发送方最后已见的公开消息序号（与增量拉取游标同一概念——最后一次成功投递的 sequence）。带该字段时，服务端对滞后的发言执行落后校验（B2）；**缺省 = 不校验**——旧客户端/手动 WebSocket/既有测试不带该字段时行为与首版完全一致（平滑演进），但新客户端（`tavern_speak` 工具）总是携带。
@@ -762,149 +470,32 @@ Character 的 `tavern_speak` Agent tool 通过以下 WebSocket 请求原子尝�
 - `success`：`speak` 命令是否被正常处理。
 - `published`：提交的内容是否真正进入群聊。
 
-成功发布：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-8",
-  "result": {
-    "published": true,
-    "event_id": "a1b2c3d4",
-    "sequence": 42,
-    "latest_sequence": 42,
-    "round": {
-      "round_max_messages": 10,
-      "used_messages": 4,
-      "remaining_messages": 6
-    }
-  }
-}
-```
+成功发布：[ServerMessage.json](../protocol/schema/ServerMessage.json) `speak` 响应成功分支（`published: true` + `event_id` / `sequence` / `latest_sequence` / `round`）。
 
 - `latest_sequence`（ISSUE-013）：发布后服务端最新序号（成功时等于本次 `sequence`）。**纯信息字段、非推进源**——客户端不据此推进游标或任何已见序号（B6 由服务端排除自身判定保证不误拒），客户端不得依赖该字段做状态推进。
 
-额度耗尽：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-8",
-  "result": {
-    "published": false,
-    "reason": "round_limit_reached",
-    "hand_raised": true,
-    "round": {
-      "round_max_messages": 10,
-      "used_messages": 10,
-      "remaining_messages": 0
-    }
-  }
-}
-```
+额度耗尽：[ServerMessage.json](../protocol/schema/ServerMessage.json) `speak` 响应 `round_limit_reached` 分支（`published: false` + `hand_raised: true` + `round`）。
 
 - 额度耗尽时请求已经被正常处理并产生举手状态，因此 `success` 仍为 `true`。
 - 未公开的 `content` 不写入群聊记录，也不广播；完整内容只保留在发送方的私有 pi session。
 - `reason` 首版定义 `round_limit_reached` 与 `stale`。
 - 响应中的 Round 快照是处理该请求后的最新值。
 
-落后拒绝（ISSUE-013 B2）：发送方携带的 `based_on_sequence` 小于服务端最新序号时，请求被正常处理（业务拒绝，非协议错误），`success` 仍为 `true`：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-8",
-  "result": {
-    "published": false,
-    "reason": "stale",
-    "missing_sequences": {
-      "from": 42,
-      "to": 45
-    },
-    "round": {
-      "round_max_messages": 10,
-      "used_messages": 4,
-      "remaining_messages": 6
-    }
-  }
-}
-```
-
+落后拒绝（ISSUE-013 B2）：发送方携带的 `based_on_sequence` 小于服务端最新序号时，请求被正常处理（业务拒绝，非协议错误），`success` 仍为 `true`——`speak` 响应 `stale` 分支（`published: false` + `missing_sequences.from..to` + `round`）。
 - `missing_sequences`：发送方尚未看到的**连续区间** `from..to`（闭区间，`from = based_on_sequence + 1`，`to` = 当前最新总序号）。纯提示信息：补拉复用既有 `fetch_messages_since`，服务端不计算「他人精确区间」，speak 响应不承担第二套拉取协议。
 - **stale 语义**：不发布、不写入群聊记录、不广播、**不消耗 Round 额度、不设置举手**（区别于 `round_limit_reached` 的举手——额度耗尽 vs 消息过时是两种语义，后者不是「还有话说」）。
 - **落后判定排除自身（B6）**：服务端比较的是「最近一条**他人**消息的序号」（尾部向前扫描，跳过请求者自己的消息）——客户端的拉取游标永不越过自己的消息（回显被客户端过滤），若按最新总序号比较，自己的消息会令下一次发言被误拒。
 - **客户端行为（B3/B5，简化终版）**：`tavern_speak` 工具收到 stale 拒绝后**不做任何拉取**——只置 A2 既有「有更新」标记并返回一句提示（无消息全文）；当前 run 结束后由 A2 统一拉取覆盖（被拒时错过的消息与后续增量一并拉全），新 turn 里 LLM 看到完整上下文重新决策（放弃或修改重发）。同轮自动恢复上限 2 次（按响应 Round 快照变化重置），超限后只报告拒绝，不再触发自动注入。
 
-协议错误或连接身份错误使用 `error` 响应：
+协议错误或连接身份错误使用 `error` 响应（形状：[ProtocolErrorObject.json](../protocol/schema/ProtocolErrorObject.json)）。
 
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-8",
-  "error": {
-    "code": -32100,
-    "message": "Character is not a group member"
-  }
-}
-```
-
-### 公开消息广播与增量拉取（M7/ISSUE-012）
+### 公开消息广播与增量拉取（M7/ISSUE-012)
 
 #### `public_message`（历史/拉取消息形态）
 
-User Persona 和 Character 的公开消息统一使用 `public_message` 结构。`group_chat_update.preview_messages`、`message_history.messages` 与 `fetch_messages_since` 的响应均复用此结构。
+User Persona 和 Character 的公开消息统一使用 `public_message` 结构（字段形状：[ServerMessage.json](../protocol/schema/ServerMessage.json) `public_message` 通知分支；`sender` 按类型判别 `user_persona` / `character`，`source` 缺省 = `group`）。`group_chat_update.preview_messages`、`message_history.messages` 与 `fetch_messages_since` 的响应均复用此结构。
 
-Character 消息：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "public_message",
-  "params": {
-    "event_id": "a1b2c3d4",
-    "sequence": 42,
-    "timestamp": "2026-07-26T11:30:00.000Z",
-    "sender": {
-      "type": "character",
-      "character_id": "developer",
-      "name": "Developer"
-    },
-    "source": "group",
-    "content": "我建议先实现持久化层。",
-    "round": {
-      "round_max_messages": 10,
-      "used_messages": 4,
-      "remaining_messages": 6
-    }
-  }
-}
-```
-
-User Persona 消息：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "public_message",
-  "params": {
-    "event_id": "b2c3d4e5",
-    "sequence": 43,
-    "timestamp": "2026-07-26T11:31:00.000Z",
-    "sender": {
-      "type": "user_persona"
-    },
-    "source": "group",
-    "content": "先从持久化层开始。",
-    "round": {
-      "round_max_messages": 10,
-      "used_messages": 0,
-      "remaining_messages": 10
-    }
-  }
-}
-```
-
-- `event_id` 是对应 pi session `custom_message` entry 的原生 `id`。
+语义：- `event_id` 是对应 pi session `custom_message` entry 的原生 `id`。
 - `sequence` 是群聊内公开消息的递增序号，第一条公开消息从 `1` 开始。
 - 只有成功落盘的公开消息才占用 `sequence`；群聊设置、成员事件、状态变化和举手不占用。
 - 恢复群聊时从最后一条公开消息继续递增，不因重新启动活动实例而重置。
@@ -921,19 +512,7 @@ User Persona 消息：
 
 #### `group_chat_update`（广播通知形态）
 
-公开消息的广播以通知形式发出，不再逐条推送完整消息。v0.5 功能收窄后，本通知只由成功持久化的公开消息触发；白板使用独立 `board_update`，成员与流式状态变化不触发本通知：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "group_chat_update",
-  "params": {
-    "latest_sequence": 43,
-    "preview_messages": [ { "jsonrpc": "2.0", "method": "public_message", ... 最近 3 条 ... } ],
-    "total_messages": 43
-  }
-}
-```
+公开消息的广播以通知形式发出，不再逐条推送完整消息。v0.5 功能收窄后，本通知只由成功持久化的公开消息触发；白板使用独立 `board_update`，成员与流式状态变化不触发本通知（字段形状：[ServerMessage.json](../protocol/schema/ServerMessage.json) `group_chat_update` 通知分支；`preview_messages` = 最近 3 条 `public_message`）。
 
 - `latest_sequence`：当前最新公开消息序号；角色据此检测缺口（`latest_sequence ≠ 本地游标 + 1` 即应拉取补齐）。
 - `preview_messages`：最近 3 条公开消息（微信通知形态），与拉取路径同源（同一 `publicMessages` 数据）。
@@ -943,33 +522,9 @@ User Persona 消息：
 
 #### `fetch_messages_since`（增量拉取命令）
 
-请求：
+请求（字段形状：[ClientMessage.json](../protocol/schema/ClientMessage.json) `fetch_messages_since` 分支，`params.since_sequence` 必带）。
 
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-1",
-  "method": "fetch_messages_since",
-  "params": {
-    "since_sequence": 40
-  }
-}
-```
-
-成功响应：
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "req-1",
-  "result": {
-    "messages": [ { "jsonrpc": "2.0", "method": "public_message", "params": { "sequence": 41 } }, ... ],
-    "latest_sequence": 43,
-    "total_messages": 43
-  }
-}
-```
-
+成功响应：[ServerMessage.json](../protocol/schema/ServerMessage.json) `fetch_messages_since` 响应分支（`result.messages` = `sequence > since_sequence` 的全部公开消息 + `latest_sequence` + `total_messages`）。
 - `messages`：`sequence > since_sequence` 的全部公开消息（严格递增、无重复）；按序号过滤天然补齐缺口。
 - `latest_sequence`：服务端当前最新序号。
 - 与 `message_history`（主动查询分页）并存：无持久化游标时经 `fetch_messages_since(0)` 拉全量；有持久化游标时 join/重连走增量拉取（差分同步）。

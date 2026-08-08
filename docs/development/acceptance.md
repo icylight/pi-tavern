@@ -164,6 +164,16 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 
 验收方式：acceptance 断言存在且非空 + 单测 + check 全绿 + 协议文档无语义分歧。
 
+### 文档生成化（#145，PM 布置，2026-08-08 开工，TypeDoc + TypeBox JSON Schema 双轨）
+
+1. **D1 docs:api 可生成且含 protocol 层导出**：`npm run docs:api` 0 errors，docs/api/ 产物含 ClientMessageSchema/ServerMessageSchema 等全 Schema 导出（docs/api/ 为生成物不入库，.gitignore）；
+2. **D2 生成产物与 codec 同源一致**：schema JSON 产物（docs/protocol/schema/*.json）用 typebox/compile Compile 独立抽样对照（Client/Server/Board 样本 type/required/additionalProperties 逐项）——与 codec 校验同源；
+3. **D3 docs:check 漂移拦截生效**：schema 源变更后未同步产物 → docs:check exit 1（双向验证：注入漂移必红、还原必绿）；
+4. **D4 websocket-protocol.md 字段节引用生成产物**：信封/字段形状以 docs/protocol/schema/*.json 为权威（链接引用），时序/语义/边界节手写保留；字段节与 schema JSON 抽样无语义分歧；
+5. **D5 收口门禁含 docs:check**：`npm run check` = biome && tsc && docs:check 串行尾部，全绿 exit 0。
+
+验收方式：acceptance 断言存在且非空 + 单测 + check 全绿 + 协议文档无语义分歧。
+
 ### 测试门控命令
 
 RPC 模式没有输入通道、也无法调用扩展工具，因此 `PITAVERN_TEST=1`（acceptance 门卫自动设置）时额外注册：
