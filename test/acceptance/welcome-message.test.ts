@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import type WebSocket from "ws";
-
+import { MAX_WEBSOCKET_FRAME_BYTES } from "../../src/protocol/codec.js";
+import { DEFAULT_WELCOME_MESSAGE } from "../../src/shared/constants.js";
 import { PiProcess } from "./pi-process.js";
 import { leaveAndReset, spawnCreator, startFreshGroup } from "./process-fixture.js";
 import { joinCharacterWs } from "./ws-helper.js";
@@ -315,5 +316,77 @@ describe("acceptance: #123 welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => 
 		expect((defaultWelcome.params as { content: string }).content.length).toBeGreaterThan(0);
 		await leaveAndReset(creator3, creator3.checkpoint(), 10_000);
 		await creator3.kill("SIGTERM");
+	});
+
+	it("WL4 边界: 空串回退默认文案 + 超长配置拒绝（P1-1 User 评论补钉）", async () => {
+		// 空串档：welcome_message="" 视为未配置 → 回退 DEFAULT_WELCOME_MESSAGE。
+		const root4 = await mkdtemp(join(tmpdir(), "pi-tavern-acc-welcome-empty-"));
+		roots.push(root4);
+		const agentDir4 = join(root4, "agent");
+		const projectDir4 = join(root4, "project");
+		await mkdir(join(agentDir4, "characters"), { recursive: true });
+		await mkdir(projectDir4, { recursive: true });
+		await writeFile(
+			join(agentDir4, "characters", "architect.md"),
+			"---\nname: Architect\ndescription: Architecture\n---\nArchitect prompt",
+		);
+		await writeFile(
+			join(agentDir4, "tavern.json"),
+			JSON.stringify({ characters: ["characters/architect.md"], welcome_message: "" }),
+		);
+		const creator4 = spawnCreator({
+			label: "creator4",
+			agentDir: agentDir4,
+			sessionDir: join(agentDir4, "sessions", "creator"),
+			cwd: projectDir4,
+		});
+		extraProcesses.push(creator4);
+		await creator4.waitForTavernReady(60_000);
+		const { descriptor: descriptor4 } = await startFreshGroup(creator4, projectDir4, agentDir4);
+		const memberEmpty = await joinCharacterWs(descriptor4, "ws-welcome-empty", "characters/architect.md");
+		sockets.push(memberEmpty.socket);
+		const emptyWelcome = await memberEmpty.waitFor((m) => m.method === "system_message");
+		expect((emptyWelcome.params as { content: string }).content).toBe(DEFAULT_WELCOME_MESSAGE);
+		await leaveAndReset(creator4, creator4.checkpoint(), 10_000);
+		await creator4.kill("SIGTERM");
+
+		// 超长档：welcome_message UTF-8 字节超 MAX_WEBSOCKET_FRAME_BYTES →
+		// 配置 fail-fast（/tavern-new 报 ERROR_INVALID_CONFIG_PREFIX 同族文案）。
+		const root5 = await mkdtemp(join(tmpdir(), "pi-tavern-acc-welcome-huge-"));
+		roots.push(root5);
+		const agentDir5 = join(root5, "agent");
+		const projectDir5 = join(root5, "project");
+		await mkdir(join(agentDir5, "characters"), { recursive: true });
+		await mkdir(projectDir5, { recursive: true });
+		await writeFile(
+			join(agentDir5, "characters", "architect.md"),
+			"---\nname: Architect\ndescription: Architecture\n---\nArchitect prompt",
+		);
+		await writeFile(
+			join(agentDir5, "tavern.json"),
+			JSON.stringify({
+				characters: ["characters/architect.md"],
+				welcome_message: "x".repeat(MAX_WEBSOCKET_FRAME_BYTES + 1024),
+			}),
+		);
+		const creator5 = spawnCreator({
+			label: "creator5",
+			agentDir: agentDir5,
+			sessionDir: join(agentDir5, "sessions", "creator"),
+			cwd: projectDir5,
+		});
+		extraProcesses.push(creator5);
+		await creator5.waitForTavernReady(60_000);
+		await creator5.runCommand("/tavern-new");
+		const configError = await creator5.waitFor(
+			(e) =>
+				e.type === "extension_ui_request" &&
+				e.method === "notify" &&
+				typeof e.message === "string" &&
+				e.message.includes("Invalid PiTavern config"),
+			30_000,
+		);
+		expect(String(configError.message)).toContain("Invalid PiTavern config");
+		await creator5.kill("SIGTERM");
 	});
 });

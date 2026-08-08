@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 
 import { type Static, Type } from "typebox";
 import { Compile } from "typebox/compile";
+import { encodeMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import {
 	ERROR_INVALID_CONFIG_PREFIX,
 	ERROR_PARSE_CONFIG_PREFIX,
@@ -67,13 +68,34 @@ export async function loadTavernConfig(options: LoadTavernConfigOptions): Promis
 	// #123：欢迎文案三档合并（项目 > 全局 > 代码默认），沿用 board 先例；
 	// 未配置 = undefined（管线侧回落 DEFAULT_WELCOME_MESSAGE）。
 	const welcomeMessage = projectConfig?.welcome_message ?? globalConfig?.welcome_message;
+	// PR #144 P1（User 评论）：欢迎文案 wire 安全校验——空串/空白串回退默认（视为未配置，
+	// 避免绕过 ?? DEFAULT 破坏「欢迎语必非空 → join 后必有首次可见注入」语义，PM 口径定案）；
+	// 超 WebSocket 帧上限 → 配置错误 fail-fast。校验完整信封字节（Arch 补充：content
+	// 单独校验留边界窗口——信封包裹 + JSON 转义膨胀可令完整帧超限，运行时 encodeMessage
+	// 仍抛错断线；直接复用运行时同一 encodeMessage 校验最终帧，零窗口）。
+	const effectiveWelcomeMessage =
+		welcomeMessage !== undefined && welcomeMessage.trim().length > 0 ? welcomeMessage : undefined;
+	if (effectiveWelcomeMessage !== undefined) {
+		const systemMessageFrame = {
+			jsonrpc: "2.0",
+			method: "system_message",
+			params: { content: effectiveWelcomeMessage },
+		};
+		try {
+			encodeMessage(systemMessageFrame);
+		} catch {
+			throw new Error(
+				`${ERROR_INVALID_CONFIG_PREFIX}welcome_message exceeds the WebSocket frame limit (${MAX_WEBSOCKET_FRAME_BYTES} bytes)`,
+			);
+		}
+	}
 
 	return {
 		configMaxMessages:
 			projectConfig?.config_max_messages ?? globalConfig?.config_max_messages ?? DEFAULT_CONFIG_MAX_MESSAGES,
 		...(boardMaxNotes !== undefined ? { boardMaxNotes } : {}),
 		...(boardMaxNoteLength !== undefined ? { boardMaxNoteLength } : {}),
-		...(welcomeMessage !== undefined ? { welcomeMessage } : {}),
+		...(effectiveWelcomeMessage !== undefined ? { welcomeMessage: effectiveWelcomeMessage } : {}),
 		characters: await loadCharacterCards(imports),
 	};
 }
