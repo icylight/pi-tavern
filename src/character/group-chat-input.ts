@@ -7,6 +7,7 @@ import {
 	METHOD_GROUP_CHAT_UPDATE,
 	METHOD_MESSAGE_HISTORY,
 	METHOD_PUBLIC_MESSAGE,
+	METHOD_SYSTEM_MESSAGE,
 } from "../shared/messages.js";
 import type { CharacterRuntime } from "./character-runtime.js";
 
@@ -456,6 +457,12 @@ export class GroupChatInput {
 			// 结果、actor 限定本人板——自回显 100% 冗余）；他人更新不受影响。
 			case METHOD_BOARD_UPDATE:
 				return message.params.actor !== this.runtime.character.characterId;
+			// #123：system_message = 入群欢迎等系统通知（Arch 裁决消费端 2 处小改之一）。
+			// 与 board_update 同族「通知渲染」语义：进 pendingEvents 批处理（ready 后
+			// 帧序 system_message 先于 character_joined，同批注入顺序自然）；无
+			// sequence/round，绝不挂 incrementPending、不进拉取流程。
+			case METHOD_SYSTEM_MESSAGE:
+				return true;
 			default:
 				return false;
 		}
@@ -593,7 +600,7 @@ export class GroupChatInput {
 		let groupChatState: unknown = null;
 		try {
 			groupChatState = await this.runtime.getGroupChatState();
-		} catch (e) {}
+		} catch {}
 
 		if (this.stopped) return;
 
@@ -629,6 +636,14 @@ export class GroupChatInput {
 			const boardUpdates = toDeliver.filter((e) => "method" in e && e.method === METHOD_BOARD_UPDATE).length;
 			if (boardUpdates > 0) {
 				testNotify?.(`[tavern-inject] group=${this.runtime.groupChatId} board_updates=${boardUpdates}`);
+			}
+			// #123：system_message 通知（无 sequence——不在消息流、非公共消息）。
+			// 携带文案原文非仅计数（QA WL1 验收：断言注入批次含欢迎文案内容）。
+			const systemContents = toDeliver
+				.filter((e) => "method" in e && e.method === METHOD_SYSTEM_MESSAGE)
+				.map((e) => e.params.content);
+			if (systemContents.length > 0) {
+				testNotify?.(`[tavern-inject] group=${this.runtime.groupChatId} system_messages=${systemContents.join("|")}`);
 			}
 		}
 
@@ -757,6 +772,20 @@ export class GroupChatInput {
 		const name = stateObj?.group_chat?.name;
 		if (name) {
 			parts.push(`\n群聊：${name}`);
+		}
+
+		// #123：system_message = 入群欢迎等系统通知（Arch 裁决消费端 2 处小改之二）。
+		// 独立小节渲染 content 原文，无 sender/时间戳——不混入「新消息」（非公共
+		// 消息、无 sequence）；不挂 incrementPending、不进拉取流程。
+		const systemMessages = events.filter((e) => "method" in e && e.method === METHOD_SYSTEM_MESSAGE);
+		if (systemMessages.length > 0) {
+			parts.push("\n系统消息：");
+			for (const message of systemMessages) {
+				if (!("method" in message) || message.method !== METHOD_SYSTEM_MESSAGE) {
+					continue;
+				}
+				parts.push(message.params.content);
+			}
 		}
 
 		// 新消息

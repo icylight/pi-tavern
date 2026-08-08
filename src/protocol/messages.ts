@@ -19,6 +19,7 @@ import {
 	METHOD_MESSAGE_HISTORY,
 	METHOD_PUBLIC_MESSAGE,
 	METHOD_SPEAK,
+	METHOD_SYSTEM_MESSAGE,
 	METHOD_UPDATE_CHARACTER_STATE,
 	PROTOCOL_ERROR_CODES,
 } from "../shared/messages.js";
@@ -375,6 +376,20 @@ const CharacterLeftSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/**
+ * #123：系统消息（ready 后欢迎语单播；通知帧无 id，与 character_joined 同族）。
+ * params 仅 content——非公共消息：无 sequence/round/source，不落消息流、不计轮次
+ * （WL1 语义）；additionalProperties:false 下未知字段 fail-close。
+ */
+const SystemMessageSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal(JSONRPC_VERSION),
+		method: Type.Literal(METHOD_SYSTEM_MESSAGE),
+		params: Type.Object({ content: Type.String() }, { additionalProperties: false }),
+	},
+	{ additionalProperties: false },
+);
+
 const GroupChatClosedSchema = Type.Object(
 	{
 		jsonrpc: Type.Literal(JSONRPC_VERSION),
@@ -690,6 +705,7 @@ export const ServerMessageSchema = Type.Union([
 	SpeakResponseSchema,
 	CharacterJoinedSchema,
 	CharacterLeftSchema,
+	SystemMessageSchema,
 	GroupChatClosedSchema,
 	MessageHistorySchema,
 	PublicMessageSchema,

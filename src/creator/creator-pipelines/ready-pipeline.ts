@@ -1,19 +1,16 @@
 import { ResponseError } from "vscode-jsonrpc";
 import type WebSocket from "ws";
 import type { CharacterCard, CharacterSummary } from "../../config/character-card.js";
-import { encodeCursor } from "../../data/cursor-store.js";
 import type { GroupChatState } from "../../data/group-chat-state.js";
 import { type ClientMessage, JSONRPC_VERSION } from "../../protocol/messages.js";
-import type { PublicMessageState } from "../../protocol/public-message-state.js";
-import { JOIN_HISTORY_LIMIT } from "../../shared/constants.js";
+import { DEFAULT_WELCOME_MESSAGE } from "../../shared/constants.js";
 import {
 	ERROR_ALREADY_IN_GROUP_CHAT,
 	ERROR_CODE_ALREADY_IN_GROUP,
 	ERROR_CODE_RESERVATION_INVALID,
 	ERROR_RESERVATION_INVALID,
 	METHOD_CHARACTER_JOINED,
-	METHOD_MESSAGE_HISTORY,
-	METHOD_PUBLIC_MESSAGE,
+	METHOD_SYSTEM_MESSAGE,
 } from "../../shared/messages.js";
 import type { HeartbeatRegistry } from "../heartbeat-registry.js";
 
@@ -31,8 +28,9 @@ export interface ReadyPipelineDependencies {
 	state: GroupChatState;
 	connections: Map<string, WebSocket>;
 	heartbeatRegistry: HeartbeatRegistry;
-	publicMessages: PublicMessageState[];
 	characters: ReadonlyMap<string, CharacterCard>;
+	/** #123：欢迎文案（配置链合并结果，缺省 = DEFAULT_WELCOME_MESSAGE）。 */
+	welcomeMessage: string;
 	/** 预留定时器清理（runtime 方法注入，与超时释放同一归属）。 */
 	clearReadyTimer: (connection: ReadyConnectionLike) => void;
 	now: () => Date;
@@ -49,10 +47,9 @@ export interface ReadyPipelineDependencies {
 
 /**
  * character_ready 门面（短流程：阶段多为发送顺序而非 IO 管线）。阶段：
- * validate（预留有效性）→ commit 在线态 → 响应 + 历史窗口 → 广播序列。
- * 历史窗口先于 character_joined 广播（新角色处理自己 join 事件时
- * hasPublicMessages 已为 true）。成员变化只保留 character_joined 事件；
- * group_chat_update 收窄为公共消息水位通知。
+ * validate（预留有效性）→ commit 在线态 → 响应 + 欢迎消息 → 广播序列。
+ * #123：ready 后不再自动推送 message_history，改为单播 system_message 欢迎文案
+ * （历史改由 get_message_history / fetch_messages_since 主动拉取，WL1-WL3）。
  */
 export class ReadyPipeline {
 	constructor(private readonly deps: ReadyPipelineDependencies) {}
@@ -87,38 +84,19 @@ export class ReadyPipeline {
 		connection.online = true;
 
 		// 时序语义（重构前 = 同步 send 顺序）：ready 响应（result: null）先到，
-		// 随后 message_history 通知 + character_joined 广播。connection 模式下
+		// 随后 system_message 欢迎单播 + character_joined 广播。connection 模式下
 		// 响应由库在 handler resolve 后（微任务）reply——通知帧延迟到宏任务，
 		// 事件循环保证响应先发。
-		// User 2026-08-01：join 推送窗口 10 → JOIN_HISTORY_LIMIT（100）。
-		const recentMessages = this.deps.publicMessages.slice(-JOIN_HISTORY_LIMIT);
-		const earliest = recentMessages[0];
-		const hasMore = earliest !== undefined && earliest.sequence > 1;
-		void socket;
+		// #123：system_message 单播（Arch 评审 §1.5——欢迎语个人化，非 broadcast）；
+		// 在 character_joined 之前发送，使新角色处理自己的 join 事件时欢迎语已就位。
 		setImmediate(() => {
 			this.deps.send(socket, {
 				jsonrpc: JSONRPC_VERSION,
-				method: METHOD_MESSAGE_HISTORY,
+				method: METHOD_SYSTEM_MESSAGE,
 				params: {
-					messages: recentMessages.map((m) => ({
-						jsonrpc: JSONRPC_VERSION,
-						method: METHOD_PUBLIC_MESSAGE,
-						params: {
-							event_id: m.event_id,
-							sequence: m.sequence,
-							timestamp: m.timestamp,
-							sender: m.sender,
-							content: m.content,
-							round: m.round,
-						},
-					})),
-					cursor: hasMore ? encodeCursor(earliest.sequence) : null,
-					has_more: hasMore,
-					total_messages: this.deps.publicMessages.length,
+					content: this.deps.welcomeMessage ?? DEFAULT_WELCOME_MESSAGE,
 				},
 			});
-			// 在 message_history 之后广播 character_joined，使新 Character 处理
-			// 自己的 join 事件时 hasPublicMessages 已为 true。
 			this.deps.broadcast({
 				jsonrpc: JSONRPC_VERSION,
 				method: METHOD_CHARACTER_JOINED,

@@ -30,6 +30,8 @@ export interface ReloadFlowHost {
 	activeDescriptor: ActiveGroupChatDescriptor;
 	activeDescriptorPath: string;
 	configMaxMessages: number;
+	/** #123：欢迎文案（reload handoff 传递，与 configMaxMessages 同源）。 */
+	welcomeMessage: string;
 	characters: ReadonlyMap<string, CharacterCard>;
 	publicMessages: PublicMessageState[];
 	persistedCount: number;
@@ -115,6 +117,7 @@ export async function detachForReload(host: ReloadFlowHost, piSessionId: string)
 		activeDescriptor: host.activeDescriptor,
 		activeDescriptorPath: host.activeDescriptorPath,
 		configMaxMessages: host.configMaxMessages,
+		welcomeMessage: host.welcomeMessage,
 		characters: [...host.characters.values()],
 		publicMessages: [...host.publicMessages],
 		persistedCount: host.persistedCount,

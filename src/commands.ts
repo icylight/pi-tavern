@@ -117,6 +117,8 @@ export function registerCommands(
 					// 白板模型（#114）：白板额度透传（缺省 undefined → store 默认 5/140）。
 					...(config.boardMaxNotes !== undefined ? { boardMaxNotes: config.boardMaxNotes } : {}),
 					...(config.boardMaxNoteLength !== undefined ? { boardMaxNoteLength: config.boardMaxNoteLength } : {}),
+					// #123：欢迎文案透传（缺省 undefined → creator-factory 回落代码默认值）。
+					...(config.welcomeMessage !== undefined ? { welcomeMessage: config.welcomeMessage } : {}),
 					characters: config.characters,
 				});
 				ctx.ui.notify(
@@ -182,6 +184,8 @@ export function registerCommands(
 					// 白板模型（#114）：白板额度透传（缺省 undefined → store 默认 5/140）。
 					...(config.boardMaxNotes !== undefined ? { boardMaxNotes: config.boardMaxNotes } : {}),
 					...(config.boardMaxNoteLength !== undefined ? { boardMaxNoteLength: config.boardMaxNoteLength } : {}),
+					// #123：欢迎文案透传（缺省 undefined → creator-factory 回落代码默认值）。
+					...(config.welcomeMessage !== undefined ? { welcomeMessage: config.welcomeMessage } : {}),
 					characters: config.characters,
 				});
 				ctx.ui.notify(

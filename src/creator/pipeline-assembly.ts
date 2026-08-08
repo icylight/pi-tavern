@@ -26,6 +26,8 @@ export interface PipelineAssemblyHost {
 	characters: ReadonlyMap<string, CharacterCard>;
 	sessionStore: SessionStore;
 	boardStore: BoardStore;
+	/** #123：欢迎文案（ready 后 system_message 单播内容；配置链已合并，值传快照）。 */
+	welcomeMessage: string;
 	persistedCount: { get: () => number; add: (delta: number) => void };
 	broadcastHub: BroadcastHub;
 	memberBookkeeping: MemberBookkeeping;
@@ -90,8 +92,8 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 			state: host.state,
 			connections: host.connections,
 			heartbeatRegistry: host.heartbeatRegistry,
-			publicMessages: host.publicMessages,
 			characters: host.characters,
+			welcomeMessage: host.welcomeMessage,
 			clearReadyTimer: (connection) => memberBookkeeping.clearReadyTimer(connection as ConnectionContext),
 			now: () => host.now(),
 			toCharacterSummary: host.toCharacterSummary,

@@ -298,6 +298,8 @@ export const METHOD_GROUP_CHAT_CLOSED = "group_chat_closed";
 export const METHOD_PUBLIC_MESSAGE = "public_message";
 /** 消息历史（加入推送形态）。 */
 export const METHOD_MESSAGE_HISTORY = "message_history";
+/** #123：系统消息（ready 后欢迎语，单播；非公共消息、不落消息流）。 */
+export const METHOD_SYSTEM_MESSAGE = "system_message";
 /** 群聊更新广播（增量拉取唤醒）。 */
 export const METHOD_GROUP_CHAT_UPDATE = "group_chat_update";
 /** 白板更新广播。 */

@@ -20,6 +20,8 @@ export interface TavernConfig {
 	 */
 	boardMaxNotes?: number;
 	boardMaxNoteLength?: number;
+	/** #123：欢迎文案（可选——缺省 = DEFAULT_WELCOME_MESSAGE 代码默认值）。 */
+	welcomeMessage?: string;
 }
 
 export interface LoadTavernConfigOptions {
@@ -34,6 +36,8 @@ const TavernConfigFileSchema = Type.Object(
 		// 白板模型（#114）：白板额度（可选；最小 1——额度 0 无业务意义）。
 		board_max_notes: Type.Optional(Type.Integer({ minimum: 1 })),
 		board_max_note_length: Type.Optional(Type.Integer({ minimum: 1 })),
+		// #123：欢迎文案（可选——缺省 = 代码默认；旧配置兼容，缺省键不报错）。
+		welcome_message: Type.Optional(Type.String()),
 	},
 	{ additionalProperties: false },
 );
@@ -60,12 +64,16 @@ export async function loadTavernConfig(options: LoadTavernConfigOptions): Promis
 
 	const boardMaxNotes = projectConfig?.board_max_notes ?? globalConfig?.board_max_notes;
 	const boardMaxNoteLength = projectConfig?.board_max_note_length ?? globalConfig?.board_max_note_length;
+	// #123：欢迎文案三档合并（项目 > 全局 > 代码默认），沿用 board 先例；
+	// 未配置 = undefined（管线侧回落 DEFAULT_WELCOME_MESSAGE）。
+	const welcomeMessage = projectConfig?.welcome_message ?? globalConfig?.welcome_message;
 
 	return {
 		configMaxMessages:
 			projectConfig?.config_max_messages ?? globalConfig?.config_max_messages ?? DEFAULT_CONFIG_MAX_MESSAGES,
 		...(boardMaxNotes !== undefined ? { boardMaxNotes } : {}),
 		...(boardMaxNoteLength !== undefined ? { boardMaxNoteLength } : {}),
+		...(welcomeMessage !== undefined ? { welcomeMessage } : {}),
 		characters: await loadCharacterCards(imports),
 	};
 }
