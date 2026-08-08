@@ -34,11 +34,17 @@ export class BufferedWsClient {
 			if (existing) {
 				return existing;
 			}
-			if (Date.now() > deadline) {
+			const remaining = deadline - Date.now();
+			if (remaining <= 0) {
 				throw new Error("timeout waiting for WebSocket message");
 			}
+			// 基建修复（QA 2026-08-08，#123 定位）：无新帧到达时 waiter 永不
+			// resolve、deadline 永不检查（原实现超时形同虚设——测试挂起而非
+			// 明确报错）。独立 timer 保证超时真正生效，帧到达路径清除 timer。
 			await new Promise<void>((resolveWait) => {
+				const timer = setTimeout(resolveWait, remaining);
 				const waiter = (): void => {
+					clearTimeout(timer);
 					const index = this.frameWaiters.indexOf(waiter);
 					if (index !== -1) this.frameWaiters.splice(index, 1);
 					resolveWait();

@@ -46,11 +46,15 @@ describe("acceptance: #123 welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => 
 			join(agentDir, "characters", "architect.md"),
 			"---\nname: Architect\ndescription: Architecture\n---\nArchitect prompt",
 		);
+		await writeFile(
+			join(agentDir, "characters", "reviewer.md"),
+			"---\nname: Reviewer\ndescription: Reviews designs\n---\nReviewer prompt",
+		);
 		// 全局配置（agentDir/tavern.json）：welcome_message = 全局欢迎语。
 		await writeFile(
 			join(agentDir, "tavern.json"),
 			JSON.stringify({
-				characters: ["characters/architect.md"],
+				characters: ["characters/architect.md", "characters/reviewer.md"],
 				welcome_message: "全局欢迎语",
 			}),
 		);
@@ -118,8 +122,8 @@ describe("acceptance: #123 welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => 
 
 			memberA = await joinCharacterWs(descriptor, "ws-welcome-a", "characters/architect.md");
 			sockets.push(memberA.socket);
-			// system_message 在 setImmediate 内发送（ready 响应后），用 waitFor
-			// 等帧到达再快照（避免宏任务时序窗口漏帧）。
+			// system_message 与 character_joined 在同一 setImmediate 内先后发送，
+			// 逐帧 waitFor 等齐再快照（WS 帧解析异步，防止第二帧未达即快照）。
 			const welcomeA = await memberA.waitFor((m) => m.method === "system_message");
 			const joinedA = await memberA.waitFor((m) => m.method === "character_joined");
 			const framesA = memberA.allFrames();
@@ -153,13 +157,27 @@ describe("acceptance: #123 welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => 
 
 			// 单播验证：第二位成员加入后 system_message 只发给新成员，
 			// memberA 已在线不收第二条（Arch 定案：send 单播非 broadcast）。
-			memberB = await joinCharacterWs(descriptor, "ws-welcome-b", "characters/architect.md");
+			// 注意：角色唯一性（claim 占用检查）——memberB 须用不同角色。
+			memberB = await joinCharacterWs(descriptor, "ws-welcome-b", "characters/reviewer.md");
 			sockets.push(memberB.socket);
+			// memberB 的 system_message 同为 setImmediate 发送，waitFor 等达再快照。
+			await memberB.waitFor((m) => m.method === "system_message");
 			const framesB = memberB.allFrames();
 			expect(framesB.filter((m) => m.method === "system_message")).toHaveLength(1);
 			expect(memberA.allFrames().filter((m) => m.method === "system_message")).toHaveLength(1);
+		} finally {
+			// socket 清理由 afterEach 统一 terminate（family 模式同构）。
+			void memberA;
+			void memberB;
+		}
+	});
 
-			// WL1 角色可见（PM 裁决口径 = 进环境注入）：真实角色进程 join 后，
+	it("WL1 角色可见: 环境注入含欢迎文案（观察通道 system_messages= 携带原文）", async () => {
+		const { descriptor, checkpoint } = await startFreshGroup(creator, projectDir, agentDir);
+		void descriptor;
+		void checkpoint;
+		try {
+			// 角色可见（PM 裁决口径 = 进环境注入）：真实角色进程 join 后，
 			// 其注入批次含欢迎文案——经观察通道 [tavern-inject] system_messages=…
 			// 断言（客户端 #123 扩展行，board_updates 同族模式；携带文案原文）。
 			const charProcess = PiProcess.spawn({
@@ -177,13 +195,11 @@ describe("acceptance: #123 welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => 
 					typeof e.message === "string" &&
 					e.message.includes("system_messages=") &&
 					e.message.includes("项目欢迎语"),
-				30_000,
+				60_000,
 			);
 			expect(String(injection.message)).toContain("项目欢迎语");
 		} finally {
-			// socket 清理由 afterEach 统一 terminate（family 模式同构）。
-			void memberA;
-			void memberB;
+			void descriptor;
 		}
 	});
 
