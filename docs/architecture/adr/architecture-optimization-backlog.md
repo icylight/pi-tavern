@@ -30,6 +30,7 @@
 | handler 异常端到端故障注入测试（-32603 路径） | 2026-08-06 二轮阻断④ 收敛（后端论证：error 帧不过 gate 结构性闭合；A5 钉 schema 接受） | 测试强度项：creator 侧故障注入普通 Error → 端到端验证 -32603 收敛 | 待内嵌 |
 | 存量 lint 欠账清理（9 文件：codec.ts/broadcast-hub.ts 等，biome 2.3.5 新报） | 2026-08-08 #123 code review 扫描（Arch 建议登记，PM 代登） | 随下一个碰触文件的批次顺手修（客户端 catch{} 已有先例），或收口统一 biome 版本对齐；不阻塞功能交付 | 待内嵌 |
 | 欢迎语动态化（群名/在线成员/轮次状态入 system_message） | 2026-08-08 #123 第一性原理复盘（PM 提出，Arch 待复核） | 当前固定文本定位足够（群聊输入每轮注入状态不重复）；增强候选：welcome 内容模板化，含群名/在线成员数/轮次摘要 | 待内嵌 |
+| BufferedWsClient.waitFor 超时基建缺陷（已修复，留痕） | 2026-08-08 #123 it1 定位（QA）：无新帧到达时 waiter 永不 resolve、deadline 永不检查——测试挂起而非报错 | 已修：独立 timer + 帧到达清除（ws-helper.ts）；后续新增 waiter 类基建照此模式 | 随 af19d8c 落地 |
 
 ## 已落地
 
