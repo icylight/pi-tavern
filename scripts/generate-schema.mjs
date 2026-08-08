@@ -5,9 +5,13 @@
  *
  * 流水线：tsc 编译 src/protocol 模块图到临时缓存（NodeNext 语义一致，零新增
  * 依赖，同 generate-protocol-schema 先例）→ import schema-merge 的
- * loadProtocolDefs（后端属主合并加载器，与 codec 运行时同一实现）→ 自写
+ * loadProtocolDefs（后端属主合并加载器；**仅生成期使用**——codec 运行时
+ * 消费的是本脚本产物 generated/schema.ts，不经 schema-merge）→ 自写
  * 翻译器：JSON Schema 对象 → TypeBox 表达式文本（拓扑排序保证被引用者先
  * 声明）→ 覆盖写 src/protocol/generated/schema.ts。
+ *
+ * 消费链（#147 P2 评审对齐）：JSONC（权威）→ schema-merge（生成期）→
+ * generated/schema.ts → messages.ts re-export → codec 运行时 Compile。
  *
  * 产物约定（与后端衔接）：全量 *Schema const（与 jsonc $defs 键名同名同构，
  * 含 ClientMessageSchema/ServerMessageSchema 入口）；messages.ts 改为
@@ -194,7 +198,7 @@ async function main() {
 			{ cwd: ROOT, stdio: "inherit" },
 		);
 
-		// 2. import 后端合并加载器（同一实现：jsonc-parser 解析 + $defs 合并）。
+		// 2. import 后端合并加载器（仅生成期使用：jsonc-parser 解析 + $defs 合并）。
 		const mergeModule = await import(pathToFileURL(join(cacheDir, "protocol", "schema-merge.js")).href);
 		const defs = mergeModule.loadProtocolDefs();
 

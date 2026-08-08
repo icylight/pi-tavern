@@ -4,8 +4,10 @@
  * 合并单一 $defs 树 → 返回 client/server 两个入口 schema 对象。
  *
  * 消费方：
- * - 生成流水线（scripts/ 下）：从合并结果生成程序用的 schema 代码/类型；
- * - 运行时 codec（经生成产物）：Compile({ $ref, $defs }) 编译期解析 $ref。
+ * - 生成期（scripts/generate-schema.mjs 翻译器）：加载 JSONC → 合并 →
+ *   生成 src/protocol/generated/schema.ts（程序消费的 TypeBox schema）；
+ * - 运行期 codec 不依赖本模块：codec 直接 import/Compile 静态生成产物
+ *   （generated/schema.ts 经 messages.ts re-export）。
  *
  * 权威文件内仅使用 "#/$defs/X" 局部引用（无跨文件 URI ref）。
  */
