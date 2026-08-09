@@ -10,6 +10,7 @@ import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descrip
 import type { GroupChatState } from "../data/group-chat-state.js";
 import type { ServerMessage } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
+import type { WhisperMessageState } from "../protocol/whisper-message-state.js";
 import type { WebSocketMessageReader, WebSocketMessageWriter } from "../protocol/ws-message-io.js";
 
 /** 私有 globalThis 键，让 reload 后的扩展代码能找到槽位。 */
@@ -61,6 +62,8 @@ export interface CreatorReloadHandoff {
 	messageTemplates: Record<MessageTemplateKey, string>;
 	characters: CharacterCard[];
 	publicMessages: PublicMessageState[];
+	/** #152：私信消息流快照（reload handoff 传递，与 publicMessages 同源）。 */
+	whisperMessages: WhisperMessageState[];
 	persistedCount: number;
 
 	bufferedFrames: Map<string, BufferedFrame[]>;

@@ -134,6 +134,7 @@ function createMockCreatorRuntime(): CreatorRuntime {
 		close: vi.fn(async () => undefined),
 		submitUserPersonaMessage: vi.fn(() => Promise.resolve("evt-1")),
 		publicMessageList: [],
+		whisperMessageList: [],
 	} as unknown as CreatorRuntime;
 }
 

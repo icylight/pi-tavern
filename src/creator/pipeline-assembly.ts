@@ -1,19 +1,24 @@
 import type WebSocket from "ws";
 
 import type { CharacterCard, CharacterSummary } from "../config/character-card.js";
+import type { MessageTemplateKey } from "../config/message-templates.js";
+import { renderTemplate } from "../config/message-templates.js";
 import type { BoardStore } from "../data/board-store.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
 import type { SessionStore } from "../data/session-store.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
+import type { WhisperMessageState } from "../protocol/whisper-message-state.js";
 import type { BroadcastHub } from "./broadcast-hub.js";
 import type { ConnectionContext } from "./connection-manager.js";
 import type { BoardPipeline, BoardPipelineDependencies } from "./creator-pipelines/board-pipeline.js";
 import type { ClaimPipeline } from "./creator-pipelines/claim-pipeline.js";
 import { JoinPipeline } from "./creator-pipelines/join-pipeline.js";
 import { LeavePipeline } from "./creator-pipelines/leave-pipeline.js";
+import { mergeMessageStreams } from "./creator-pipelines/message-stream.js";
 import type { QueryPipeline } from "./creator-pipelines/query-pipeline.js";
 import type { ReadyPipeline } from "./creator-pipelines/ready-pipeline.js";
 import type { SubmitMessagePipeline } from "./creator-pipelines/submit-message-pipeline.js";
+import type { WhisperPipeline } from "./creator-pipelines/whisper-message-pipeline.js";
 import type { HeartbeatRegistry } from "./heartbeat-registry.js";
 import type { MemberBookkeeping } from "./member-bookkeeping.js";
 
@@ -23,6 +28,8 @@ interface PipelineAssemblyHost {
 	connections: Map<string, WebSocket>;
 	heartbeatRegistry: HeartbeatRegistry;
 	publicMessages: PublicMessageState[];
+	/** #152：私信消息流（与公开共用递增器；恢复/查询合并）。 */
+	whisperMessages: WhisperMessageState[];
 	characters: ReadonlyMap<string, CharacterCard>;
 	sessionStore: SessionStore;
 	boardStore: BoardStore;
@@ -35,6 +42,10 @@ interface PipelineAssemblyHost {
 	/** 回调经 getter 读取（测试后期赋值仍生效——Arch ②「闭包捕获最终引用」同模式）。 */
 	readOnPublicMessage: () => ((msg: PublicMessageState) => void) | undefined;
 	readOnPublicMessageError: () => ((error: string, sequence: number, timestamp: string) => void) | undefined;
+	/** #152（Arch 阻断修复）：私信提交钩子读取（getter 闭包，同 readOnPublicMessage 模式）。 */
+	readOnWhisperMessage: () => ((msg: WhisperMessageState) => void) | undefined;
+	/** #154/#152（P2 评审阻断 1）：模板集 getter（P3 五 key 合流后含 whisper_full；P2 独立期三 key 回退契约默认形态）。 */
+	readMessageTemplates: () => Record<MessageTemplateKey, string> | undefined;
 	readOnMembersChanged: () => (() => void) | undefined;
 	/** 白板模型（#114）：creator 实时提示（纯展示，applied 广播触发）。 */
 	readOnBoardUpdated: () => BoardPipelineDependencies["onBoardUpdated"];
@@ -55,6 +66,8 @@ interface PipelineAssembly {
 	readyDeps: ConstructorParameters<typeof ReadyPipeline>[0];
 	queryDeps: ConstructorParameters<typeof QueryPipeline>[0];
 	boardDeps: ConstructorParameters<typeof BoardPipeline>[0];
+	/** #152：whisper 管线依赖。 */
+	whisperDeps: ConstructorParameters<typeof WhisperPipeline>[0];
 }
 
 /** 管线门面装配（PR-B 拆自 CreatorRuntime 构造器；跨消息状态经注入引用显式读写，决策 7）。 */
@@ -73,6 +86,7 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 		submitMessageDeps: {
 			state: host.state,
 			publicMessages: host.publicMessages,
+			whisperMessages: host.whisperMessages,
 			persistedCount: host.persistedCount,
 			sessionStore: host.sessionStore,
 			broadcastGroupChatUpdate: () => broadcastHub.broadcastGroupChatUpdate(),
@@ -107,6 +121,7 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 		queryDeps: {
 			state: host.state,
 			publicMessages: host.publicMessages,
+			whisperMessages: host.whisperMessages,
 			sessionStore: host.sessionStore,
 			getPersistedCount: () => host.persistedCount.get(),
 			getGroupChatStateMessage: (requestingSessionId) => broadcastHub.getGroupChatStateMessage(requestingSessionId),
@@ -117,6 +132,29 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 			boardStore: host.boardStore,
 			broadcast: (message) => broadcastHub.broadcast(message),
 			onBoardUpdated: (update) => host.readOnBoardUpdated()?.(update),
+		},
+		whisperDeps: {
+			state: host.state,
+			publicMessages: host.publicMessages,
+			whisperMessages: host.whisperMessages,
+			persistedCount: host.persistedCount,
+			sessionStore: host.sessionStore,
+			// 合并流（public + whisper 按 sequence 归并）：stale 检查与查询投影同源。
+			readMergedMessages: () => mergeMessageStreams(host.publicMessages, host.whisperMessages),
+			connections: host.connections,
+			send: (socket, message) => broadcastHub.send(socket, message),
+			// P2 评审阻断 1：落盘顶层 content = 创建者视角完整投影（P1 契约）。
+			// 有 whisper_full 模板（P3 合流）走模板渲染；否则回退契约默认形态（与
+			// DEFAULT_TEMPLATES.whisper_full 同文案）——P2 独立合并期亦符合契约。
+			formatWhisperContent: (sender, receiver, content) => {
+				const templates = host.readMessageTemplates() as Record<string, string> | undefined;
+				const whisperFull = templates?.whisper_full;
+				if (whisperFull !== undefined) {
+					return renderTemplate(whisperFull, { sender, receiver, content });
+				}
+				return `${sender} 向 ${receiver} 悄悄说：${content}`;
+			},
+			onWhisperMessage: (whisper) => host.readOnWhisperMessage()?.(whisper),
 		},
 	};
 }

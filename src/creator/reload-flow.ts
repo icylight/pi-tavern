@@ -12,6 +12,7 @@ import { removeOwnedActiveDescriptor } from "../data/discovery/active-descriptor
 import type { GroupChatState } from "../data/group-chat-state.js";
 import type { SessionStore } from "../data/session-store.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
+import type { WhisperMessageState } from "../protocol/whisper-message-state.js";
 import { ERROR_CREATOR_RUNTIME_NOT_ACTIVE, ERROR_GROUP_CHAT_CLOSED } from "../shared/messages.js";
 import type { ConnectionContext, ConnectionManager } from "./connection-manager.js";
 import { createFromHandoff } from "./creator-factory.js";
@@ -37,6 +38,8 @@ export interface ReloadFlowHost {
 	messageTemplates: Record<MessageTemplateKey, string>;
 	characters: ReadonlyMap<string, CharacterCard>;
 	publicMessages: PublicMessageState[];
+	/** #152：私信消息流快照（reload handoff 传递，与 publicMessages 同源）。 */
+	whisperMessages: WhisperMessageState[];
 	persistedCount: number;
 	sessionStore: SessionStore;
 	groupSessionManager: SessionManager;
@@ -124,6 +127,7 @@ export async function detachForReload(host: ReloadFlowHost, piSessionId: string)
 		messageTemplates: host.messageTemplates,
 		characters: [...host.characters.values()],
 		publicMessages: [...host.publicMessages],
+		whisperMessages: [...host.whisperMessages],
 		persistedCount: host.persistedCount,
 		bufferedFrames,
 		bufferingHandlers,

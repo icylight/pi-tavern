@@ -22,6 +22,7 @@ import {
 import { createGroupChatState, type GroupChatState } from "../data/group-chat-state.js";
 import { SessionStore } from "../data/session-store.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
+import type { WhisperMessageState } from "../protocol/whisper-message-state.js";
 import {
 	DEFAULT_WELCOME_MESSAGE,
 	HEARTBEAT_PING_INTERVAL_MS,
@@ -191,6 +192,7 @@ export async function resumeRuntime(
 	// 按文件顺序扫描会话条目重建 PiTavern 扩展状态。
 	const entries = sessionStore.getEntries();
 	const publicMessages: PublicMessageState[] = [];
+	const whisperMessages: WhisperMessageState[] = [];
 	let name: string | null = null;
 	let groupMaxMessages = configMaxMessages;
 	let round: GroupChatState["round"] = null;
@@ -222,6 +224,39 @@ export async function resumeRuntime(
 			}
 			publicMessages.push({
 				sender: details.sender,
+				content: details.content,
+				event_id: entry.id,
+				sequence: details.sequence,
+				timestamp: entry.timestamp,
+				round: details.round,
+			});
+			nextSequence = details.sequence;
+			round = {
+				roundMaxMessages: details.round.round_max_messages,
+				usedMessages: details.round.used_messages,
+			};
+		} else if (entry.type === "custom_message" && entry.customType === "pi-tavern.whisper-message") {
+			// #152：私信恢复——与公开消息同 JSONL，共用递增器；nextSequence 取
+			// 最后一条消息（公开或私信）的 sequence（无空洞保证，WH3）。
+			const details = entry.details as
+				| {
+						sender: { type: "character"; character_id: string; name: string };
+						recipient: { type: "character"; character_id: string; name: string };
+						content: string;
+						sequence: number;
+						round: {
+							round_max_messages: number;
+							used_messages: number;
+							remaining_messages: number;
+						};
+				  }
+				| undefined;
+			if (!details || typeof details.sequence !== "number") {
+				continue;
+			}
+			whisperMessages.push({
+				sender: details.sender,
+				recipient: details.recipient,
 				content: details.content,
 				event_id: entry.id,
 				sequence: details.sequence,
@@ -281,7 +316,7 @@ export async function resumeRuntime(
 		options.characters ?? [],
 		runtimeDeps.readyTimeoutMs,
 		runtimeDeps,
-		{ publicMessages, persistedCount },
+		{ publicMessages, whisperMessages, persistedCount },
 	);
 
 	try {
@@ -318,6 +353,10 @@ export function createFromHandoff(
 		handoff.characters,
 		dependencies.readyTimeoutMs,
 		dependencies,
-		{ publicMessages: handoff.publicMessages, persistedCount: handoff.persistedCount },
+		{
+			publicMessages: handoff.publicMessages,
+			whisperMessages: handoff.whisperMessages,
+			persistedCount: handoff.persistedCount,
+		},
 	);
 }
