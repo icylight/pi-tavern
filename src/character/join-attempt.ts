@@ -47,6 +47,12 @@ export interface JoinAttemptOptions {
 	getFetchContextWindow?: () => number;
 	/** #154：群聊文案模板集（claim 时本地配置加载，转发给 CharacterRuntime）。 */
 	messageTemplates?: Record<MessageTemplateKey, string>;
+	/**
+	 * #154 苍蓝星复评：reload 时重新加载磁盘配置所需路径（join 时透传，
+	 * runtime 持有；无则 reload 不重载、沿用快照——兼容旧 handoff）。
+	 */
+	agentDir?: string;
+	cwd?: string;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
@@ -75,6 +81,8 @@ export class JoinAttempt {
 	private readonly triggerDebounceMs: number | undefined;
 	private readonly getFetchContextWindow: (() => number) | undefined;
 	private readonly messageTemplates: Record<MessageTemplateKey, string> | undefined;
+	private readonly agentDir: string | undefined;
+	private readonly cwd: string | undefined;
 	private transferred = false;
 	private closed = false;
 
@@ -126,6 +134,8 @@ export class JoinAttempt {
 		this.triggerDebounceMs = options.triggerDebounceMs;
 		this.getFetchContextWindow = options.getFetchContextWindow;
 		this.messageTemplates = options.messageTemplates;
+		this.agentDir = options.agentDir;
+		this.cwd = options.cwd;
 		this.socket.on("message", this.onMessage);
 		this.socket.on("close", this.onClose);
 		this.socket.on("error", this.onError);
@@ -209,6 +219,8 @@ export class JoinAttempt {
 				...(this.triggerDebounceMs !== undefined ? { triggerDebounceMs: this.triggerDebounceMs } : {}),
 				...(this.getFetchContextWindow !== undefined ? { getFetchContextWindow: this.getFetchContextWindow } : {}),
 				...(this.messageTemplates !== undefined ? { messageTemplates: this.messageTemplates } : {}),
+				...(this.agentDir !== undefined ? { agentDir: this.agentDir } : {}),
+				...(this.cwd !== undefined ? { cwd: this.cwd } : {}),
 			});
 			const readyResponse = await this.request({ method: METHOD_CHARACTER_READY, params: {} });
 			if ("error" in readyResponse) {

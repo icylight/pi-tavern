@@ -85,6 +85,9 @@ export interface CharacterReloadHandoff {
 	getFetchContextWindow?: () => number;
 	/** #154 T5：群聊文案模板集快照（reload 移交后渲染一致，苍蓝星阻断 2 修复）。 */
 	messageTemplates?: Record<MessageTemplateKey, string>;
+	/** #154 复评：reload 时重新加载磁盘配置所需路径（有则 takeHandoff 重载，失败保留快照）。 */
+	agentDir?: string;
+	cwd?: string;
 	pendingEvents: ServerMessage[];
 	debounceDueAt: number | null;
 	/** 可选仅为兼容这些字段加入前创建的跨版本 reload handoff。 */

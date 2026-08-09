@@ -4,6 +4,7 @@ import { createMessageConnection, type MessageConnection, ResponseError } from "
 import WebSocket from "ws";
 
 import { type CharacterCard, loadCharacterCard } from "../config/character-card.js";
+import { loadTavernConfig } from "../config/load-config.js";
 import type { MessageTemplateKey } from "../config/message-templates.js";
 import {
 	type BufferedFrame,
@@ -101,6 +102,9 @@ interface PrepareCharacterRuntimeOptions {
 	getFetchContextWindow?: () => number;
 	/** #154：群聊文案模板集（缺省 undefined → 消费面回落 DEFAULT_TEMPLATES）。 */
 	messageTemplates?: Record<MessageTemplateKey, string>;
+	/** #154 复评：reload 时重新加载磁盘配置所需路径（可选；无则 reload 沿用快照）。 */
+	agentDir?: string;
+	cwd?: string;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
@@ -143,6 +147,9 @@ export class CharacterRuntime {
 	/** #138：增量拉取上下文窗口 getter（undefined → 窗口 0，行为不变）。 */
 	private readonly getFetchContextWindow: (() => number) | undefined;
 	readonly messageTemplates: Record<MessageTemplateKey, string> | undefined;
+	/** #154 复评：reload 重载磁盘配置所需路径（join 时透传；undefined = 不重载）。 */
+	private readonly agentDir: string | undefined;
+	private readonly cwd: string | undefined;
 	/** 新鲜状态快照到达后触发（TUI 刷新钩子）。 */
 	onStateSnapshot: ((snapshot: GroupChatStateMessage) => void) | undefined;
 	/**
@@ -261,6 +268,8 @@ export class CharacterRuntime {
 		this.triggerDebounceMs = options.triggerDebounceMs;
 		this.getFetchContextWindow = options.getFetchContextWindow;
 		this.messageTemplates = options.messageTemplates;
+		this.agentDir = options.agentDir;
+		this.cwd = options.cwd;
 	}
 
 	static prepare(options: PrepareCharacterRuntimeOptions): CharacterRuntime {
@@ -813,6 +822,9 @@ export class CharacterRuntime {
 			...(this.getFetchContextWindow !== undefined ? { getFetchContextWindow: this.getFetchContextWindow } : {}),
 			// #154 T5：模板集快照跨 reload 携带（reload 后渲染一致，不回落默认）。
 			...(this.messageTemplates !== undefined ? { messageTemplates: this.messageTemplates } : {}),
+			// #154 复评：路径随 handoff 携带，takeHandoff 据此重新加载磁盘配置。
+			...(this.agentDir !== undefined ? { agentDir: this.agentDir } : {}),
+			...(this.cwd !== undefined ? { cwd: this.cwd } : {}),
 			// #119 connection 延续：连接实例随 handoff 移交（新 runtime 不重建——
 			// 库内序列单调，旧代际响应撞不上新请求 id，评审阻断②）。
 			...(this.jsonrpcConnection && this.jsonrpcReader && this.jsonrpcWriter
@@ -892,6 +904,22 @@ export class CharacterRuntime {
 				`reload: failed to re-read character card ${handoff.character.path}, keeping the previous one: ${error instanceof Error ? error.message : String(error)}`,
 			);
 		}
+		// #154 复评（苍蓝星）：reload 时重新加载磁盘配置——模板修改经
+		// /tavern-template-edit 落盘后，reload 使新配置生效（同角色卡重读模式）。
+		// 失败：warning + 保留旧快照，reload 继续，绝不使会话崩溃。
+		let messageTemplates = handoff.messageTemplates;
+		if (handoff.agentDir !== undefined && handoff.cwd !== undefined) {
+			try {
+				const reloaded = await loadTavernConfig({ agentDir: handoff.agentDir, cwd: handoff.cwd });
+				if (reloaded.messageTemplates !== undefined) {
+					messageTemplates = reloaded.messageTemplates;
+				}
+			} catch (error) {
+				notify?.(
+					`reload: failed to reload tavern.json, keeping the previous message templates: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
+		}
 		const runtime = new CharacterRuntime({
 			groupChatId: handoff.groupChatId,
 			sessionId: handoff.piSessionId,
@@ -899,8 +927,11 @@ export class CharacterRuntime {
 			...(handoff.cursorStorePath !== undefined ? { cursorStorePath: handoff.cursorStorePath } : {}),
 			// #138：上下文窗口 getter 跨 reload 延续（reload 后与 join 路径行为一致）。
 			...(handoff.getFetchContextWindow !== undefined ? { getFetchContextWindow: handoff.getFetchContextWindow } : {}),
-			// #154 T5：模板集快照跨 reload 延续（reload 后渲染一致，不回落默认）。
-			...(handoff.messageTemplates !== undefined ? { messageTemplates: handoff.messageTemplates } : {}),
+			// #154 T5：模板集跨 reload 延续——先磁盘重载、失败回落快照。
+			...(messageTemplates !== undefined ? { messageTemplates } : {}),
+			// #154 复评：路径随 runtime 延续（后续再次 reload 仍可重载磁盘配置）。
+			...(handoff.agentDir !== undefined ? { agentDir: handoff.agentDir } : {}),
+			...(handoff.cwd !== undefined ? { cwd: handoff.cwd } : {}),
 		});
 		runtime.activateFromHandoff(handoff, pi);
 		return runtime;

@@ -134,6 +134,9 @@ export async function autoJoinCharacter(
 		// 游标跟随 Session（User 2026-08-02）：cursors/<groupId>/<sessionId>.json，同群聊多角色互不共用
 		cursorStorePath: join(getGroupChatCursorDirectory(agentDir, ctx.cwd), descriptor.groupChatId, `${sessionId}.json`),
 		...(joinConfig.messageTemplates !== undefined ? { messageTemplates: joinConfig.messageTemplates } : {}),
+		// #154 复评：路径透传，reload 时重新加载磁盘配置（模板修改落盘后生效）。
+		agentDir,
+		cwd: ctx.cwd,
 	});
 	if (!attempt.isActive) {
 		notify(HEADLESS_JOIN_ATTEMPT_FAILED, "warning");

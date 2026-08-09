@@ -245,6 +245,9 @@ export function registerCommands(
 						`${sessionId}.json`,
 					),
 					...(joinConfig.messageTemplates !== undefined ? { messageTemplates: joinConfig.messageTemplates } : {}),
+					// #154 复评：路径透传，reload 时重新加载磁盘配置（模板修改落盘后生效）。
+					agentDir,
+					cwd: ctx.cwd,
 				});
 
 				while (attempt.isActive) {
