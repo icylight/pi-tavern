@@ -104,6 +104,8 @@ export const ERROR_UNEXPECTED_JOIN_RESPONSE = "Unexpected PiTavern join response
 export const ERROR_UNEXPECTED_STATE_RESPONSE = "Unexpected PiTavern state response";
 /** 意外 speak 响应（客户端断言）。 */
 export const ERROR_UNEXPECTED_SPEAK_RESPONSE = "Unexpected PiTavern speak response";
+/** 意外 whisper 响应（客户端断言）。 */
+export const ERROR_UNEXPECTED_WHISPER_RESPONSE = "Unexpected PiTavern whisper response";
 /** 意外 history 响应（客户端断言）。 */
 export const ERROR_UNEXPECTED_HISTORY_RESPONSE = "Unexpected PiTavern history response";
 /** 意外 fetch_messages_since 响应（客户端断言）。 */
@@ -231,8 +233,12 @@ export const ERROR_CODE_INVALID_NOTE_ID = -32107;
 export const ERROR_CODE_INTERNAL_ERROR = -32108;
 /** 消息持久化失败。 */
 export const ERROR_CODE_PERSIST_FAILED = -32109;
+/** #152：whisper 目标不在线（WS 连接不活跃）。 */
+export const ERROR_CODE_WHISPER_TARGET_OFFLINE = -32110;
+/** #152：whisper 自发自收拒绝。 */
+export const ERROR_CODE_WHISPER_SELF = -32111;
 
-/** 10 码业务枚举（codec schema 收窄用：未知 code fail-close）。 */
+/** 12 码业务枚举（codec schema 收窄用：未知 code fail-close）。 */
 export const PROTOCOL_ERROR_CODES = [
 	ERROR_CODE_NOT_IN_GROUP,
 	ERROR_CODE_ALREADY_IN_GROUP,
@@ -244,9 +250,11 @@ export const PROTOCOL_ERROR_CODES = [
 	ERROR_CODE_INVALID_NOTE_ID,
 	ERROR_CODE_INTERNAL_ERROR,
 	ERROR_CODE_PERSIST_FAILED,
+	ERROR_CODE_WHISPER_TARGET_OFFLINE,
+	ERROR_CODE_WHISPER_SELF,
 ] as const;
 
-/** 10 码业务错误码类型（sendFailure/error 构造签名用）。 */
+/** 12 码业务错误码类型（sendFailure/error 构造签名用）。 */
 export type ProtocolErrorCode = (typeof PROTOCOL_ERROR_CODES)[number];
 
 /** code→message 映射表（单一数据源；文案复用 A 类常量，message 原样保留 = 现有
@@ -262,6 +270,9 @@ export const PROTOCOL_ERROR_CODE_MESSAGES: Readonly<Record<number, string>> = {
 	[ERROR_CODE_INVALID_NOTE_ID]: ERROR_NOTE_ID_EMPTY,
 	[ERROR_CODE_INTERNAL_ERROR]: ERROR_UNKNOWN,
 	[ERROR_CODE_PERSIST_FAILED]: ERROR_PERSIST_FAILED_PREFIX,
+	// #152：私信目标离线 / 自发自收。
+	[ERROR_CODE_WHISPER_TARGET_OFFLINE]: "Whisper target character is not online",
+	[ERROR_CODE_WHISPER_SELF]: "Cannot whisper to yourself",
 };
 
 // ─── F 类：协议判别常量（#109 欠账消解，M2 同批抽取：method 判别值同源引用）──
@@ -292,6 +303,8 @@ export const METHOD_BOARD_WRITE = "board_write";
 export const METHOD_BOARD_QUERY = "board_query";
 /** 公开发言。 */
 export const METHOD_SPEAK = "speak";
+/** #152：Character 间私信（发送请求）。 */
+export const METHOD_WHISPER = "whisper";
 
 // 服务端通知 method（服务端→客户端）
 /** Character 加入广播。 */
@@ -302,6 +315,10 @@ export const METHOD_CHARACTER_LEFT = "character_left";
 export const METHOD_GROUP_CHAT_CLOSED = "group_chat_closed";
 /** 公开消息（历史/拉取/广播消息形态）。 */
 export const METHOD_PUBLIC_MESSAGE = "public_message";
+/** #152：私信单播（接收者含正文，服务端投影）。 */
+export const METHOD_WHISPER_MESSAGE = "whisper_message";
+/** #152：私信占位广播（非接收者 Character 无正文，属未读序列）。 */
+export const METHOD_WHISPER_PLACEHOLDER = "whisper_placeholder";
 /** 消息历史（加入推送形态）。 */
 export const METHOD_MESSAGE_HISTORY = "message_history";
 /** #123：系统消息（ready 后欢迎语，单播；非公共消息、不落消息流）。 */
@@ -460,6 +477,8 @@ export const CHARACTER_EDIT_PROMPT = `你是 PiTavern 的角色卡编辑助手�
 
 /** tavern_speak 工具 label。 */
 export const TOOL_SPEAK_LABEL = "Tavern Speak";
+/** #152：tavern_whisper 工具 label。 */
+export const TOOL_WHISPER_LABEL = "Tavern Whisper";
 /** tavern_board 工具 label。 */
 export const TOOL_BOARD_LABEL = "Tavern Board";
 /** tavern_whoami 工具 label。 */
@@ -559,6 +578,13 @@ export const TOOL_SPEAK_DESCRIPTION =
 	"Keep messages concise (under 2000 characters). " +
 	"Long analysis should stay in the private session.";
 /** tavern_board 工具描述。 */
+/** #152：tavern_whisper 工具描述（Character 间私信；目标须为在线 Character，拒绝自发自收/离线）。 */
+export const TOOL_WHISPER_DESCRIPTION =
+	"向指定的其他 Character 发送私信（仅对目标与创建者可见全文，其他成员只见占位提示）。" +
+	"目标必须是当前在线的 Character；拒绝发送给 User Persona、自己或离线目标。" +
+	"要求活跃讨论轮次，与公开消息共用轮次额度与消息大小限制；失败不占额度。" +
+	"接收者会实时收到全文，其他 Character 不会被主动唤醒（占位事件入其未读序列）。";
+
 export const TOOL_BOARD_DESCRIPTION =
 	"Access the PiTavern whiteboard (per-character notes, visible to the whole group). " +
 	"Only available when joined as a Character. " +

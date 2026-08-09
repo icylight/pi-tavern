@@ -237,13 +237,15 @@ describe("PiTavern extension", () => {
 		const { tools, api } = captureTools();
 		piTavern(api as unknown as ExtensionAPI);
 
-		expect(tools).toHaveLength(5);
+		expect(tools).toHaveLength(6);
 		expect(tools[0]?.name).toBe("tavern_speak");
 		expect(tools[1]?.name).toBe("tavern_board");
 		expect(tools[2]?.name).toBe("tavern_whoami");
 		expect(tools[3]?.name).toBe("tavern_history");
 		// #154 T7：LLM-only 只读工具（不注册 slash command）。
 		expect(tools[4]?.name).toBe("tavern_template_defaults");
+		// #152：tavern_whisper 私信工具。
+		expect(tools[5]?.name).toBe("tavern_whisper");
 
 		const tool = tools[0];
 		if (!tool) throw new Error("no tool");
@@ -271,8 +273,9 @@ describe("PiTavern extension", () => {
 		expect(text).toContain("{sender}");
 		expect(text).toContain("{count}");
 		expect(text).toContain("JSON 骨架");
-		// 本期三类 key：whisper 两 key 随 #152 一并引入（契约留痕），不暴露。
-		expect(text).not.toContain("whisper");
+		// #152（WH9）：whisper 两 key 随私信功能重新引入（复用定稿规则表）。
+		expect(text).toContain("whisper_full");
+		expect(text).toContain("whisper_placeholder");
 
 		// creator 态：拒绝（门禁同 CE2 语义；不泄漏内部状态细节）。
 		const runtime = createMockCreatorRuntime();
@@ -412,6 +415,51 @@ describe("PiTavern extension", () => {
 		});
 		expect(result.content[0]?.text).toContain(runtime.character.name);
 		expect(result.content[0]?.text).toContain(runtime.character.characterId);
+	});
+
+	it("WH1 (#152): tavern_whisper 注册 + 门禁（非 character 拒绝）+ 成功/错误透传", async () => {
+		// 非 character 态（idle）：拒绝。
+		const idleController = new TavernController();
+		const idleTools = captureTools();
+		piTavern(idleTools.api as unknown as ExtensionAPI, idleController);
+		const idleTool = idleTools.tools.find((t) => t.name === "tavern_whisper");
+		if (!idleTool) throw new Error("no tavern_whisper tool");
+		const rejected = await idleTool.execute("call-1", { character_id: "qa", content: "hi" });
+		expect(rejected.isError).toBe(true);
+		expect(rejected.content[0]?.text).toContain("not currently joined");
+
+		// character 态：成功路径（runtime.whisper mock 发布）。
+		const runtime = {
+			character: { characterId: "dev", name: "Dev", description: "Dev" },
+			close: vi.fn(async () => undefined),
+			getGroupChatState: vi.fn(),
+			whisper: vi.fn(async () => ({ published: true, sequence: 42 })),
+		} as unknown as CharacterRuntime;
+		const controller = await createCharacterControllerWithRuntime(runtime);
+		const { tools, api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI, controller);
+		const tool = tools.find((t) => t.name === "tavern_whisper");
+		if (!tool) throw new Error("no tavern_whisper tool");
+		const result = await tool.execute("call-1", { character_id: "qa", content: "hi" });
+		expect(result.isError).toBeUndefined();
+		expect(result.content[0]?.text).toContain("sequence 42");
+		expect(runtime.whisper).toHaveBeenCalledWith("qa", "hi");
+
+		// 错误透传（-32110 离线等）：isError + 服务端消息原样。
+		const failing = {
+			...runtime,
+			whisper: vi.fn(async () => {
+				throw new Error("Whisper target character is not online");
+			}),
+		} as unknown as CharacterRuntime;
+		const failController = await createCharacterControllerWithRuntime(failing);
+		const failTools = captureTools();
+		piTavern(failTools.api as unknown as ExtensionAPI, failController);
+		const failTool = failTools.tools.find((t) => t.name === "tavern_whisper");
+		if (!failTool) throw new Error("no tavern_whisper tool");
+		const failed = await failTool.execute("call-1", { character_id: "offline", content: "hi" });
+		expect(failed.isError).toBe(true);
+		expect(failed.content[0]?.text).toBe("Whisper target character is not online");
 	});
 
 	it("tavern_whoami reports a clear error when not in character state (creator/idle)", async () => {

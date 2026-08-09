@@ -9,6 +9,8 @@ import {
 	METHOD_MESSAGE_HISTORY,
 	METHOD_PUBLIC_MESSAGE,
 	METHOD_SYSTEM_MESSAGE,
+	METHOD_WHISPER_MESSAGE,
+	METHOD_WHISPER_PLACEHOLDER,
 } from "../shared/messages.js";
 import type { CharacterRuntime } from "./character-runtime.js";
 import {
@@ -508,6 +510,13 @@ export class GroupChatInput {
 		switch (message.method) {
 			case METHOD_PUBLIC_MESSAGE:
 				return !this.isOwnEcho(message);
+			// #152：私信单播（接收者含正文）/占位广播（非接收者无正文）均为环境事件
+			// （进消息流/未读序列）；发送者零事件由服务端过滤，无需 isOwnEcho 特判。
+			// 占位帧无 round——不触碰轮次状态（Arch 确认 17:05）。
+			case METHOD_WHISPER_MESSAGE:
+				return true;
+			case METHOD_WHISPER_PLACEHOLDER:
+				return true;
 			case METHOD_MESSAGE_HISTORY:
 				return true;
 			// 白板模型（#114，ADR-0007）：board_update = 环境事件（通知渲染），
@@ -852,7 +861,12 @@ export class GroupChatInput {
 
 		// 新消息
 		const messages = events.filter(
-			(e) => "method" in e && (e.method === METHOD_PUBLIC_MESSAGE || e.method === METHOD_MESSAGE_HISTORY),
+			(e) =>
+				"method" in e &&
+				(e.method === METHOD_PUBLIC_MESSAGE ||
+					e.method === METHOD_WHISPER_MESSAGE ||
+					e.method === METHOD_WHISPER_PLACEHOLDER ||
+					e.method === METHOD_MESSAGE_HISTORY),
 		);
 		if (messages.length > 0) {
 			parts.push("\n新消息：");
@@ -874,6 +888,31 @@ export class GroupChatInput {
 						renderTemplate(templates.public_message, {
 							sender: when ? `${sender}（${when}）` : sender,
 							content: message.params.content,
+						}),
+					);
+				} else if ("method" in message && message.method === METHOD_WHISPER_MESSAGE) {
+					// #152：私信单播（接收者含正文）——whisper_full 模板渲染。
+					// sender/recipient 为 Character（schema：WhisperSender type const character）。
+					const templates = this.runtime.messageTemplates ?? DEFAULT_TEMPLATES;
+					const senderName = message.params.sender.name ?? message.params.sender.character_id;
+					const recipientName = message.params.recipient.name ?? message.params.recipient.character_id;
+					parts.push(
+						renderTemplate(templates.whisper_full, {
+							sender: senderName,
+							receiver: recipientName,
+							content: message.params.content,
+						}),
+					);
+				} else if ("method" in message && message.method === METHOD_WHISPER_PLACEHOLDER) {
+					// #152：占位广播（无正文，隐私不泄露）——whisper_placeholder 模板。
+					// 无 round 帧：不触碰轮次状态（Arch 确认 17:05）。
+					const templates = this.runtime.messageTemplates ?? DEFAULT_TEMPLATES;
+					const senderName = message.params.sender.name ?? message.params.sender.character_id;
+					const recipientName = message.params.recipient.name ?? message.params.recipient.character_id;
+					parts.push(
+						renderTemplate(templates.whisper_placeholder, {
+							sender: senderName,
+							receiver: recipientName,
 						}),
 					);
 				}

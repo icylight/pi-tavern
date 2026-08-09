@@ -37,6 +37,8 @@ export const ProtocolErrorObjectSchema = Type.Object(
 			Type.Literal(-32107),
 			Type.Literal(-32108),
 			Type.Literal(-32109),
+			Type.Literal(-32110),
+			Type.Literal(-32111),
 			Type.Literal(-32700),
 			Type.Literal(-32600),
 			Type.Literal(-32601),
@@ -246,6 +248,22 @@ export const ClientMessageSchema = Type.Union([
 		},
 		{ additionalProperties: false },
 	),
+	Type.Object(
+		{
+			jsonrpc: Type.Literal("2.0"),
+			id: RequestIdSchema,
+			method: Type.Literal("whisper"),
+			params: Type.Object(
+				{
+					character_id: Type.String(),
+					content: Type.String(),
+					based_on_sequence: Type.Optional(Type.Integer({ minimum: 0 })),
+				},
+				{ additionalProperties: false },
+			),
+		},
+		{ additionalProperties: false },
+	),
 ]);
 
 export const JoinGroupChatResponseSchema = Type.Object(
@@ -434,6 +452,53 @@ export const PublicMessageSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+export const WhisperSenderSchema = Type.Object(
+	{
+		type: Type.Literal("character"),
+		character_id: Type.String(),
+		name: Type.String(),
+	},
+	{ additionalProperties: false },
+);
+
+export const WhisperMessageSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal("2.0"),
+		method: Type.Literal("whisper_message"),
+		params: Type.Object(
+			{
+				event_id: Type.String(),
+				sequence: Type.Integer({ minimum: 1 }),
+				timestamp: Type.String(),
+				sender: WhisperSenderSchema,
+				recipient: WhisperSenderSchema,
+				content: Type.String(),
+				round: RoundSnapshotSchema,
+			},
+			{ additionalProperties: false },
+		),
+	},
+	{ additionalProperties: false },
+);
+
+export const WhisperPlaceholderSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal("2.0"),
+		method: Type.Literal("whisper_placeholder"),
+		params: Type.Object(
+			{
+				event_id: Type.String(),
+				sequence: Type.Integer({ minimum: 1 }),
+				timestamp: Type.String(),
+				sender: WhisperSenderSchema,
+				recipient: WhisperSenderSchema,
+			},
+			{ additionalProperties: false },
+		),
+	},
+	{ additionalProperties: false },
+);
+
 export const MessageHistorySchema = Type.Object(
 	{
 		jsonrpc: Type.Literal("2.0"),
@@ -572,6 +637,20 @@ export const SpeakResponseSchema = Type.Union([
 	),
 ]);
 
+export const WhisperResponseSchema = Type.Object(
+	{
+		jsonrpc: Type.Literal("2.0"),
+		id: RequestIdSchema,
+		result: Type.Object(
+			{
+				sequence: Type.Integer({ minimum: 1 }),
+			},
+			{ additionalProperties: false },
+		),
+	},
+	{ additionalProperties: false },
+);
+
 export const BoardNoteSchema = Type.Object(
 	{
 		id: Type.String(),
@@ -671,12 +750,15 @@ export const ServerMessageSchema = Type.Union([
 	FetchMessagesSinceResponseSchema,
 	GetChatHistoryFileResponseSchema,
 	SpeakResponseSchema,
+	WhisperResponseSchema,
 	CharacterJoinedSchema,
 	CharacterLeftSchema,
 	SystemMessageSchema,
 	GroupChatClosedSchema,
 	MessageHistorySchema,
 	PublicMessageSchema,
+	WhisperMessageSchema,
+	WhisperPlaceholderSchema,
 	GroupChatUpdateSchema,
 	BoardWriteResponseSchema,
 	BoardQueryResponseSchema,

@@ -57,6 +57,8 @@
             { "type": "number", "const": -32107 },
             { "type": "number", "const": -32108 },
             { "type": "number", "const": -32109 },
+            { "type": "number", "const": -32110 },
+            { "type": "number", "const": -32111 },
             { "type": "number", "const": -32700 },
             { "type": "number", "const": -32600 },
             { "type": "number", "const": -32601 },

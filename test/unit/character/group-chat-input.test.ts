@@ -63,6 +63,45 @@ function aPublicMessage(senderType: "user_persona", overrides?: Partial<PublicMe
 	} as PublicMessage;
 }
 
+/** #152：私信单播帧（接收者含正文）。 */
+function createWhisperMessage(params: {
+	sender: { type: "character"; character_id: string; name?: string };
+	recipient: { type: "character"; character_id: string; name?: string };
+	content: string;
+}): ServerMessage {
+	return {
+		jsonrpc: "2.0",
+		method: "whisper_message",
+		params: {
+			event_id: "evt-w1",
+			sequence: 21,
+			timestamp: "2026-01-01T00:00:00.000Z",
+			sender: params.sender,
+			recipient: params.recipient,
+			content: params.content,
+			round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
+		},
+	} as ServerMessage;
+}
+
+/** #152：私信占位广播帧（无正文）。 */
+function createWhisperPlaceholder(params: {
+	sender: { type: "character"; character_id: string; name?: string };
+	recipient: { type: "character"; character_id: string; name?: string };
+}): ServerMessage {
+	return {
+		jsonrpc: "2.0",
+		method: "whisper_placeholder",
+		params: {
+			event_id: "evt-w2",
+			sequence: 22,
+			timestamp: "2026-01-01T00:00:00.000Z",
+			sender: params.sender,
+			recipient: params.recipient,
+		},
+	} as ServerMessage;
+}
+
 function aCharacterPublicMessage(characterId: string, overrides?: Partial<PublicMessage["params"]>): ServerMessage {
 	return aPublicMessage("user_persona", {
 		sender: { type: "character", character_id: characterId, name: "Dev" },
@@ -336,6 +375,40 @@ describe("GroupChatInput", () => {
 		// 自定义相对时间模板生效（此前硬编码「x 分钟前」中文）。
 		expect(message.content ?? "").toContain("min ago");
 		expect(message.content ?? "").not.toContain("分钟前");
+
+		input.stop();
+	});
+
+	it("WH4 (#152): whisper_message 用 whisper_full 模板 / whisper_placeholder 用占位模板渲染", async () => {
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({ hasPublicMessages: true });
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+		handler(
+			createWhisperMessage({
+				sender: { type: "character", character_id: "dev", name: "Dev" },
+				recipient: { type: "character", character_id: "qa", name: "QA" },
+				content: "secret plan",
+			}),
+		);
+		handler(
+			createWhisperPlaceholder({
+				sender: { type: "character", character_id: "dev", name: "Dev" },
+				recipient: { type: "character", character_id: "qa", name: "QA" },
+			}),
+		);
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+		const message = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as { content?: string };
+		// 默认模板：full = "{sender} 向 {receiver} 悄悄说：{content}"；
+		// placeholder = "{sender} 向 {receiver} 悄悄说了一句话"（无正文泄露）。
+		expect(message.content ?? "").toContain("Dev 向 QA 悄悄说：secret plan");
+		expect(message.content ?? "").toContain("Dev 向 QA 悄悄说了一句话");
 
 		input.stop();
 	});

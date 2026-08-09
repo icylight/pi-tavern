@@ -15,6 +15,7 @@ import {
 	METHOD_LEAVE_GROUP_CHAT,
 	METHOD_SPEAK,
 	METHOD_UPDATE_CHARACTER_STATE,
+	METHOD_WHISPER,
 } from "../../shared/messages.js";
 import type { ConnectionContext } from "../connection-manager.js";
 import { BoardPipeline } from "./board-pipeline.js";
@@ -24,6 +25,7 @@ import type { LeavePipeline } from "./leave-pipeline.js";
 import { QueryPipeline } from "./query-pipeline.js";
 import { ReadyPipeline } from "./ready-pipeline.js";
 import { SubmitMessagePipeline } from "./submit-message-pipeline.js";
+import { WhisperPipeline } from "./whisper-message-pipeline.js";
 
 /** 分发依赖面（runtime 装配注入的管线门面）。 */
 interface DispatchDependencies {
@@ -34,6 +36,8 @@ interface DispatchDependencies {
 	readyDeps: ConstructorParameters<typeof ReadyPipeline>[0];
 	queryDeps: ConstructorParameters<typeof QueryPipeline>[0];
 	boardDeps: ConstructorParameters<typeof BoardPipeline>[0];
+	/** #152：whisper 管线依赖（装配注入，与 submitMessageDeps 同构）。 */
+	whisperDeps: ConstructorParameters<typeof WhisperPipeline>[0];
 	/** 帧处理串行链（creator runtimeTail 注入）：connection 接线后 deliver()
 	 * 不 await handler promise，并发执行会破坏帧序（claim 未完成预留、
 	 * ready 先跑 → RESERVATION_INVALID，A6 flake 根因）；恢复旧实现全局
@@ -62,6 +66,7 @@ const BoardWriteRequest = new RequestType(METHOD_BOARD_WRITE);
 // board_query 无参（同 RequestType0 规则）。
 const BoardQueryRequest = new RequestType0(METHOD_BOARD_QUERY);
 const SpeakRequest = new RequestType(METHOD_SPEAK);
+const WhisperRequest = new RequestType(METHOD_WHISPER);
 
 type DispatchHandler = (
 	deps: DispatchDependencies,
@@ -132,6 +137,13 @@ const DISPATCH_TABLE: Readonly<Record<string, DispatchHandler>> = {
 		}
 		// 请求级管线实例（ADR：一次协议消息 = 一个管线实例；依赖面由 runtime 装配注入）
 		return new SubmitMessagePipeline(deps.submitMessageDeps).runSpeak(socket, connection, message);
+	},
+	// #152：whisper 请求（请求级管线实例，与 speak 同构）。
+	[WhisperRequest.method]: (deps, socket, connection, message) => {
+		if (message.method !== METHOD_WHISPER) {
+			throw new Error(`dispatch table key mismatch: ${message.method}`);
+		}
+		return new WhisperPipeline(deps.whisperDeps).runWhisper(socket, connection, message);
 	},
 	[BoardWriteRequest.method]: (deps, socket, connection, message) => {
 		if (message.method !== METHOD_BOARD_WRITE) {
@@ -209,6 +221,7 @@ export function registerJsonRpcConnection(
 	jsonrpcConnection.onRequest(BoardWriteRequest, requestHandler(METHOD_BOARD_WRITE));
 	jsonrpcConnection.onRequest(BoardQueryRequest, requestHandler0(METHOD_BOARD_QUERY));
 	jsonrpcConnection.onRequest(SpeakRequest, requestHandler(METHOD_SPEAK));
+	jsonrpcConnection.onRequest(WhisperRequest, requestHandler(METHOD_WHISPER));
 	jsonrpcConnection.onNotification(UpdateCharacterStateNotification, (params) => {
 		void deps.enqueue(dispatchOperation(METHOD_UPDATE_CHARACTER_STATE, params));
 	});

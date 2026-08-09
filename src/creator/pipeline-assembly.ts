@@ -5,15 +5,18 @@ import type { BoardStore } from "../data/board-store.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
 import type { SessionStore } from "../data/session-store.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
+import type { WhisperMessageState } from "../protocol/whisper-message-state.js";
 import type { BroadcastHub } from "./broadcast-hub.js";
 import type { ConnectionContext } from "./connection-manager.js";
 import type { BoardPipeline, BoardPipelineDependencies } from "./creator-pipelines/board-pipeline.js";
 import type { ClaimPipeline } from "./creator-pipelines/claim-pipeline.js";
 import { JoinPipeline } from "./creator-pipelines/join-pipeline.js";
 import { LeavePipeline } from "./creator-pipelines/leave-pipeline.js";
+import { mergeMessageStreams } from "./creator-pipelines/message-stream.js";
 import type { QueryPipeline } from "./creator-pipelines/query-pipeline.js";
 import type { ReadyPipeline } from "./creator-pipelines/ready-pipeline.js";
 import type { SubmitMessagePipeline } from "./creator-pipelines/submit-message-pipeline.js";
+import type { WhisperPipeline } from "./creator-pipelines/whisper-message-pipeline.js";
 import type { HeartbeatRegistry } from "./heartbeat-registry.js";
 import type { MemberBookkeeping } from "./member-bookkeeping.js";
 
@@ -23,6 +26,8 @@ interface PipelineAssemblyHost {
 	connections: Map<string, WebSocket>;
 	heartbeatRegistry: HeartbeatRegistry;
 	publicMessages: PublicMessageState[];
+	/** #152：私信消息流（与公开共用递增器；恢复/查询合并）。 */
+	whisperMessages: WhisperMessageState[];
 	characters: ReadonlyMap<string, CharacterCard>;
 	sessionStore: SessionStore;
 	boardStore: BoardStore;
@@ -55,6 +60,8 @@ interface PipelineAssembly {
 	readyDeps: ConstructorParameters<typeof ReadyPipeline>[0];
 	queryDeps: ConstructorParameters<typeof QueryPipeline>[0];
 	boardDeps: ConstructorParameters<typeof BoardPipeline>[0];
+	/** #152：whisper 管线依赖。 */
+	whisperDeps: ConstructorParameters<typeof WhisperPipeline>[0];
 }
 
 /** 管线门面装配（PR-B 拆自 CreatorRuntime 构造器；跨消息状态经注入引用显式读写，决策 7）。 */
@@ -73,6 +80,7 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 		submitMessageDeps: {
 			state: host.state,
 			publicMessages: host.publicMessages,
+			whisperMessages: host.whisperMessages,
 			persistedCount: host.persistedCount,
 			sessionStore: host.sessionStore,
 			broadcastGroupChatUpdate: () => broadcastHub.broadcastGroupChatUpdate(),
@@ -107,6 +115,7 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 		queryDeps: {
 			state: host.state,
 			publicMessages: host.publicMessages,
+			whisperMessages: host.whisperMessages,
 			sessionStore: host.sessionStore,
 			getPersistedCount: () => host.persistedCount.get(),
 			getGroupChatStateMessage: (requestingSessionId) => broadcastHub.getGroupChatStateMessage(requestingSessionId),
@@ -117,6 +126,17 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 			boardStore: host.boardStore,
 			broadcast: (message) => broadcastHub.broadcast(message),
 			onBoardUpdated: (update) => host.readOnBoardUpdated()?.(update),
+		},
+		whisperDeps: {
+			state: host.state,
+			publicMessages: host.publicMessages,
+			whisperMessages: host.whisperMessages,
+			persistedCount: host.persistedCount,
+			sessionStore: host.sessionStore,
+			// 合并流（public + whisper 按 sequence 归并）：stale 检查与查询投影同源。
+			readMergedMessages: () => mergeMessageStreams(host.publicMessages, host.whisperMessages),
+			connections: host.connections,
+			send: (socket, message) => broadcastHub.send(socket, message),
 		},
 	};
 }

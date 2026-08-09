@@ -214,6 +214,23 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 
 验收方式：acceptance 断言存在且非空 + 单测 + check 全绿；手工验收（diff 确认/生效提示/位置选择）由苍蓝星实测或 QA 真实环境执行（沿用 #153 先例：PR 中留痕实际执行结果）。
 
+### Character 间私信（#152，PM 布置，分支 feat/character-whisper，2026-08-09 User 指示开工）
+
+新增 LLM 工具 `tavern_whisper`：Character 向当前在线其他 Character 发私信，复用群聊消息写入/轮次/游标/投递机制；新持久化类型 `pi-tavern.whisper-message` 同 JSONL、sequence 共用无空洞；三类视角投影；whisper 两模板 key 随本需求重新引入（#154 契约注释留痕）。前置：wire schema 与持久化 docs-first 定义、五方确认后实现（契约零漂移）。
+
+1. **WH1 工具注册与参数**：`tavern_whisper` 注册为 LLM 工具，参数 `{character_id, content}`；非 character 状态调用被拒绝（TOOL_NOT_JOINED_AS_CHARACTER 语义）；
+2. **WH2 目标校验**：仅 Character 向当前在线其他 Character 发送；User Persona、自发自收、离线目标均拒绝且不占额度；要求活跃讨论轮次；
+3. **WH3 持久化与序列**：`pi-tavern.whisper-message` 独立持久化类型，与 `pi-tavern.public-message` 写同一群聊 JSONL；sequence 共用递增器交错分配无空洞；恢复时按 sequence 合并统一时间序；0.3.x 历史零迁移；
+4. **WH4 三类视角投影**：发送者/接收者/创建者见「A 向 B 悄悄说：<正文>」；其他 Character 见「A 向 B 悄悄说了一句话」（无正文）；`tavern_history` 与实时注入按当前 character_id 执行同一投影（不泄露正文）；
+5. **WH5 额度与失败**：与公开消息共用连续 sequence、轮次额度、消息大小限制、持久化失败恢复；失败发送不占额度；
+6. **WH6 投递与未读**：接收者走现有实时投递与忙态安全边界；其他 Character 不被主动唤醒，但占位事件属其未读序列（复用 #128 未读先读机制），后续发言前必须消费；
+7. **WH7 掉线竞态**：在线校验通过后目标掉线不回滚（已持久化成功不回滚）；发送者只获得工具结果，不额外注入自身事件；
+8. **WH8 兼容与隐私**：0.3.x 群聊历史可直接恢复；不增加运行时协议版本字段或兼容性校验（代码注释说明仅支持本地同版本实例）；原始 JSONL 明文保存（交互层隐私，无文件系统安全保证）；
+9. **WH9 模板联动**：whisper_full/whisper_placeholder 两 key 随本需求重新引入 #154 模板机制（复用定稿规则表与校验语义：full 必留 sender/receiver/content、placeholder 禁 content）；完整正文与占位均经模板渲染，三消费面一致；
+10. **WH10 在线判定基准**：以 WS 连接活跃为在线判定（ready 完成但连接断开视为离线，QA 表态 2026-08-09）。
+
+验收方式：acceptance 断言存在且非空 + 单测 + check 全绿；投影不泄露三视角断言 + sequence 无空洞 + 失败不占额度；挂起项补验（#155 RH3 私信投影、#154 T3 私信渲染）。
+
 ### 测试门控命令
 
 RPC 模式没有输入通道、也无法调用扩展工具，因此 `PITAVERN_TEST=1`（acceptance 门卫自动设置）时额外注册：

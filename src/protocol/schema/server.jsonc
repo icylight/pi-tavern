@@ -258,6 +258,54 @@
       },
       "additionalProperties": false
     },
+    // #152：私信完整帧（单播——只投递给接收者；含正文，sequence 与公开消息
+    // 共用同一递增器、无空洞；sender/recipient 仅 Character 类型）。
+    "WhisperMessage": {
+      "type": "object",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "whisper_message" },
+        "params": {
+          "type": "object",
+          "required": ["event_id", "sequence", "timestamp", "sender", "recipient", "content", "round"],
+          "properties": {
+            "event_id": { "type": "string" },
+            "sequence": { "type": "integer", "minimum": 1 },
+            "timestamp": { "type": "string" },
+            "sender": { "$ref": "#/$defs/WhisperSender" },
+            "recipient": { "$ref": "#/$defs/WhisperSender" },
+            "content": { "type": "string" },
+            "round": { "$ref": "#/$defs/RoundSnapshot" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    // #152：私信占位帧（广播给非接收者 Character；无正文，隐私不泄露；
+    // 属未读序列——后续发言前必须消费（#128 未读先读）。发送者不收到自身事件）。
+    "WhisperPlaceholder": {
+      "type": "object",
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "method": { "type": "string", "const": "whisper_placeholder" },
+        "params": {
+          "type": "object",
+          "required": ["event_id", "sequence", "timestamp", "sender", "recipient"],
+          "properties": {
+            "event_id": { "type": "string" },
+            "sequence": { "type": "integer", "minimum": 1 },
+            "timestamp": { "type": "string" },
+            "sender": { "$ref": "#/$defs/WhisperSender" },
+            "recipient": { "$ref": "#/$defs/WhisperSender" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     // message_history 推送（join 后最近 10 条 + cursor 续页；ISSUE-008）。
     "MessageHistory": {
       "type": "object",
@@ -441,7 +489,37 @@
         }
       ]
     },
-    // 服务端消息全量判别联合（20 分支）：响应帧（id 关联请求）+ 通知帧（无 id）。
+    // #152：whisper 请求成功响应（发送者获得 sequence——用于游标/后续 stale 检查；
+    // 发送者不额外注入自身事件，只获工具结果）。
+    "WhisperResponse": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "type": "string", "const": "2.0" },
+        "id": { "$ref": "#/$defs/RequestId" },
+        "result": {
+          "type": "object",
+          "required": ["sequence"],
+          "properties": {
+            "sequence": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    // #152：私信发送者/接收者（仅 Character；user_persona 不支持私信）。
+    "WhisperSender": {
+      "type": "object",
+      "required": ["type", "character_id", "name"],
+      "properties": {
+        "type": { "type": "string", "const": "character" },
+        "character_id": { "type": "string" },
+        "name": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    // 服务端消息全量判别联合（22 分支）：响应帧（id 关联请求）+ 通知帧（无 id）。
     "ServerMessage": {
       "anyOf": [
         { "$ref": "#/$defs/JoinGroupChatResponse" },
@@ -454,12 +532,15 @@
         { "$ref": "#/$defs/FetchMessagesSinceResponse" },
         { "$ref": "#/$defs/GetChatHistoryFileResponse" },
         { "$ref": "#/$defs/SpeakResponse" },
+        { "$ref": "#/$defs/WhisperResponse" },
         { "$ref": "#/$defs/CharacterJoined" },
         { "$ref": "#/$defs/CharacterLeft" },
         { "$ref": "#/$defs/SystemMessage" },
         { "$ref": "#/$defs/GroupChatClosed" },
         { "$ref": "#/$defs/MessageHistory" },
         { "$ref": "#/$defs/PublicMessage" },
+        { "$ref": "#/$defs/WhisperMessage" },
+        { "$ref": "#/$defs/WhisperPlaceholder" },
         { "$ref": "#/$defs/GroupChatUpdate" },
         { "$ref": "#/$defs/BoardWriteResponse" },
         { "$ref": "#/$defs/BoardQueryResponse" },

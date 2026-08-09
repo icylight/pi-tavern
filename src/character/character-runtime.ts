@@ -45,6 +45,7 @@ import {
 	ERROR_UNEXPECTED_HISTORY_RESPONSE,
 	ERROR_UNEXPECTED_SPEAK_RESPONSE,
 	ERROR_UNEXPECTED_STATE_RESPONSE,
+	ERROR_UNEXPECTED_WHISPER_RESPONSE,
 	METHOD_BOARD_QUERY,
 	METHOD_BOARD_WRITE,
 	METHOD_FETCH_MESSAGES_SINCE,
@@ -57,6 +58,7 @@ import {
 	METHOD_PUBLIC_MESSAGE,
 	METHOD_SPEAK,
 	METHOD_UPDATE_CHARACTER_STATE,
+	METHOD_WHISPER,
 } from "../shared/messages.js";
 import { GroupChatInput } from "./group-chat-input.js";
 import { CHARACTER_REQUEST_TYPES } from "./request-types.js";
@@ -758,6 +760,46 @@ export class CharacterRuntime {
 			throw new Error(ERROR_UNEXPECTED_BOARD_QUERY_RESPONSE);
 		}
 		return (response.result as { boards: Record<string, BoardNoteWire[]> }).boards;
+	}
+
+	/**
+	 * #152：向指定 Character 发送私信。与 speak 共用：未读先读检查（#128）、
+	 * 服务端在线校验（WS 活跃）、轮次额度、大小限制与基于游标的 stale 检查
+	 * （based_on_sequence 同 speak）；失败不占额度。
+	 *
+	 * 成功后推进本地游标到 result.sequence（发送者无回显投递，服务端把
+	 * 请求者自己的消息排除在 stale 检查之外——schema 注释：sequence 供发送者
+	 * 游标）。发送者不收到任何自身事件（服务端过滤，零注入）。
+	 */
+	async whisper(characterId: string, content: string): Promise<{ published: boolean; sequence: number }> {
+		// #128：未读先读——与 speak 同款本地判定（whisper 也走未读优先）。
+		const unread = this.groupChatInput?.unreadOthersProven();
+		if (unread?.shouldBlock) {
+			const first = !this.unreadBlockNotified;
+			if (first) {
+				this.unreadBlockNotified = true;
+				this.markIncrementPending();
+			}
+			return { published: false, sequence: 0 };
+		}
+		this.unreadBlockNotified = false;
+		const basedOnSequence = this.loadCursor() ?? 0;
+		const response = await this.request({
+			method: METHOD_WHISPER,
+			params: { character_id: characterId, content, based_on_sequence: basedOnSequence },
+		});
+		if ("error" in response) {
+			// 错误码透传（-32110 离线 / -32111 自发自收 / 超额 / stale 等）。
+			throw new Error(response.error.message);
+		}
+		if (!("result" in response)) {
+			throw new Error(ERROR_UNEXPECTED_WHISPER_RESPONSE);
+		}
+		const result = response.result as { published: boolean; sequence: number };
+		if (result.published) {
+			this.saveCursor(result.sequence);
+		}
+		return { published: result.published, sequence: result.sequence };
 	}
 
 	/**

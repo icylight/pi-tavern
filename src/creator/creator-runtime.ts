@@ -11,6 +11,7 @@ import type { GroupChatState } from "../data/group-chat-state.js";
 import type { SessionStore } from "../data/session-store.js";
 import type { ClientMessage } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
+import type { WhisperMessageState } from "../protocol/whisper-message-state.js";
 import { type WebSocketMessageReader, WebSocketMessageWriter } from "../protocol/ws-message-io.js";
 import { CHARACTER_REFRESH_TIMEOUT_MS } from "../shared/constants.js";
 import {
@@ -34,6 +35,7 @@ import type { LeavePipeline } from "./creator-pipelines/leave-pipeline.js";
 import type { QueryPipeline } from "./creator-pipelines/query-pipeline.js";
 import type { ReadyPipeline } from "./creator-pipelines/ready-pipeline.js";
 import type { SubmitMessagePipeline } from "./creator-pipelines/submit-message-pipeline.js";
+import type { WhisperPipeline } from "./creator-pipelines/whisper-message-pipeline.js";
 import { HeartbeatRegistry } from "./heartbeat-registry.js";
 import { MemberBookkeeping } from "./member-bookkeeping.js";
 import { assemblePipelineDeps } from "./pipeline-assembly.js";
@@ -80,6 +82,8 @@ export interface ResumeCreatorRuntimeOptions {
 
 interface PersistedRuntimeState {
 	publicMessages: PublicMessageState[];
+	/** #152：私信消息流（恢复/交接时随公开流一并重建）。 */
+	whisperMessages: WhisperMessageState[];
 	persistedCount: number;
 }
 
@@ -134,6 +138,8 @@ export class CreatorRuntime {
 	private readonly queryDeps: ConstructorParameters<typeof QueryPipeline>[0];
 	/** 白板模型（#114）：board 管线依赖（pipeline-assembly 装配）。 */
 	private readonly boardDeps: ConstructorParameters<typeof BoardPipeline>[0];
+	/** #152：whisper 管线依赖（pipeline-assembly 装配）。 */
+	private readonly whisperDeps: ConstructorParameters<typeof WhisperPipeline>[0];
 	/** @internal reload-flow 快照读取；语义不变。 */
 	persistedCount = 0;
 
@@ -170,6 +176,14 @@ export class CreatorRuntime {
 
 	/** @internal reload-flow 快照读取；对外读走 publicMessageList getter。 */
 	publicMessages: PublicMessageState[] = [];
+
+	/** #152：私信消息流（与公开共用递增器；对外读走 whisperMessageList getter）。 */
+	whisperMessages: WhisperMessageState[] = [];
+
+	/** #152：私信消息列表只读访问（返回拷贝，与 publicMessageList 同模式）。 */
+	get whisperMessageList(): WhisperMessageState[] {
+		return [...this.whisperMessages];
+	}
 
 	/**
 	 * #42：消息列表只读访问（返回拷贝，防外部变异）。resume 历史投影使用；
@@ -252,6 +266,7 @@ export class CreatorRuntime {
 
 		if (initialPersistedState) {
 			this.publicMessages = initialPersistedState.publicMessages;
+			this.whisperMessages = initialPersistedState.whisperMessages;
 			this.persistedCount = initialPersistedState.persistedCount;
 		}
 		this.runtimeLifecycle = new RuntimeLifecycle({
@@ -276,6 +291,7 @@ export class CreatorRuntime {
 			connections: this.connections,
 			heartbeatRegistry: this.heartbeatRegistry,
 			publicMessages: this.publicMessages,
+			whisperMessages: this.whisperMessages,
 			characters: this.characters,
 			sessionStore: this.sessionStore,
 			boardStore: this.boardStore,
@@ -304,6 +320,7 @@ export class CreatorRuntime {
 		this.readyDeps = assembly.readyDeps;
 		this.queryDeps = assembly.queryDeps;
 		this.boardDeps = assembly.boardDeps;
+		this.whisperDeps = assembly.whisperDeps;
 
 		this.runtimeFacades = new RuntimeFacades({
 			state: this.state,
@@ -477,6 +494,7 @@ export class CreatorRuntime {
 				readyDeps: this.readyDeps,
 				queryDeps: this.queryDeps,
 				boardDeps: this.boardDeps,
+				whisperDeps: this.whisperDeps,
 				enqueue: (operation) => this.enqueue(operation),
 			},
 			socket,
@@ -520,6 +538,7 @@ export class CreatorRuntime {
 				readyDeps: this.readyDeps,
 				queryDeps: this.queryDeps,
 				boardDeps: this.boardDeps,
+				whisperDeps: this.whisperDeps,
 				enqueue: (operation) => this.enqueue(operation),
 			},
 			socket,
