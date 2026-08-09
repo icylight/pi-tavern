@@ -22,13 +22,14 @@ export function decodeCursor(cursor: string): number | null {
 }
 
 /**
- * 统计会话条目中 PiTavern 自有的已持久化条目数（类型集合见
- * PERSISTED_ENTRY_TYPES，单一事实源）。resume 时据此恢复 persistedCount：
- * 计数只取决于条目类型，与其余状态重建逻辑无关。
- */
 /**
- * PiTavern 自有、写入群聊 session JSONL 的条目类型集合（单一事实源）：
- * 新增 JSONL 持久化类型必须同步此处（#152 评审 B4 教训——whisper 曾漏计）。
+ * 统计会话条目中 PiTavern 自有的已持久化条目数（resume 恢复用）；类型清单
+ * 由 PERSISTED_ENTRY_TYPES 承载，注释不手写清单防漂移。
+ */
+
+/**
+ * PiTavern 自有、写入群聊 session JSONL 的条目类型集合（单一事实源）；新增
+ * JSONL 持久化类型必须同步此处（#152 评审 B4 教训——whisper 曾漏计）。
  * 注：board 为独立 JSON 文件（不写 session JSONL）；creator-display 为创建者
  * TUI 投影条目（与 public/whisper 一一对应，计入会双倍重复）——均不属计数对象。
  */
