@@ -20,7 +20,7 @@
 | saveCursor 内存先行 vs 磁盘失败不一致窗口 | 2026-08-06 QA 静态分析：语义幂等可接受 | 留注释说明窗口语义即可 | 待内嵌 |
 | refreshGroupChatState catch{} 副作用重评注记 | 2026-08-06 QA 静态分析：当前纯展示安全 | 未来引入副作用时重评；补注释 | 待内嵌 |
 | usage-scenarios/interaction-model 等大文档内容过时核对 | 2026-08-06 docs 重组遗留注记（PM）：本次只归类未重写 | 内容核对另排，过期章节更新或归档 | 待内嵌 |
-| character-runtime finishDisconnected 清 pendingRequests | 2026-08-06 W3 对抗验证坐实（QA）：断开后 pending 请求悬挂至超时；join-attempt rejectPending 有先例 | 一行循环参照 rejectPending；非阻断（超时兜底） | 待内嵌 |
+| ~~character-runtime finishDisconnected 清 pendingRequests~~ | 2026-08-06 W3 对抗验证坐实（QA）：断开后 pending 请求悬挂至超时；join-attempt rejectPending 有先例 | 一行循环参照 rejectPending；非阻断（超时兜底） | 已内嵌完成（#119 ed71515 + #123 06e41f2：clearTimeout + reject 断线原因 + clear()，character-runtime.ts:1235-1240；2026-08-09 后端溯源核实，Arch 确认关闭） |
 | speak 断言宽收窄（W1） | 2026-08-06 W1 对抗验证（QA）：当前 3 种 result 形状全覆盖，未来新增 reason 分支会静默误分类 | 新增 reason 时同步 character 侧断言 | 待内嵌 |
 | claim 错误文案测试覆盖缺口（W6） | 2026-08-06 W6 对抗验证（QA）：acceptance 仅覆盖 claim 1 条，error.message 10 码映射同源有保障 | 补覆盖非 1 条 claim 错误路径的断言 | 待内嵌 |
 | preview 条目字段级断言不全 | 2026-08-06 Arch 弱点 3 对抗验证（QA）：content 只断一条，字段形状有 codec schema 兜底 | 低优先：对 round/sender/event_id 补字段级断言 | 待内嵌 |
@@ -33,6 +33,7 @@
 | 协议文档生成化（typebox schema → JSON Schema → 文档渲染） | 2026-08-08 #144 P1-2 手写同步暴露（Arch 调研：vscode-jsonrpc 无注释生成功能；TypeBox ToJsonSchema 可输出 schema） | 结构化字段节改生成产物（schema 单一事实源），时序/语义/边界节保留手写——混合模式防文档漂移（P1-2 同类问题的根因级方案） | 待内嵌 |
 | BufferedWsClient.waitFor 超时基建缺陷（已修复，留痕） | 2026-08-08 #123 it1 定位（QA）：无新帧到达时 waiter 永不 resolve、deadline 永不检查——测试挂起而非报错 | 已修：独立 timer + 帧到达清除（ws-helper.ts）；后续新增 waiter 类基建照此模式 | 随 af19d8c 落地 |
 | group-chat-state.round 字段半死数据（3 操作函数删除后无写入方，恒 null） | 2026-08-08 dead-exports 评审（Arch）：startNewRound/advanceSequence/consumeRoundMessage 删除后 round 无写入方，ui 层只读展示（tavern-ui-presenter.ts:62） | 评估 ui 展示语义后移除 round 字段或补写入方；低优先 | 待内嵌 |
+| whisper 回执可选提示目标离线 | 2026-08-09 #152 WH7 评审（Arch，苍蓝星问「测试/开发哪种更对」）：静默成功回执语义 = 已记录非已送达；可选附「目标当前离线，消息已记录，恢复后送达」提示，知情不改变语义 | 窄窗口（校验-投递毫秒级）现实概率低，暂不实现；若实现走回执 result 加可选字段（需契约修订） | 待内嵌 |
 
 ## 已落地
 
