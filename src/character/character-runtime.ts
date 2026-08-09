@@ -4,7 +4,7 @@ import { createMessageConnection, type MessageConnection, ResponseError } from "
 import WebSocket from "ws";
 
 import { type CharacterCard, loadCharacterCard } from "../config/character-card.js";
-import { loadTavernConfig } from "../config/load-config.js";
+import { loadTavernConfig, type TavernConfig } from "../config/load-config.js";
 import type { MessageTemplateKey } from "../config/message-templates.js";
 import {
 	type BufferedFrame,
@@ -882,6 +882,9 @@ export class CharacterRuntime {
 		handoff: CharacterReloadHandoff,
 		pi?: ExtensionAPI,
 		notify?: (message: string) => void,
+		// #154 复评（Arch）：恢复路径配置加载器注入化（同 headless AutoJoinOptions
+		// loadConfig 模式，默认 loadTavernConfig；测试可注入 mock）。
+		loadConfig: (options: { agentDir: string; cwd: string }) => Promise<TavernConfig> = loadTavernConfig,
 	): Promise<CharacterRuntime> {
 		if (handoff.socketClosed) {
 			void handoff.cleanup();
@@ -910,7 +913,7 @@ export class CharacterRuntime {
 		let messageTemplates = handoff.messageTemplates;
 		if (handoff.agentDir !== undefined && handoff.cwd !== undefined) {
 			try {
-				const reloaded = await loadTavernConfig({ agentDir: handoff.agentDir, cwd: handoff.cwd });
+				const reloaded = await loadConfig({ agentDir: handoff.agentDir, cwd: handoff.cwd });
 				if (reloaded.messageTemplates !== undefined) {
 					messageTemplates = reloaded.messageTemplates;
 				}
