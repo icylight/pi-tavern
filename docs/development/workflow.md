@@ -13,7 +13,7 @@
 3. **相反视角过了吗**——产出物：验收规格「非主角视角」场景清单：旁观者/掉线/补拉/重入/并发至少 3 类，每类一条行为断言（如非接收者看私信看到什么）。检查人：PM 审验收口径时核对，无 = 退回补。
 4. **假设不成立还成立吗**——产出物：意图词↔可证伪断言对照表。每条关键设计假设（不唤醒/不泄露/不占额度/不重复…）必须落一条行为断言（例：占位不唤醒若不成立会怎样）；存在性断言不得替代行为断言；断言锚定真实消费链。检查人：QA 锚定层检查 + Arch 评审，无证伪断言 = 不通过。
 
-**锚定层检查（QA 验收规格固定小节）**：每条验收条目写「验证路径」（经 decodeServerMessage 解码断言 / 经 pullIncrement 消费断言 / 实时注入断言），禁「存在性 / 原始 JSON」表述。**消费链钉测命名规约**：端到端链路断言统一 `chain:` 前缀（例：chain: whisper-placeholder no-wakeup + cursor + stale self-heal），验收报告含 `grep chain:` 审计行（覆盖率可审计）。
+**锚定层检查（QA 验收规格固定小节）**：每条验收条目写「验证路径」（经 decodeServerMessage 解码断言 / 经 pullIncrement 消费断言 / 实时注入断言），禁「存在性 / 原始 JSON」表述。**消费链钉测命名规约**：端到端链路断言统一 `chain:` 前缀（例：chain: whisper-placeholder no-wakeup + cursor + stale self-heal），验收报告含 `grep chain:` 审计行（覆盖率可审计）。**测试完成标准**：任何测试编写宣布完成 = `npm run check` 三段全过（biome + tsc + schema），vitest 绿 ≠ check 绿（2026-08-09 codec.test.ts TS2339 教训：vitest 为 JS 语义不查类型，tsc 门禁必须跑到）；测试属主宣布留痕须附 check 证据。
 
 四问产出物随 Task Brief 回读确认一并核对；缺失项 PM 直接退回设计方，不进入派工。
 
