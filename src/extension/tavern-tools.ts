@@ -14,6 +14,8 @@ import {
 	ERROR_REMOVE_MISSING_NOTE_ID,
 	ERROR_SEND_FAILED_PREFIX,
 	METHOD_PUBLIC_MESSAGE,
+	METHOD_WHISPER_MESSAGE,
+	METHOD_WHISPER_PLACEHOLDER,
 	TOOL_BOARD_ACTION_INVALID,
 	TOOL_BOARD_ALL_EMPTY,
 	TOOL_BOARD_ARGS_INVALID,
@@ -370,7 +372,29 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 				// Arch 裁决 2026-08-09 留痕 T3；自定义模板逐字生效）。
 				const templates = state.runtime.messageTemplates ?? DEFAULT_TEMPLATES;
 				const lines = page.messages.map((m) => {
-					if (!("method" in m) || m.method !== METHOD_PUBLIC_MESSAGE) {
+					if (!("method" in m)) return "";
+					// #152（PR #163 评审阻断 1 修复）：tavern_history 与实时注入同一投影
+					// （WH4/WH9 三消费面一致）——whisper_message（参与者）渲染 whisper_full
+					// 模板（sender/receiver/content）；whisper_placeholder（旁观者）渲染
+					// whisper_placeholder 模板（sender/receiver，无正文不泄露）。
+					if (m.method === METHOD_WHISPER_MESSAGE) {
+						const senderName = m.params.sender.name ?? m.params.sender.character_id;
+						const recipientName = m.params.recipient.name ?? m.params.recipient.character_id;
+						return renderTemplate(templates.whisper_full, {
+							sender: senderName,
+							receiver: recipientName,
+							content: m.params.content,
+						});
+					}
+					if (m.method === METHOD_WHISPER_PLACEHOLDER) {
+						const senderName = m.params.sender.name ?? m.params.sender.character_id;
+						const recipientName = m.params.recipient.name ?? m.params.recipient.character_id;
+						return renderTemplate(templates.whisper_placeholder, {
+							sender: senderName,
+							receiver: recipientName,
+						});
+					}
+					if (m.method !== METHOD_PUBLIC_MESSAGE) {
 						return "";
 					}
 					const sender = m.params.sender.type === "user_persona" ? "User Persona" : m.params.sender.name;

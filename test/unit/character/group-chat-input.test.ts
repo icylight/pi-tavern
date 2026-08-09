@@ -31,6 +31,7 @@ function createMockRuntime(
 		isAgentActive: false,
 		loadCursor: () => null,
 		saveCursor: () => undefined,
+		markIncrementPending: () => undefined,
 		// P1-4 方案 a：进入时刻水位（新帧数字 / 旧帧 null）。mock 默认 null = 旧帧回退路径。
 		readyLatestSequence: null,
 		fetchMessagesSince: async () => ({ messages: [], latestSequence: 0, totalMessages: 0, contextCount: 0 }),
@@ -1479,6 +1480,167 @@ describe("GroupChatInput", () => {
 		// → 误投递（红钉首跑 1 failed 实证）。
 		expect(pi.sendMessage).not.toHaveBeenCalled();
 		expect(runtime.saveCursor).toHaveBeenCalledWith(6);
+
+		input.stop();
+	});
+
+	function whisperMessageFrame(sequence: number): ServerMessage {
+		return {
+			jsonrpc: "2.0",
+			method: "whisper_message",
+			params: {
+				sequence,
+				sender: { type: "character", character_id: "dev", name: "Dev" },
+				recipient: { type: "character", character_id: "qa", name: "QA" },
+				content: `secret-${sequence}`,
+			},
+		} as unknown as ServerMessage;
+	}
+
+	function whisperPlaceholderFrame(sequence: number): ServerMessage {
+		return {
+			jsonrpc: "2.0",
+			method: "whisper_placeholder",
+			params: {
+				sequence,
+				sender: { type: "character", character_id: "dev", name: "Dev" },
+				recipient: { type: "character", character_id: "qa", name: "QA" },
+			},
+		} as unknown as ServerMessage;
+	}
+
+	it("chain: join-snapshot whisper 帧投递（#152 PR #163 阻断 2：首屏 message_history 接纳两类 whisper 帧）", async () => {
+		vi.useFakeTimers();
+		const runtime = createMockRuntime({ hasPublicMessages: true });
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+		handler({
+			jsonrpc: "2.0",
+			method: "message_history",
+			params: {
+				messages: [
+					{
+						jsonrpc: "2.0",
+						method: "public_message",
+						params: {
+							event_id: "evt-1",
+							sequence: 1,
+							timestamp: "2026-08-08T00:00:00.000Z",
+							sender: { type: "user_persona" },
+							content: "hello",
+							round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
+						},
+					},
+					whisperMessageFrame(2),
+					whisperPlaceholderFrame(3),
+				],
+				cursor: null,
+				has_more: false,
+				total_messages: 3,
+			},
+		} as unknown as ServerMessage);
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+		const message = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as { content?: string };
+		expect(message.content ?? "").toContain("hello");
+		expect(message.content ?? "").toContain("Dev 向 QA 悄悄说：secret-2");
+		expect(message.content ?? "").toContain("Dev 向 QA 悄悄说了一句话");
+
+		input.stop();
+	});
+
+	it("chain: whisper realtime 连续帧游标推进（#152 PR #163 阻断 3：seq=游标+1 注入 + saveCursor）", async () => {
+		vi.useFakeTimers();
+		const runtime = createMockRuntime({ hasPublicMessages: true });
+		runtime.loadCursor = () => 0;
+		const saveCursor = vi.fn();
+		runtime.saveCursor = saveCursor;
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+		handler(whisperMessageFrame(1));
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+		const message = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as { content?: string };
+		expect(message.content ?? "").toContain("secret-1");
+		// 连续帧：投递成功推进游标到水位（不卡 stale）。
+		expect(saveCursor).toHaveBeenCalledWith(1);
+
+		input.stop();
+	});
+
+	it("chain: whisper realtime 连续帧去重（#152 PR #163 阻断 3：同 seq 重复帧不二次注入）", async () => {
+		vi.useFakeTimers();
+		const runtime = createMockRuntime({ hasPublicMessages: true });
+		runtime.loadCursor = () => 0;
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+		handler(whisperMessageFrame(1));
+		handler(whisperMessageFrame(1)); // 补拉重复帧
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+
+		input.stop();
+	});
+
+	it("chain: whisper realtime gap 不跳过（#152 PR #163 阻断 3：seq > 游标+1 不注入转补拉）", async () => {
+		vi.useFakeTimers();
+		const runtime = createMockRuntime({ hasPublicMessages: true });
+		runtime.loadCursor = () => 0;
+		const markIncrementPending = vi.fn();
+		runtime.markIncrementPending = markIncrementPending;
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+		handler(whisperMessageFrame(3)); // 前置缺口 1-2 未消费
+		await vi.advanceTimersByTimeAsync(1000);
+
+		// gap：不直接注入（防跳缺口），标记补拉由 settle 拉全窗口顺序消费
+		// （markIncrementPending 为 GroupChatInput 内部标志——经 settle 钩子触发拉取）。
+		expect(pi.sendMessage).not.toHaveBeenCalled();
+		const fetchMessagesSince = vi.fn(async () => ({
+			messages: [whisperMessageFrame(1), whisperMessageFrame(2), whisperMessageFrame(3)],
+			latestSequence: 3,
+			totalMessages: 3,
+			contextCount: 0,
+		}));
+		runtime.fetchMessagesSince = fetchMessagesSince;
+		// 触发 settle：incrementPending 生效 → fetchMessagesSince 补拉全窗口
+		// （含缺口帧 1-2 + 实时帧 3，顺序消费不跳过）。
+		(runtime.onAgentSettled as (() => void) | undefined)?.();
+		expect(fetchMessagesSince).toHaveBeenCalled();
+
+		input.stop();
+	});
+
+	it("chain: whisper placeholder-only 未读阻止（#152 PR #163 B：无 group_chat_update 时占位水位独立成立）", async () => {
+		vi.useFakeTimers();
+		const runtime = createMockRuntime({ hasPublicMessages: true });
+		runtime.loadCursor = () => 0;
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+		handler(whisperPlaceholderFrame(3));
+		await vi.advanceTimersByTimeAsync(1000);
+
+		// 占位不注入（不唤醒），但未读判定合并占位水位（发言前机械消费）。
+		expect(pi.sendMessage).not.toHaveBeenCalled();
+		expect(input.unreadOthersProven()?.shouldBlock).toBe(true);
 
 		input.stop();
 	});

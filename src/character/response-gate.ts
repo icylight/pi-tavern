@@ -54,10 +54,35 @@ const RESPONSE_RESULT_MATCHERS: Record<string, (result: unknown) => boolean> = {
 	[METHOD_SPEAK]: (result) => isRecord(result) && "published" in result,
 	// #152：whisper 三态（published / stale / round_limit_reached，与 speak 同构
 	// ——published 字面量判别；复用语义核对表第 1 轮即补齐，防漏注册）。
-	[METHOD_WHISPER]: (result) =>
-		isRecord(result) &&
-		((result.published === true && "sequence" in result) ||
-			(result.published === false && (result.reason === "stale" || result.reason === "round_limit_reached"))),
+	// PR #163 评审阻断 4 收紧：不仅判别字段，还验证 runtime 随后会读取的必需
+	// 字段及基本类型（published: sequence 正整数 + round；stale: missing_sequences
+	// 数值对 + round；round_limit: hand_raised === true + round）——畸形帧 fail-close
+	// 抛 ERROR_UNEXPECTED_WHISPER_RESPONSE，而非进 runtime 后 TypeError。
+	[METHOD_WHISPER]: (result) => {
+		if (!isRecord(result)) return false;
+		const roundOk = (r: unknown): boolean =>
+			isRecord(r) && typeof r.round_max_messages === "number" && typeof r.used_messages === "number";
+		if (result.published === true) {
+			return (
+				typeof result.sequence === "number" &&
+				Number.isInteger(result.sequence) &&
+				result.sequence > 0 &&
+				roundOk(result.round)
+			);
+		}
+		if (result.published === false && result.reason === "stale") {
+			return (
+				isRecord(result.missing_sequences) &&
+				typeof result.missing_sequences.from === "number" &&
+				typeof result.missing_sequences.to === "number" &&
+				roundOk(result.round)
+			);
+		}
+		if (result.published === false && result.reason === "round_limit_reached") {
+			return result.hand_raised === true && roundOk(result.round);
+		}
+		return false;
+	},
 };
 
 /** method → fail-close 错误文案（与 JoinAttempt 旧 RESPONSE_METHOD_ERRORS 同源）。 */
