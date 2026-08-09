@@ -77,9 +77,15 @@ describe("WH7: whisper 校验后投递失败不回滚（窄窗口竞态）", () 
 		return { pipeline, state, whisperMessages, appendCustomMessageEntry };
 	}
 
-	it("chain: whisper delivery-failure no-rollback——投递抛错后已提交状态不回滚 + 不占二次额度", async () => {
-		const { pipeline, state, whisperMessages, appendCustomMessageEntry } = setupPipeline(() => {
-			throw new Error("socket closed (simulated delivery failure)");
+	it("chain: whisper delivery-failure no-rollback——投递静默失败后调用仍成功 + 已提交不回滚 + 不占二次额度（WH7 主锚）", async () => {
+		// 与生产语义一致（BroadcastHub.send 容错：非 OPEN/抛错均静默吞掉，不传播）：
+		// 注入记录式 stub（掉线不抛）→ 调用仍 resolve published:true（WH7 主语义）。
+		const deliveryFailures: Array<{ method: string; target: string }> = [];
+		const { pipeline, state, whisperMessages, appendCustomMessageEntry } = setupPipeline((socket, frame) => {
+			void socket;
+			const f = frame as { method: string; params: { recipient: { character_id: string } } };
+			deliveryFailures.push({ method: f.method, target: f.params.recipient.character_id });
+			// 静默丢弃（不抛错）——模拟接收者连接已断、广播中枢容错路径。
 		});
 
 		const message = {
@@ -89,10 +95,15 @@ describe("WH7: whisper 校验后投递失败不回滚（窄窗口竞态）", () 
 			params: { character_id: "carol", content: "悄悄话R1" },
 		};
 
-		// 投递失败（注入方不兜底时）错误传播 → reject；但已提交状态不回滚（WH7）。
-		await expect(
-			pipeline.runWhisper(fakeSocket, { sessionId: "sender-session", online: true }, message),
-		).rejects.toThrow("socket closed");
+		// 投递失败被静默吞掉 → 调用仍成功返回（WH7：不回滚、不重试、不占二次额度）。
+		const result = await pipeline.runWhisper(fakeSocket, { sessionId: "sender-session", online: true }, message);
+		expect(result.published).toBe(true);
+		if (result.published) {
+			expect(result.sequence).toBe(5);
+		}
+
+		// 投递确实发生过（尝试单播接收者）——仅一次，无重试。
+		expect(deliveryFailures).toEqual([{ method: "whisper_message", target: "carol" }]);
 
 		// 持久化已发生（提交先于投递）。
 		expect(appendCustomMessageEntry).toHaveBeenCalledTimes(1);
@@ -109,6 +120,30 @@ describe("WH7: whisper 校验后投递失败不回滚（窄窗口竞态）", () 
 		expect(whisperMessages).toHaveLength(1);
 		expect(whisperMessages[0]?.sequence).toBe(5);
 		expect(whisperMessages[0]?.content).toBe("悄悄话R1");
+	});
+
+	it("chain: whisper delivery-contract-violation（依赖违约防御）——注入方违反 send 契约抛错时错误传播且不回滚", async () => {
+		// 对抗测试：生产 BroadcastHub 承诺 send 不抛错；若注入方违约抛错，错误传播
+		// （reject），但已提交状态同样不回滚（防御语义）。不冒充 WH7 主锚。
+		const { pipeline, state, whisperMessages } = setupPipeline(() => {
+			throw new Error("socket closed (simulated delivery failure)");
+		});
+
+		const message = {
+			jsonrpc: "2.0" as const,
+			id: "req-1",
+			method: "whisper" as const,
+			params: { character_id: "carol", content: "悄悄话R1" },
+		};
+
+		await expect(
+			pipeline.runWhisper(fakeSocket, { sessionId: "sender-session", online: true }, message),
+		).rejects.toThrow("socket closed");
+
+		// 状态仍不回滚（已提交私信不因投递失败回滚）。
+		expect(state.nextSequence).toBe(5);
+		expect(state.round?.usedMessages).toBe(1);
+		expect(whisperMessages).toHaveLength(1);
 	});
 
 	it("chain: whisper delivery-success——正常投递 resolve published:true（对照锚）", async () => {

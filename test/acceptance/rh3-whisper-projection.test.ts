@@ -36,6 +36,7 @@ interface ScriptStep {
 		frame?: string;
 		content_contains?: string;
 		content_absent?: boolean;
+		sequence?: number;
 	}>;
 }
 
@@ -43,7 +44,10 @@ interface Script {
 	scenario: string;
 	roles: Record<string, string>;
 	steps: ScriptStep[];
-	recovery?: { restart: boolean; expect: Array<{ observer: string; kind?: string; content_contains?: string }> };
+	recovery?: {
+		restart: boolean;
+		expect: Array<{ observer: string; kind?: string; content_contains?: string; sequence?: number }>;
+	};
 }
 
 describe("acceptance: RH3-whisper-projection（#152 剧本驱动首部剧本）", () => {
@@ -141,12 +145,21 @@ describe("acceptance: RH3-whisper-projection（#152 剧本驱动首部剧本）"
 				// 开场：User Persona 消息开启讨论轮次（无 WS 方法，走创建者测试命令）。
 				await creator.runCommand(`/tavern-test-message ${step.content}`);
 			} else if (step.act === "speak") {
-				await alice.sendAndWait("speak", { content: step.content });
+				const response = await alice.sendAndWait("speak", { content: step.content });
+				if (step.sequence !== undefined) {
+					// 真读真断言：响应序号必须与剧本一致（防剧本序号假绿）。
+					const result = response.result as { sequence?: number } | undefined;
+					expect(result?.sequence).toBe(step.sequence);
+				}
 			} else if (step.act === "whisper" && step.recipient) {
-				await alice.sendAndWait("whisper", {
+				const response = await alice.sendAndWait("whisper", {
 					character_id: requireRole(script, step.recipient),
 					content: step.content,
 				});
+				if (step.sequence !== undefined) {
+					const result = response.result as { sequence?: number } | undefined;
+					expect(result?.sequence).toBe(step.sequence);
+				}
 			}
 
 			for (const expected of step.expect) {
@@ -157,11 +170,17 @@ describe("acceptance: RH3-whisper-projection（#152 剧本驱动首部剧本）"
 						(e) => {
 							if (e.type !== "entry_appended") return false;
 							const entry = (
-								e as { entry?: { customType?: string; data?: { kind?: string; event?: { content?: string } } } }
+								e as {
+									entry?: {
+										customType?: string;
+										data?: { kind?: string; event?: { content?: string; sequence?: number } };
+									};
+								}
 							).entry;
 							return (
 								entry?.customType === "pi-tavern.creator-display" &&
 								entry.data?.kind === expected.kind &&
+								(expected.sequence === undefined || entry.data?.event?.sequence === expected.sequence) &&
 								(expected.content_contains === undefined ||
 									(entry.data?.event?.content ?? "").includes(expected.content_contains))
 							);
@@ -175,7 +194,9 @@ describe("acceptance: RH3-whisper-projection（#152 剧本驱动首部剧本）"
 					const frame = await client.waitFor((m) => {
 						const method = m.method as string | undefined;
 						if (method !== expected.frame) return false;
-						const frameContent = (m.params as { content?: string } | undefined)?.content ?? "";
+						const params = (m.params ?? {}) as { content?: string; sequence?: number };
+						if (expected.sequence !== undefined && params.sequence !== expected.sequence) return false;
+						const frameContent = params.content ?? "";
 						if (expected.content_absent) {
 							// 占位帧：无正文（内容为空或占位串，不含私信正文）。
 							return !frameContent.includes("悄悄话R1");
@@ -199,14 +220,29 @@ describe("acceptance: RH3-whisper-projection（#152 剧本驱动首部剧本）"
 
 		const recoveryExpect = script.recovery?.expect?.[0];
 		expect(recoveryExpect?.kind).toBe("whisper_message");
+		const recoverySequence = recoveryExpect?.sequence;
 		const projected = resumed
 			.dumpEvents()
 			.filter((e) => e.type === "entry_appended")
 			.map(
-				(e) => (e as { entry?: { customType?: string; data?: { kind?: string; event?: { content?: string } } } }).entry,
+				(e) =>
+					(
+						e as {
+							entry?: {
+								customType?: string;
+								data?: { kind?: string; event?: { content?: string; sequence?: number } };
+							};
+						}
+					).entry,
 			)
 			.filter((entry) => entry?.customType === "pi-tavern.creator-display" && entry.data?.kind === "whisper_message");
 		expect(projected.length).toBeGreaterThan(0);
-		expect(projected.some((entry) => (entry?.data?.event?.content ?? "").includes("悄悄话R1"))).toBe(true);
+		expect(
+			projected.some(
+				(entry) =>
+					(entry?.data?.event?.content ?? "").includes("悄悄话R1") &&
+					(recoverySequence === undefined || entry?.data?.event?.sequence === recoverySequence),
+			),
+		).toBe(true);
 	}, 120_000);
 });

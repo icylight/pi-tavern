@@ -18,27 +18,27 @@
 			"expect": []
 		},
 		{
-			// 公开消息打底：序列 1，确保 whisper 序列交错可核对
+			// 公开消息打底：真实序号 2（persona 开场消息占 seq1，见 whisper-flow 先例）
 			"act": "speak",
 			"sender": "alice",
 			"content": "开场公开消息",
-			"sequence": 1,
+			"sequence": 2,
 			"expect": [
-				{ "observer": "creator", "kind": "public_message", "content_contains": "开场公开消息" }
+				{ "observer": "creator", "kind": "public_message", "content_contains": "开场公开消息", "sequence": 2 }
 			]
 		},
 		{
-			// 私信：Alice 悄悄话 Carol（序列 2）
+			// 私信：Alice 悄悄话 Carol（真实序号 3）
 			"act": "whisper",
 			"sender": "alice",
 			"recipient": "carol",
 			"content": "悄悄话R1",
-			"sequence": 2,
+			"sequence": 3,
 			"expect": [
 				// 创建者：完整正文投影（kind whisper_message + 正文）
-				{ "observer": "creator", "kind": "whisper_message", "content_contains": "悄悄话R1" },
+				{ "observer": "creator", "kind": "whisper_message", "content_contains": "悄悄话R1", "sequence": 3 },
 				// 接收者 Carol：实时收到正文
-				{ "observer": "carol", "frame": "whisper_message", "content_contains": "悄悄话R1" },
+				{ "observer": "carol", "frame": "whisper_message", "content_contains": "悄悄话R1", "sequence": 3 },
 				// 旁观者 bystander：仅占位、无正文（WH6 不唤醒）
 				{ "observer": "bystander", "frame": "whisper_placeholder", "content_absent": true }
 			]
@@ -48,7 +48,7 @@
 		// 重启恢复：创建者 resume 后历史私信仍见完整正文（RH3 验收点）
 		"restart": true,
 		"expect": [
-			{ "observer": "creator", "kind": "whisper_message", "content_contains": "悄悄话R1" }
+			{ "observer": "creator", "kind": "whisper_message", "content_contains": "悄悄话R1", "sequence": 3 }
 		]
 	}
 }
