@@ -15,7 +15,9 @@ import type { WhisperMessageState } from "../../../../src/protocol/whisper-messa
  * 本用例注入抛错模拟注入方不兜底的极端投递失败。
  */
 describe("WH7: whisper 校验后投递失败不回滚（窄窗口竞态）", () => {
-	const fakeSocket = {} as WebSocket;
+	// #152 评审（P2 修复）：在线校验 = connections 存在 + readyState === OPEN。
+	// 连接表默认 socket 为 OPEN（校验通过）；投递断场景由用例回调内置 CLOSED 模拟。
+	const fakeSocket = { readyState: WebSocket.OPEN } as unknown as WebSocket;
 
 	function setupPipeline(send: (socket: WebSocket, message: unknown) => void) {
 		const state = createGroupChatState({
@@ -73,19 +75,24 @@ describe("WH7: whisper 校验后投递失败不回滚（窄窗口竞态）", () 
 			readMergedMessages: () => [...publicMessages, ...whisperMessages],
 			connections,
 			send,
+			// P2 评审修复：落盘顶层 content = 创建者完整投影（whisper_full 渲染，
+			// 独立期回退 P1 契约默认形态）。
+			formatWhisperContent: (sender, recipient, content) => `${sender} 向 ${recipient} 悄悄说：${content}`,
 		});
 
 		return { pipeline, state, whisperMessages, appendCustomMessageEntry, connections };
 	}
 
-	it("chain: whisper delivery-failure no-rollback——目标连接非 OPEN 时真实 BroadcastHub 组合下调用仍成功 + 已提交不回滚（WH7 主锚，可证伪）", async () => {
-		// 可证伪主锚：真实复用 BroadcastHub.send（生产发送路径）——目标 socket
-		// readyState !== OPEN 时 hub 不调用 socket.send 而触发 onSendFailure（静默
-		// 容错）。若管线/hub 的失败路径被移除，本断言立即红（可证伪）。
+	it("chain: whisper delivery-failure no-rollback——校验 OPEN 后投递断时真实 BroadcastHub 组合下调用仍成功 + 已提交不回滚（WH7 主锚，可证伪）", async () => {
+		// 可证伪主锚：真实复用 BroadcastHub.send（生产发送路径）——校验时
+		// OPEN（通过在线校验）、投递阶段置 CLOSED（还原 close 清理异步排队窗口
+		// 竞态）：hub 见 readyState !== OPEN 不调用 socket.send 而触发
+		// onSendFailure（静默容错）。若管线/hub 的失败路径被移除，本断言立即红。
 		const onSendFailure = vi.fn();
-		const targetSocket = { readyState: WebSocket.CLOSED, send: vi.fn() } as unknown as WebSocket;
+		const targetSocket = { readyState: WebSocket.OPEN, send: vi.fn() } as unknown as WebSocket;
 		const { pipeline, state, whisperMessages, appendCustomMessageEntry, connections } = setupPipeline(
 			(socket, frame) => {
+				targetSocket.readyState = WebSocket.CLOSED;
 				const hub = new BroadcastHub({
 					state,
 					readPublicMessages: () => [],
