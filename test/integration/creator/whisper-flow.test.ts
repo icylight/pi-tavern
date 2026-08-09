@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -317,6 +317,102 @@ describe("WH4: history projection — full frame for participant, placeholder fo
 		expect(carolWhisper).toMatchObject({
 			params: { sender: { character_id: "characters/alice.md" }, recipient: { character_id: "characters/bob.md" } },
 		});
+		expect(carolWhisper?.params).not.toHaveProperty("content");
+	});
+});
+
+describe("WH3b: mixed resume — old public-only JSONL + appended whisper stays gapless (QA 场景 19b)", () => {
+	it("resumes public history, then interleaves whisper without gaps and projects per participant", async () => {
+		const root = await createTemporaryDirectory();
+		const agentDir = join(root, "agent");
+		const cwd = join(root, "project");
+		const characters = [];
+		for (const characterId of ["alice", "bob", "carol"]) {
+			const characterPath = join(root, "characters", `${characterId}.md`);
+			await mkdir(join(root, "characters"), { recursive: true });
+			await writeFile(
+				characterPath,
+				`---\nname: ${characterId}\ndescription: ${characterId} card\n---\n${characterId} prompt`,
+			);
+			characters.push(await loadCharacterCard(characterPath, join(root, "tavern.json")));
+		}
+
+		// 阶段 1：纯 public 历史（模拟 0.3.x 旧文件：user_persona × 2 + character speak × 1）。
+		const original = await CreatorRuntime.startNew({ cwd, agentDir, characters });
+		runtimes.push(original);
+		await original.submitUserPersonaMessage("First");
+		await original.submitUserPersonaMessage("Second");
+		const alice = await joinCharacter(original, "session-alice", "alice");
+		alice.send(JSON.stringify({ jsonrpc: "2.0", id: "s1", method: "speak", params: { content: "My reply" } }));
+		await waitForMessage(alice, "response");
+		alice.close();
+		await original.close();
+
+		const sessionFile = (await readdir(agentDir, { recursive: true })).find((file) => file.endsWith(".jsonl"));
+		expect(sessionFile).toBeDefined();
+		if (sessionFile === undefined) return;
+		const sessionPath = join(agentDir, sessionFile);
+
+		// 阶段 2：恢复——纯 public 旧历史重建（nextSequence 无空洞、无私信）。
+		const resumed = await CreatorRuntime.resume({ cwd, agentDir, sessionPath, characters });
+		runtimes.push(resumed);
+		expect(resumed.state.nextSequence).toBe(3);
+		expect(resumed.whisperMessageList).toHaveLength(0);
+
+		// 阶段 3：恢复后追加私信交错（whisper 4 → speak 5 → whisper 6，共用递增器）。
+		const alice2 = await joinCharacter(resumed, "session-alice2", "alice");
+		const bob2 = await joinCharacter(resumed, "session-bob2", "bob");
+		const carol2 = await joinCharacter(resumed, "session-carol2", "carol");
+
+		const receivedByBob = waitForMessage(bob2, "whisper_message");
+		alice2.send(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: "w1",
+				method: "whisper",
+				params: { character_id: "characters/bob.md", content: "psst after resume" },
+			}),
+		);
+		await waitForMessage(alice2, "response");
+		await receivedByBob;
+
+		alice2.send(
+			JSON.stringify({ jsonrpc: "2.0", id: "s2", method: "speak", params: { content: "public after resume" } }),
+		);
+		await waitForMessage(alice2, "response");
+
+		const receivedByAlice = waitForMessage(alice2, "whisper_message");
+		bob2.send(
+			JSON.stringify({
+				jsonrpc: "2.0",
+				id: "w2",
+				method: "whisper",
+				params: { character_id: "characters/alice.md", content: "reply whisper" },
+			}),
+		);
+		await waitForMessage(bob2, "response");
+		await receivedByAlice;
+
+		expect(resumed.state.nextSequence).toBe(6);
+		expect(resumed.whisperMessageList).toHaveLength(2);
+
+		// 阶段 4：合并时间序（[1..6] 无空洞）+ 参与者完整帧 / 旁观者占位帧投影。
+		alice2.send(JSON.stringify({ jsonrpc: "2.0", id: "h1", method: "get_message_history", params: {} }));
+		const aliceHistory = await waitForMessage(alice2, "response");
+		const aliceParams = aliceHistory.result as {
+			messages: { method: string; params: { sequence: number } }[];
+			total_messages: number;
+		};
+		expect(aliceParams.total_messages).toBe(6);
+		expect(aliceParams.messages.map((m) => m.params.sequence)).toEqual([1, 2, 3, 4, 5, 6]);
+		const aliceWhisper = aliceParams.messages.find((m) => m.method === "whisper_message");
+		expect(aliceWhisper).toMatchObject({ params: { content: "psst after resume" } });
+
+		carol2.send(JSON.stringify({ jsonrpc: "2.0", id: "h2", method: "get_message_history", params: {} }));
+		const carolHistory = await waitForMessage(carol2, "response");
+		const carolParams = carolHistory.result as { messages: { method: string; params: Record<string, unknown> }[] };
+		const carolWhisper = carolParams.messages.find((m) => m.method === "whisper_placeholder");
+		expect(carolWhisper).toBeDefined();
 		expect(carolWhisper?.params).not.toHaveProperty("content");
 	});
 });

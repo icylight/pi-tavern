@@ -134,6 +134,7 @@ function createMockCreatorRuntime(): CreatorRuntime {
 		close: vi.fn(async () => undefined),
 		submitUserPersonaMessage: vi.fn(() => Promise.resolve("evt-1")),
 		publicMessageList: [],
+		whisperMessageList: [],
 	} as unknown as CreatorRuntime;
 }
 
@@ -288,6 +289,74 @@ describe("PiTavern extension", () => {
 		const rejected = await creatorTool.execute("call-1", {});
 		expect(rejected.isError).toBe(true);
 		expect(rejected.content[0]?.text).toContain("only available when idle or joined as a Character");
+	});
+
+	it("WH4 (#152 Arch 阻断修复): 创建者 TUI 投影——实时 onWhisperMessage 接线 + 恢复合并流", async () => {
+		// 实时：wireCreatorDisplay 接线后触发 onWhisperMessage → appendEntry 收到
+		// kind whisper_message 完整正文条目（创建者恒参与者视角）。
+		const runtime = createMockCreatorRuntime();
+		const controller = new TavernController(async () => runtime);
+		const { api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI, controller);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		const onWhisper = (runtime as unknown as { onWhisperMessage?: (msg: never) => void }).onWhisperMessage;
+		if (!onWhisper) throw new Error("onWhisperMessage not wired");
+		onWhisper({
+			sender: { type: "character", character_id: "dev", name: "Dev" },
+			recipient: { type: "character", character_id: "qa", name: "QA" },
+			content: "secret plan",
+			event_id: "evt-w",
+			sequence: 21,
+			timestamp: "2026-08-09T00:00:00.000Z",
+			round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
+		} as never);
+
+		const entries = api.appendEntry.mock.calls.map(
+			(call) => call[1] as { kind?: string; event?: { content?: string } },
+		);
+		const whisperEntry = entries.find((entry) => entry.kind === "whisper_message");
+		expect(whisperEntry).toBeDefined();
+		expect(whisperEntry?.event?.content).toBe("secret plan");
+
+		// 恢复合并流：resume 装配时 public + whisper 按 sequence 归并投影
+		// （mock runtime 带两条历史 → projectResumeHistory 应生成两类条目）。
+		const runtime2 = createMockCreatorRuntime();
+		(runtime2 as unknown as { publicMessageList: unknown[] }).publicMessageList = [
+			{
+				event_id: "evt-p1",
+				sequence: 10,
+				timestamp: "2026-08-09T00:00:00.000Z",
+				sender: { type: "user_persona" },
+				content: "public hello",
+				round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
+			},
+		];
+		(runtime2 as unknown as { whisperMessageList: unknown[] }).whisperMessageList = [
+			{
+				event_id: "evt-w1",
+				sequence: 11,
+				timestamp: "2026-08-09T00:00:01.000Z",
+				sender: { type: "character", character_id: "dev", name: "Dev" },
+				recipient: { type: "character", character_id: "qa", name: "QA" },
+				content: "secret history",
+				round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
+			},
+		];
+		const controller2 = new TavernController(async () => runtime2);
+		const api2 = captureTools().api;
+		piTavern(api2 as unknown as ExtensionAPI, controller2);
+		await controller2.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		const resumeEntries = api2.appendEntry.mock.calls.map(
+			(call) => call[1] as { kind?: string; event?: { content?: string } },
+		);
+		expect(
+			resumeEntries.some((entry) => entry.kind === "public_message" && entry.event?.content === "public hello"),
+		).toBe(true);
+		expect(
+			resumeEntries.some((entry) => entry.kind === "whisper_message" && entry.event?.content === "secret history"),
+		).toBe(true);
 	});
 
 	it("tavern_history returns a formatted history page and rejects when not a character (P1-4)", async () => {

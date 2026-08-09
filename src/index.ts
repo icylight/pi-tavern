@@ -22,6 +22,7 @@ import { wireAgentLifecycle } from "./extension/agent-lifecycle.js";
 import { registerTavernTools } from "./extension/tavern-tools.js";
 import { type AutoJoinContext, autoJoinCharacter } from "./headless.js";
 import type { PublicMessageState } from "./protocol/public-message-state.js";
+import type { WhisperMessageState } from "./protocol/whisper-message-state.js";
 import {
 	ERROR_TUI_PROJECTION_FAILED_PREFIX,
 	ERROR_UNKNOWN,
@@ -36,12 +37,13 @@ interface CreatorDisplayEvent {
 	sequence: number;
 	timestamp: string;
 	sender: { type: "user_persona" } | { type: "character"; character_id: string; name: string } | { type: "system" };
+	recipient?: { type: "character"; character_id: string; name: string };
 	content: string;
 	round: { round_max_messages: number; used_messages: number; remaining_messages: number };
 }
 
 interface CreatorDisplayEntryData {
-	kind: "public_message";
+	kind: "public_message" | "whisper_message" | "whisper_placeholder";
 	group_chat_id: string;
 	event: CreatorDisplayEvent;
 }
@@ -229,6 +231,11 @@ function wireCreatorDisplay(pi: ExtensionAPI, ctrl: TavernController): void {
 		appendCreatorDisplayEntry(pi, state.runtime, msg);
 	};
 
+	// #152（Arch 阻断修复）：私信提交后投影完整正文（创建者恒参与者视角）。
+	state.runtime.onWhisperMessage = (whisper) => {
+		appendCreatorWhisperEntry(pi, state.runtime, whisper);
+	};
+
 	// 白板模型（#114）：board_update 实时提示（纯展示，不扩协议面）——
 	// 组合根接线，runtime 无 ui 句柄；显示通道与 public_message 同源。
 	state.runtime.onBoardUpdated = (update) => {
@@ -336,6 +343,44 @@ function appendCreatorDisplayEntry(pi: ExtensionAPI, runtime: CreatorRuntime, ms
 }
 
 /**
+ * #152（Arch 阻断修复）：私信条目投影（创建者恒参与者视角——完整正文）。
+ * 与 appendCreatorDisplayEntry 同容错；renderers whisper_message 分支的
+ * 实时产生源（恢复投影走 projectResumeHistory 合并流）。
+ */
+function appendCreatorWhisperEntry(
+	pi: ExtensionAPI,
+	runtime: CreatorRuntime,
+	whisper: {
+		sender: { type: "character"; character_id: string; name: string };
+		recipient: { type: "character"; character_id: string; name: string };
+		content: string;
+		event_id: string;
+		sequence: number;
+		timestamp: string;
+		round: { round_max_messages: number; used_messages: number; remaining_messages: number };
+	},
+): void {
+	const data: CreatorDisplayEntryData = {
+		kind: "whisper_message",
+		group_chat_id: runtime.state.groupChat.groupChatId,
+		event: {
+			event_id: whisper.event_id,
+			sequence: whisper.sequence,
+			timestamp: whisper.timestamp,
+			sender: whisper.sender,
+			recipient: whisper.recipient,
+			content: whisper.content,
+			round: whisper.round,
+		},
+	};
+	try {
+		pi.appendEntry("pi-tavern.creator-display", data);
+	} catch {
+		// 尽力而为：私信投影失败不阻塞（与 public_message 投影同容错）。
+	}
+}
+
+/**
  * #42：resume 历史投影（PM 裁决方案 B：纯扫描锚定，无标记文件）。锚定 =
  * 当前 pi 会话内本群聊 creator-display 条目最大 sequence——fresh 会话
  * （无条目）→ 全量投影（每次 fresh resume 都有历史）；continued 会话
@@ -345,11 +390,28 @@ function appendCreatorDisplayEntry(pi: ExtensionAPI, runtime: CreatorRuntime, ms
  */
 function projectResumeHistory(pi: ExtensionAPI, runtime: CreatorRuntime): void {
 	const anchor = computeSessionProjectionAnchor(sessionManagerRef, runtime.state.groupChat.groupChatId);
-	// 窗口 = 当前全量列表长度（空列表时 windowSize=0 → 自然返回 []）。
-	const messages = computeResumeProjection(runtime.publicMessageList, anchor, runtime.publicMessageList.length);
-	for (const message of messages) {
-		appendCreatorDisplayEntry(pi, runtime, message);
+	// 窗口 = 合并流全量长度（public + whisper 共用递增器，sequence 无空洞——
+	// 等价全量窗口；#155 结论）。
+	const windowSize = runtime.publicMessageList.length + runtime.whisperMessageList.length;
+	const publicMessages = computeResumeProjection(runtime.publicMessageList, anchor, windowSize);
+	// #152（Arch 阻断修复）：私信按同 anchor/窗口过滤（共享递增器，锚定一致），
+	// 与公开消息按 sequence 归并后统一投影（创建者恒参与者视角，完整正文）。
+	const whisperMessages = runtime.whisperMessageList
+		.filter((message) => message.sequence > anchor)
+		.sort((a, b) => a.sequence - b.sequence);
+	const merged = [...publicMessages, ...whisperMessages].sort((a, b) => a.sequence - b.sequence);
+	for (const message of merged) {
+		if (isWhisperState(message)) {
+			appendCreatorWhisperEntry(pi, runtime, message);
+		} else {
+			appendCreatorDisplayEntry(pi, runtime, message);
+		}
 	}
+}
+
+/** #152：合并流类型守卫（whisper 独占 recipient 字段）。 */
+function isWhisperState(message: PublicMessageState | WhisperMessageState): message is WhisperMessageState {
+	return "recipient" in message;
 }
 
 function wirePresenter(ctrl: TavernController, presenter: TavernUiPresenter): void {

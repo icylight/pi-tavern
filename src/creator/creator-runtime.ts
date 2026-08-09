@@ -162,6 +162,22 @@ export class CreatorRuntime {
 
 	onPublicMessageError: ((error: string, sequence: number, timestamp: string) => void) | undefined;
 
+	/**
+	 * #152（Arch 阻断修复）：私信提交后触发（创建者视角完整正文，TUI 投影）。
+	 * 与 onPublicMessage 同构；WhisperPipeline 提交阶段调用。
+	 */
+	onWhisperMessage:
+		| ((msg: {
+				sender: { type: "character"; character_id: string; name: string };
+				recipient: { type: "character"; character_id: string; name: string };
+				content: string;
+				event_id: string;
+				sequence: number;
+				timestamp: string;
+				round: { round_max_messages: number; used_messages: number; remaining_messages: number };
+		  }) => void)
+		| undefined;
+
 	/** 在线成员或流式状态变化时触发（TUI 刷新信号）。 */
 	onMembersChanged: (() => void) | undefined;
 
@@ -307,6 +323,7 @@ export class CreatorRuntime {
 			enqueue: (operation) => this.enqueue(operation),
 			readOnPublicMessage: () => this.onPublicMessage,
 			readOnPublicMessageError: () => this.onPublicMessageError,
+			readOnWhisperMessage: () => this.onWhisperMessage,
 			readOnMembersChanged: () => this.onMembersChanged,
 			readOnBoardUpdated: () => this.onBoardUpdated,
 			now: () => this.deps.now(),

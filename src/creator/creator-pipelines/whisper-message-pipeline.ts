@@ -42,6 +42,8 @@ interface WhisperPipelineDependencies {
 	connections: Map<string, WebSocket>;
 	/** 发送帧（BroadcastHub.send 语义；失败静默 + 断连清理由注入方保证）。 */
 	send: (socket: WebSocket, message: unknown) => void;
+	/** #152（Arch 阻断修复）：私信提交后触发（创建者 TUI 完整正文投影，与 onPublicMessage 同构）。 */
+	onWhisperMessage?: (whisper: WhisperMessageState) => void;
 }
 
 /** whisper 响应 result（stale / round_limit_reached / published 三态，与 speak 同构）。 */
@@ -254,6 +256,13 @@ export class WhisperPipeline {
 		// 阶段 6：通知——接收者单播完整帧；其他在线 Character（非发送者非接收者）
 		// 单播占位帧（无正文、无 round）；发送者零事件（服务端过滤）。
 		this.notify(whisper, connection.sessionId, targetSessionId);
+
+		// 创建者 TUI 投影（Arch 阻断修复）：提交后触发钩子（完整正文视角）。
+		try {
+			this.deps.onWhisperMessage?.(whisper);
+		} catch {
+			// 投影失败不影响已提交私信（同 onPublicMessage 容错语义）。
+		}
 
 		return {
 			published: true,

@@ -40,6 +40,8 @@ interface PipelineAssemblyHost {
 	/** 回调经 getter 读取（测试后期赋值仍生效——Arch ②「闭包捕获最终引用」同模式）。 */
 	readOnPublicMessage: () => ((msg: PublicMessageState) => void) | undefined;
 	readOnPublicMessageError: () => ((error: string, sequence: number, timestamp: string) => void) | undefined;
+	/** #152（Arch 阻断修复）：私信提交钩子读取（getter 闭包，同 readOnPublicMessage 模式）。 */
+	readOnWhisperMessage: () => ((msg: WhisperMessageState) => void) | undefined;
 	readOnMembersChanged: () => (() => void) | undefined;
 	/** 白板模型（#114）：creator 实时提示（纯展示，applied 广播触发）。 */
 	readOnBoardUpdated: () => BoardPipelineDependencies["onBoardUpdated"];
@@ -137,6 +139,7 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 			readMergedMessages: () => mergeMessageStreams(host.publicMessages, host.whisperMessages),
 			connections: host.connections,
 			send: (socket, message) => broadcastHub.send(socket, message),
+			onWhisperMessage: (whisper) => host.readOnWhisperMessage()?.(whisper),
 		},
 	};
 }
