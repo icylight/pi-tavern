@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type WebSocket from "ws";
+import WebSocket from "ws";
 import { BroadcastHub } from "../../../../src/creator/broadcast-hub.js";
 import { WhisperPipeline } from "../../../../src/creator/creator-pipelines/whisper-message-pipeline.js";
 import { createGroupChatState } from "../../../../src/data/group-chat-state.js";
@@ -89,10 +89,15 @@ describe("WH7: whisper 校验后投递失败不回滚（窄窗口竞态）", () 
 		// 竞态）：hub 见 readyState !== OPEN 不调用 socket.send 而触发
 		// onSendFailure（静默容错）。若管线/hub 的失败路径被移除，本断言立即红。
 		const onSendFailure = vi.fn();
-		const targetSocket = { readyState: WebSocket.OPEN, send: vi.fn() } as unknown as WebSocket;
+		const rawTarget: { readyState: WebSocket["readyState"]; send: ReturnType<typeof vi.fn> } = {
+			readyState: WebSocket.OPEN,
+			send: vi.fn(),
+		};
+		const targetSocket = rawTarget as unknown as WebSocket;
 		const { pipeline, state, whisperMessages, appendCustomMessageEntry, connections } = setupPipeline(
 			(socket, frame) => {
-				targetSocket.readyState = WebSocket.CLOSED;
+				// WH7 窄窗口：注入方在投递瞬间把目标连接置为断开（校验通过后才掉线）。
+				rawTarget.readyState = WebSocket.CLOSED;
 				const hub = new BroadcastHub({
 					state,
 					readPublicMessages: () => [],
