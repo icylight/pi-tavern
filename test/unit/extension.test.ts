@@ -530,6 +530,27 @@ describe("PiTavern extension", () => {
 		expect(failed.isError).toBe(true);
 		expect(failed.content[0]?.text).toBe("Whisper target character is not online");
 
+		// #152 二轮阻断：round_limit_reached 显式区分（不得误报未读分支）。
+		const limitRuntime = {
+			character: { characterId: "dev", name: "Dev", description: "Dev" },
+			close: vi.fn(async () => undefined),
+			getGroupChatState: vi.fn(),
+			whisper: vi.fn(async () => ({ published: false, reason: "round_limit_reached", handRaised: true })),
+			markIncrementPending: vi.fn(),
+		} as unknown as CharacterRuntime;
+		const limitController = await createCharacterControllerWithRuntime(limitRuntime);
+		const limitTools = captureTools();
+		piTavern(limitTools.api as unknown as ExtensionAPI, limitController);
+		const limitTool = limitTools.tools.find((t) => t.name === "tavern_whisper");
+		if (!limitTool) throw new Error("no tavern_whisper tool");
+		const limitResult = await limitTool.execute("call-1", { character_id: "qa", content: "hi" });
+		expect(limitResult.isError).toBeUndefined();
+		expect(limitResult.content[0]?.text).toContain("round limit reached");
+		expect(limitResult.content[0]?.text).toContain("hand is now raised");
+		// 不得落入「有未读、已安排拉取」误报分支。
+		expect(limitResult.content[0]?.text).not.toContain("有未读");
+		expect(limitRuntime.markIncrementPending).not.toHaveBeenCalled();
+
 		// chain: whisper stale self-heal（#152 阻断 2：stale 拒绝 → markIncrementPending 同 speak 路径）
 		const staleRuntime = {
 			character: { characterId: "dev", name: "Dev", description: "Dev" },

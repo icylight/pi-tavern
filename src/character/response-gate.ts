@@ -10,6 +10,7 @@ import {
 	ERROR_UNEXPECTED_READY_RESPONSE,
 	ERROR_UNEXPECTED_SPEAK_RESPONSE,
 	ERROR_UNEXPECTED_STATE_RESPONSE,
+	ERROR_UNEXPECTED_WHISPER_RESPONSE,
 	METHOD_BOARD_QUERY,
 	METHOD_BOARD_WRITE,
 	METHOD_CHARACTER_READY,
@@ -21,6 +22,7 @@ import {
 	METHOD_JOIN_GROUP_CHAT,
 	METHOD_LEAVE_GROUP_CHAT,
 	METHOD_SPEAK,
+	METHOD_WHISPER,
 } from "../shared/messages.js";
 
 /** vscode-jsonrpc dispose() 拒绝 pending 的本地错误码（PENDING_RESPONSE_REJECTED）。 */
@@ -50,6 +52,12 @@ const RESPONSE_RESULT_MATCHERS: Record<string, (result: unknown) => boolean> = {
 	[METHOD_BOARD_WRITE]: (result) => isRecord(result) && ("changed" in result || "code" in result || "note" in result),
 	[METHOD_BOARD_QUERY]: (result) => isRecord(result) && "boards" in result,
 	[METHOD_SPEAK]: (result) => isRecord(result) && "published" in result,
+	// #152：whisper 三态（published / stale / round_limit_reached，与 speak 同构
+	// ——published 字面量判别；复用语义核对表第 1 轮即补齐，防漏注册）。
+	[METHOD_WHISPER]: (result) =>
+		isRecord(result) &&
+		((result.published === true && "sequence" in result) ||
+			(result.published === false && (result.reason === "stale" || result.reason === "round_limit_reached"))),
 };
 
 /** method → fail-close 错误文案（与 JoinAttempt 旧 RESPONSE_METHOD_ERRORS 同源）。 */
@@ -65,6 +73,7 @@ const RESPONSE_METHOD_ERRORS: Record<string, string> = {
 	[METHOD_BOARD_WRITE]: ERROR_UNEXPECTED_BOARD_WRITE_RESPONSE,
 	[METHOD_BOARD_QUERY]: ERROR_UNEXPECTED_BOARD_QUERY_RESPONSE,
 	[METHOD_SPEAK]: ERROR_UNEXPECTED_SPEAK_RESPONSE,
+	[METHOD_WHISPER]: ERROR_UNEXPECTED_WHISPER_RESPONSE,
 };
 
 /**

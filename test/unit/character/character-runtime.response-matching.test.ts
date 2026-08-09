@@ -99,6 +99,44 @@ describe("CharacterRuntime pending 响应按 method 校验（阻断②）", () =
 		expect(Date.now() - start).toBeLessThan(1_000);
 	});
 
+	it("chain: whisper stale→success→stale（#152 二轮 B 级：成功后重置共享自愈预算）", async () => {
+		const { runtime, socket } = createRuntime();
+		const ROUND = { round_max_messages: 10, used_messages: 6, remaining_messages: 4 };
+		const staleResult = {
+			published: false,
+			reason: "stale",
+			missing_sequences: { from: 3, to: 5 },
+			round: ROUND,
+		};
+		const publishedResult = { published: true, sequence: 7, round: ROUND };
+
+		// ① stale 拒绝 → 消耗预算（autoRecover true）。
+		let p = runtime.whisper("qa", "hello");
+		let id = lastRequestId(socket);
+		injectResponse(socket, id, { result: staleResult });
+		let res = await p;
+		expect(res.published).toBe(false);
+		expect(res.reason).toBe("stale");
+		expect(res.autoRecover).toBe(true);
+
+		// ② whisper 成功 → 预算重置（与 speak 同语义）。
+		p = runtime.whisper("qa", "hello2");
+		id = lastRequestId(socket);
+		injectResponse(socket, id, { result: publishedResult });
+		res = await p;
+		expect(res.published).toBe(true);
+		expect(res.sequence).toBe(7);
+
+		// ③ 同 round key 再次 stale → 重新获得完整预算（autoRecover true）。
+		p = runtime.whisper("qa", "hello3");
+		id = lastRequestId(socket);
+		injectResponse(socket, id, { result: staleResult });
+		res = await p;
+		expect(res.published).toBe(false);
+		expect(res.reason).toBe("stale");
+		expect(res.autoRecover).toBe(true);
+	});
+
 	it("B2 请求 in-flight 时 socket close → 即时 reject（非 5s 超时）", async () => {
 		const { runtime, socket } = createRuntime();
 		const request = (runtime as unknown as { request(m: { method: string; params: unknown }): Promise<unknown> })

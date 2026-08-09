@@ -687,8 +687,7 @@ export class CharacterRuntime {
 			remainingMessages: result.round.remaining_messages,
 		};
 		if (result.published) {
-			this.staleRecoveryKey = null;
-			this.staleRecoveryCount = 0;
+			this.resetStaleRecoveryBudget();
 			return {
 				published: true,
 				eventId: result.event_id,
@@ -763,6 +762,17 @@ export class CharacterRuntime {
 	}
 
 	/**
+	 * #152 二轮（苍蓝星/PM/Arch 裁定共享化）：stale 自愈预算重置——「成功同步
+	 * （游标推进）即归零」，绑定同步成功事件而非入口成功（speak/whisper 同调）。
+	 * 预算状态机：key = 轮次额度快照；清零 = 任何成功发布；上限 =
+	 * MAX_STALE_AUTO_RECOVERIES；本质 = 防 stale 自愈循环的启发式非系统保证。
+	 */
+	private resetStaleRecoveryBudget(): void {
+		this.staleRecoveryKey = null;
+		this.staleRecoveryCount = 0;
+	}
+
+	/**
 	 * #152：向指定 Character 发送私信。与 speak 共用：未读先读检查（#128）、
 	 * 服务端在线校验（WS 活跃）、轮次额度、大小限制与基于游标的 stale 检查
 	 * （based_on_sequence 同 speak）；失败不占额度。
@@ -818,6 +828,8 @@ export class CharacterRuntime {
 		};
 		if (result.published) {
 			this.saveCursor(result.sequence ?? 0);
+			// #152 二轮（共享化裁定）：成功发布（游标推进）即归零预算——与 speak 同 helper。
+			this.resetStaleRecoveryBudget();
 			return { published: true, ...(result.sequence !== undefined ? { sequence: result.sequence } : {}) };
 		}
 		if (result.reason === "stale") {

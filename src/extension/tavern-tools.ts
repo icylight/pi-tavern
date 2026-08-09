@@ -477,6 +477,22 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 							details: undefined,
 						};
 					}
+					if (result.reason === "round_limit_reached") {
+						// #152 第二轮评审阻断：与 speak 同款 round-limit 文案（已举手排队），
+						// 不得误报「未读已安排拉取」（未读分支语义不同）。
+						return {
+							content: [
+								{
+									type: "text",
+									text:
+										`Message not published: round limit reached. ` +
+										`Your hand is now raised — the creator will see you have more to say. ` +
+										`The full message remains in your private session.`,
+								},
+							],
+							details: undefined,
+						};
+					}
 					// 未读先读阻止（与 speak 同款）——不占额度、不举手。
 					return {
 						content: [
