@@ -281,6 +281,30 @@
             }
           },
           "additionalProperties": false
+        },
+        // #152：whisper 请求——Character 间私信。character_id/content 必带；
+        // based_on_sequence 可选（stale 检查与 speak 同源，拒绝语义同 speak）。
+        // 目标必须在在线 Character（WS 连接活跃）；自发自收拒绝；
+        // 无活跃轮次/超额/过大/持久化失败复用 speak 语义。
+        {
+          "type": "object",
+          "required": ["jsonrpc", "id", "method", "params"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "method": { "type": "string", "const": "whisper" },
+            "params": {
+              "type": "object",
+              "required": ["character_id", "content"],
+              "properties": {
+                "character_id": { "type": "string" },
+                "content": { "type": "string" },
+                "based_on_sequence": { "type": "integer", "minimum": 0 }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         }
       ]
     }

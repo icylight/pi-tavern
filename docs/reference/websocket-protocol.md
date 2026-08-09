@@ -58,6 +58,8 @@ PiTavern 使用标准 WebSocket `ping` / `pong` 控制帧检测半开连接，�
 | -32107 | INVALID_NOTE_ID | note.id must not be empty |
 | -32108 | INTERNAL_ERROR | Unknown error |
 | -32109 | PERSIST_FAILED | Failed to persist message:  |
+| -32110 | WHISPER_TARGET_OFFLINE | Whisper target character is not online |
+| -32111 | WHISPER_SELF | Cannot whisper to yourself |
 
 JSON-RPC 标准错误码（vscode-jsonrpc 库自产，connection 模式下为本端合法响应，schema 一并接受；客户端对标准码按 error envelope 正常收敛、不断链）：
 
@@ -532,3 +534,56 @@ User Persona 和 Character 的公开消息统一使用 `public_message` 结构�
 Character 发言成功时，群聊创建者原子分配 `sequence`、更新 Round 次数并通过 `SessionManager` 写入 `custom_message`，使用返回的 entry `id` 作为 `event_id`，然后先广播 `group_chat_update`，再返回对应的 `speak` 成功响应。
 
 session append 成功是公开消息的成立点。append 失败时，不递增 `sequence`、不消耗 Round 额度、不广播，并返回 `error` 响应（PERSIST_FAILED）。append 成功后，即使某个 WebSocket 发送失败，公开消息也不撤销；对应连接进入断线处理。
+
+## Character 间私信（#152）
+
+私信是 Character 之间的定向消息，与公开消息共用连续 `sequence`、轮次额度、消息大小限制、持久化失败恢复、未读优先、陈旧性检查和举手逻辑；失败发送不占额度。不支持 User Persona、自发自收、离线排队或已读状态。
+
+### 私信请求（whisper）
+
+Character 的 `tavern_whisper` Agent tool 通过 WebSocket 发送 `whisper` 请求（字段形状：[`client.jsonc` 的 `ClientMessage`](../../src/protocol/schema/client.jsonc) `whisper` 分支，`params.character_id` + `params.content` + 可选 `params.based_on_sequence`）：
+- `character_id`：目标 Character（仅限当前**在线**的 Character——判定基准 = WS 连接活跃，五方确认 WH10）。
+- `content`：私信正文（原始 JSONL 明文保存，隐私边界仅限交互层，WH8）。
+- `based_on_sequence`（可选）：陈旧性检查与 `speak` 同源（B2 语义、排除自身判定、stale 拒绝不占额度不举手）。
+- 请求不携带发送方 `character_id`；群聊创建者根据 WebSocket 连接确定身份。
+- 拒绝路径（WH2，均不占额度）：目标离线 → `error` 响应 `WHISPER_TARGET_OFFLINE`（-32110）；自发自收 → `WHISPER_SELF`（-32111）；无活跃轮次/消息过大/持久化失败复用 `speak` 语义（NO_ACTIVE_ROUND / MESSAGE_TOO_LARGE / PERSIST_FAILED）；超额与 stale 复用 `speak` 的结构化拒绝返回（`published: false` + `reason`，超额置举手）。
+
+### 私信响应
+
+[`server.jsonc` 的 `ServerMessage`](../../src/protocol/schema/server.jsonc) `whisper` 响应与 `speak` 同构**三态**（Arch 裁定 2026-08-09，契约修订补全失败响应形态）：
+- 成功：`result` = `{ published: true, sequence, round }`——`sequence` = 私信分配的序号（发送者唯一的工具结果，不额外注入自身事件）。
+- 超额：`result` = `{ published: false, reason: "round_limit_reached", hand_raised: true, round }`（不占额度）。
+- stale：`result` = `{ published: false, reason: "stale", missing_sequences: { from, to }, round }`（客户端按 `reason` 区分走自愈，与 speak 同路径）。
+- 发送者不接收自身的 `whisper_message` / `whisper_placeholder`（服务端过滤）。
+- 在线校验通过后目标掉线：已成功持久化的私信**不回滚**（WH7 窄窗口竞态），发送者仍收到成功响应；目标重连后经历史查询可取得。
+
+### 私信通知（三视角投影，WH4）
+
+投影语义在**服务端**完成，按查看者身份区分（客户端零投影逻辑，只做模板渲染）：
+
+- **接收者**：单播 `whisper_message`（字段形状：[`server.jsonc` 的 `ServerMessage`](../../src/protocol/schema/server.jsonc) `whisper_message` 通知分支）——含 `sender` / `recipient` / `content` / `round`，走现有实时投递与忙态安全边界。
+- **其他 Character**：广播 `whisper_placeholder`（`whisper_placeholder` 通知分支）——仅含 `sender` / `recipient`，**无正文**；占位事件属于其未读序列，后续发言前必须消费（复用 #128 未读先读机制）；不被主动唤醒。
+- **创建者**：完整正文（TUI 完整投影）。
+
+### 历史投影
+
+`get_message_history` / `fetch_messages_since` / `message_history` 按**当前查询连接的 character_id** 执行相同投影：查询者为私信发送者或接收者 → 完整帧（`whisper_message` 形态）；其他 Character → 占位帧（`whisper_placeholder` 形态，无正文）。私信与公开消息在读取时合并为统一 sequence 时间序消息流（WH3）。
+
+### 兼容与隐私（WH8）
+
+- 不增加运行时协议版本字段或兼容性校验；本地同版本实例假设（代码注释说明），不支持混合版本互连。
+- 原始 JSONL 明文保存私信；隐私边界仅限交互层，不提供文件系统安全保证。
+- 0.3.x 历史无需迁移（无 whisper-message 类型）。
+
+## 附录：帧 × 消费路径矩阵（ADR-0009）
+
+每格填 `✓复用`（走既有机制）/ `差异化点` / `不适用`；新增服务端帧类型必须逐格核对（空格 = 评审不过）。
+
+| 帧类型 | codec 解码 | 实时注入 | 补拉（pullIncrement） | 游标推进 | 未读（#128） | 渲染 | TUI（创建者） |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `public_message` | ✓复用 | ✓复用（环境事件，唤醒） | ✓复用 | ✓复用 | ✓复用 | ✓复用（public_message 模板） | ✓复用 |
+| `whisper_message` | ✓复用 | ✓复用（环境事件，唤醒——**仅接收者**） | ✓接纳（含正文） | ✓复用 | ✓复用 | whisper_full 模板（sender/receiver/content） | ✓完整正文（恒参与者视角） |
+| `whisper_placeholder` | ✓复用 | **差异化：不注入、不唤醒、不进 debounce（仅水位推进）** | ✓接纳（占位帧，推进游标防反复 stale） | ✓复用 | ✓复用（占位属未读序列） | whisper_placeholder 模板（sender/receiver，无 content） | **不适用**（创建者恒见完整正文） |
+| `group_chat_update` | ✓复用 | ✓复用 | — | — | — | ✓复用 | ✓复用 |
+
+维护：新增帧类型时逐格核对并更新本表（属主=后端，ADR-0009 实施分工）。

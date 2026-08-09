@@ -235,13 +235,13 @@ round      = entry.details.round
 
 ### 公开消息序号
 
-`sequence` 是群聊内部的公开消息递增序号：
+`sequence` 是群聊内部消息（公开 + 私信）的统一递增序号：
 
-- 每个群聊的第一条公开消息使用 `sequence: 1`。
-- 只有成功写入 session 的 `pi-tavern.public-message` 才占用并递增序号。
+- 每个群聊的第一条消息使用 `sequence: 1`。
+- 只有成功写入 session 的消息（`pi-tavern.public-message` / `pi-tavern.whisper-message`）才占用并递增序号。
 - 群聊设置、成员事件、状态变化和举手不占用序号。
-- 恢复群聊时，从最后一条 `pi-tavern.public-message` 的 `details.sequence` 继续递增。
-- 群聊不删除单条公开消息，因此当前最后一个 `sequence` 同时也是 `total_messages`。
+- 恢复群聊时，从最后一条消息（公开或私信，按 sequence 合并排序后的末尾）的 `details.sequence` 继续递增。
+- 群聊不删除单条消息，因此当前最后一个 `sequence` 同时也是消息总数（公开 + 私信）。
 
 ### 公开消息提交顺序
 
@@ -262,6 +262,54 @@ round      = entry.details.round
 - User Persona 的发送在群聊创建者界面显示失败。
 
 如果持久化成功后部分 WebSocket 发送失败，公开消息仍然有效。发送失败的连接进入断线处理；Character 重新加入后可通过最近消息历史取得该消息。
+
+## 私信消息（#152）
+
+私信使用独立 `customType`，与公开消息写入**同一群聊 JSONL**（同一 session 文件追加写），读取时合并为统一 sequence 时间序消息流：
+
+```json
+{
+  "type": "custom_message",
+  "id": "d4e5f6a7",
+  "parentId": "previous-entry",
+  "timestamp": "2026-08-09T09:00:00.000Z",
+  "customType": "pi-tavern.whisper-message",
+  "content": "Developer 向 Tester 悄悄说：我建议先实现持久化层。",
+  "display": true,
+  "details": {
+    "sequence": 43,
+    "sender": { "type": "character", "character_id": "developer", "name": "Developer" },
+    "recipient": { "type": "character", "character_id": "tester", "name": "Tester" },
+    "content": "我建议先实现持久化层。",
+    "round": { "round_max_messages": 10, "used_messages": 5, "remaining_messages": 5 }
+  }
+}
+```
+
+约定：
+
+- `customType` 固定为 `pi-tavern.whisper-message`；`display` 为 `true`（与公开消息同源，走同一上下文投影管线）。
+- `details.sender` / `details.recipient` 仅 Character 类型（不支持 User Persona、自发自收）。
+- `details.sequence` 与公开消息**共用同一递增器**（`state.nextSequence`），交错分配、无空洞；恢复群聊时从最后一条消息（公开或私信）的 `details.sequence` 继续递增。
+- `details.content` 原样保存私信正文（明文；隐私边界仅限交互层，不提供文件系统安全保证，WH8）。
+- `details.round` 与公开消息同语义（成功私信消耗同一轮次额度池）。
+- `content` 是**创建者视角完整投影**（固定语义，与查看者无关）：`{sender} 向 {receiver} 悄悄说：{正文}`，经 whisper_full 模板渲染（#154）；**不随查看者变化**——其他 Character 从不读原始 JSONL（只经服务端 wire 投影，按查看者身份返回完整帧或占位帧，WH4），读取路径（恢复/查询投影）的唯一来源是 `details.content`（顶层 content 仅创建者进程 pi 上下文注入消费）。
+- 读取（恢复 / 历史查询 / 增量拉取）时，公开与私信按 `details.sequence` 合并排序为统一消息流；查询按当前连接 `character_id` 执行相同投影。
+
+### 私信提交顺序
+
+与公开消息同构（同一串行提交区）：
+
+1. 在线目标校验（WS 连接活跃，WH10）与自发自收拒绝。
+2. 检查 Round 额度（共用池）与陈旧性（`based_on_sequence`，同 speak）。
+3. 计算候选 `sequence` 与新的 Round 快照。
+4. 追加 `pi-tavern.whisper-message`。
+5. 追加成功后正式提交内存序号与 Round 计数。
+6. 通知：接收者单播 `whisper_message`（完整帧）；其他 Character 广播 `whisper_placeholder`（占位帧）；发送者不接收自身事件。
+
+失败语义与公开消息一致：append 失败不递增 `sequence`、不消耗额度、不广播、发送方收到 PERSIST_FAILED；在线校验通过后目标掉线不回滚（窄窗口竞态，WH7）。
+
+0.3.x 历史无需迁移（不存在 whisper-message 类型）。
 
 ## 群聊设置
 

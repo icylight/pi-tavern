@@ -407,4 +407,132 @@ describe("PiTavern protocol codec", () => {
 			expect(() => decodeServerMessage(Buffer.from(JSON.stringify(systemMessage({}))))).toThrow(ProtocolError);
 		});
 	});
+
+	describe("历史/增量容器接受 whisper 帧（#152 PR #161 评审阻断 1，Arch 编写 codec 契约钉测）", () => {
+		const SENDER = { type: "character", character_id: "alice", name: "Alice" };
+		const RECIPIENT = { type: "character", character_id: "carol", name: "Carol" };
+		const ROUND = { round_max_messages: 10, used_messages: 6, remaining_messages: 4 };
+		const whisperMessage = {
+			jsonrpc: "2.0",
+			method: "whisper_message",
+			params: {
+				event_id: "evt-5",
+				sequence: 5,
+				timestamp: "2026-08-09T00:00:05.000Z",
+				sender: SENDER,
+				recipient: RECIPIENT,
+				content: "悄悄话R1",
+				round: ROUND,
+			},
+		};
+		const whisperPlaceholder = {
+			jsonrpc: "2.0",
+			method: "whisper_placeholder",
+			params: {
+				event_id: "evt-5",
+				sequence: 5,
+				timestamp: "2026-08-09T00:00:05.000Z",
+				sender: SENDER,
+				recipient: RECIPIENT,
+			},
+		};
+
+		it("C1 message_history 通知 messages 含 whisper_message 完整帧解码通过", () => {
+			const frame = {
+				jsonrpc: "2.0",
+				method: "message_history",
+				params: { messages: [whisperMessage], cursor: null, has_more: false, total_messages: 1 },
+			};
+			expect(decodeServerMessage(Buffer.from(JSON.stringify(frame)))).toEqual(frame);
+		});
+
+		it("C2 get_message_history 响应 messages 含 whisper_placeholder 解码通过", () => {
+			const frame = {
+				jsonrpc: "2.0",
+				id: "req-1",
+				result: { messages: [whisperPlaceholder], cursor: null, has_more: false, total_messages: 1 },
+			};
+			expect(decodeServerMessage(Buffer.from(JSON.stringify(frame)))).toEqual(frame);
+		});
+
+		it("C3 fetch_messages_since 响应 messages 含 full+placeholder 混合解码通过", () => {
+			const frame = {
+				jsonrpc: "2.0",
+				id: "req-1",
+				result: { messages: [whisperMessage, whisperPlaceholder], latest_sequence: 5, total_messages: 2 },
+			};
+			expect(decodeServerMessage(Buffer.from(JSON.stringify(frame)))).toEqual(frame);
+		});
+
+		it("C5 preview_messages 含 whisper_message 完整帧必拒（单变量负钉：params 完整合法基准，仅换 public→full——拒绝原因唯一）", () => {
+			expect(() =>
+				decodeServerMessage(
+					Buffer.from(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							method: "group_chat_update",
+							params: { latest_sequence: 5, preview_messages: [whisperMessage], total_messages: 5 },
+						}),
+					),
+				),
+			).toThrow(ProtocolError);
+		});
+
+		it("C6 preview_messages 含 whisper_placeholder 必拒（单变量负钉——占位不得纳入公共更新唤醒面，WH6 防御）", () => {
+			expect(() =>
+				decodeServerMessage(
+					Buffer.from(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							method: "group_chat_update",
+							params: { latest_sequence: 5, preview_messages: [whisperPlaceholder], total_messages: 5 },
+						}),
+					),
+				),
+			).toThrow(ProtocolError);
+		});
+
+		it("C7 preview_messages 含 public_message 解码通过（正向对照——负钉只改变一个变量）", () => {
+			const frame = {
+				jsonrpc: "2.0",
+				method: "group_chat_update",
+				params: {
+					latest_sequence: 5,
+					preview_messages: [
+						{
+							jsonrpc: "2.0",
+							method: "public_message",
+							params: {
+								event_id: "evt-4",
+								sequence: 4,
+								timestamp: "2026-08-09T00:00:04.000Z",
+								sender: { type: "user_persona" },
+								content: "R4",
+								round: ROUND,
+							},
+						},
+					],
+					total_messages: 5,
+				},
+			};
+			expect(decodeServerMessage(Buffer.from(JSON.stringify(frame)))).toEqual(frame);
+		});
+		it("C4 placeholder 带 content 必拒（任意容器内 fail-close——无 content 字段是契约）", () => {
+			const leaked = {
+				...whisperPlaceholder,
+				params: { ...whisperPlaceholder.params, content: "secret leaked" },
+			};
+			expect(() =>
+				decodeServerMessage(
+					Buffer.from(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							method: "message_history",
+							params: { messages: [leaked], cursor: null, has_more: false, total_messages: 1 },
+						}),
+					),
+				),
+			).toThrow(ProtocolError);
+		});
+	});
 });
