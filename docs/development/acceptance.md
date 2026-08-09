@@ -200,6 +200,20 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 
 验收方式：acceptance 断言存在且非空 + 单测 + check 全绿 + 手工验收清单（新建/编辑/位置/确认/取消）在 PR 中留痕。
 
+### 可配置群聊消息文案（#154，PM 布置，分支 feat/message-templates，2026-08-09 User 指示开工）
+
+`tavern.json` 新增可选 `message_templates` 指向独立 JSON 文案文件，按 key 合并（项目 > 全局 > 内置中文），第一版只覆盖公开消息/完整私信/私信占位/秒前/分钟前五类渲染；实时注入、`tavern_history`、创建者 TUI 共用同一模板集（需求基线 #156 定稿）。
+
+1. **T1 配置加载与合并**：`message_templates` 可选字段，指向相对该配置文件的独立 JSON 文件；两层配置（项目/全局）按 key 逐项合并，优先级项目 > 全局 > 内置中文，允许部分覆盖；
+2. **T2 容错回退**：文件缺失、JSON 无法解析或单项无效时 warning 并逐项回退（回退链内下一档或内置中文），不阻止群聊启动；
+3. **T3 五类模板覆盖**：公开消息、完整私信、私信占位、秒前、分钟前五类 key 可配置；实时注入、`tavern_history` 与创建者 TUI 三个消费面渲染结果一致（同一模板集复用 + 渲染参数按消费面传值：实时注入 sender 含 when 段、history/TUI 纯 sender——传值差异不是不一致，QA 断言口径 2026-08-09）；**TUI 统一渲染留痕**：creator-display 移除 `[label]` 前缀、label 统一 "User Persona"（为三消费面统一模板渲染所需，行为变化随 #154 留痕）；**私信两 key 本期不引入（苍蓝星指示：不暴露未实现功能的文案，2026-08-09）**——DEFAULT_TEMPLATES/校验规则/T7 返回均只含本期三类（public_message/seconds_ago/minutes_ago）；#152 实现时随私信一并引入 whisper 两 key 与渲染，复用本期已定稿的占位符规则表与校验语义（whisper_full 必留三占位/whisper_placeholder 禁 content），届时一次契约确认即可（Arch 留痕）；**默认模板形态（Arch 裁决留痕）**：public_message=`{sender}:\n{content}`（含换行——实时注入面与现状逐字一致零变化；history 面双行化，无测试钉死可接受）、seconds_ago=`{count} 秒前`、minutes_ago=`{count} 分钟前`、whisper 两 key 按 #152 投影规则定义契约；
+4. **T4 占位符规则**：模板仅支持简单 `{placeholder}` 替换——公开消息必须保留发送者与正文；完整私信必须保留发送者、接收者与正文；私信占位必须保留发送者、接收者且禁止正文；相对时间必须保留数量；未知、缺失或禁止的占位符均判为无效（单项回退）；
+5. **T5 加载生命周期**：creator 在 `/tavern-new`、`/tavern-resume`、`/reload` 加载；Character 在 claim/join/reload 加载；不做文件监听或自动热更新；
+6. **T6 /tavern-template-edit**：prompt command 支持自然语言参数；默认建议编辑全局配置但必须让用户选择（全局/当前项目/其他配置）；写入前展示 diff 并取得明确确认；写入后告知需 reload/rejoin/resume 后生效；
+7. **T7 tavern_template_defaults**：仅 LLM 可调用的只读工具，无参数，返回完整中文默认值、合法 key（本期三类：public_message/seconds_ago/minutes_ago）、占位符规则与 JSON 骨架；idle 与 Character 状态可用，creator 与 joining 拒绝；不注册用户 slash command。
+
+验收方式：acceptance 断言存在且非空 + 单测 + check 全绿；手工验收（diff 确认/生效提示/位置选择）由苍蓝星实测或 QA 真实环境执行（沿用 #153 先例：PR 中留痕实际执行结果）。
+
 ### 测试门控命令
 
 RPC 模式没有输入通道、也无法调用扩展工具，因此 `PITAVERN_TEST=1`（acceptance 门卫自动设置）时额外注册：

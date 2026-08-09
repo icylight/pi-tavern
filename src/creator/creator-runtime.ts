@@ -3,6 +3,7 @@ import { createMessageConnection, type MessageConnection } from "vscode-jsonrpc"
 import type WebSocket from "ws";
 import type { WebSocketServer } from "ws";
 import type { CharacterCard, CharacterSummary } from "../config/character-card.js";
+import type { MessageTemplateKey } from "../config/message-templates.js";
 import type { CreatorReloadHandoff } from "../controller/reload-handoff-registry.js";
 import type { BoardStore } from "../data/board-store.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
@@ -49,6 +50,8 @@ export interface StartNewCreatorRuntimeOptions {
 	boardMaxNoteLength?: number;
 	/** #123：欢迎文案（缺省 = DEFAULT_WELCOME_MESSAGE 代码默认值）。 */
 	welcomeMessage?: string;
+	/** #154：群聊文案模板集（缺省 = DEFAULT_TEMPLATES 内置中文）。 */
+	messageTemplates?: Record<MessageTemplateKey, string>;
 	characters?: CharacterCard[];
 	/**
 	 * #25：角色清单按需刷新（懒刷新）——join/claim/query 前重扫磁盘。
@@ -68,6 +71,8 @@ export interface ResumeCreatorRuntimeOptions {
 	boardMaxNoteLength?: number;
 	/** #123：欢迎文案（缺省 = DEFAULT_WELCOME_MESSAGE 代码默认值）。 */
 	welcomeMessage?: string;
+	/** #154：群聊文案模板集（缺省 = DEFAULT_TEMPLATES 内置中文）。 */
+	messageTemplates?: Record<MessageTemplateKey, string>;
 	characters?: CharacterCard[];
 	/** #25：同 StartNewCreatorRuntimeOptions.loadCharacters。 */
 	loadCharacters?: () => Promise<CharacterCard[]>;
@@ -188,6 +193,7 @@ export class CreatorRuntime {
 		readonly activeDescriptorPath: string,
 		readonly configMaxMessages: number,
 		readonly welcomeMessage: string,
+		readonly messageTemplates: Record<MessageTemplateKey, string>,
 		characters: CharacterCard[],
 		private readonly readyTimeoutMs: number,
 		deps: CreatorRuntimeDependencies,

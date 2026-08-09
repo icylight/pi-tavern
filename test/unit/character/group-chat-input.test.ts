@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CharacterRuntime } from "../../../src/character/character-runtime.js";
 import { GroupChatInput } from "../../../src/character/group-chat-input.js";
+import { DEFAULT_TEMPLATES, type MessageTemplateKey } from "../../../src/config/message-templates.js";
 import type { PublicMessage, ServerMessage } from "../../../src/protocol/messages.js";
 
 function createMockRuntime(
@@ -10,6 +11,7 @@ function createMockRuntime(
 		groupChatId?: string;
 		hasPublicMessages?: boolean;
 		getGroupChatState?: () => Promise<unknown>;
+		messageTemplates?: Record<MessageTemplateKey, string>;
 	} = {},
 ): CharacterRuntime {
 	return {
@@ -23,6 +25,7 @@ function createMockRuntime(
 		},
 		getGroupChatState: overrides.getGroupChatState ?? (async () => ({})),
 		hasPublicMessages: overrides.hasPublicMessages ?? false,
+		messageTemplates: overrides.messageTemplates,
 		onEnvironmentMessage: undefined,
 		onAgentSettled: undefined,
 		isAgentActive: false,
@@ -284,6 +287,55 @@ describe("GroupChatInput", () => {
 		// 不应提交：无公开消息时 join/left 事件被过滤
 		// （且批次为空）
 		expect(pi.sendMessage).not.toHaveBeenCalled();
+
+		input.stop();
+	});
+
+	it("T3 (#154): 实时注入用自定义 public_message 模板渲染（三面同变）", async () => {
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({
+			hasPublicMessages: true,
+			messageTemplates: { ...DEFAULT_TEMPLATES, public_message: "[{sender}]→{content}" },
+		});
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+		handler(aPublicMessage("user_persona"));
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+		const message = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as { content?: string };
+		// 消息带 timestamp → when 并入 vars.sender（契约方案 a），模板格式可辨。
+		expect(message.content ?? "").toContain("[User Persona");
+		expect(message.content ?? "").toContain("]→Hello");
+
+		input.stop();
+	});
+
+	it("T3 (#154): 实时注入相对时间用自定义模板渲染（minutes_ago 接入 formatMessageTime）", async () => {
+		vi.useFakeTimers();
+
+		// 消息 timestamp = 2026-01-01，fake timers 基准 = 真实当前时间 → 间隔巨大 → 分钟分支。
+		const runtime = createMockRuntime({
+			hasPublicMessages: true,
+			messageTemplates: { ...DEFAULT_TEMPLATES, minutes_ago: "{count} min ago" },
+		});
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+		handler(aPublicMessage("user_persona"));
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+		const message = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as { content?: string };
+		// 自定义相对时间模板生效（此前硬编码「x 分钟前」中文）。
+		expect(message.content ?? "").toContain("min ago");
+		expect(message.content ?? "").not.toContain("分钟前");
 
 		input.stop();
 	});

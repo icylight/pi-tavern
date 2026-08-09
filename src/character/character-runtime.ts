@@ -4,6 +4,8 @@ import { createMessageConnection, type MessageConnection, ResponseError } from "
 import WebSocket from "ws";
 
 import { type CharacterCard, loadCharacterCard } from "../config/character-card.js";
+import { loadTavernConfig, type TavernConfig } from "../config/load-config.js";
+import type { MessageTemplateKey } from "../config/message-templates.js";
 import {
 	type BufferedFrame,
 	type CharacterJsonRpcTransfer,
@@ -98,6 +100,11 @@ interface PrepareCharacterRuntimeOptions {
 	 * 生产接线 = 客户端域组合根注入 getFetchContextWindow（默认 1）。
 	 */
 	getFetchContextWindow?: () => number;
+	/** #154：群聊文案模板集（缺省 undefined → 消费面回落 DEFAULT_TEMPLATES）。 */
+	messageTemplates?: Record<MessageTemplateKey, string>;
+	/** #154 复评：reload 时重新加载磁盘配置所需路径（可选；无则 reload 沿用快照）。 */
+	agentDir?: string;
+	cwd?: string;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
@@ -139,6 +146,10 @@ export class CharacterRuntime {
 	private readonly triggerDebounceMs: number | undefined;
 	/** #138：增量拉取上下文窗口 getter（undefined → 窗口 0，行为不变）。 */
 	private readonly getFetchContextWindow: (() => number) | undefined;
+	readonly messageTemplates: Record<MessageTemplateKey, string> | undefined;
+	/** #154 复评：reload 重载磁盘配置所需路径（join 时透传；undefined = 不重载）。 */
+	private readonly agentDir: string | undefined;
+	private readonly cwd: string | undefined;
 	/** 新鲜状态快照到达后触发（TUI 刷新钩子）。 */
 	onStateSnapshot: ((snapshot: GroupChatStateMessage) => void) | undefined;
 	/**
@@ -256,6 +267,9 @@ export class CharacterRuntime {
 		this.agentWedgedTimeoutMs = options.agentWedgedTimeoutMs ?? DEFAULT_AGENT_WEDGED_TIMEOUT_MS;
 		this.triggerDebounceMs = options.triggerDebounceMs;
 		this.getFetchContextWindow = options.getFetchContextWindow;
+		this.messageTemplates = options.messageTemplates;
+		this.agentDir = options.agentDir;
+		this.cwd = options.cwd;
 	}
 
 	static prepare(options: PrepareCharacterRuntimeOptions): CharacterRuntime {
@@ -806,6 +820,11 @@ export class CharacterRuntime {
 			...(this.cursorStorePath !== undefined ? { cursorStorePath: this.cursorStorePath } : {}),
 			// #138：上下文窗口 getter 跨 reload 携带（reload 后与 join 路径行为一致）。
 			...(this.getFetchContextWindow !== undefined ? { getFetchContextWindow: this.getFetchContextWindow } : {}),
+			// #154 T5：模板集快照跨 reload 携带（reload 后渲染一致，不回落默认）。
+			...(this.messageTemplates !== undefined ? { messageTemplates: this.messageTemplates } : {}),
+			// #154 复评：路径随 handoff 携带，takeHandoff 据此重新加载磁盘配置。
+			...(this.agentDir !== undefined ? { agentDir: this.agentDir } : {}),
+			...(this.cwd !== undefined ? { cwd: this.cwd } : {}),
 			// #119 connection 延续：连接实例随 handoff 移交（新 runtime 不重建——
 			// 库内序列单调，旧代际响应撞不上新请求 id，评审阻断②）。
 			...(this.jsonrpcConnection && this.jsonrpcReader && this.jsonrpcWriter
@@ -863,6 +882,9 @@ export class CharacterRuntime {
 		handoff: CharacterReloadHandoff,
 		pi?: ExtensionAPI,
 		notify?: (message: string) => void,
+		// #154 复评（Arch）：恢复路径配置加载器注入化（同 headless AutoJoinOptions
+		// loadConfig 模式，默认 loadTavernConfig；测试可注入 mock）。
+		loadConfig: (options: { agentDir: string; cwd: string }) => Promise<TavernConfig> = loadTavernConfig,
 	): Promise<CharacterRuntime> {
 		if (handoff.socketClosed) {
 			void handoff.cleanup();
@@ -885,6 +907,22 @@ export class CharacterRuntime {
 				`reload: failed to re-read character card ${handoff.character.path}, keeping the previous one: ${error instanceof Error ? error.message : String(error)}`,
 			);
 		}
+		// #154 复评（苍蓝星）：reload 时重新加载磁盘配置——模板修改经
+		// /tavern-template-edit 落盘后，reload 使新配置生效（同角色卡重读模式）。
+		// 失败：warning + 保留旧快照，reload 继续，绝不使会话崩溃。
+		let messageTemplates = handoff.messageTemplates;
+		if (handoff.agentDir !== undefined && handoff.cwd !== undefined) {
+			try {
+				const reloaded = await loadConfig({ agentDir: handoff.agentDir, cwd: handoff.cwd });
+				// 复评（苍蓝星第三轮）：reload 成功即采用磁盘配置——messageTemplates
+				// 缺省时清除旧快照（消费面回落内置默认）；仅加载抛错才保留旧快照。
+				messageTemplates = reloaded.messageTemplates;
+			} catch (error) {
+				notify?.(
+					`reload: failed to reload tavern.json, keeping the previous message templates: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
+		}
 		const runtime = new CharacterRuntime({
 			groupChatId: handoff.groupChatId,
 			sessionId: handoff.piSessionId,
@@ -892,6 +930,11 @@ export class CharacterRuntime {
 			...(handoff.cursorStorePath !== undefined ? { cursorStorePath: handoff.cursorStorePath } : {}),
 			// #138：上下文窗口 getter 跨 reload 延续（reload 后与 join 路径行为一致）。
 			...(handoff.getFetchContextWindow !== undefined ? { getFetchContextWindow: handoff.getFetchContextWindow } : {}),
+			// #154 T5：模板集跨 reload 延续——先磁盘重载、失败回落快照。
+			...(messageTemplates !== undefined ? { messageTemplates } : {}),
+			// #154 复评：路径随 runtime 延续（后续再次 reload 仍可重载磁盘配置）。
+			...(handoff.agentDir !== undefined ? { agentDir: handoff.agentDir } : {}),
+			...(handoff.cwd !== undefined ? { cwd: handoff.cwd } : {}),
 		});
 		runtime.activateFromHandoff(handoff, pi);
 		return runtime;

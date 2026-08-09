@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_CONFIG_MAX_MESSAGES, loadTavernConfig } from "../config/load-config.js";
+import { DEFAULT_TEMPLATES } from "../config/message-templates.js";
 import type { CreatorReloadHandoff } from "../controller/reload-handoff-registry.js";
 import { createBoardStore } from "../data/board-store.js";
 import { countPersistedEntries } from "../data/cursor-store.js";
@@ -78,6 +79,8 @@ export async function createNewRuntime(
 	const configMaxMessages = options.configMaxMessages ?? DEFAULT_CONFIG_MAX_MESSAGES;
 	// #123：欢迎文案（缺省 = 代码默认值；与 board 先例一致，值传快照）。
 	const welcomeMessage = options.welcomeMessage ?? DEFAULT_WELCOME_MESSAGE;
+	// #154：群聊文案模板集（缺省 = 内置中文；与 welcomeMessage 同款值传快照）。
+	const messageTemplates = options.messageTemplates ?? DEFAULT_TEMPLATES;
 	const state = createGroupChatState({
 		groupChatId,
 		createdAt,
@@ -119,6 +122,7 @@ export async function createNewRuntime(
 		activeDescriptorPath,
 		configMaxMessages,
 		welcomeMessage,
+		messageTemplates,
 		options.characters ?? [],
 		runtimeDeps.readyTimeoutMs,
 		runtimeDeps,
@@ -157,6 +161,8 @@ export async function resumeRuntime(
 	const configMaxMessages = options.configMaxMessages ?? DEFAULT_CONFIG_MAX_MESSAGES;
 	// #123：欢迎文案（缺省 = 代码默认值；与 board 先例一致，值传快照）。
 	const welcomeMessage = options.welcomeMessage ?? DEFAULT_WELCOME_MESSAGE;
+	// #154：群聊文案模板集（缺省 = 内置中文；与 welcomeMessage 同款值传快照）。
+	const messageTemplates = options.messageTemplates ?? DEFAULT_TEMPLATES;
 	// 前置拒绝缺失/空文件：SessionManager.open() 在文件不存在或为空时静默
 	// 创建全新随机会话，会导致为幽灵群聊发布 active descriptor。
 	const sessionStat = statSync(options.sessionPath, { throwIfNoEntry: false });
@@ -271,6 +277,7 @@ export async function resumeRuntime(
 		activeDescriptorPath,
 		configMaxMessages,
 		welcomeMessage,
+		messageTemplates,
 		options.characters ?? [],
 		runtimeDeps.readyTimeoutMs,
 		runtimeDeps,
@@ -307,6 +314,7 @@ export function createFromHandoff(
 		handoff.activeDescriptorPath,
 		handoff.configMaxMessages,
 		handoff.welcomeMessage,
+		handoff.messageTemplates,
 		handoff.characters,
 		dependencies.readyTimeoutMs,
 		dependencies,

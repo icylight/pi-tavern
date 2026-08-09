@@ -4,6 +4,7 @@ import type WebSocket from "ws";
 import type { WebSocketServer } from "ws";
 
 import type { CharacterCard } from "../config/character-card.js";
+import type { MessageTemplateKey } from "../config/message-templates.js";
 import type { BoardStore } from "../data/board-store.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
@@ -56,6 +57,8 @@ export interface CreatorReloadHandoff {
 	configMaxMessages: number;
 	/** #123：欢迎文案（配置快照随 handoff 传递，reload 后 ready 行为一致）。 */
 	welcomeMessage: string;
+	/** #154：群聊文案模板集（配置快照随 handoff 传递，reload 后渲染一致）。 */
+	messageTemplates: Record<MessageTemplateKey, string>;
 	characters: CharacterCard[];
 	publicMessages: PublicMessageState[];
 	persistedCount: number;
@@ -80,6 +83,11 @@ export interface CharacterReloadHandoff {
 	cursorStorePath?: string;
 	/** #138：增量拉取上下文窗口 getter（reload 移交后与 join 路径行为一致）。 */
 	getFetchContextWindow?: () => number;
+	/** #154 T5：群聊文案模板集快照（reload 移交后渲染一致，苍蓝星阻断 2 修复）。 */
+	messageTemplates?: Record<MessageTemplateKey, string>;
+	/** #154 复评：reload 时重新加载磁盘配置所需路径（有则 takeHandoff 重载，失败保留快照）。 */
+	agentDir?: string;
+	cwd?: string;
 	pendingEvents: ServerMessage[];
 	debounceDueAt: number | null;
 	/** 可选仅为兼容这些字段加入前创建的跨版本 reload handoff。 */

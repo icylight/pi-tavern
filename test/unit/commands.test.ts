@@ -16,7 +16,9 @@ import { createGroupChatState } from "../../src/data/group-chat-state.js";
 import {
 	CHARACTER_EDIT_PROMPT,
 	ERROR_CHARACTER_EDIT_STATE,
-	NOTIFY_CHARACTER_EDIT_QUEUED,
+	ERROR_TEMPLATE_EDIT_STATE,
+	NOTIFY_COMMAND_QUEUED,
+	TEMPLATE_EDIT_PROMPT,
 } from "../../src/shared/messages.js";
 
 const descriptor: ActiveGroupChatDescriptor = {
@@ -128,6 +130,7 @@ describe("PiTavern commands", () => {
 				"tavern-name",
 				"tavern-set-max",
 				"tavern-character-edit",
+				"tavern-template-edit",
 				"tavern-leave",
 			]);
 		} finally {
@@ -362,7 +365,7 @@ describe("PiTavern commands", () => {
 
 		await commands.get("tavern-character-edit")?.handler("排队测试", context);
 		// busy 分支：排队通知 + sendUserMessage 仍以 followUp 调用（不 throw）。
-		expect(notify).toHaveBeenCalledWith(NOTIFY_CHARACTER_EDIT_QUEUED, "info");
+		expect(notify).toHaveBeenCalledWith(NOTIFY_COMMAND_QUEUED, "info");
 		expect(commands.sendUserMessage).toHaveBeenCalledTimes(1);
 		expect(commands.sendUserMessage.mock.calls[0]?.[1]).toEqual({ deliverAs: "followUp" });
 	});
@@ -429,6 +432,38 @@ describe("PiTavern commands", () => {
 		expect(joiningController.getState().type).toBe("character");
 		await joiningCommands.get("tavern-character-edit")?.handler("", joiningContext);
 		expect(joiningCommands.sendUserMessage).toHaveBeenCalledTimes(1);
+	});
+
+	it("T6 (#154): /tavern-template-edit 注册为 prompt command，参数展开 + 门禁 + 排队", async () => {
+		// idle：放行 + 参数展开。
+		const idleController = new TavernController();
+		const idleCommands = register(idleController);
+		const { context } = createContext();
+		await idleCommands.get("tavern-template-edit")?.handler("把秒前改成 seconds ago", context);
+		expect(idleCommands.sendUserMessage).toHaveBeenCalledTimes(1);
+		const message = idleCommands.sendUserMessage.mock.calls[0]?.[0];
+		expect(typeof message).toBe("string");
+		expect(message).toContain(TEMPLATE_EDIT_PROMPT);
+		expect(message).toContain("用户意图：把秒前改成 seconds ago");
+		expect(idleCommands.sendUserMessage.mock.calls[0]?.[1]).toEqual({ deliverAs: "followUp" });
+
+		// creator：拒绝（同 CE2 门禁语义）。
+		const runtime = createRuntime();
+		const creatorController = new TavernController(async () => runtime);
+		const creatorCommands = register(creatorController);
+		const { context: creatorContext, notify: creatorNotify } = createContext();
+		await creatorCommands.get("tavern-new")?.handler("", creatorContext);
+		await creatorCommands.get("tavern-template-edit")?.handler("", creatorContext);
+		expect(creatorNotify).toHaveBeenCalledWith(ERROR_TEMPLATE_EDIT_STATE, "error");
+		expect(creatorCommands.sendUserMessage).not.toHaveBeenCalled();
+
+		// busy：排队提示（复用 character-edit 排队文案，不 throw）。
+		const busyController = new TavernController();
+		const busyCommands = register(busyController);
+		const { context: busyContext, notify: busyNotify } = createContext({ isIdle: false });
+		await busyCommands.get("tavern-template-edit")?.handler("", busyContext);
+		expect(busyNotify).toHaveBeenCalledWith(NOTIFY_COMMAND_QUEUED, "info");
+		expect(busyCommands.sendUserMessage).toHaveBeenCalledTimes(1);
 	});
 
 	it("resumes a selected group chat with its session path", async () => {

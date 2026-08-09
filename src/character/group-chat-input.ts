@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { DEFAULT_TEMPLATES, type MessageTemplateKey, renderTemplate } from "../config/message-templates.js";
 import type { ServerMessage } from "../protocol/messages.js";
 import {
 	METHOD_BOARD_UPDATE,
@@ -861,9 +862,19 @@ export class GroupChatInput {
 					// #104：每条消息带发言时间 + 距当前注入时点的间隔（相对时间）。
 					// timestamp 为 ISO 字符串（creator 侧 toISOString 填充），
 					// 解析失败时静默降级为不带时间渲染，不阻塞消息展示。
-					const when = formatMessageTime(message.params.timestamp, now);
+					// #154：统一文案模板渲染——时间并入 vars.sender（契约方案 a：
+					// 默认模板 `{sender}:\n{content}` 产出与现状逐字一致，双测试锚）。
+					const when = formatMessageTime(
+						message.params.timestamp,
+						now,
+						this.runtime.messageTemplates ?? DEFAULT_TEMPLATES,
+					);
+					const templates = this.runtime.messageTemplates ?? DEFAULT_TEMPLATES;
 					parts.push(
-						when ? `${sender}（${when}）:\n${message.params.content}` : `${sender}:\n${message.params.content}`,
+						renderTemplate(templates.public_message, {
+							sender: when ? `${sender}（${when}）` : sender,
+							content: message.params.content,
+						}),
 					);
 				}
 			}
@@ -951,8 +962,14 @@ function formatDateTime(date: Date): string {
  * #104：格式化消息发言时间 + 距当前注入时点的间隔（相对时间）。
  * 返回 `YYYY-MM-DD HH:MM（x 分钟前 / x 秒前）`；timestamp 缺失或非法时
  * 返回 null（调用方降级为不带时间渲染）。<60s 显示秒级，否则分钟级。
+ * #154：相对时间段走 seconds_ago/minutes_ago 模板渲染（自定义生效）；
+ * 绝对时间戳与括号包裹留消费面（契约：本期只模板化相对时间）。
  */
-function formatMessageTime(timestamp: string | undefined, now: Date): string | null {
+function formatMessageTime(
+	timestamp: string | undefined,
+	now: Date,
+	templates: Record<MessageTemplateKey, string>,
+): string | null {
 	if (timestamp === undefined) {
 		return null;
 	}
@@ -966,6 +983,9 @@ function formatMessageTime(timestamp: string | undefined, now: Date): string | n
 		`${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
 	const elapsedMs = now.getTime() - parsed.getTime();
 	const elapsedSec = Math.max(0, Math.floor(elapsedMs / 1000));
-	const ago = elapsedSec < 60 ? `${elapsedSec} 秒前` : `${Math.floor(elapsedSec / 60)} 分钟前`;
+	const ago =
+		elapsedSec < 60
+			? renderTemplate(templates.seconds_ago, { count: String(elapsedSec) })
+			: renderTemplate(templates.minutes_ago, { count: String(Math.floor(elapsedSec / 60)) });
 	return `${at}（${ago}）`;
 }

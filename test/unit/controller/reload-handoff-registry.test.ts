@@ -40,6 +40,12 @@ function creatorHandoff(piSessionId: string, expiresAt: number, cleanup: () => P
 		configMaxMessages: 10,
 		// #123：欢迎文案（配置快照随 handoff 传递）。
 		welcomeMessage: "welcome-default",
+		// #154：群聊文案模板集（配置快照随 handoff 传递）。
+		messageTemplates: {
+			public_message: "{sender}:\\n{content}",
+			seconds_ago: "{count} 秒前",
+			minutes_ago: "{count} 分钟前",
+		},
 		characters: [],
 		publicMessages: [],
 		persistedCount: 0,
