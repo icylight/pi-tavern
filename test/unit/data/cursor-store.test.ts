@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+	countEntriesByType,
 	countPersistedEntries,
 	decodeCursor,
 	encodeCursor,
@@ -80,6 +81,22 @@ describe("cursor-store", () => {
 			expect(countPersistedEntries([])).toBe(0);
 			expect(countPersistedEntries([{ type: "message" }])).toBe(0);
 			expect(countPersistedEntries([{ type: "label" }])).toBe(0);
+		});
+
+		it("countEntriesByType breaks down per type without a total (#152 苍蓝星指示)", () => {
+			const entries = [
+				{ type: "session_info" },
+				{ type: "custom_message", customType: "pi-tavern.public-message" },
+				{ type: "custom_message", customType: "pi-tavern.public-message" },
+				{ type: "custom_message", customType: "pi-tavern.whisper-message" },
+				{ type: "message" },
+			];
+			expect(countEntriesByType(entries)).toEqual({
+				session_info: 1,
+				"pi-tavern.public-message": 2,
+				"pi-tavern.whisper-message": 1,
+				message: 1,
+			});
 		});
 	});
 

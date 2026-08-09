@@ -22,9 +22,9 @@ export function decodeCursor(cursor: string): number | null {
 }
 
 /**
- * 统计会话条目中 PiTavern 自有的已持久化条目数（session_info /
- * pi-tavern.group-settings / pi-tavern.public-message）。resume 时据此恢复
- * persistedCount：计数只取决于条目类型，与其余状态重建逻辑无关。
+ * 统计会话条目中 PiTavern 自有的已持久化条目数（类型集合见
+ * PERSISTED_ENTRY_TYPES，单一事实源）。resume 时据此恢复 persistedCount：
+ * 计数只取决于条目类型，与其余状态重建逻辑无关。
  */
 /**
  * PiTavern 自有、写入群聊 session JSONL 的条目类型集合（单一事实源）：
@@ -52,6 +52,20 @@ export function countPersistedEntries(entries: readonly { type: string; customTy
 		}
 	}
 	return count;
+}
+
+/**
+ * 按类型分列的条目统计（不带总数，苍蓝星 2026-08-09 指示；QA 形状确认）：
+ * key = entry.customType ?? entry.type，value = 计数；纯观测面（调试/展示分布），
+ * 不参与恢复逻辑、不做总数合并。新增 JSONL 持久化类型无需改动即自动纳入。
+ */
+export function countEntriesByType(entries: readonly { type: string; customType?: string }[]): Record<string, number> {
+	const counts: Record<string, number> = {};
+	for (const entry of entries) {
+		const key = entry.customType ?? entry.type;
+		counts[key] = (counts[key] ?? 0) + 1;
+	}
+	return counts;
 }
 
 /**
