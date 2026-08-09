@@ -44,7 +44,7 @@ import {
 	ERROR_NO_ACTIVE_GROUP_CHAT_FOR_PROJECT,
 	ERROR_RESUME_REQUIRES_UI,
 	ERROR_TEMPLATE_EDIT_STATE,
-	NOTIFY_CHARACTER_EDIT_QUEUED,
+	NOTIFY_COMMAND_QUEUED,
 	NOTIFY_CREATED_MID,
 	NOTIFY_CREATED_PREFIX,
 	NOTIFY_CREATOR_ONLY_MESSAGE,
@@ -471,7 +471,7 @@ export function registerCommands(
 			// 无 streamingBehavior 时 streaming 态必抛；idle 时该选项被忽略）。
 			const intent = args.trim();
 			if (!ctx.isIdle()) {
-				ctx.ui.notify(NOTIFY_CHARACTER_EDIT_QUEUED, "info");
+				ctx.ui.notify(NOTIFY_COMMAND_QUEUED, "info");
 			}
 			pi.sendUserMessage(intent ? `${CHARACTER_EDIT_PROMPT}\n\n用户意图：${intent}` : CHARACTER_EDIT_PROMPT, {
 				deliverAs: "followUp",
@@ -492,7 +492,7 @@ export function registerCommands(
 			// deliverAs: "followUp"——非 idle 排队到当前 turn 结束，避免 throw。
 			const intent = args.trim();
 			if (!ctx.isIdle()) {
-				ctx.ui.notify(NOTIFY_CHARACTER_EDIT_QUEUED, "info");
+				ctx.ui.notify(NOTIFY_COMMAND_QUEUED, "info");
 			}
 			pi.sendUserMessage(intent ? `${TEMPLATE_EDIT_PROMPT}\n\n用户意图：${intent}` : TEMPLATE_EDIT_PROMPT, {
 				deliverAs: "followUp",

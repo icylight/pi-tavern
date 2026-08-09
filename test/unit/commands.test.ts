@@ -17,7 +17,7 @@ import {
 	CHARACTER_EDIT_PROMPT,
 	ERROR_CHARACTER_EDIT_STATE,
 	ERROR_TEMPLATE_EDIT_STATE,
-	NOTIFY_CHARACTER_EDIT_QUEUED,
+	NOTIFY_COMMAND_QUEUED,
 	TEMPLATE_EDIT_PROMPT,
 } from "../../src/shared/messages.js";
 
@@ -365,7 +365,7 @@ describe("PiTavern commands", () => {
 
 		await commands.get("tavern-character-edit")?.handler("排队测试", context);
 		// busy 分支：排队通知 + sendUserMessage 仍以 followUp 调用（不 throw）。
-		expect(notify).toHaveBeenCalledWith(NOTIFY_CHARACTER_EDIT_QUEUED, "info");
+		expect(notify).toHaveBeenCalledWith(NOTIFY_COMMAND_QUEUED, "info");
 		expect(commands.sendUserMessage).toHaveBeenCalledTimes(1);
 		expect(commands.sendUserMessage.mock.calls[0]?.[1]).toEqual({ deliverAs: "followUp" });
 	});
@@ -462,7 +462,7 @@ describe("PiTavern commands", () => {
 		const busyCommands = register(busyController);
 		const { context: busyContext, notify: busyNotify } = createContext({ isIdle: false });
 		await busyCommands.get("tavern-template-edit")?.handler("", busyContext);
-		expect(busyNotify).toHaveBeenCalledWith(NOTIFY_CHARACTER_EDIT_QUEUED, "info");
+		expect(busyNotify).toHaveBeenCalledWith(NOTIFY_COMMAND_QUEUED, "info");
 		expect(busyCommands.sendUserMessage).toHaveBeenCalledTimes(1);
 	});
 

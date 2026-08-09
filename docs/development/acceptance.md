@@ -206,7 +206,7 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 
 1. **T1 配置加载与合并**：`message_templates` 可选字段，指向相对该配置文件的独立 JSON 文件；两层配置（项目/全局）按 key 逐项合并，优先级项目 > 全局 > 内置中文，允许部分覆盖；
 2. **T2 容错回退**：文件缺失、JSON 无法解析或单项无效时 warning 并逐项回退（回退链内下一档或内置中文），不阻止群聊启动；
-3. **T3 五类模板覆盖**：公开消息、完整私信、私信占位、秒前、分钟前五类 key 可配置；实时注入、`tavern_history` 与创建者 TUI 三个消费面渲染结果一致（同一模板集复用 + 渲染参数按消费面传值：实时注入 sender 含 when 段、history/TUI 纯 sender——传值差异不是不一致，QA 断言口径 2026-08-09）；**私信两类模板的渲染验收挂 #152 实现后补验（依赖链 #152 → #154 私信渲染），本期验证模板加载/校验/默认值存在性**（同 #155 RH3 裁剪先例）；**默认模板形态（Arch 裁决留痕）**：public_message=`{sender}:\n{content}`（含换行——实时注入面与现状逐字一致零变化；history 面双行化，无测试钉死可接受）、seconds_ago=`{count} 秒前`、minutes_ago=`{count} 分钟前`、whisper 两 key 按 #152 投影规则定义契约；
+3. **T3 五类模板覆盖**：公开消息、完整私信、私信占位、秒前、分钟前五类 key 可配置；实时注入、`tavern_history` 与创建者 TUI 三个消费面渲染结果一致（同一模板集复用 + 渲染参数按消费面传值：实时注入 sender 含 when 段、history/TUI 纯 sender——传值差异不是不一致，QA 断言口径 2026-08-09）；**TUI 统一渲染留痕**：creator-display 移除 `[label]` 前缀、label 统一 "User Persona"（为三消费面统一模板渲染所需，行为变化随 #154 留痕）；**私信两类模板的渲染验收挂 #152 实现后补验（依赖链 #152 → #154 私信渲染），本期验证模板加载/校验/默认值存在性**（同 #155 RH3 裁剪先例）；**默认模板形态（Arch 裁决留痕）**：public_message=`{sender}:\n{content}`（含换行——实时注入面与现状逐字一致零变化；history 面双行化，无测试钉死可接受）、seconds_ago=`{count} 秒前`、minutes_ago=`{count} 分钟前`、whisper 两 key 按 #152 投影规则定义契约；
 4. **T4 占位符规则**：模板仅支持简单 `{placeholder}` 替换——公开消息必须保留发送者与正文；完整私信必须保留发送者、接收者与正文；私信占位必须保留发送者、接收者且禁止正文；相对时间必须保留数量；未知、缺失或禁止的占位符均判为无效（单项回退）；
 5. **T5 加载生命周期**：creator 在 `/tavern-new`、`/tavern-resume`、`/reload` 加载；Character 在 claim/join/reload 加载；不做文件监听或自动热更新；
 6. **T6 /tavern-template-edit**：prompt command 支持自然语言参数；默认建议编辑全局配置但必须让用户选择（全局/当前项目/其他配置）；写入前展示 diff 并取得明确确认；写入后告知需 reload/rejoin/resume 后生效；

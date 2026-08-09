@@ -396,9 +396,8 @@ export const CMD_DESC_TEMPLATE_EDIT = "Edit the group chat message templates thr
  */
 export const ERROR_CHARACTER_EDIT_STATE = "/tavern-character-edit is only available when idle or joined as a Character";
 
-/** #153：/tavern-character-edit 排队提示（agent busy 时 followUp 排队，Arch 建议反馈）。 */
-export const NOTIFY_CHARACTER_EDIT_QUEUED =
-	"/tavern-character-edit queued — it will run after the current turn finishes";
+/** #153/#154：prompt command 排队提示（agent busy 时 followUp 排队；Arch 建议通用文案，两命令共用）。 */
+export const NOTIFY_COMMAND_QUEUED = "Command queued — it will run after the current turn finishes";
 
 /**
  * #154 T6：/tavern-template-edit 的 LLM 访谈指令（prompt command 语义，
