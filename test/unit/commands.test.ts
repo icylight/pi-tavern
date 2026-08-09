@@ -343,6 +343,10 @@ describe("PiTavern commands", () => {
 		expect(message).toContain(CHARACTER_EDIT_PROMPT);
 		expect(message).toContain("用户意图：创建一个叫 QA 的角色卡");
 		expect(commands.sendUserMessage.mock.calls[0]?.[1]).toEqual({ deliverAs: "followUp" });
+		// CE5 评审补强（苍蓝星 PR #158 阻断 1）：配置幂等/安全约束显式存在于 prompt。
+		expect(message).toContain("保留全部现有字段");
+		expect(message).toContain("幂等");
+		expect(message).toContain("配置无变化");
 
 		// 无参数（仅空白）：只注入 prompt 本体，不追加空意图。
 		commands.sendUserMessage.mockClear();

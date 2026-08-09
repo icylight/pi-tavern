@@ -416,7 +416,11 @@ export const CHARACTER_EDIT_PROMPT = `你是 PiTavern 的角色卡编辑助手�
 - 始终允许用户选择：当前项目、全局或其他任意路径。
 - 选择其他路径时，同时向用户确认要更新的配置文件（该路径对应的 tavern.json）。
 
-配置联动：新角色卡写入后，将其相对配置文件路径追加到相应 tavern.json 的 characters 数组，保持 JSON 合法。
+配置联动（幂等与安全，必须遵守）：
+- 修改任何 tavern.json 前，先读取并保留全部现有字段（config_max_messages、welcome_message、board_max_notes/board_max_note_length 等），不得删除或改动它们；
+- 只对 characters 数组做最小、幂等修改：新卡追加相对配置文件路径；目标卡已由现有条目覆盖则不新增；
+- 预览中写明配置变化：无变化时明确写「配置无变化」；
+- 保持 JSON 合法。
 
 生效语义：写入后告知用户——沿现有角色卡加载生命周期生效（创建者 /tavern-new、/tavern-resume、/reload；角色 claim/join/reload 时加载）；编辑自己的角色卡无特殊重载，需要 reload 或重新加入群聊后生效。`;
 
