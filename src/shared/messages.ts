@@ -175,6 +175,12 @@ export const ERROR_READ_CHARACTER_MD_PREFIX = "Failed to read Character Markdown
 export const ERROR_READ_CHARACTER_DIR_PREFIX = "Failed to read Character directory: ";
 /** 配置解析失败前缀。 */
 export const ERROR_PARSE_CONFIG_PREFIX = "Failed to parse PiTavern config: ";
+/** #154：message_templates 文件读取/解析失败前缀（warning，回退内置不阻断）。 */
+export const WARNING_MESSAGE_TEMPLATE_FILE_PREFIX = "[tavern] message template file ";
+/** #154：message_templates 未知/非法 key 前缀（warning，逐项回退）。 */
+export const WARNING_MESSAGE_TEMPLATE_KEY_PREFIX = "[tavern] message template key ";
+/** #154：message_templates 单项无效回退前缀（warning，逐项回退低层）。 */
+export const WARNING_MESSAGE_TEMPLATE_LAYER_PREFIX = "[tavern] message template ";
 /** 角色 Markdown 解析失败前缀。 */
 export const ERROR_PARSE_CHARACTER_MD_PREFIX = "Failed to parse Character Markdown: ";
 /** 活动群聊发现失败前缀。 */
@@ -381,6 +387,8 @@ export const CMD_DESC_TEST_HISTORY =
 export const CMD_DESC_LEAVE = "Close or leave the current PiTavern group chat";
 /** #153：tavern-character-edit 命令描述（prompt command，LLM 访谈执行）。 */
 export const CMD_DESC_CHARACTER_EDIT = "Create or edit a Character card through an LLM interview";
+/** #154 T6：tavern-template-edit 命令描述（prompt command，LLM 访谈执行）。 */
+export const CMD_DESC_TEMPLATE_EDIT = "Edit the group chat message templates through an LLM interview";
 
 /**
  * #153：/tavern-character-edit 门禁拒绝文案（idle/Character 可用，
@@ -391,6 +399,31 @@ export const ERROR_CHARACTER_EDIT_STATE = "/tavern-character-edit is only availa
 /** #153：/tavern-character-edit 排队提示（agent busy 时 followUp 排队，Arch 建议反馈）。 */
 export const NOTIFY_CHARACTER_EDIT_QUEUED =
 	"/tavern-character-edit queued — it will run after the current turn finishes";
+
+/**
+ * #154 T6：/tavern-template-edit 的 LLM 访谈指令（prompt command 语义，
+ * 与 /tavern-character-edit 同机制——LLM 访谈用户，不实现固定表单）。
+ * 尾随自然语言参数展开在 prompt 之后。
+ */
+export const TEMPLATE_EDIT_PROMPT = `你是 PiTavern 的群聊文案模板编辑助手。请通过访谈完成用户请求：编辑 message_templates 文案文件（群聊消息渲染模板）。不实现固定表单——按用户自然语言意图逐步确认。
+
+模板文件（必须遵守）：
+- tavern.json 的可选 message_templates 字段指向独立 JSON 文件（相对该配置文件的路径）；
+- 文件为 JSON 对象，key 必须是合法 key（public_message / whisper_full / whisper_placeholder / seconds_ago / minutes_ago），未知 key 无效；
+- 占位符规则（仅支持简单 {placeholder} 替换）：\n  - public_message 必留 {sender} 与 {content}；\n  - whisper_full 必留 {sender}/{receiver}/{content}；\n  - whisper_placeholder 必留 {sender}/{receiver} 且禁止 {content}；\n  - seconds_ago 与 minutes_ago 必留 {count}；\n  - 未知/缺失/禁止占位符判为无效。
+
+编辑流程（必须遵守）：
+1. 首先必须让用户选择要编辑的配置文件：默认建议编辑全局配置（agent 目录 tavern.json），但必须提供选项：全局 / 当前项目（.pi/tavern.json）/ 其他任意路径；
+2. 读取目标配置文件（不存在时按需创建）与模板文件现状；
+3. 产出修改后展示 diff（逐项列出变化），取得用户明确确认后写入；用户取消则零写入；
+4. 写入时保持 JSON 合法；未取得明确确认前不得写任何文件。
+
+生效语义：写入后告知用户——模板在 reload/rejoin/resume 后生效（creator 在 /tavern-new、/tavern-resume、/reload 加载；Character 在 claim/join/reload 加载），不做文件监听或热更新。
+
+参考：内置中文默认值与规则可用工具 tavern_template_defaults 获取。`;
+
+/** #154 T6：/tavern-template-edit 门禁拒绝文案（idle/Character 可用，creator/joining 拒绝，同 CE2）。 */
+export const ERROR_TEMPLATE_EDIT_STATE = "/tavern-template-edit is only available when idle or joined as a Character";
 
 /**
  * #153：/tavern-character-edit 的 LLM 访谈指令（prompt command 语义——
@@ -454,6 +487,14 @@ export const TOOL_HISTORY_TOTAL_PREFIX = "total=";
 export const TOOL_HISTORY_EMPTY = "群聊暂无历史消息。";
 /** tavern_history 输出：拉取不可用（连接已断开）。 */
 export const TOOL_HISTORY_UNAVAILABLE = "Error: 群聊历史暂不可用（连接可能已断开），请稍后重试。";
+/** #154 T7：tavern_template_defaults 工具 label（LLM-only，不注册 slash command）。 */
+export const TOOL_TEMPLATE_DEFAULTS_LABEL = "Tavern Template Defaults";
+/** #154 T7：tavern_template_defaults 工具描述。 */
+export const TOOL_TEMPLATE_DEFAULTS_DESCRIPTION =
+	"返回群聊文案模板的内置中文默认值、合法 key、各 key 占位符规则与 JSON 骨架（只读，供编辑 message_templates 配置文件参考）。";
+/** #154 T7：tavern_template_defaults 门禁拒绝（creator/joining 状态不可用，统一文案）。 */
+export const TOOL_TEMPLATE_DEFAULTS_STATE_REJECTED =
+	"Error: tavern_template_defaults is only available when idle or joined as a Character.";
 /** 未以 Character 身份加入群聊（工具错误提示）。 */
 export const TOOL_NOT_JOINED_AS_CHARACTER = "Error: You are not currently joined to a group chat as a Character.";
 

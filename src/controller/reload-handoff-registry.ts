@@ -4,6 +4,7 @@ import type WebSocket from "ws";
 import type { WebSocketServer } from "ws";
 
 import type { CharacterCard } from "../config/character-card.js";
+import type { MessageTemplateKey } from "../config/message-templates.js";
 import type { BoardStore } from "../data/board-store.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
@@ -56,6 +57,8 @@ export interface CreatorReloadHandoff {
 	configMaxMessages: number;
 	/** #123：欢迎文案（配置快照随 handoff 传递，reload 后 ready 行为一致）。 */
 	welcomeMessage: string;
+	/** #154：群聊文案模板集（配置快照随 handoff 传递，reload 后渲染一致）。 */
+	messageTemplates: Record<MessageTemplateKey, string>;
 	characters: CharacterCard[];
 	publicMessages: PublicMessageState[];
 	persistedCount: number;

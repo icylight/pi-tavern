@@ -3,6 +3,7 @@ import { createMessageConnection, type MessageConnection, ResponseError } from "
 import WebSocket from "ws";
 
 import { type ClaimedCharacter, loadClaimedCharacter } from "../config/character-card.js";
+import type { MessageTemplateKey } from "../config/message-templates.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
 import { decodeServerMessage, MAX_WEBSOCKET_FRAME_BYTES } from "../protocol/codec.js";
 import { type CharacterSummaryWire, JSONRPC_VERSION, type ServerMessage } from "../protocol/messages.js";
@@ -44,6 +45,8 @@ export interface JoinAttemptOptions {
 	triggerDebounceMs?: number;
 	/** #138：增量拉取上下文窗口 getter（getter 闭包，每轮实时取值），转发给 CharacterRuntime。 */
 	getFetchContextWindow?: () => number;
+	/** #154：群聊文案模板集（claim 时本地配置加载，转发给 CharacterRuntime）。 */
+	messageTemplates?: Record<MessageTemplateKey, string>;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
@@ -71,6 +74,7 @@ export class JoinAttempt {
 	private readonly cursorStorePath: string | undefined;
 	private readonly triggerDebounceMs: number | undefined;
 	private readonly getFetchContextWindow: (() => number) | undefined;
+	private readonly messageTemplates: Record<MessageTemplateKey, string> | undefined;
 	private transferred = false;
 	private closed = false;
 
@@ -121,6 +125,7 @@ export class JoinAttempt {
 		this.cursorStorePath = options.cursorStorePath;
 		this.triggerDebounceMs = options.triggerDebounceMs;
 		this.getFetchContextWindow = options.getFetchContextWindow;
+		this.messageTemplates = options.messageTemplates;
 		this.socket.on("message", this.onMessage);
 		this.socket.on("close", this.onClose);
 		this.socket.on("error", this.onError);
@@ -203,6 +208,7 @@ export class JoinAttempt {
 				...(this.cursorStorePath !== undefined ? { cursorStorePath: this.cursorStorePath } : {}),
 				...(this.triggerDebounceMs !== undefined ? { triggerDebounceMs: this.triggerDebounceMs } : {}),
 				...(this.getFetchContextWindow !== undefined ? { getFetchContextWindow: this.getFetchContextWindow } : {}),
+				...(this.messageTemplates !== undefined ? { messageTemplates: this.messageTemplates } : {}),
 			});
 			const readyResponse = await this.request({ method: METHOD_CHARACTER_READY, params: {} });
 			if ("error" in readyResponse) {

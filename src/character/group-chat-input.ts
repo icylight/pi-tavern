@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { DEFAULT_TEMPLATES, renderTemplate } from "../config/message-templates.js";
 import type { ServerMessage } from "../protocol/messages.js";
 import {
 	METHOD_BOARD_UPDATE,
@@ -861,9 +862,15 @@ export class GroupChatInput {
 					// #104：每条消息带发言时间 + 距当前注入时点的间隔（相对时间）。
 					// timestamp 为 ISO 字符串（creator 侧 toISOString 填充），
 					// 解析失败时静默降级为不带时间渲染，不阻塞消息展示。
+					// #154：统一文案模板渲染——时间并入 vars.sender（契约方案 a：
+					// 默认模板 `{sender}:\n{content}` 产出与现状逐字一致，双测试锚）。
 					const when = formatMessageTime(message.params.timestamp, now);
+					const templates = this.runtime.messageTemplates ?? DEFAULT_TEMPLATES;
 					parts.push(
-						when ? `${sender}（${when}）:\n${message.params.content}` : `${sender}:\n${message.params.content}`,
+						renderTemplate(templates.public_message, {
+							sender: when ? `${sender}（${when}）` : sender,
+							content: message.params.content,
+						}),
 					);
 				}
 			}

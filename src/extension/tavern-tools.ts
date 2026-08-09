@@ -1,6 +1,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
+import {
+	DEFAULT_TEMPLATES,
+	MESSAGE_TEMPLATE_KEYS,
+	type MessageTemplateKey,
+	renderTemplate,
+} from "../config/message-templates.js";
 import type { TavernController } from "../controller/tavern-controller.js";
 import type { BoardWriteDataWire } from "../protocol/messages.js";
 import {
@@ -35,6 +41,9 @@ import {
 	TOOL_NOT_JOINED_AS_CHARACTER,
 	TOOL_SPEAK_DESCRIPTION,
 	TOOL_SPEAK_LABEL,
+	TOOL_TEMPLATE_DEFAULTS_DESCRIPTION,
+	TOOL_TEMPLATE_DEFAULTS_LABEL,
+	TOOL_TEMPLATE_DEFAULTS_STATE_REJECTED,
 	TOOL_WHOAMI_DESC_PREFIX,
 	TOOL_WHOAMI_DESCRIPTION,
 	TOOL_WHOAMI_ID_PREFIX,
@@ -355,12 +364,15 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 					};
 				}
 				// P1-4：AI 自主拉取——消息列表 + 游标/分页元数据（has_more 决定续页）。
+				// #154：统一文案模板渲染（默认模板 `{sender}:\n{content}`，双行化按
+				// Arch 裁决 2026-08-09 留痕 T3；自定义模板逐字生效）。
+				const templates = state.runtime.messageTemplates ?? DEFAULT_TEMPLATES;
 				const lines = page.messages.map((m) => {
 					if (!("method" in m) || m.method !== METHOD_PUBLIC_MESSAGE) {
 						return "";
 					}
 					const sender = m.params.sender.type === "user_persona" ? "User Persona" : m.params.sender.name;
-					return `${sender}: ${m.params.content}`;
+					return renderTemplate(templates.public_message, { sender, content: m.params.content });
 				});
 				const text =
 					(page.messages.length === 0 ? TOOL_HISTORY_EMPTY : lines.join("\n")) +
@@ -380,4 +392,49 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 			}
 		},
 	});
+
+	// #154 T7：LLM-only 只读工具——返回内置中文默认值/合法 key/占位符规则/JSON 骨架。
+	// 不注册 slash command（仅 registerTool，T7 定稿）；idle/Character 可用，
+	// creator/joining 拒绝（门禁与 /tavern-character-edit 同语义）。
+	pi.registerTool({
+		name: "tavern_template_defaults",
+		label: TOOL_TEMPLATE_DEFAULTS_LABEL,
+		description: TOOL_TEMPLATE_DEFAULTS_DESCRIPTION,
+		parameters: Type.Object({}, { additionalProperties: false }),
+		execute: async (_toolCallId, _params, _signal, _onUpdate, _ctx) => {
+			const state = ctrl.getState();
+			if (state.type === "creator" || state.type === "joining") {
+				return {
+					content: [{ type: "text", text: TOOL_TEMPLATE_DEFAULTS_STATE_REJECTED }],
+					details: undefined,
+					isError: true,
+				};
+			}
+			const ruleLines = MESSAGE_TEMPLATE_KEYS.map((key) => {
+				const rule = TEMPLATE_RULES_DOC[key];
+				return `- ${key}: 必留 ${rule.required.join("/")}；合法 ${rule.allowed.join("/")}（未知/缺失/禁止占位符判无效）`;
+			}).join("\n");
+			const skeletonLines = MESSAGE_TEMPLATE_KEYS.map((key) => {
+				const rule = TEMPLATE_RULES_DOC[key];
+				const sample = rule.allowed.map((name) => `{${name}}`).join(" ");
+				return `  "${key}": "${sample}"`;
+			}).join(",\n");
+			const text =
+				`群聊文案模板（message_templates JSON 文件）内置中文默认值与规则：\n` +
+				`\n合法 key（5 个）：\n${MESSAGE_TEMPLATE_KEYS.join("、")}\n` +
+				`\n占位符规则：\n${ruleLines}\n` +
+				`\n默认值：\n${JSON.stringify(DEFAULT_TEMPLATES, null, 2)}\n` +
+				`\nJSON 骨架（tavern.json 的 message_templates 指向该文件，相对路径）：\n{\n${skeletonLines}\n}`;
+			return { content: [{ type: "text", text }], details: undefined };
+		},
+	});
 }
+
+/** #154 T7：各 key 占位符规则（工具输出文档用；校验逻辑以 validateTemplate 为准）。 */
+const TEMPLATE_RULES_DOC: Record<MessageTemplateKey, { required: string[]; allowed: string[] }> = {
+	public_message: { required: ["sender", "content"], allowed: ["sender", "content"] },
+	whisper_full: { required: ["sender", "receiver", "content"], allowed: ["sender", "receiver", "content"] },
+	whisper_placeholder: { required: ["sender", "receiver"], allowed: ["sender", "receiver"] },
+	seconds_ago: { required: ["count"], allowed: ["count"] },
+	minutes_ago: { required: ["count"], allowed: ["count"] },
+};

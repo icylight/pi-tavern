@@ -3,6 +3,7 @@ import { type ExtensionAPI, type InputEventResult, SessionManager } from "@earen
 import { setTestNotify } from "./character/group-chat-input.js";
 import { JoinAttempt } from "./character/join-attempt.js";
 import { registerCommands } from "./commands.js";
+import { DEFAULT_TEMPLATES } from "./config/message-templates.js";
 import { TavernController } from "./controller/tavern-controller.js";
 import type { CreatorRuntime } from "./creator/creator-runtime.js";
 import { createBoardStore } from "./data/board-store.js";
@@ -97,7 +98,12 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 		// 非活跃群聊（resumable 语义），无并发写者；B3 活动实例复用同一 store 时另行显式摘除。
 		deleteBoard: (groupId, boardDir) => createBoardStore({ boardDir }).deleteBoard(groupId),
 	});
-	registerRenderers(pi);
+	// #154：TUI 模板集 getter 闭包——从当前 creator runtime 实时取（reload/
+	// 新群聊后模板集变化可见），非 creator 态回落内置中文。
+	registerRenderers(pi, () => {
+		const state = ctrl.getState();
+		return state.type === "creator" ? (state.runtime.messageTemplates ?? DEFAULT_TEMPLATES) : DEFAULT_TEMPLATES;
+	});
 	registerTavernTools(pi, ctrl);
 	wireAgentLifecycle(pi, ctrl);
 

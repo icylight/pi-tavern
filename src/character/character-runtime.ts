@@ -4,6 +4,7 @@ import { createMessageConnection, type MessageConnection, ResponseError } from "
 import WebSocket from "ws";
 
 import { type CharacterCard, loadCharacterCard } from "../config/character-card.js";
+import type { MessageTemplateKey } from "../config/message-templates.js";
 import {
 	type BufferedFrame,
 	type CharacterJsonRpcTransfer,
@@ -98,6 +99,8 @@ interface PrepareCharacterRuntimeOptions {
 	 * 生产接线 = 客户端域组合根注入 getFetchContextWindow（默认 1）。
 	 */
 	getFetchContextWindow?: () => number;
+	/** #154：群聊文案模板集（缺省 undefined → 消费面回落 DEFAULT_TEMPLATES）。 */
+	messageTemplates?: Record<MessageTemplateKey, string>;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
@@ -139,6 +142,7 @@ export class CharacterRuntime {
 	private readonly triggerDebounceMs: number | undefined;
 	/** #138：增量拉取上下文窗口 getter（undefined → 窗口 0，行为不变）。 */
 	private readonly getFetchContextWindow: (() => number) | undefined;
+	readonly messageTemplates: Record<MessageTemplateKey, string> | undefined;
 	/** 新鲜状态快照到达后触发（TUI 刷新钩子）。 */
 	onStateSnapshot: ((snapshot: GroupChatStateMessage) => void) | undefined;
 	/**
@@ -256,6 +260,7 @@ export class CharacterRuntime {
 		this.agentWedgedTimeoutMs = options.agentWedgedTimeoutMs ?? DEFAULT_AGENT_WEDGED_TIMEOUT_MS;
 		this.triggerDebounceMs = options.triggerDebounceMs;
 		this.getFetchContextWindow = options.getFetchContextWindow;
+		this.messageTemplates = options.messageTemplates;
 	}
 
 	static prepare(options: PrepareCharacterRuntimeOptions): CharacterRuntime {

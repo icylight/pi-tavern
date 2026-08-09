@@ -15,6 +15,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { CharacterRuntime } from "../../src/character/character-runtime.js";
 import type { JoinAttempt } from "../../src/character/join-attempt.js";
+import { DEFAULT_TEMPLATES } from "../../src/config/message-templates.js";
 import type { CreatorReloadHandoff } from "../../src/controller/reload-handoff-registry.js";
 import { TavernController } from "../../src/controller/tavern-controller.js";
 import type { CreatorRuntime } from "../../src/creator/creator-runtime.js";
@@ -236,11 +237,13 @@ describe("PiTavern extension", () => {
 		const { tools, api } = captureTools();
 		piTavern(api as unknown as ExtensionAPI);
 
-		expect(tools).toHaveLength(4);
+		expect(tools).toHaveLength(5);
 		expect(tools[0]?.name).toBe("tavern_speak");
 		expect(tools[1]?.name).toBe("tavern_board");
 		expect(tools[2]?.name).toBe("tavern_whoami");
 		expect(tools[3]?.name).toBe("tavern_history");
+		// #154 T7：LLM-only 只读工具（不注册 slash command）。
+		expect(tools[4]?.name).toBe("tavern_template_defaults");
 
 		const tool = tools[0];
 		if (!tool) throw new Error("no tool");
@@ -248,6 +251,40 @@ describe("PiTavern extension", () => {
 		const result = await tool.execute("call-1", { content: "Hello" });
 		expect(result.isError).toBe(true);
 		expect(result.content[0]?.text).toContain("not currently joined");
+	});
+
+	it("T7 (#154): tavern_template_defaults 只读工具——门禁（creator/joining 拒绝）+ 内容含默认值/key/规则/骨架", async () => {
+		// idle 态：放行，返回完整契约信息。
+		const idleController = new TavernController();
+		const { tools, api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI, idleController);
+		const tool = tools[4];
+		if (!tool) throw new Error("no tool");
+		expect(tool.parameters).toEqual({ type: "object", properties: {}, additionalProperties: false });
+
+		const idleResult = await tool.execute("call-1", {});
+		expect(idleResult.isError).not.toBe(true);
+		const text = idleResult.content[0]?.text ?? "";
+		expect(text).toContain("public_message");
+		expect(text).toContain("seconds_ago");
+		expect(text).toContain("minutes_ago");
+		expect(text).toContain("whisper_full");
+		expect(text).toContain("whisper_placeholder");
+		expect(text).toContain("{sender}");
+		expect(text).toContain("{count}");
+		expect(text).toContain("JSON 骨架");
+
+		// creator 态：拒绝（门禁同 CE2 语义；不泄漏内部状态细节）。
+		const runtime = createMockCreatorRuntime();
+		const creatorController = new TavernController(async () => runtime);
+		const { tools: creatorTools, api: creatorApi } = captureTools();
+		piTavern(creatorApi as unknown as ExtensionAPI, creatorController);
+		const creatorTool = creatorTools[4];
+		if (!creatorTool) throw new Error("no tool");
+		await creatorController.startNew({ cwd: "/project", agentDir: "/agent" });
+		const rejected = await creatorTool.execute("call-1", {});
+		expect(rejected.isError).toBe(true);
+		expect(rejected.content[0]?.text).toContain("only available when idle or joined as a Character");
 	});
 
 	it("tavern_history returns a formatted history page and rejects when not a character (P1-4)", async () => {
@@ -299,6 +336,48 @@ describe("PiTavern extension", () => {
 		// 带 cursor = 向更早续页（透传）。
 		await tool.execute("call-2", { cursor: "opaque-1" });
 		expect(runtime.fetchMessageHistoryPage).toHaveBeenCalledWith("opaque-1");
+	});
+
+	it("T3 (#154): tavern_history 用自定义 public_message 模板渲染（三面同变）", async () => {
+		const historyPage = {
+			messages: [
+				{
+					jsonrpc: "2.0",
+					method: "public_message",
+					params: {
+						event_id: "evt-1",
+						sequence: 12,
+						timestamp: "2026-08-08T00:00:00.000Z",
+						sender: { type: "user_persona" },
+						content: "hello from history",
+						round: { round_max_messages: 20, used_messages: 1, remaining_messages: 19 },
+					},
+				},
+			],
+			cursor: null,
+			hasMore: false,
+			totalMessages: 1,
+		};
+		const runtime = {
+			character: { characterId: "dev", name: "Dev", description: "Dev" },
+			close: vi.fn(async () => undefined),
+			getGroupChatState: vi.fn(),
+			markIncrementPending: vi.fn(),
+			speak: vi.fn(),
+			boardWrite: vi.fn(),
+			fetchMessageHistoryPage: vi.fn(async () => historyPage),
+			messageTemplates: { ...DEFAULT_TEMPLATES, public_message: "[{sender}]→{content}" },
+		} as unknown as CharacterRuntime;
+		const controller = await createCharacterControllerWithRuntime(runtime);
+		const { tools, api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI, controller);
+
+		const tool = tools.find((t) => t.name === "tavern_history");
+		if (!tool) throw new Error("no tavern_history tool");
+
+		const result = await tool.execute("call-1", {});
+		const text = result.content[0]?.text as string;
+		expect(text).toContain("[User Persona]→hello from history");
 	});
 
 	it("tavern_history reports a clear error when not in character state (creator/idle)", async () => {

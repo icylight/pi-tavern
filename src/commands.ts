@@ -23,6 +23,7 @@ import {
 	CMD_DESC_RESUME,
 	CMD_DESC_SET_MAX,
 	CMD_DESC_STATUS,
+	CMD_DESC_TEMPLATE_EDIT,
 	CMD_DESC_TEST_BUSY,
 	CMD_DESC_TEST_HISTORY,
 	CMD_DESC_TEST_MESSAGE,
@@ -42,6 +43,7 @@ import {
 	ERROR_NO_ACTIVE_GROUP_CHAT,
 	ERROR_NO_ACTIVE_GROUP_CHAT_FOR_PROJECT,
 	ERROR_RESUME_REQUIRES_UI,
+	ERROR_TEMPLATE_EDIT_STATE,
 	NOTIFY_CHARACTER_EDIT_QUEUED,
 	NOTIFY_CREATED_MID,
 	NOTIFY_CREATED_PREFIX,
@@ -69,6 +71,7 @@ import {
 	SELECT_DELETE_HISTORY_CHOICE,
 	SELECT_DELETE_HISTORY_LABEL,
 	SELECT_RESUME_LABEL,
+	TEMPLATE_EDIT_PROMPT,
 	UI_GROUP_CHAT_LABEL_PREFIX,
 	UI_ID_LABEL,
 	UI_MESSAGES_USED,
@@ -124,6 +127,8 @@ export function registerCommands(
 					...(config.boardMaxNoteLength !== undefined ? { boardMaxNoteLength: config.boardMaxNoteLength } : {}),
 					// #123：欢迎文案透传（缺省 undefined → creator-factory 回落代码默认值）。
 					...(config.welcomeMessage !== undefined ? { welcomeMessage: config.welcomeMessage } : {}),
+					// #154：群聊文案模板集透传（缺省 undefined → creator-factory 回落内置中文）。
+					...(config.messageTemplates !== undefined ? { messageTemplates: config.messageTemplates } : {}),
 					characters: config.characters,
 				});
 				ctx.ui.notify(
@@ -191,6 +196,8 @@ export function registerCommands(
 					...(config.boardMaxNoteLength !== undefined ? { boardMaxNoteLength: config.boardMaxNoteLength } : {}),
 					// #123：欢迎文案透传（缺省 undefined → creator-factory 回落代码默认值）。
 					...(config.welcomeMessage !== undefined ? { welcomeMessage: config.welcomeMessage } : {}),
+					// #154：群聊文案模板集透传（缺省 undefined → creator-factory 回落内置中文）。
+					...(config.messageTemplates !== undefined ? { messageTemplates: config.messageTemplates } : {}),
 					characters: config.characters,
 				});
 				ctx.ui.notify(
@@ -226,6 +233,8 @@ export function registerCommands(
 					return;
 				}
 				const sessionId = ctx.sessionManager.getSessionId();
+				// #154 T5：Character 在 join 时加载配置（本地），模板集随 claim 转发。
+				const joinConfig = await loadConfig({ agentDir, cwd: ctx.cwd });
 				const attempt = await controller.startJoining(descriptor, sessionId, {
 					...(options.triggerDebounceMs !== undefined ? { triggerDebounceMs: options.triggerDebounceMs } : {}),
 					// 游标跟随 Session（User 2026-08-02）：cursors/<groupId>/<sessionId>.json，
@@ -235,6 +244,7 @@ export function registerCommands(
 						descriptor.groupChatId,
 						`${sessionId}.json`,
 					),
+					...(joinConfig.messageTemplates !== undefined ? { messageTemplates: joinConfig.messageTemplates } : {}),
 				});
 
 				while (attempt.isActive) {
@@ -464,6 +474,27 @@ export function registerCommands(
 				ctx.ui.notify(NOTIFY_CHARACTER_EDIT_QUEUED, "info");
 			}
 			pi.sendUserMessage(intent ? `${CHARACTER_EDIT_PROMPT}\n\n用户意图：${intent}` : CHARACTER_EDIT_PROMPT, {
+				deliverAs: "followUp",
+			});
+		},
+	});
+
+	pi.registerCommand("tavern-template-edit", {
+		description: CMD_DESC_TEMPLATE_EDIT,
+		handler: async (args, ctx) => {
+			// T6 状态门禁：idle/Character 可用，creator/joining 拒绝（同 CE2 语义）。
+			const state = controller.getState();
+			if (state.type === "creator" || state.type === "joining") {
+				ctx.ui.notify(ERROR_TEMPLATE_EDIT_STATE, "error");
+				return;
+			}
+			// T6：尾随自然语言参数展开进 LLM 访谈 prompt（#153 同机制）。
+			// deliverAs: "followUp"——非 idle 排队到当前 turn 结束，避免 throw。
+			const intent = args.trim();
+			if (!ctx.isIdle()) {
+				ctx.ui.notify(NOTIFY_CHARACTER_EDIT_QUEUED, "info");
+			}
+			pi.sendUserMessage(intent ? `${TEMPLATE_EDIT_PROMPT}\n\n用户意图：${intent}` : TEMPLATE_EDIT_PROMPT, {
 				deliverAs: "followUp",
 			});
 		},

@@ -3,6 +3,7 @@ import type WebSocket from "ws";
 import type { WebSocketServer } from "ws";
 
 import type { CharacterCard } from "../config/character-card.js";
+import type { MessageTemplateKey } from "../config/message-templates.js";
 import type { CreatorReloadHandoff } from "../controller/reload-handoff-registry.js";
 import { getReloadHandoffRegistry } from "../controller/reload-handoff-registry.js";
 import type { BoardStore } from "../data/board-store.js";
@@ -32,6 +33,8 @@ export interface ReloadFlowHost {
 	configMaxMessages: number;
 	/** #123：欢迎文案（reload handoff 传递，与 configMaxMessages 同源）。 */
 	welcomeMessage: string;
+	/** #154：群聊文案模板集（reload handoff 传递，与 configMaxMessages 同源）。 */
+	messageTemplates: Record<MessageTemplateKey, string>;
 	characters: ReadonlyMap<string, CharacterCard>;
 	publicMessages: PublicMessageState[];
 	persistedCount: number;
@@ -118,6 +121,7 @@ export async function detachForReload(host: ReloadFlowHost, piSessionId: string)
 		activeDescriptorPath: host.activeDescriptorPath,
 		configMaxMessages: host.configMaxMessages,
 		welcomeMessage: host.welcomeMessage,
+		messageTemplates: host.messageTemplates,
 		characters: [...host.characters.values()],
 		publicMessages: [...host.publicMessages],
 		persistedCount: host.persistedCount,

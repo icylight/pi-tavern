@@ -10,6 +10,7 @@ import {
 	ERROR_READ_CONFIG_PREFIX,
 } from "../shared/messages.js";
 import { type CharacterCard, type CharacterImport, loadCharacterCards } from "./character-card.js";
+import { loadMessageTemplateFile, type MessageTemplateKey, mergeMessageTemplates } from "./message-templates.js";
 
 export interface TavernConfig {
 	configMaxMessages: number;
@@ -23,6 +24,8 @@ export interface TavernConfig {
 	boardMaxNoteLength?: number;
 	/** #123：欢迎文案（可选——缺省 = DEFAULT_WELCOME_MESSAGE 代码默认值）。 */
 	welcomeMessage?: string;
+	/** #154：合并后的消息文案模板集（项目 > 全局 > 内置；缺省 = 内置中文全量）。 */
+	messageTemplates?: Record<MessageTemplateKey, string>;
 }
 
 interface LoadTavernConfigOptions {
@@ -39,6 +42,8 @@ const TavernConfigFileSchema = Type.Object(
 		board_max_note_length: Type.Optional(Type.Integer({ minimum: 1 })),
 		// #123：欢迎文案（可选——缺省 = 代码默认；旧配置兼容，缺省键不报错）。
 		welcome_message: Type.Optional(Type.String()),
+		// #154：消息文案模板文件（可选——相对声明它的 tavern.json 解析；缺省 = 内置中文）。
+		message_templates: Type.Optional(Type.String()),
 	},
 	{ additionalProperties: false },
 );
@@ -62,6 +67,20 @@ export async function loadTavernConfig(options: LoadTavernConfigOptions): Promis
 		...toCharacterImports(globalConfig, globalConfigPath),
 		...toCharacterImports(projectConfig, projectConfigPath),
 	];
+
+	// #154：消息文案模板三层合并（项目 > 全局 > 内置），容错回退不阻断启动。
+	// 两层均未声明 message_templates → 不带字段（消费面回落 DEFAULT_TEMPLATES）。
+	const [projectTemplates, globalTemplates] = await Promise.all([
+		loadMessageTemplateFile(dirname(projectConfigPath), projectConfig?.message_templates),
+		loadMessageTemplateFile(dirname(globalConfigPath), globalConfig?.message_templates),
+	]);
+	const { templates: mergedTemplates, warnings: templateWarnings } = mergeMessageTemplates(
+		projectTemplates.templates,
+		globalTemplates.templates,
+	);
+	for (const warning of [...projectTemplates.warnings, ...globalTemplates.warnings, ...templateWarnings]) {
+		console.warn(warning);
+	}
 
 	const boardMaxNotes = projectConfig?.board_max_notes ?? globalConfig?.board_max_notes;
 	const boardMaxNoteLength = projectConfig?.board_max_note_length ?? globalConfig?.board_max_note_length;
@@ -98,6 +117,9 @@ export async function loadTavernConfig(options: LoadTavernConfigOptions): Promis
 		...(boardMaxNotes !== undefined ? { boardMaxNotes } : {}),
 		...(boardMaxNoteLength !== undefined ? { boardMaxNoteLength } : {}),
 		...(effectiveWelcomeMessage !== undefined ? { welcomeMessage: effectiveWelcomeMessage } : {}),
+		...(projectTemplates.templates !== null || globalTemplates.templates !== null
+			? { messageTemplates: mergedTemplates }
+			: {}),
 		characters: await loadCharacterCards(imports),
 	};
 }
