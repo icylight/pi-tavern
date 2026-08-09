@@ -51,6 +51,7 @@ function creatorHandoff(piSessionId: string, expiresAt: number, cleanup: () => P
 		},
 		characters: [],
 		publicMessages: [],
+		whisperMessages: [],
 		persistedCount: 0,
 		bufferedFrames: new Map(),
 		bufferingHandlers: new Map(),
