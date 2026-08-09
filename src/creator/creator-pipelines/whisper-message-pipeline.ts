@@ -1,7 +1,7 @@
 import { ResponseError } from "vscode-jsonrpc";
-import type WebSocket from "ws";
+import WebSocket from "ws";
 import { type GroupChatState, setHandRaised } from "../../data/group-chat-state.js";
-import { formatEntryContent, type SessionStore } from "../../data/session-store.js";
+import type { SessionStore } from "../../data/session-store.js";
 import { type ClientMessage, JSONRPC_VERSION } from "../../protocol/messages.js";
 import type { PublicMessageState } from "../../protocol/public-message-state.js";
 import type { WhisperMessageState } from "../../protocol/whisper-message-state.js";
@@ -42,6 +42,11 @@ interface WhisperPipelineDependencies {
 	connections: Map<string, WebSocket>;
 	/** 发送帧（BroadcastHub.send 语义；失败静默 + 断连清理由注入方保证）。 */
 	send: (socket: WebSocket, message: unknown) => void;
+	/** #152（P2 评审阻断 1）：私信落盘顶层 content 格式化——契约（P1 冻结）= 创建者
+	 * 视角完整投影 `{sender} 向 {receiver} 悄悄说：{正文}`（whisper_full 模板渲染）。
+	 * 窄接口注入：组合根用模板 getter 实现（P3 五 key 合流后自动走模板；P2 独立
+	 * 期回退契约默认形态，防值拷贝陷阱）。 */
+	formatWhisperContent: (sender: string, receiver: string, content: string) => string;
 	/** #152（Arch 阻断修复）：私信提交后触发（创建者 TUI 完整正文投影，与 onPublicMessage 同构）。 */
 	onWhisperMessage?: (whisper: WhisperMessageState) => void;
 }
@@ -122,7 +127,15 @@ export class WhisperPipeline {
 		);
 		const targetSessionId = targetEntry?.sessionId ?? null;
 		const targetSocket = targetSessionId !== null ? (this.deps.connections.get(targetSessionId) ?? null) : null;
-		if (targetEntry === undefined || targetSessionId === null || targetSocket === null) {
+		// WH10（P2 评审阻断 2）：在线 = WS 连接活跃（readyState OPEN）。close 清理由
+		// runtimeTail 异步排队——Map 仍保留 CLOSED/CLOSING socket 的窗口内不得判在线
+		// （WH7 仅允许「校验时在线、投递瞬间掉线」的窄窗口，不吞「校验时已关闭」）。
+		if (
+			targetEntry === undefined ||
+			targetSessionId === null ||
+			targetSocket === null ||
+			targetSocket.readyState !== WebSocket.OPEN
+		) {
 			throw new ResponseError(ERROR_CODE_WHISPER_TARGET_OFFLINE, "Whisper target character is not online");
 		}
 
@@ -211,7 +224,7 @@ export class WhisperPipeline {
 		try {
 			this.entryId = this.deps.sessionStore.appendCustomMessageEntry(
 				"pi-tavern.whisper-message",
-				formatEntryContent(senderName, message.params.content),
+				this.deps.formatWhisperContent(senderName, recipient.name, message.params.content),
 				true,
 				details,
 			);

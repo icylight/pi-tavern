@@ -26,14 +26,28 @@ export function decodeCursor(cursor: string): number | null {
  * pi-tavern.group-settings / pi-tavern.public-message）。resume 时据此恢复
  * persistedCount：计数只取决于条目类型，与其余状态重建逻辑无关。
  */
+/**
+ * PiTavern 自有、写入群聊 session JSONL 的条目类型集合（单一事实源）：
+ * 新增 JSONL 持久化类型必须同步此处（#152 评审 B4 教训——whisper 曾漏计）。
+ * 注：board 为独立 JSON 文件（不写 session JSONL）；creator-display 为创建者
+ * TUI 投影条目（与 public/whisper 一一对应，计入会双倍重复）——均不属计数对象。
+ */
+const PERSISTED_ENTRY_TYPES: ReadonlyArray<{ type: string; customType?: string }> = [
+	{ type: "session_info" },
+	{ type: "custom", customType: "pi-tavern.group-settings" },
+	{ type: "custom_message", customType: "pi-tavern.public-message" },
+	{ type: "custom_message", customType: "pi-tavern.whisper-message" },
+];
+
 export function countPersistedEntries(entries: readonly { type: string; customType?: string }[]): number {
 	let count = 0;
 	for (const entry of entries) {
-		if (entry.type === "session_info") {
-			count++;
-		} else if (entry.type === "custom" && entry.customType === "pi-tavern.group-settings") {
-			count++;
-		} else if (entry.type === "custom_message" && entry.customType === "pi-tavern.public-message") {
+		if (
+			PERSISTED_ENTRY_TYPES.some(
+				(owned) =>
+					entry.type === owned.type && (owned.customType === undefined || entry.customType === owned.customType),
+			)
+		) {
 			count++;
 		}
 	}

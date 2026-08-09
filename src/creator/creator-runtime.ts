@@ -324,6 +324,7 @@ export class CreatorRuntime {
 			readOnPublicMessage: () => this.onPublicMessage,
 			readOnPublicMessageError: () => this.onPublicMessageError,
 			readOnWhisperMessage: () => this.onWhisperMessage,
+			readMessageTemplates: () => this.messageTemplates,
 			readOnMembersChanged: () => this.onMembersChanged,
 			readOnBoardUpdated: () => this.onBoardUpdated,
 			now: () => this.deps.now(),

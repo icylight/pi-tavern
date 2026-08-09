@@ -1,6 +1,8 @@
 import type WebSocket from "ws";
 
 import type { CharacterCard, CharacterSummary } from "../config/character-card.js";
+import type { MessageTemplateKey } from "../config/message-templates.js";
+import { renderTemplate } from "../config/message-templates.js";
 import type { BoardStore } from "../data/board-store.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
 import type { SessionStore } from "../data/session-store.js";
@@ -42,6 +44,8 @@ interface PipelineAssemblyHost {
 	readOnPublicMessageError: () => ((error: string, sequence: number, timestamp: string) => void) | undefined;
 	/** #152（Arch 阻断修复）：私信提交钩子读取（getter 闭包，同 readOnPublicMessage 模式）。 */
 	readOnWhisperMessage: () => ((msg: WhisperMessageState) => void) | undefined;
+	/** #154/#152（P2 评审阻断 1）：模板集 getter（P3 五 key 合流后含 whisper_full；P2 独立期三 key 回退契约默认形态）。 */
+	readMessageTemplates: () => Record<MessageTemplateKey, string> | undefined;
 	readOnMembersChanged: () => (() => void) | undefined;
 	/** 白板模型（#114）：creator 实时提示（纯展示，applied 广播触发）。 */
 	readOnBoardUpdated: () => BoardPipelineDependencies["onBoardUpdated"];
@@ -139,6 +143,17 @@ export function assemblePipelineDeps(host: PipelineAssemblyHost): PipelineAssemb
 			readMergedMessages: () => mergeMessageStreams(host.publicMessages, host.whisperMessages),
 			connections: host.connections,
 			send: (socket, message) => broadcastHub.send(socket, message),
+			// P2 评审阻断 1：落盘顶层 content = 创建者视角完整投影（P1 契约）。
+			// 有 whisper_full 模板（P3 合流）走模板渲染；否则回退契约默认形态（与
+			// DEFAULT_TEMPLATES.whisper_full 同文案）——P2 独立合并期亦符合契约。
+			formatWhisperContent: (sender, receiver, content) => {
+				const templates = host.readMessageTemplates() as Record<string, string> | undefined;
+				const whisperFull = templates?.whisper_full;
+				if (whisperFull !== undefined) {
+					return renderTemplate(whisperFull, { sender, receiver, content });
+				}
+				return `${sender} 向 ${receiver} 悄悄说：${content}`;
+			},
 			onWhisperMessage: (whisper) => host.readOnWhisperMessage()?.(whisper),
 		},
 	};

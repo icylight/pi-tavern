@@ -64,15 +64,16 @@ describe("cursor-store", () => {
 	});
 
 	describe("countPersistedEntries", () => {
-		it("counts the three PiTavern-owned entry types", () => {
+		it("counts the four PiTavern-owned entry types (session/group/public/whisper)", () => {
 			const entries = [
 				{ type: "session_info" },
 				{ type: "custom", customType: "pi-tavern.group-settings" },
 				{ type: "custom_message", customType: "pi-tavern.public-message" },
+				{ type: "custom_message", customType: "pi-tavern.whisper-message" },
 				{ type: "message" },
 				{ type: "custom", customType: "some-other.custom-type" },
 			];
-			expect(countPersistedEntries(entries)).toBe(3);
+			expect(countPersistedEntries(entries)).toBe(4);
 		});
 
 		it("returns 0 for empty or foreign-only entry lists", () => {
