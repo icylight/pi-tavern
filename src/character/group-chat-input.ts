@@ -107,8 +107,13 @@ export class GroupChatInput {
 	 * 收到即推进会误杀：reload 旧帧重放 / gap 帧重试 / 同步拒绝后重发）。
 	 */
 	private injectedWhisperSequence = 0;
-	/** #152（PR #163 复评阻断 2 修复）：requeue 时保留的原始连续水位（pull 窗口含占位时 watermarkOfDelivered 无法复原——丢水位 = 占位窗口游标不推进 → 反复 stale）。 */
-	private pendingRetryLatestSequence: number | undefined;
+	/**
+	 * #152（PR #163 复评阻断修复）：requeue 批原子槽——{events, latestSequence}
+	 * 绑定所有权（水位与批同生共死，杜绝全局槽位被其他 flush 借用：A 批重试中
+	 * B 批成功不得提前 saveCursor(A 水位) → 游标越过未投递帧 → 崩溃/退出后恢复
+	 * 永久跳过，违反「重复可接受、跳过不可接受」）。
+	 */
+	private retryBatch: { events: ServerMessage[]; latestSequence?: number } | undefined;
 
 	constructor(
 		private readonly runtime: CharacterRuntime,
@@ -782,8 +787,19 @@ export class GroupChatInput {
 	 * （Arch settle 竞态修复）。
 	 */
 	private async flush(events?: ServerMessage[], latestSequence?: number): Promise<void> {
-		const toDeliver = events ?? this.pendingEvents;
-		if (events === undefined) {
+		// #152（PR #163 复评阻断修复）：无参 flush 优先原子重投 retryBatch——
+		// 领取即清槽（水位随批绑定，其他 flush 无从借用）；重投失败由
+		// sendWithDeliveryAck catch 重新入槽（水位不丢）。
+		let toDeliver = events ?? this.pendingEvents;
+		let retryLatestSequence: number | undefined;
+		if (events === undefined && this.retryBatch !== undefined) {
+			toDeliver = this.retryBatch.events;
+			retryLatestSequence = this.retryBatch.latestSequence;
+			this.retryBatch = undefined;
+		}
+		// 仅消费 pendingEvents 自身时才清空——retryBatch 优先分支不得清
+		// pendingEvents（重试期间新到的 B 批帧须保留，否则静默丢）。
+		if (events === undefined && toDeliver === this.pendingEvents) {
 			this.pendingEvents = [];
 		}
 
@@ -793,8 +809,7 @@ export class GroupChatInput {
 		// 游标候选只取已实际注入帧的最大 sequence。不得用 group_chat_update
 		// 水位（水位含未注入帧，提前 saveCursor 会抢在拉取路径前把消息标记
 		// 已读 → 拉取跳过、消息永不注入——env-time T2 全量失败实证）。
-		const effectiveLatestSequence =
-			latestSequence ?? this.pendingRetryLatestSequence ?? this.watermarkOfDelivered(toDeliver);
+		const effectiveLatestSequence = latestSequence ?? retryLatestSequence ?? this.watermarkOfDelivered(toDeliver);
 
 		let groupChatState: unknown = null;
 		try {
@@ -853,6 +868,12 @@ export class GroupChatInput {
 		// await 它会锁死单飞行锁；saveCursor 在 preflightResult 内同步执行，
 		// 承诺 resolve 时游标已推进（do-while 复查读新游标，不重投）。
 		await this.sendWithDeliveryAck(toDeliver, content, groupChatState, effectiveLatestSequence, "followUp");
+		// #152（PR #163 复评阻断修复）：重投/拉取循环抢占后 pendingEvents 残留
+		// 帧须续排 flush（无新事件触发即饿死延迟——重试风暴中实时帧积压）。
+		if (this.pendingEvents.length > 0 && this.retryBatch === undefined && !this.stopped) {
+			this.resetJoinDebounce();
+		} else {
+		}
 	}
 
 	/**
@@ -893,7 +914,6 @@ export class GroupChatInput {
 			);
 			if (latestSequence !== undefined) {
 				this.runtime.saveCursor(latestSequence);
-				this.pendingRetryLatestSequence = undefined;
 			}
 		} catch {
 			// 同步抛错（入队拒绝/steer 失败）：不推进。
@@ -902,12 +922,11 @@ export class GroupChatInput {
 			// 保证再拉，重复可接受、跳过不可接受）；保留原始连续水位（pull 窗口
 			// 含占位时重投须推进到 page.latestSequence 而非仅已注入帧水位，
 			// 否则占位窗口游标不推进 → 反复 stale）。
-			if (latestSequence !== undefined) {
-				this.pendingRetryLatestSequence = latestSequence;
-			}
-			this.pendingEvents.unshift(...events);
-			// 重排 flush 定时器重投 requeue 帧（busy 走 steer 通道投递；
-			// 不用 armIdleWindow——那是拉取路径，pendingEvents 残留帧无人 flush）。
+			// 批原子入槽：水位与 events 绑定（不拆散进 pendingEvents——其他
+			// flush 无从借用该水位；重投时整批消费 + 整批推进游标）。
+			this.retryBatch = latestSequence === undefined ? { events } : { events, latestSequence };
+			// 重排 flush 定时器重投（busy 走 steer 通道投递；不用 armIdleWindow
+			// ——那是拉取路径，retryBatch 残留帧无人 flush）。
 			this.resetJoinDebounce();
 		}
 	}
