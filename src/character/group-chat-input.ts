@@ -107,6 +107,8 @@ export class GroupChatInput {
 	 * 收到即推进会误杀：reload 旧帧重放 / gap 帧重试 / 同步拒绝后重发）。
 	 */
 	private injectedWhisperSequence = 0;
+	/** #152（PR #163 复评阻断 2 修复）：requeue 时保留的原始连续水位（pull 窗口含占位时 watermarkOfDelivered 无法复原——丢水位 = 占位窗口游标不推进 → 反复 stale）。 */
+	private pendingRetryLatestSequence: number | undefined;
 
 	constructor(
 		private readonly runtime: CharacterRuntime,
@@ -791,7 +793,8 @@ export class GroupChatInput {
 		// 游标候选只取已实际注入帧的最大 sequence。不得用 group_chat_update
 		// 水位（水位含未注入帧，提前 saveCursor 会抢在拉取路径前把消息标记
 		// 已读 → 拉取跳过、消息永不注入——env-time T2 全量失败实证）。
-		const effectiveLatestSequence = latestSequence ?? this.watermarkOfDelivered(toDeliver);
+		const effectiveLatestSequence =
+			latestSequence ?? this.pendingRetryLatestSequence ?? this.watermarkOfDelivered(toDeliver);
 
 		let groupChatState: unknown = null;
 		try {
@@ -890,18 +893,22 @@ export class GroupChatInput {
 			);
 			if (latestSequence !== undefined) {
 				this.runtime.saveCursor(latestSequence);
+				this.pendingRetryLatestSequence = undefined;
 			}
 		} catch {
-			// 同步抛错（入队拒绝）：不推进 → settle 兜底重投（A5 保持）。
-			// #152（PR #163 复评阻断 2 修复）：私信无 group_chat_update 广播
-			// 保证再拉——已注入帧必须 requeue（重复可接受、跳过不可接受），
-			// 并按忙闲安排补拉/重投；不得清空后任其丢失。
-			if (deliverAs === "followUp") {
-				this.pendingEvents.unshift(...events);
-				// 重排 flush 定时器重投 requeue 帧（busy 走 steer 通道投递；
-				// 不用 armIdleWindow——那是拉取路径，pendingEvents 残留帧无人 flush）。
-				this.resetJoinDebounce();
+			// 同步抛错（入队拒绝/steer 失败）：不推进。
+			// #152（PR #163 复评阻断修复）：统一 requeue（followUp + steer）——
+			// steer 同步失败同样不得静默丢事件（busy 实时私信无 group_chat_update
+			// 保证再拉，重复可接受、跳过不可接受）；保留原始连续水位（pull 窗口
+			// 含占位时重投须推进到 page.latestSequence 而非仅已注入帧水位，
+			// 否则占位窗口游标不推进 → 反复 stale）。
+			if (latestSequence !== undefined) {
+				this.pendingRetryLatestSequence = latestSequence;
 			}
+			this.pendingEvents.unshift(...events);
+			// 重排 flush 定时器重投 requeue 帧（busy 走 steer 通道投递；
+			// 不用 armIdleWindow——那是拉取路径，pendingEvents 残留帧无人 flush）。
+			this.resetJoinDebounce();
 		}
 	}
 

@@ -1710,6 +1710,40 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
+	it("chain: whisper steer 同步失败 requeue 不丢（#152 PR #163 复评阻断 1：busy 实时私信 steer 抛错 → 重排重投成功只推进一次）", async () => {
+		vi.useFakeTimers();
+		const runtime = createMockRuntime({ hasPublicMessages: true });
+		runtime.loadCursor = () => 0;
+		runtime.isAgentActive = true; // busy：实时私信走 steer 通道
+		const saveCursor = vi.fn();
+		runtime.saveCursor = saveCursor;
+		const pi = createMockPi();
+		let failFirst = true;
+		(pi.sendMessage as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => {
+			if (failFirst) {
+				failFirst = false;
+				throw new Error("steer enqueue rejected");
+			}
+			return undefined;
+		});
+		const input = new GroupChatInput(runtime, pi);
+
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+		handler(whisperMessageFrame(1));
+		await vi.advanceTimersByTimeAsync(1000);
+		// 首次 steer 同步抛错：不推进游标（事件未丢——requeue 重排）。
+		expect(saveCursor).not.toHaveBeenCalled();
+		await vi.advanceTimersByTimeAsync(2000);
+		// 重投成功（steer 通道）：正文投递 + 游标最终推进。
+		const sendMessage = pi.sendMessage as ReturnType<typeof vi.fn>;
+		const contents = sendMessage.mock.calls.map((call) => (call[0] as { content?: string })?.content ?? "");
+		expect(contents.some((c) => c.includes("secret-1"))).toBe(true);
+		expect(saveCursor).toHaveBeenCalledWith(1);
+
+		input.stop();
+	});
+
 	it("chain: whisper placeholder-only 未读阻止（#152 PR #163 B：无 group_chat_update 时占位水位独立成立）", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime({ hasPublicMessages: true });
@@ -1727,6 +1761,52 @@ describe("GroupChatInput", () => {
 		// 占位 seq=3、游标 0：缺口存在 → 阻止但不声称精确。
 		expect(input.unreadOthersProven()?.shouldBlock).toBe(true);
 		expect(input.unreadOthersProven()?.exact).toBe(false);
+
+		input.stop();
+	});
+
+	it("chain: whisper pull 占位窗口失败恢复推进原始水位（#152 PR #163 复评阻断 2：requeue 保留 latestSequence，占位窗口游标不卡）", async () => {
+		vi.useFakeTimers();
+		const runtime = createMockRuntime({ hasPublicMessages: true });
+		runtime.loadCursor = () => 0;
+		const saveCursor = vi.fn();
+		runtime.saveCursor = saveCursor;
+		// pullIncrement 拉取返回「仅占位」窗口（page.latestSequence = 5）。
+		runtime.fetchMessagesSince = vi.fn(async () => ({
+			messages: [whisperPlaceholderFrame(3), whisperPlaceholderFrame(4), whisperPlaceholderFrame(5)],
+			latestSequence: 5,
+			totalMessages: 5,
+			contextCount: 0,
+		}));
+		const pi = createMockPi();
+		let failFirst = true;
+		(pi.sendMessage as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => {
+			if (failFirst) {
+				failFirst = false;
+				throw new Error("enqueue rejected");
+			}
+			return undefined;
+		});
+		const input = new GroupChatInput(runtime, pi);
+
+		input.start();
+		// 触发增量拉取：先有水位知识（group_chat_update）→ armIdleWindow → pull。
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+		handler({
+			jsonrpc: "2.0",
+			method: "group_chat_update",
+			params: {
+				latest_sequence: 5,
+				preview_messages: [],
+				total_messages: 5,
+			},
+		} as unknown as ServerMessage);
+		await vi.advanceTimersByTimeAsync(2000);
+		// 首次投递失败（游标不推进）→ requeue（保留原始水位 5）→ 重投成功。
+		await vi.advanceTimersByTimeAsync(2000);
+		// 游标最终推进到 page.latestSequence = 5（含占位窗口——占位也消费推进，
+		// 否则后续 speak 反复 stale）。
+		expect(saveCursor).toHaveBeenCalledWith(5);
 
 		input.stop();
 	});
