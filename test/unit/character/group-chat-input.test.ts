@@ -1576,7 +1576,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("chain: whisper realtime 连续帧去重（#152 PR #163 阻断 3：同 seq 重复帧不二次注入）", async () => {
+	it("chain: whisper realtime 同 seq 去重内容仅一份（#152 PR #163 复评阻断 1：flush 前同帧两次只进一份）", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime({ hasPublicMessages: true });
 		runtime.loadCursor = () => 0;
@@ -1586,10 +1586,14 @@ describe("GroupChatInput", () => {
 		input.start();
 		const handler = runtime.onEnvironmentMessage ?? (() => {});
 		handler(whisperMessageFrame(1));
-		handler(whisperMessageFrame(1)); // 补拉重复帧
+		handler(whisperMessageFrame(1)); // 同批重复帧
 		await vi.advanceTimersByTimeAsync(1000);
 
-		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+		const sendMessage = pi.sendMessage as ReturnType<typeof vi.fn>;
+		expect(sendMessage).toHaveBeenCalledTimes(1);
+		const content = sendMessage.mock.calls[0]?.[0]?.content as string;
+		// 正文仅一份（同 batch 注入两遍会重复出现）。
+		expect(content.match(/secret-1/g)?.length ?? 0).toBe(1);
 
 		input.stop();
 	});
@@ -1670,26 +1674,38 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("chain: whisper realtime 失败后重试不永久忽略（#152 PR #163 复评阻断 2：同步拒绝后重发重新注入）", async () => {
+	it("chain: whisper realtime 同步失败 requeue 恢复（#152 PR #163 复评阻断 2：真实抛错 → 游标不推进 → requeue 重投成功）", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime({ hasPublicMessages: true });
 		runtime.loadCursor = () => 0;
+		const saveCursor = vi.fn();
+		runtime.saveCursor = saveCursor;
 		const pi = createMockPi();
+		// 首次 sendMessage 真实同步抛错（入队拒绝，非 async——rejected promise
+		// 不会触发 sendWithDeliveryAck 的同步 catch），第二次成功。
+		let failFirst = true;
+		(pi.sendMessage as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => {
+			if (failFirst) {
+				failFirst = false;
+				throw new Error("enqueue rejected");
+			}
+			return undefined;
+		});
 		const input = new GroupChatInput(runtime, pi);
 
 		input.start();
 		const handler = runtime.onEnvironmentMessage ?? (() => {});
 		handler(whisperMessageFrame(1));
-		// 投递失败（sendMessage 抛错）→ 游标不推进。
+		// 首次投递：同步抛错 → 不推进游标。
 		await vi.advanceTimersByTimeAsync(1000);
-		// 重发同帧（服务端补拉/重试）→ 游标未推进故不被去重，重新注入。
-		handler(whisperMessageFrame(1));
-		await vi.advanceTimersByTimeAsync(1000);
-
+		expect(saveCursor).not.toHaveBeenCalled();
+		// requeue 已安排（pendingEvents 回放 + idle 窗口重投）→ 第二次成功。
+		await vi.advanceTimersByTimeAsync(5000);
 		const sendMessage = pi.sendMessage as ReturnType<typeof vi.fn>;
-		// 第一次失败 + 第二次成功：至少有一次成功投递含正文。
+		// 成功投递含正文 + 游标最终推进（重复可接受、跳过不可接受）。
 		const contents = sendMessage.mock.calls.map((call) => (call[0] as { content?: string })?.content ?? "");
 		expect(contents.some((c) => c.includes("secret-1"))).toBe(true);
+		expect(saveCursor).toHaveBeenCalledWith(1);
 
 		input.stop();
 	});

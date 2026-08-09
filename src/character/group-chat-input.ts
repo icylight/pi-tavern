@@ -207,7 +207,9 @@ export class GroupChatInput {
 			if ("method" in message && message.method === METHOD_WHISPER_MESSAGE) {
 				const seq = message.params.sequence;
 				const cursor = this.runtime.loadCursor() ?? 0;
-				if (seq <= cursor) return; // 已投递（reload 重放/重复帧）
+				// 去重三态：已投递（seq <= cursor）/ 同批已注入（seq <= injected）
+				// ——flush 前同帧到两次只进一份；连续性判定用 next = max+1。
+				if (seq <= cursor || seq <= this.injectedWhisperSequence) return;
 				const next = Math.max(cursor, this.injectedWhisperSequence) + 1;
 				if (seq > next) {
 					// gap：不注入——按忙闲安排补拉（idle 无 settle 事件，须主动拉取）。
@@ -891,6 +893,15 @@ export class GroupChatInput {
 			}
 		} catch {
 			// 同步抛错（入队拒绝）：不推进 → settle 兜底重投（A5 保持）。
+			// #152（PR #163 复评阻断 2 修复）：私信无 group_chat_update 广播
+			// 保证再拉——已注入帧必须 requeue（重复可接受、跳过不可接受），
+			// 并按忙闲安排补拉/重投；不得清空后任其丢失。
+			if (deliverAs === "followUp") {
+				this.pendingEvents.unshift(...events);
+				// 重排 flush 定时器重投 requeue 帧（busy 走 steer 通道投递；
+				// 不用 armIdleWindow——那是拉取路径，pendingEvents 残留帧无人 flush）。
+				this.resetJoinDebounce();
+			}
 		}
 	}
 
