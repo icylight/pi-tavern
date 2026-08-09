@@ -17,9 +17,13 @@ export function registerRenderers(
 ): void {
 	pi.registerEntryRenderer("pi-tavern.creator-display", (entry, _options, theme) => {
 		const data = entry.data as {
-			kind: "public_message" | "board_update";
+			kind: "public_message" | "whisper_message" | "whisper_placeholder" | "board_update";
 			group_chat_id: string;
-			event?: { sender: { type: string; name?: string }; content: string };
+			event?: {
+				sender: { type: string; name?: string; character_id?: string };
+				recipient?: { type: string; name?: string; character_id?: string };
+				content?: string;
+			};
 			actor?: string;
 			actor_name?: string;
 			action?: "add" | "update" | "remove" | "clear";
@@ -56,8 +60,44 @@ export function registerRenderers(
 					? (sender.name ?? "Character")
 					: sender.type;
 		const templates = getTemplates();
+		if (data.kind === "whisper_message") {
+			// #152：创建者视角完整正文（需求基线 WH4）——whisper_full 模板。
+			const sender = data.event.sender;
+			const recipient = data.event.recipient;
+			const senderLabel = sender.name ?? sender.character_id ?? "Character";
+			const recipientLabel = recipient?.name ?? recipient?.character_id ?? "Character";
+			box.addChild(
+				new Text(
+					renderTemplate(templates.whisper_full, {
+						sender: senderLabel,
+						receiver: recipientLabel,
+						content: data.event.content ?? "",
+					}),
+					0,
+					0,
+				),
+			);
+			return box;
+		}
+		if (data.kind === "whisper_placeholder") {
+			const sender = data.event.sender;
+			const recipient = data.event.recipient;
+			const senderLabel = sender.name ?? sender.character_id ?? "Character";
+			const recipientLabel = recipient?.name ?? recipient?.character_id ?? "Character";
+			box.addChild(
+				new Text(
+					renderTemplate(templates.whisper_placeholder, {
+						sender: senderLabel,
+						receiver: recipientLabel,
+					}),
+					0,
+					0,
+				),
+			);
+			return box;
+		}
 		box.addChild(
-			new Text(renderTemplate(templates.public_message, { sender: label, content: data.event.content }), 0, 0),
+			new Text(renderTemplate(templates.public_message, { sender: label, content: data.event.content ?? "" }), 0, 0),
 		);
 		return box;
 	});

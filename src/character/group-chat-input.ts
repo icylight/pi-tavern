@@ -9,6 +9,8 @@ import {
 	METHOD_MESSAGE_HISTORY,
 	METHOD_PUBLIC_MESSAGE,
 	METHOD_SYSTEM_MESSAGE,
+	METHOD_WHISPER_MESSAGE,
+	METHOD_WHISPER_PLACEHOLDER,
 } from "../shared/messages.js";
 import type { CharacterRuntime } from "./character-runtime.js";
 import {
@@ -74,6 +76,8 @@ export class GroupChatInput {
 	 * debounce 合并），以及因 Agent turn 运行中而等待的非群消息流输入。
 	 */
 	private pendingEvents: ServerMessage[] = [];
+	/** 串行化所有 flush：事件批、水位提交与失败回槽不得交错。 */
+	private flushTail: Promise<void> = Promise.resolve();
 	private handler: ((message: ServerMessage) => void) | undefined;
 	private stopped = false;
 	/** 单飞行锁：最多同时一个 fetch_messages_since 在途。 */
@@ -97,6 +101,21 @@ export class GroupChatInput {
 	 * stale 兜底）。只存最新一帧：update 是累积水位，新帧包含旧帧信息。
 	 */
 	private latestGroupChatUpdate: Extract<ServerMessage, { method: "group_chat_update" }> | null = null;
+	/** #152（阻断 2 修复）：非参与者占位帧最新水位（未读判定与 group_chat_update 水位合并）。 */
+	private latestWhisperPlaceholderSequence = 0;
+	/**
+	 * #152（PR #163 复评阻断 2 修复）：接收者实时 full 帧「已注入未投递」连续
+	 * 范围顶（去重依据 = 已投递游标 + 连续 pending 范围，非「最高收到帧」——
+	 * 收到即推进会误杀：reload 旧帧重放 / gap 帧重试 / 同步拒绝后重发）。
+	 */
+	private injectedWhisperSequence = 0;
+	/**
+	 * #152（PR #163 复评阻断修复）：requeue 批原子槽——{events, latestSequence}
+	 * 绑定所有权（水位与批同生共死，杜绝全局槽位被其他 flush 借用：A 批重试中
+	 * B 批成功不得提前 saveCursor(A 水位) → 游标越过未投递帧 → 崩溃/退出后恢复
+	 * 永久跳过，违反「重复可接受、跳过不可接受」）。
+	 */
+	private retryBatch: { events: ServerMessage[]; latestSequence?: number } | undefined;
 
 	constructor(
 		private readonly runtime: CharacterRuntime,
@@ -139,10 +158,8 @@ export class GroupChatInput {
 				// 而不是重读历史。
 				const before = this.pendingEvents.length;
 				for (const m of message.params.messages) {
-					if (m && typeof m === "object" && "method" in m && m.method === METHOD_PUBLIC_MESSAGE) {
-						if (!this.isEnvironmentEvent(m as ServerMessage)) continue;
-						this.pendingEvents.push(m as ServerMessage);
-					}
+					if (!this.isDeliverableProjection(m)) continue;
+					this.pendingEvents.push(m as ServerMessage);
 				}
 				// 仅当确实添加了消息才启动 debounce
 				if (this.pendingEvents.length > before) {
@@ -184,6 +201,37 @@ export class GroupChatInput {
 					this.armIdleWindow(selfPreview === "external");
 				}
 				void this.runtime.refreshGroupChatState();
+				return;
+			}
+			// #152（阻断 2 修复）：非参与者占位帧——仅记占位水位（未读判定可见），
+			// 不注入不唤醒不进 debounce（WH6）。
+			if ("method" in message && message.method === METHOD_WHISPER_PLACEHOLDER) {
+				this.noteWhisperPlaceholderWatermark(message);
+				return;
+			}
+			// #152（PR #163 复评阻断修复）：接收者实时 whisper_message——
+			// 去重依据 = 已投递游标 + 连续 pending 范围（非「最高收到帧」）；
+			// 连续性守卫：seq 必须是「游标/已注入顶 + 1」才注入，gap 不注入
+			// 并安排有序补拉（busy 等 settle / idle 主动拉取，防私信无限期不投递）。
+			if ("method" in message && message.method === METHOD_WHISPER_MESSAGE) {
+				const seq = message.params.sequence;
+				const cursor = this.runtime.loadCursor() ?? 0;
+				// 去重三态：已投递（seq <= cursor）/ 同批已注入（seq <= injected）
+				// ——flush 前同帧到两次只进一份；连续性判定用 next = max+1。
+				if (seq <= cursor || seq <= this.injectedWhisperSequence) return;
+				const next = Math.max(cursor, this.injectedWhisperSequence) + 1;
+				if (seq > next) {
+					// gap：不注入——按忙闲安排补拉（idle 无 settle 事件，须主动拉取）。
+					if (this.runtime.isAgentActive) {
+						this.markIncrementPending();
+					} else {
+						this.armIdleWindow(true);
+					}
+					return;
+				}
+				this.pendingEvents.push(message);
+				this.injectedWhisperSequence = Math.max(this.injectedWhisperSequence, seq);
+				this.resetJoinDebounce();
 				return;
 			}
 			if (!this.isEnvironmentEvent(message)) return;
@@ -266,13 +314,37 @@ export class GroupChatInput {
 							hasDeliverableUnread = true;
 						}
 					}
+					// #152（PR #160 AI 评审阻断 2 修复）：补拉路径接纳私信两类帧——
+					// 接收者全文（唤醒注入，同 public 语义）/ 非参与者占位（机械消费：
+					// 发言被未读/stale 阻止后的补拉注入，AI 看到占位即完成消费）。
+					// 两类帧都推进游标（拉取窗口 = 已送达），防反复 stale。
+					if (m && typeof m === "object" && "method" in m && m.method === METHOD_WHISPER_MESSAGE) {
+						messages.push(m as ServerMessage);
+						if (i >= page.contextCount) {
+							hasDeliverableUnread = true;
+						}
+					}
+					if (m && typeof m === "object" && "method" in m && m.method === METHOD_WHISPER_PLACEHOLDER) {
+						messages.push(m as ServerMessage);
+						if (i >= page.contextCount) {
+							hasDeliverableUnread = true;
+						}
+					}
 				}
 				if (hasDeliverableUnread) {
 					// 游标推进移至投递成功判定（双通道契约：idle followUp /
 					// 忙态 steer 入队成功 = 投递成功 → saveCursor；失败不推进，
 					// settle 兜底重投——A5 强化实现）。
 					await this.deliver(messages, page.latestSequence);
-				} else if (page.messages.some((message) => "method" in message && message.method === METHOD_PUBLIC_MESSAGE)) {
+				} else if (
+					page.messages.some(
+						(message) =>
+							"method" in message &&
+							(message.method === METHOD_PUBLIC_MESSAGE ||
+								message.method === METHOD_WHISPER_MESSAGE ||
+								message.method === METHOD_WHISPER_PLACEHOLDER),
+					)
+				) {
 					// 拉取窗口只有自身回显时不生成 Agent 输入，但仍消费对应水位；否则
 					// preview 超限的连续自身消息会在每次 settle 被永久重拉。
 					this.runtime.saveCursor(page.latestSequence);
@@ -325,10 +397,8 @@ export class GroupChatInput {
 					return;
 				}
 				for (const m of page.messages) {
-					if (m && typeof m === "object" && "method" in m && m.method === METHOD_PUBLIC_MESSAGE) {
-						if (!this.isEnvironmentEvent(m as ServerMessage)) continue;
-						this.pendingEvents.push(m as ServerMessage);
-					}
+					if (!this.isDeliverableProjection(m)) continue;
+					this.pendingEvents.push(m as ServerMessage);
 				}
 				this.resetJoinDebounce();
 				nextCursor = page.cursor;
@@ -501,6 +571,22 @@ export class GroupChatInput {
 		return this.debounceTimer !== null;
 	}
 
+	/**
+	 * #152（PR #163 评审阻断 2 修复）：统一「可投递消息投影」判定——首屏
+	 * （join 快照）/ 旧页（分页）/ 增量（pullIncrement）三路径复用，防三处
+	 * 漂移。接纳：public_message（经环境事件/自回显过滤）| whisper_message
+	 * （参与者全文）| whisper_placeholder（旁观者占位）。两类 whisper 帧由
+	 * 服务端按查询者投影，无自回显（发送者零事件）。
+	 */
+	private isDeliverableProjection(m: unknown): m is ServerMessage {
+		if (!m || typeof m !== "object" || !("method" in m)) return false;
+		const method = (m as { method?: unknown }).method;
+		if (method === METHOD_PUBLIC_MESSAGE) {
+			return this.isEnvironmentEvent(m as ServerMessage);
+		}
+		return method === METHOD_WHISPER_MESSAGE || method === METHOD_WHISPER_PLACEHOLDER;
+	}
+
 	private isEnvironmentEvent(message: ServerMessage): boolean {
 		if (!("method" in message)) {
 			return false;
@@ -508,6 +594,13 @@ export class GroupChatInput {
 		switch (message.method) {
 			case METHOD_PUBLIC_MESSAGE:
 				return !this.isOwnEcho(message);
+			// #152（PR #160 AI 评审阻断 2 修复）：私信单播（接收者）是环境事件
+			// （实时唤醒注入，同 public 语义——WH6「接收者实时投递」）；占位广播
+			// （非参与者）**不是**环境事件——不注入、不唤醒、不进 debounce，仅记
+			// 占位水位（WH6「不被主动唤醒」，发言前经未读判定机械消费，见
+			// noteWhisperPlaceholderWatermark / unreadOthersProven）。
+			case METHOD_WHISPER_MESSAGE:
+				return true;
 			case METHOD_MESSAGE_HISTORY:
 				return true;
 			// 白板模型（#114，ADR-0007）：board_update = 环境事件（通知渲染），
@@ -545,18 +638,47 @@ export class GroupChatInput {
 	 * 下界），exact = preview 是否完整覆盖 cursor 后窗口。阻塞条件除 count > 0
 	 * 外，还包括「截断窗口含自身回显」这一发送者未知场景（#128 定稿要求保守阻止）。
 	 */
+	/**
+	 * #152（阻断 2 修复）：记录非参与者占位帧水位。占位不注入（不唤醒），
+	 * 但属未读序列——unreadOthersProven 合并该水位，发言前机械消费（AI 评审
+	 * 阻断 2 的「仅记水位、发言前消费占位」语义落实）。
+	 */
+	private noteWhisperPlaceholderWatermark(message: Extract<ServerMessage, { method: "whisper_placeholder" }>): void {
+		if (message.params.sequence > this.latestWhisperPlaceholderSequence) {
+			this.latestWhisperPlaceholderSequence = message.params.sequence;
+		}
+	}
+
 	unreadOthersProven(): { shouldBlock: boolean; count: number; exact: boolean } | undefined {
 		const update = this.latestGroupChatUpdate;
 		if (update === null) {
+			// #152（PR #163 评审 B 修复）：占位水位独立成立——join 后首条公开
+			// 消息之前收到占位即触发本地阻止 + 补拉（占位属未读序列，发言前
+			// 机械消费）；无任何水位知识时保持 undefined（不阻止）。
+			const cursor = this.runtime.loadCursor() ?? 0;
+			if (this.latestWhisperPlaceholderSequence > cursor) {
+				// #152（PR #163 复评 B 修复）：仅知占位 seq 时计数精确性只成立
+				// 于「占位 = 游标+1」（缺口存在则不可称 exact）。
+				return {
+					shouldBlock: true,
+					count: 1,
+					exact: this.latestWhisperPlaceholderSequence === cursor + 1,
+				};
+			}
 			return undefined;
 		}
 		const cursor = this.runtime.loadCursor() ?? 0;
-		if (update.params.latest_sequence <= cursor) {
+		// #152（阻断 2 修复）：水位合并占位帧（占位属未读序列——发言前机械消费）。
+		const latestSequence = Math.max(update.params.latest_sequence, this.latestWhisperPlaceholderSequence);
+		if (latestSequence <= cursor) {
 			return { shouldBlock: false, count: 0, exact: true };
 		}
 		const unseen = update.params.preview_messages.filter((preview) => preview.params.sequence > cursor);
-		const expected = update.params.latest_sequence - cursor;
-		const exact = unseen.length === expected;
+		const expected = latestSequence - cursor;
+		// 占位帧不进 preview（服务端广播不含正文帧）——按已知水位计入未读：
+		// 占位未消费（seq > cursor）视为一条已证明的他人未读（发送者非本人）。
+		const placeholderUnseen = this.latestWhisperPlaceholderSequence > cursor;
+		const exact = unseen.length + (placeholderUnseen ? 1 : 0) === expected;
 		const otherUnseen = unseen.filter(
 			(preview) =>
 				preview.params.sender.type !== "character" ||
@@ -571,8 +693,8 @@ export class GroupChatInput {
 			// preview 被截断且含自身回显时，缺口中的发送者未知。按 #128 定稿
 			// 保守阻止，由 settle 拉全后再决策；此时 count 只表示已明确看到的
 			// 他人消息数，可能为 0，调用方不得把 0 表述为精确数量。
-			shouldBlock: otherUnseen.length > 0 || (!exact && containsSelf),
-			count: otherUnseen.length,
+			shouldBlock: otherUnseen.length > 0 || placeholderUnseen || (!exact && containsSelf),
+			count: otherUnseen.length + (placeholderUnseen ? 1 : 0),
 			exact,
 		};
 	}
@@ -607,6 +729,23 @@ export class GroupChatInput {
 		)
 			? "complete-self-only"
 			: "external";
+	}
+
+	/**
+	 * #152（PR #163 阻断 3 修复）：实时 flush 的游标候选——只取已实际注入帧
+	 * （public/whisper_message）的最大 sequence。连续性由 handler 侧守卫保证
+	 * （seq <= 游标+1 才注入）；placeholder 不注入故不推进。
+	 */
+	private watermarkOfDelivered(events: ServerMessage[]): number | undefined {
+		let max = 0;
+		for (const e of events) {
+			if ("method" in e && (e.method === METHOD_PUBLIC_MESSAGE || e.method === METHOD_WHISPER_MESSAGE)) {
+				if (typeof e.params.sequence === "number" && e.params.sequence > max) {
+					max = e.params.sequence;
+				}
+			}
+		}
+		return max > 0 ? max : undefined;
 	}
 
 	private resetJoinDebounce(): void {
@@ -649,13 +788,74 @@ export class GroupChatInput {
 	 * （followUp + triggerTurn + 群聊标记），批次仍能唤醒 agent
 	 * （Arch settle 竞态修复）。
 	 */
-	private async flush(events?: ServerMessage[], latestSequence?: number): Promise<void> {
-		const toDeliver = events ?? this.pendingEvents;
-		if (events === undefined) {
+	private flush(events?: ServerMessage[], latestSequence?: number): Promise<void> {
+		const queued = this.flushTail.then(() => this.flushOnce(events, latestSequence));
+		this.flushTail = queued
+			.catch(() => undefined)
+			.finally(() => {
+				// retryBatch 优先消费期间到达的新事件留在 pendingEvents；当前批结束后
+				// 统一续排。放在串行尾上，覆盖 followUp / steer / 空批三条返回路径。
+				if (this.pendingEvents.length > 0 && this.retryBatch === undefined && !this.stopped) {
+					this.resetJoinDebounce();
+				}
+			});
+		return queued;
+	}
+
+	private async flushOnce(events?: ServerMessage[], latestSequence?: number): Promise<void> {
+		// #152（PR #163 复评阻断修复）：无参 flush 优先原子重投 retryBatch——
+		// 领取即清槽（水位随批绑定，其他 flush 无从借用）；重投失败由
+		// sendWithDeliveryAck catch 重新入槽（水位不丢）。
+		let toDeliver = events ?? this.pendingEvents;
+		let retryLatestSequence: number | undefined;
+		if (this.retryBatch !== undefined) {
+			// 已失败批永远先于后来显式批提交；显式 pull 批已从 pendingEvents
+			// 取出，不能搁置，故与 retry 批原子合并。水位取二者上界。
+			toDeliver = events === undefined ? this.retryBatch.events : [...this.retryBatch.events, ...events];
+			retryLatestSequence = this.retryBatch.latestSequence;
+			if (latestSequence !== undefined) {
+				retryLatestSequence = Math.max(retryLatestSequence ?? 0, latestSequence);
+			}
+			this.retryBatch = undefined;
+		}
+		// 仅消费 pendingEvents 自身时才清空——retryBatch 优先分支不得清
+		// pendingEvents（重试期间新到的 B 批帧须保留，否则静默丢）。
+		if (events === undefined && toDeliver === this.pendingEvents) {
 			this.pendingEvents = [];
 		}
 
-		if (toDeliver.length === 0 || this.stopped) return;
+		if (this.stopped) return;
+
+		// flush 入队后，前一批可能已经推进 cursor。执行时再次过滤已消费投影，
+		// 防止等待中的旧实时帧重复注入或把游标从较新值写回旧值。
+		const deliveredCursor = this.runtime.loadCursor() ?? 0;
+		const seenSequences = new Set<number>();
+		toDeliver = toDeliver.filter((event) => {
+			if (!("method" in event)) return true;
+			if (
+				event.method !== METHOD_PUBLIC_MESSAGE &&
+				event.method !== METHOD_WHISPER_MESSAGE &&
+				event.method !== METHOD_WHISPER_PLACEHOLDER
+			) {
+				return true;
+			}
+			if (event.params.sequence <= deliveredCursor || seenSequences.has(event.params.sequence)) {
+				return false;
+			}
+			seenSequences.add(event.params.sequence);
+			return true;
+		});
+		if (toDeliver.length === 0) return;
+
+		// #152（PR #163 阻断 3 修复）：实时路径（无参 flush）无 latestSequence——
+		// 游标候选只取已实际注入帧的最大 sequence。不得用 group_chat_update
+		// 水位（水位含未注入帧，提前 saveCursor 会抢在拉取路径前把消息标记
+		// 已读 → 拉取跳过、消息永不注入——env-time T2 全量失败实证）。
+		const candidateLatestSequence = retryLatestSequence ?? latestSequence ?? this.watermarkOfDelivered(toDeliver);
+		const effectiveLatestSequence =
+			candidateLatestSequence !== undefined && candidateLatestSequence > deliveredCursor
+				? candidateLatestSequence
+				: undefined;
 
 		let groupChatState: unknown = null;
 		try {
@@ -670,7 +870,7 @@ export class GroupChatInput {
 		// idle 路径，批次开启群聊触发的 turn（marker 按 #14 正确点亮
 		// is_streaming）。
 		if (this.runtime.isAgentActive) {
-			await this.deliverSteer(toDeliver, groupChatState, latestSequence);
+			await this.deliverSteer(toDeliver, groupChatState, effectiveLatestSequence);
 			return;
 		}
 
@@ -713,7 +913,7 @@ export class GroupChatInput {
 		// pi SDK 的 sendMessage 在 run 结束后才 resolve（prompt() 内部 await 链），
 		// await 它会锁死单飞行锁；saveCursor 在 preflightResult 内同步执行，
 		// 承诺 resolve 时游标已推进（do-while 复查读新游标，不重投）。
-		await this.sendWithDeliveryAck(toDeliver, content, groupChatState, latestSequence, "followUp");
+		await this.sendWithDeliveryAck(toDeliver, content, groupChatState, effectiveLatestSequence, "followUp");
 	}
 
 	/**
@@ -753,10 +953,24 @@ export class GroupChatInput {
 				{ triggerTurn: true, deliverAs },
 			);
 			if (latestSequence !== undefined) {
-				this.runtime.saveCursor(latestSequence);
+				const currentCursor = this.runtime.loadCursor() ?? 0;
+				if (latestSequence > currentCursor) {
+					this.runtime.saveCursor(latestSequence);
+				}
 			}
 		} catch {
-			// 同步抛错（入队拒绝）：不推进 → settle 兜底重投（A5 保持）。
+			// 同步抛错（入队拒绝/steer 失败）：不推进。
+			// #152（PR #163 复评阻断修复）：统一 requeue（followUp + steer）——
+			// steer 同步失败同样不得静默丢事件（busy 实时私信无 group_chat_update
+			// 保证再拉，重复可接受、跳过不可接受）；保留原始连续水位（pull 窗口
+			// 含占位时重投须推进到 page.latestSequence 而非仅已注入帧水位，
+			// 否则占位窗口游标不推进 → 反复 stale）。
+			// 批原子入槽：水位与 events 绑定（不拆散进 pendingEvents——其他
+			// flush 无从借用该水位；重投时整批消费 + 整批推进游标）。
+			this.retryBatch = latestSequence === undefined ? { events } : { events, latestSequence };
+			// 重排 flush 定时器重投（busy 走 steer 通道投递；不用 armIdleWindow
+			// ——那是拉取路径，retryBatch 残留帧无人 flush）。
+			this.resetJoinDebounce();
 		}
 	}
 
@@ -852,7 +1066,12 @@ export class GroupChatInput {
 
 		// 新消息
 		const messages = events.filter(
-			(e) => "method" in e && (e.method === METHOD_PUBLIC_MESSAGE || e.method === METHOD_MESSAGE_HISTORY),
+			(e) =>
+				"method" in e &&
+				(e.method === METHOD_PUBLIC_MESSAGE ||
+					e.method === METHOD_WHISPER_MESSAGE ||
+					e.method === METHOD_WHISPER_PLACEHOLDER ||
+					e.method === METHOD_MESSAGE_HISTORY),
 		);
 		if (messages.length > 0) {
 			parts.push("\n新消息：");
@@ -874,6 +1093,31 @@ export class GroupChatInput {
 						renderTemplate(templates.public_message, {
 							sender: when ? `${sender}（${when}）` : sender,
 							content: message.params.content,
+						}),
+					);
+				} else if ("method" in message && message.method === METHOD_WHISPER_MESSAGE) {
+					// #152：私信单播（接收者含正文）——whisper_full 模板渲染。
+					// sender/recipient 为 Character（schema：WhisperSender type const character）。
+					const templates = this.runtime.messageTemplates ?? DEFAULT_TEMPLATES;
+					const senderName = message.params.sender.name ?? message.params.sender.character_id;
+					const recipientName = message.params.recipient.name ?? message.params.recipient.character_id;
+					parts.push(
+						renderTemplate(templates.whisper_full, {
+							sender: senderName,
+							receiver: recipientName,
+							content: message.params.content,
+						}),
+					);
+				} else if ("method" in message && message.method === METHOD_WHISPER_PLACEHOLDER) {
+					// #152：占位广播（无正文，隐私不泄露）——whisper_placeholder 模板。
+					// 无 round 帧：不触碰轮次状态（Arch 确认 17:05）。
+					const templates = this.runtime.messageTemplates ?? DEFAULT_TEMPLATES;
+					const senderName = message.params.sender.name ?? message.params.sender.character_id;
+					const recipientName = message.params.recipient.name ?? message.params.recipient.character_id;
+					parts.push(
+						renderTemplate(templates.whisper_placeholder, {
+							sender: senderName,
+							receiver: recipientName,
 						}),
 					);
 				}

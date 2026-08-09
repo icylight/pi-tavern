@@ -99,6 +99,35 @@ describe("CharacterRuntime pending 响应按 method 校验（阻断②）", () =
 		expect(Date.now() - start).toBeLessThan(1_000);
 	});
 
+	it("chain: whisper 畸形三态 fail-close（#152 PR #163 阻断 4：gate 验必需字段，畸形帧不进 runtime）", async () => {
+		const ROUND = { round_max_messages: 10, used_messages: 6, remaining_messages: 4 };
+		const malformed: Array<Record<string, unknown>> = [
+			// published 缺 round（schema 要求 sequence + round）
+			{ published: true, sequence: 5 },
+			// published sequence 非正整数
+			{ published: true, sequence: 0, round: ROUND },
+			{ published: true, sequence: -1, round: ROUND },
+			{ published: true, sequence: null, round: ROUND },
+			// stale 缺 missing_sequences（schema 要求 from/to + round）
+			{ published: false, reason: "stale", round: ROUND },
+			{ published: false, reason: "stale", missing_sequences: { from: 3 }, round: ROUND },
+			// round_limit_reached 缺 hand_raised
+			{ published: false, reason: "round_limit_reached", round: ROUND },
+		];
+		for (const result of malformed) {
+			// 每帧独立连接：codec/gate 拒帧会 failConnection（连接即死），
+			// 下一帧需新连接。
+			const { runtime: r, socket: sock } = createRuntime();
+			const p = r.whisper("qa", "hi");
+			const id = lastRequestId(sock);
+			injectResponse(sock, id, { result });
+			// fail-close 双防线：codec schema 层先拒（Invalid server message）或
+			// response-gate 形状校验拒（Unexpected whisper response）——畸形帧
+			// 绝不进 runtime 消费逻辑（无 TypeError / 游标不被写坏）。
+			await expect(p).rejects.toThrow(/whisper response|Invalid PiTavern server message/);
+		}
+	});
+
 	it("B2 请求 in-flight 时 socket close → 即时 reject（非 5s 超时）", async () => {
 		const { runtime, socket } = createRuntime();
 		const request = (runtime as unknown as { request(m: { method: string; params: unknown }): Promise<unknown> })

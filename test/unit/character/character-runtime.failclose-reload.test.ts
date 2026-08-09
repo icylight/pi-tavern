@@ -133,6 +133,8 @@ describe("CharacterRuntime reload 延续后 fail-close（#139 方案 B 回归）
 	it("R3 (#154 阻断 2): reload 后 messageTemplates 快照保持（不回落默认）", async () => {
 		const customTemplates = {
 			public_message: "[{sender}]→{content}",
+			whisper_full: "{sender}→{receiver}: {content}",
+			whisper_placeholder: "{sender}→{receiver}: [whisper]",
 			seconds_ago: "{count} sec ago",
 			minutes_ago: "{count} min ago",
 		};
@@ -237,6 +239,8 @@ describe("CharacterRuntime reload 延续后 fail-close（#139 方案 B 回归）
 			cwd,
 			messageTemplates: {
 				public_message: "A: {sender}: {content}",
+				whisper_full: "{sender}→{receiver}: {content}",
+				whisper_placeholder: "{sender}→{receiver}: [whisper]",
 				seconds_ago: "{count} sec ago",
 				minutes_ago: "{count} min ago",
 			},

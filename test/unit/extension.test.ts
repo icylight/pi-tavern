@@ -238,7 +238,7 @@ describe("PiTavern extension", () => {
 		const { tools, api } = captureTools();
 		piTavern(api as unknown as ExtensionAPI);
 
-		expect(tools).toHaveLength(5);
+		expect(tools).toHaveLength(6);
 		expect(tools[0]?.name).toBe("tavern_speak");
 		expect(tools[1]?.name).toBe("tavern_board");
 		expect(tools[2]?.name).toBe("tavern_whoami");
@@ -272,8 +272,9 @@ describe("PiTavern extension", () => {
 		expect(text).toContain("{sender}");
 		expect(text).toContain("{count}");
 		expect(text).toContain("JSON 骨架");
-		// 本期三类 key：whisper 两 key 随 #152 一并引入（契约留痕），不暴露。
-		expect(text).not.toContain("whisper");
+		// #152：whisper 两 key 随 #152 引入（WH9，契约定稿规则表）。
+		expect(text).toContain("whisper_full");
+		expect(text).toContain("whisper_placeholder");
 
 		// creator 态：拒绝（门禁同 CE2 语义；不泄漏内部状态细节）。
 		const runtime = createMockCreatorRuntime();
@@ -337,6 +338,57 @@ describe("PiTavern extension", () => {
 		// 带 cursor = 向更早续页（透传）。
 		await tool.execute("call-2", { cursor: "opaque-1" });
 		expect(runtime.fetchMessageHistoryPage).toHaveBeenCalledWith("opaque-1");
+	});
+	it("chain: tavern_history whisper 投影渲染（#152 PR #163 阻断 1：whisper_full/placeholder 模板，WH4/WH9 三消费面一致）", async () => {
+		const historyPage = {
+			messages: [
+				{
+					jsonrpc: "2.0",
+					method: "whisper_message",
+					params: {
+						sequence: 13,
+						sender: { type: "character", character_id: "dev", name: "Dev" },
+						recipient: { type: "character", character_id: "qa", name: "QA" },
+						content: "secret plan",
+					},
+				},
+				{
+					jsonrpc: "2.0",
+					method: "whisper_placeholder",
+					params: {
+						sequence: 14,
+						sender: { type: "character", character_id: "dev", name: "Dev" },
+						recipient: { type: "character", character_id: "qa", name: "QA" },
+					},
+				},
+			],
+			cursor: "opaque-2",
+			hasMore: false,
+			totalMessages: 14,
+		};
+		const runtime = {
+			character: { characterId: "dev", name: "Dev", description: "Dev" },
+			close: vi.fn(async () => undefined),
+			getGroupChatState: vi.fn(),
+			markIncrementPending: vi.fn(),
+			speak: vi.fn(),
+			boardWrite: vi.fn(),
+			fetchMessageHistoryPage: vi.fn(async () => historyPage),
+		} as unknown as CharacterRuntime;
+		const controller = await createCharacterControllerWithRuntime(runtime);
+		const { tools, api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI, controller);
+
+		const tool = tools.find((t) => t.name === "tavern_history");
+		if (!tool) throw new Error("no tavern_history tool");
+		const result = await tool.execute("call-1", {});
+		expect(result.isError).toBeUndefined();
+		const text = result.content[0]?.text as string;
+		// 参与者视角（本会话=dev 即发送者）：whisper_full 模板含 sender/receiver/content。
+		expect(text).toContain("Dev 向 QA 悄悄说：secret plan");
+		// 占位帧（本页为旁观者视角）：占位模板无正文。
+		expect(text).toContain("Dev 向 QA 悄悄说了一句话");
+		expect(text).not.toContain("secret plan 说了一句话");
 	});
 
 	it("T3 (#154): tavern_history 用自定义 public_message 模板渲染（三面同变）", async () => {
