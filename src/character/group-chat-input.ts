@@ -101,8 +101,12 @@ export class GroupChatInput {
 	private latestGroupChatUpdate: Extract<ServerMessage, { method: "group_chat_update" }> | null = null;
 	/** #152（阻断 2 修复）：非参与者占位帧最新水位（未读判定与 group_chat_update 水位合并）。 */
 	private latestWhisperPlaceholderSequence = 0;
-	/** #152（PR #163 阻断 3 修复）：接收者实时 full 帧水位（去重 + 连续水位推进）。 */
-	private latestWhisperFullSequence = 0;
+	/**
+	 * #152（PR #163 复评阻断 2 修复）：接收者实时 full 帧「已注入未投递」连续
+	 * 范围顶（去重依据 = 已投递游标 + 连续 pending 范围，非「最高收到帧」——
+	 * 收到即推进会误杀：reload 旧帧重放 / gap 帧重试 / 同步拒绝后重发）。
+	 */
+	private injectedWhisperSequence = 0;
 
 	constructor(
 		private readonly runtime: CharacterRuntime,
@@ -196,19 +200,26 @@ export class GroupChatInput {
 				this.noteWhisperPlaceholderWatermark(message);
 				return;
 			}
-			// #152（PR #163 评审阻断 3 修复）：接收者实时 whisper_message——
-			// 去重（补拉重复帧忽略）+ 连续性守卫（前置缺口不直接注入，
-			// 防跳缺口丢消息：标记补拉由 settle 拉取合并流全窗口顺序消费）。
+			// #152（PR #163 复评阻断修复）：接收者实时 whisper_message——
+			// 去重依据 = 已投递游标 + 连续 pending 范围（非「最高收到帧」）；
+			// 连续性守卫：seq 必须是「游标/已注入顶 + 1」才注入，gap 不注入
+			// 并安排有序补拉（busy 等 settle / idle 主动拉取，防私信无限期不投递）。
 			if ("method" in message && message.method === METHOD_WHISPER_MESSAGE) {
 				const seq = message.params.sequence;
-				if (seq <= this.latestWhisperFullSequence) return; // 连续帧去重
-				this.latestWhisperFullSequence = seq;
 				const cursor = this.runtime.loadCursor() ?? 0;
-				if (seq > cursor + 1) {
-					this.markIncrementPending(); // gap：settle 补拉全窗口（不跳过）
+				if (seq <= cursor) return; // 已投递（reload 重放/重复帧）
+				const next = Math.max(cursor, this.injectedWhisperSequence) + 1;
+				if (seq > next) {
+					// gap：不注入——按忙闲安排补拉（idle 无 settle 事件，须主动拉取）。
+					if (this.runtime.isAgentActive) {
+						this.markIncrementPending();
+					} else {
+						this.armIdleWindow(true);
+					}
 					return;
 				}
 				this.pendingEvents.push(message);
+				this.injectedWhisperSequence = Math.max(this.injectedWhisperSequence, seq);
 				this.resetJoinDebounce();
 				return;
 			}
@@ -635,7 +646,13 @@ export class GroupChatInput {
 			// 机械消费）；无任何水位知识时保持 undefined（不阻止）。
 			const cursor = this.runtime.loadCursor() ?? 0;
 			if (this.latestWhisperPlaceholderSequence > cursor) {
-				return { shouldBlock: true, count: 1, exact: true };
+				// #152（PR #163 复评 B 修复）：仅知占位 seq 时计数精确性只成立
+				// 于「占位 = 游标+1」（缺口存在则不可称 exact）。
+				return {
+					shouldBlock: true,
+					count: 1,
+					exact: this.latestWhisperPlaceholderSequence === cursor + 1,
+				};
 			}
 			return undefined;
 		}
