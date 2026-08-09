@@ -135,6 +135,7 @@ function createMockCreatorRuntime(): CreatorRuntime {
 		submitUserPersonaMessage: vi.fn(() => Promise.resolve("evt-1")),
 		publicMessageList: [],
 		whisperMessageList: [],
+		reader: { getEntries: vi.fn(() => []) },
 	} as unknown as CreatorRuntime;
 }
 
@@ -1013,7 +1014,7 @@ describe("PiTavern extension", () => {
 	function sessionContext(confirm: ReturnType<typeof vi.fn>): ExtensionContext {
 		return {
 			ui: { confirm, notify: vi.fn() },
-			sessionManager: { getSessionId: () => "pi-session-1" },
+			sessionManager: { getSessionId: () => "pi-session-1", getEntries: vi.fn(() => []) },
 		} as unknown as ExtensionContext;
 	}
 
@@ -1106,7 +1107,7 @@ describe("PiTavern extension", () => {
 				notify: vi.fn(),
 				confirm: vi.fn(),
 			},
-			sessionManager: { getSessionId: () => "pi-session-1" },
+			sessionManager: { getSessionId: () => "pi-session-1", getEntries: vi.fn(() => []) },
 		} as unknown as ExtensionContext & {
 			ui: {
 				setStatus: ReturnType<typeof vi.fn>;
@@ -1204,5 +1205,161 @@ describe("PiTavern extension", () => {
 		expect(lastCall).toBeDefined();
 		expect(lastCall).not.toContain("tavern_speak");
 		expect(lastCall).toContain("other_tool");
+	});
+	it("WH4 (#152 Arch 阻断修复): 创建者 TUI 投影——实时 onWhisperMessage 接线 + 恢复合并流", async () => {
+		// 实时：wireCreatorDisplay 接线后触发 onWhisperMessage → appendEntry 收到
+		// kind whisper_message 完整正文条目（创建者恒参与者视角）。
+		const runtime = createMockCreatorRuntime();
+		const controller = new TavernController(async () => runtime);
+		const { api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI, controller);
+		await controller.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		const onWhisper = (runtime as unknown as { onWhisperMessage?: (msg: never) => void }).onWhisperMessage;
+		if (!onWhisper) throw new Error("onWhisperMessage not wired");
+		onWhisper({
+			sender: { type: "character", character_id: "dev", name: "Dev" },
+			recipient: { type: "character", character_id: "qa", name: "QA" },
+			content: "secret plan",
+			event_id: "evt-w",
+			sequence: 21,
+			timestamp: "2026-08-09T00:00:00.000Z",
+			round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
+		} as never);
+
+		const entries = api.appendEntry.mock.calls.map(
+			(call) => call[1] as { kind?: string; event?: { content?: string } },
+		);
+		const whisperEntry = entries.find((entry) => entry.kind === "whisper_message");
+		expect(whisperEntry).toBeDefined();
+		expect(whisperEntry?.event?.content).toBe("secret plan");
+
+		// 恢复合并流：resume 装配时 public + whisper 按 sequence 归并投影
+		// （mock runtime 带两条历史 → projectResumeHistory 应生成两类条目）。
+		const runtime2 = createMockCreatorRuntime();
+		(runtime2 as unknown as { publicMessageList: unknown[] }).publicMessageList = [
+			{
+				event_id: "evt-p1",
+				sequence: 10,
+				timestamp: "2026-08-09T00:00:00.000Z",
+				sender: { type: "user_persona" },
+				content: "public hello",
+				round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
+			},
+		];
+		(runtime2 as unknown as { whisperMessageList: unknown[] }).whisperMessageList = [
+			{
+				event_id: "evt-w1",
+				sequence: 11,
+				timestamp: "2026-08-09T00:00:01.000Z",
+				sender: { type: "character", character_id: "dev", name: "Dev" },
+				recipient: { type: "character", character_id: "qa", name: "QA" },
+				content: "secret history",
+				round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
+			},
+		];
+		const controller2 = new TavernController(async () => runtime2);
+		const api2 = captureTools().api;
+		piTavern(api2 as unknown as ExtensionAPI, controller2);
+		await controller2.startNew({ cwd: "/project", agentDir: "/agent" });
+
+		const resumeEntries = api2.appendEntry.mock.calls.map(
+			(call) => call[1] as { kind?: string; event?: { content?: string } },
+		);
+		expect(
+			resumeEntries.some((entry) => entry.kind === "public_message" && entry.event?.content === "public hello"),
+		).toBe(true);
+		expect(
+			resumeEntries.some((entry) => entry.kind === "whisper_message" && entry.event?.content === "secret history"),
+		).toBe(true);
+	});
+	it("WH1 (#152): tavern_whisper 注册 + 门禁（非 character 拒绝）+ 成功/错误透传", async () => {
+		// 非 character 态（idle）：拒绝。
+		const idleController = new TavernController();
+		const idleTools = captureTools();
+		piTavern(idleTools.api as unknown as ExtensionAPI, idleController);
+		const idleTool = idleTools.tools.find((t) => t.name === "tavern_whisper");
+		if (!idleTool) throw new Error("no tavern_whisper tool");
+		const rejected = await idleTool.execute("call-1", { character_id: "qa", content: "hi" });
+		expect(rejected.isError).toBe(true);
+		expect(rejected.content[0]?.text).toContain("not currently joined");
+
+		// character 态：成功路径（runtime.whisper mock 发布）。
+		const runtime = {
+			character: { characterId: "dev", name: "Dev", description: "Dev" },
+			close: vi.fn(async () => undefined),
+			getGroupChatState: vi.fn(),
+			whisper: vi.fn(async () => ({ published: true, sequence: 42 })),
+		} as unknown as CharacterRuntime;
+		const controller = await createCharacterControllerWithRuntime(runtime);
+		const { tools, api } = captureTools();
+		piTavern(api as unknown as ExtensionAPI, controller);
+		const tool = tools.find((t) => t.name === "tavern_whisper");
+		if (!tool) throw new Error("no tavern_whisper tool");
+		const result = await tool.execute("call-1", { character_id: "qa", content: "hi" });
+		expect(result.isError).toBeUndefined();
+		expect(result.content[0]?.text).toContain("sequence 42");
+		expect(runtime.whisper).toHaveBeenCalledWith("qa", "hi");
+
+		// 错误透传（-32110 离线等）：isError + 服务端消息原样。
+		const failing = {
+			...runtime,
+			whisper: vi.fn(async () => {
+				throw new Error("Whisper target character is not online");
+			}),
+		} as unknown as CharacterRuntime;
+		const failController = await createCharacterControllerWithRuntime(failing);
+		const failTools = captureTools();
+		piTavern(failTools.api as unknown as ExtensionAPI, failController);
+		const failTool = failTools.tools.find((t) => t.name === "tavern_whisper");
+		if (!failTool) throw new Error("no tavern_whisper tool");
+		const failed = await failTool.execute("call-1", { character_id: "offline", content: "hi" });
+		expect(failed.isError).toBe(true);
+		expect(failed.content[0]?.text).toBe("Whisper target character is not online");
+
+		// #152 二轮阻断：round_limit_reached 显式区分（不得误报未读分支）。
+		const limitRuntime = {
+			character: { characterId: "dev", name: "Dev", description: "Dev" },
+			close: vi.fn(async () => undefined),
+			getGroupChatState: vi.fn(),
+			whisper: vi.fn(async () => ({ published: false, reason: "round_limit_reached", handRaised: true })),
+			markIncrementPending: vi.fn(),
+		} as unknown as CharacterRuntime;
+		const limitController = await createCharacterControllerWithRuntime(limitRuntime);
+		const limitTools = captureTools();
+		piTavern(limitTools.api as unknown as ExtensionAPI, limitController);
+		const limitTool = limitTools.tools.find((t) => t.name === "tavern_whisper");
+		if (!limitTool) throw new Error("no tavern_whisper tool");
+		const limitResult = await limitTool.execute("call-1", { character_id: "qa", content: "hi" });
+		expect(limitResult.isError).toBeUndefined();
+		expect(limitResult.content[0]?.text).toContain("round limit reached");
+		expect(limitResult.content[0]?.text).toContain("hand is now raised");
+		// 不得落入「有未读、已安排拉取」误报分支。
+		expect(limitResult.content[0]?.text).not.toContain("有未读");
+		expect(limitRuntime.markIncrementPending).not.toHaveBeenCalled();
+
+		// chain: whisper stale self-heal（#152 阻断 2：stale 拒绝 → markIncrementPending 同 speak 路径）
+		const staleRuntime = {
+			character: { characterId: "dev", name: "Dev", description: "Dev" },
+			close: vi.fn(async () => undefined),
+			getGroupChatState: vi.fn(),
+			whisper: vi.fn(async () => ({
+				published: false,
+				reason: "stale",
+				missingFrom: 3,
+				missingTo: 5,
+				autoRecover: true,
+			})),
+			markIncrementPending: vi.fn(),
+		} as unknown as CharacterRuntime;
+		const staleController = await createCharacterControllerWithRuntime(staleRuntime);
+		const staleTools = captureTools();
+		piTavern(staleTools.api as unknown as ExtensionAPI, staleController);
+		const staleTool = staleTools.tools.find((t) => t.name === "tavern_whisper");
+		if (!staleTool) throw new Error("no tavern_whisper tool");
+		const staleResult = await staleTool.execute("call-1", { character_id: "qa", content: "hi" });
+		expect(staleResult.isError).toBeUndefined();
+		expect(staleResult.content[0]?.text).toContain("out of sync");
+		expect(staleRuntime.markIncrementPending).toHaveBeenCalled();
 	});
 });

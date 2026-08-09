@@ -87,6 +87,44 @@ function aCharacterLeft(): ServerMessage {
 	} as ServerMessage;
 }
 
+function createWhisperMessage(params: {
+	sender: { type: "character"; character_id: string; name?: string };
+	recipient: { type: "character"; character_id: string; name?: string };
+	content: string;
+}): ServerMessage {
+	return {
+		jsonrpc: "2.0",
+		method: "whisper_message",
+		params: {
+			event_id: "evt-w1",
+			sequence: 21,
+			timestamp: "2026-01-01T00:00:00.000Z",
+			sender: params.sender,
+			recipient: params.recipient,
+			content: params.content,
+			round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
+		},
+	} as ServerMessage;
+}
+
+/** #152：私信占位广播帧（无正文）。 */
+function createWhisperPlaceholder(params: {
+	sender: { type: "character"; character_id: string; name?: string };
+	recipient: { type: "character"; character_id: string; name?: string };
+}): ServerMessage {
+	return {
+		jsonrpc: "2.0",
+		method: "whisper_placeholder",
+		params: {
+			event_id: "evt-w2",
+			sequence: 22,
+			timestamp: "2026-01-01T00:00:00.000Z",
+			sender: params.sender,
+			recipient: params.recipient,
+		},
+	} as ServerMessage;
+}
+
 describe("GroupChatInput", () => {
 	afterEach(() => {
 		vi.useRealTimers();
@@ -1949,6 +1987,66 @@ describe("GroupChatInput", () => {
 
 		expect(input.unreadOthersProven()?.shouldBlock).toBe(true);
 		expect(input.unreadOthersProven()?.exact).toBe(true);
+
+		input.stop();
+	});
+	it("WH4 (#152): whisper_message 用 whisper_full 模板渲染（接收者实时唤醒，C 回归）", async () => {
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({ hasPublicMessages: true });
+		runtime.loadCursor = vi.fn(() => 20); // seq 21 = 游标+1 连续（main 版连续性守卫：gap 走补拉不直接注入）
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+		handler(
+			createWhisperMessage({
+				sender: { type: "character", character_id: "dev", name: "Dev" },
+				recipient: { type: "character", character_id: "qa", name: "QA" },
+				content: "secret plan",
+			}),
+		);
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+		const message = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as { content?: string };
+		// 默认模板 full = "{sender} 向 {receiver} 悄悄说：{content}"。
+		expect(message.content ?? "").toContain("Dev 向 QA 悄悄说：secret plan");
+
+		input.stop();
+	});
+	it("chain: whisper-placeholder no-wakeup（#152 阻断 2：非参与者占位不注入不唤醒，仅记水位）", async () => {
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({ hasPublicMessages: true });
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+		// 先有水位知识（join 后 group_chat_update 到达），再收占位帧。
+		handler({
+			jsonrpc: "2.0",
+			method: "group_chat_update",
+			params: {
+				latest_sequence: 5,
+				preview_messages: [],
+				total_messages: 5,
+			},
+		} as unknown as ServerMessage);
+		handler(
+			createWhisperPlaceholder({
+				sender: { type: "character", character_id: "dev", name: "Dev" },
+				recipient: { type: "character", character_id: "qa", name: "QA" },
+			}),
+		);
+		await vi.advanceTimersByTimeAsync(1000);
+
+		// 占位不注入：无 sendMessage（不唤醒、不进 debounce）。
+		expect(pi.sendMessage).not.toHaveBeenCalled();
+		// 占位水位记录（seq 22 > cursor 0）：未读判定合并占位（发言前机械消费）。
+		expect(input.unreadOthersProven()?.shouldBlock).toBe(true);
 
 		input.stop();
 	});
