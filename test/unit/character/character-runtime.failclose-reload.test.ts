@@ -2,8 +2,8 @@ import { EventEmitter } from "node:events";
 
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-
 import { CharacterRuntime } from "../../../src/character/character-runtime.js";
+import type { MessageTemplateKey } from "../../../src/config/message-templates.js";
 import { ERROR_UNEXPECTED_SPEAK_RESPONSE } from "../../../src/shared/messages.js";
 
 /**
@@ -81,7 +81,10 @@ describe("CharacterRuntime reload 延续后 fail-close（#139 方案 B 回归）
 		sockets.length = 0;
 	});
 
-	function createRuntime(): { runtime: CharacterRuntime; socket: MockSocket } {
+	function createRuntime(messageTemplates?: Record<MessageTemplateKey, string>): {
+		runtime: CharacterRuntime;
+		socket: MockSocket;
+	} {
 		const socket = createMockSocket();
 		sockets.push(socket);
 		const runtime = CharacterRuntime.prepare({
@@ -91,6 +94,7 @@ describe("CharacterRuntime reload 延续后 fail-close（#139 方案 B 回归）
 			heartbeatIntervalMs: 60_000,
 			heartbeatTimeoutMs: 60_000,
 			requestTimeoutMs: 5_000,
+			...(messageTemplates !== undefined ? { messageTemplates } : {}),
 		});
 		runtime.activate({ socket: socket as unknown as WebSocket, bufferedMessages: [] });
 		runtimes.push(runtime);
@@ -120,6 +124,24 @@ describe("CharacterRuntime reload 延续后 fail-close（#139 方案 B 回归）
 		});
 
 		await expect(promise).rejects.toThrow(ERROR_UNEXPECTED_SPEAK_RESPONSE);
+	});
+
+	it("R3 (#154 阻断 2): reload 后 messageTemplates 快照保持（不回落默认）", async () => {
+		const customTemplates = {
+			public_message: "[{sender}]→{content}",
+			seconds_ago: "{count} sec ago",
+			minutes_ago: "{count} min ago",
+		};
+		const { runtime } = createRuntime(customTemplates);
+		expect(runtime.messageTemplates).toEqual(customTemplates);
+
+		const taken = await reloadRuntime(runtime, undefined as never);
+		expect(taken.messageTemplates).toEqual(customTemplates);
+
+		// 未配置路径：undefined 保持（消费面回落 DEFAULT_TEMPLATES）。
+		const { runtime: plain } = createRuntime();
+		const plainTaken = await reloadRuntime(plain, undefined as never);
+		expect(plainTaken.messageTemplates).toBeUndefined();
 	});
 
 	it("R2 reload 延续连接上正确响应 → 正常 resolve（正向对照，校验不移位不误伤）", async () => {

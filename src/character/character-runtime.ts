@@ -811,6 +811,8 @@ export class CharacterRuntime {
 			...(this.cursorStorePath !== undefined ? { cursorStorePath: this.cursorStorePath } : {}),
 			// #138：上下文窗口 getter 跨 reload 携带（reload 后与 join 路径行为一致）。
 			...(this.getFetchContextWindow !== undefined ? { getFetchContextWindow: this.getFetchContextWindow } : {}),
+			// #154 T5：模板集快照跨 reload 携带（reload 后渲染一致，不回落默认）。
+			...(this.messageTemplates !== undefined ? { messageTemplates: this.messageTemplates } : {}),
 			// #119 connection 延续：连接实例随 handoff 移交（新 runtime 不重建——
 			// 库内序列单调，旧代际响应撞不上新请求 id，评审阻断②）。
 			...(this.jsonrpcConnection && this.jsonrpcReader && this.jsonrpcWriter
@@ -897,6 +899,8 @@ export class CharacterRuntime {
 			...(handoff.cursorStorePath !== undefined ? { cursorStorePath: handoff.cursorStorePath } : {}),
 			// #138：上下文窗口 getter 跨 reload 延续（reload 后与 join 路径行为一致）。
 			...(handoff.getFetchContextWindow !== undefined ? { getFetchContextWindow: handoff.getFetchContextWindow } : {}),
+			// #154 T5：模板集快照跨 reload 延续（reload 后渲染一致，不回落默认）。
+			...(handoff.messageTemplates !== undefined ? { messageTemplates: handoff.messageTemplates } : {}),
 		});
 		runtime.activateFromHandoff(handoff, pi);
 		return runtime;

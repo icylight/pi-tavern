@@ -83,6 +83,8 @@ export interface CharacterReloadHandoff {
 	cursorStorePath?: string;
 	/** #138：增量拉取上下文窗口 getter（reload 移交后与 join 路径行为一致）。 */
 	getFetchContextWindow?: () => number;
+	/** #154 T5：群聊文案模板集快照（reload 移交后渲染一致，苍蓝星阻断 2 修复）。 */
+	messageTemplates?: Record<MessageTemplateKey, string>;
 	pendingEvents: ServerMessage[];
 	debounceDueAt: number | null;
 	/** 可选仅为兼容这些字段加入前创建的跨版本 reload handoff。 */

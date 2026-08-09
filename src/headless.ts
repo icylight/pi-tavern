@@ -14,6 +14,7 @@
 import { join } from "node:path";
 
 import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { loadTavernConfig, type TavernConfig } from "./config/load-config.js";
 import type { TavernController } from "./controller/tavern-controller.js";
 import { type ActiveGroupChatDescriptor, getGroupChatCursorDirectory } from "./data/discovery/active-descriptor.js";
 import type { DiscoverGroupChatsOptions } from "./data/discovery/discover-group-chats.js";
@@ -36,6 +37,8 @@ interface AutoJoinOptions {
 	groupChat?: string;
 	/** 行为默认实现由组合根装配注入（ADR-0005 层方向，Phase 4）。 */
 	discoverGroupChats?: (options: DiscoverGroupChatsOptions) => Promise<ActiveGroupChatDescriptor[]>;
+	/** #154 T5：配置加载注入（默认 loadTavernConfig）——headless auto-join 与 /tavern-join 同生命周期。 */
+	loadConfig?: (options: { agentDir: string; cwd: string }) => Promise<TavernConfig>;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	triggerDebounceMs?: number;
 }
@@ -122,10 +125,15 @@ export async function autoJoinCharacter(
 	}
 
 	const sessionId = ctx.sessionManager.getSessionId();
+	// #154 T5：headless auto-join 与 /tavern-join 同生命周期——本地加载配置，
+	// 自定义模板集随 claim 达 CharacterRuntime（苍蓝星阻断 3 修复）。
+	const loadConfig = options.loadConfig ?? loadTavernConfig;
+	const joinConfig = await loadConfig({ agentDir, cwd: ctx.cwd });
 	const attempt = await controller.startJoining(descriptor, sessionId, {
 		...(options.triggerDebounceMs !== undefined ? { triggerDebounceMs: options.triggerDebounceMs } : {}),
 		// 游标跟随 Session（User 2026-08-02）：cursors/<groupId>/<sessionId>.json，同群聊多角色互不共用
 		cursorStorePath: join(getGroupChatCursorDirectory(agentDir, ctx.cwd), descriptor.groupChatId, `${sessionId}.json`),
+		...(joinConfig.messageTemplates !== undefined ? { messageTemplates: joinConfig.messageTemplates } : {}),
 	});
 	if (!attempt.isActive) {
 		notify(HEADLESS_JOIN_ATTEMPT_FAILED, "warning");
