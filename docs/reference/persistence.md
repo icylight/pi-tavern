@@ -274,7 +274,7 @@ round      = entry.details.round
   "parentId": "previous-entry",
   "timestamp": "2026-08-09T09:00:00.000Z",
   "customType": "pi-tavern.whisper-message",
-  "content": "Developer:\n（占位）\n",
+  "content": "Developer 向 Tester 悄悄说：我建议先实现持久化层。",
   "display": true,
   "details": {
     "sequence": 43,
@@ -293,7 +293,7 @@ round      = entry.details.round
 - `details.sequence` 与公开消息**共用同一递增器**（`state.nextSequence`），交错分配、无空洞；恢复群聊时从最后一条消息（公开或私信）的 `details.sequence` 继续递增。
 - `details.content` 原样保存私信正文（明文；隐私边界仅限交互层，不提供文件系统安全保证，WH8）。
 - `details.round` 与公开消息同语义（成功私信消耗同一轮次额度池）。
-- `content` 是 Agent 上下文投影：发送者/接收者/创建者 = 完整正文投影（`A 向 B 悄悄说：<正文>`，经 #154 模板渲染）；其他 Character = 占位投影（`A 向 B 悄悄说了一句话`，无正文）。**投影语义在服务端完成**，按查看者身份区分（WH4）。
+- `content` 是**创建者视角完整投影**（固定语义，与查看者无关）：`{sender} 向 {receiver} 悄悄说：{正文}`，经 whisper_full 模板渲染（#154）；**不随查看者变化**——其他 Character 从不读原始 JSONL（只经服务端 wire 投影，按查看者身份返回完整帧或占位帧，WH4），读取路径（恢复/查询投影）的唯一来源是 `details.content`（顶层 content 仅创建者进程 pi 上下文注入消费）。
 - 读取（恢复 / 历史查询 / 增量拉取）时，公开与私信按 `details.sequence` 合并排序为统一消息流；查询按当前连接 `character_id` 执行相同投影。
 
 ### 私信提交顺序

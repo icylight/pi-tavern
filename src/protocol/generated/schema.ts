@@ -505,7 +505,7 @@ export const MessageHistorySchema = Type.Object(
 		method: Type.Literal("message_history"),
 		params: Type.Object(
 			{
-				messages: Type.Array(PublicMessageSchema),
+				messages: Type.Array(Type.Union([PublicMessageSchema, WhisperMessageSchema, WhisperPlaceholderSchema])),
 				cursor: Type.Union([Type.String(), Type.Null()]),
 				has_more: Type.Boolean(),
 				total_messages: Type.Integer({ minimum: 0 }),
@@ -522,7 +522,7 @@ export const GetMessageHistoryResponseSchema = Type.Object(
 		id: RequestIdSchema,
 		result: Type.Object(
 			{
-				messages: Type.Array(PublicMessageSchema),
+				messages: Type.Array(Type.Union([PublicMessageSchema, WhisperMessageSchema, WhisperPlaceholderSchema])),
 				cursor: Type.Union([Type.String(), Type.Null()]),
 				has_more: Type.Boolean(),
 				total_messages: Type.Integer({ minimum: 0 }),
@@ -539,7 +539,7 @@ export const FetchMessagesSinceResponseSchema = Type.Object(
 		id: RequestIdSchema,
 		result: Type.Object(
 			{
-				messages: Type.Array(PublicMessageSchema),
+				messages: Type.Array(Type.Union([PublicMessageSchema, WhisperMessageSchema, WhisperPlaceholderSchema])),
 				latest_sequence: Type.Integer({ minimum: 0 }),
 				total_messages: Type.Integer({ minimum: 0 }),
 			},
@@ -556,7 +556,7 @@ export const GroupChatUpdateSchema = Type.Object(
 		params: Type.Object(
 			{
 				latest_sequence: Type.Integer({ minimum: 0 }),
-				preview_messages: Type.Array(PublicMessageSchema),
+				preview_messages: Type.Array(Type.Union([PublicMessageSchema, WhisperMessageSchema, WhisperPlaceholderSchema])),
 				total_messages: Type.Integer({ minimum: 0 }),
 			},
 			{ additionalProperties: false },

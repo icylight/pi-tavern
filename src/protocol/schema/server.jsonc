@@ -317,7 +317,11 @@
           "type": "object",
           "required": ["messages", "cursor", "has_more", "total_messages"],
           "properties": {
-            "messages": { "type": "array", "items": { "$ref": "#/$defs/PublicMessage" } },
+            "messages": { "type": "array", "items": { "anyOf": [
+              { "$ref": "#/$defs/PublicMessage" },
+              { "$ref": "#/$defs/WhisperMessage" },
+              { "$ref": "#/$defs/WhisperPlaceholder" }
+            ] } },
             "cursor": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
             "has_more": { "type": "boolean" },
             "total_messages": { "type": "integer", "minimum": 0 }
@@ -338,7 +342,11 @@
           "type": "object",
           "required": ["messages", "cursor", "has_more", "total_messages"],
           "properties": {
-            "messages": { "type": "array", "items": { "$ref": "#/$defs/PublicMessage" } },
+            "messages": { "type": "array", "items": { "anyOf": [
+              { "$ref": "#/$defs/PublicMessage" },
+              { "$ref": "#/$defs/WhisperMessage" },
+              { "$ref": "#/$defs/WhisperPlaceholder" }
+            ] } },
             "cursor": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
             "has_more": { "type": "boolean" },
             "total_messages": { "type": "integer", "minimum": 0 }
@@ -359,7 +367,11 @@
           "type": "object",
           "required": ["messages", "latest_sequence", "total_messages"],
           "properties": {
-            "messages": { "type": "array", "items": { "$ref": "#/$defs/PublicMessage" } },
+            "messages": { "type": "array", "items": { "anyOf": [
+              { "$ref": "#/$defs/PublicMessage" },
+              { "$ref": "#/$defs/WhisperMessage" },
+              { "$ref": "#/$defs/WhisperPlaceholder" }
+            ] } },
             "latest_sequence": { "type": "integer", "minimum": 0 },
             "total_messages": { "type": "integer", "minimum": 0 }
           },
@@ -382,7 +394,11 @@
             "latest_sequence": { "type": "integer", "minimum": 0 },
             "preview_messages": {
               "type": "array",
-              "items": { "$ref": "#/$defs/PublicMessage" }
+              "items": { "anyOf": [
+                { "$ref": "#/$defs/PublicMessage" },
+                { "$ref": "#/$defs/WhisperMessage" },
+                { "$ref": "#/$defs/WhisperPlaceholder" }
+              ] }
             },
             "total_messages": { "type": "integer", "minimum": 0 }
           },
