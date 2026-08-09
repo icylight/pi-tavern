@@ -407,4 +407,87 @@ describe("PiTavern protocol codec", () => {
 			expect(() => decodeServerMessage(Buffer.from(JSON.stringify(systemMessage({}))))).toThrow(ProtocolError);
 		});
 	});
+
+	describe("whisper 响应三态解码（#152 PR #160 AI 评审阻断 1 修复，QA codec 规格 A，Arch 编写）", () => {
+		const ROUND = { round_max_messages: 10, used_messages: 6, remaining_messages: 4 };
+		const whisperResponse = (result: Record<string, unknown>) => ({
+			jsonrpc: "2.0",
+			id: "req-1",
+			result,
+		});
+
+		it("A1 published 态：{published:true, sequence, round} 逐字段透传", () => {
+			const frame = whisperResponse({ published: true, sequence: 5, round: ROUND });
+			const decoded = decodeServerMessage(Buffer.from(JSON.stringify(frame)));
+			expect(decoded).toEqual(frame);
+			if ("result" in decoded && "published" in decoded.result) {
+				expect(decoded.result.published).toBe(true);
+				expect(decoded.result.sequence).toBe(5);
+				expect(decoded.result.round).toEqual(ROUND);
+			} else {
+				throw new Error("expected published whisper response");
+			}
+		});
+
+		it("A2 stale 态：{published:false, reason:stale, missing_sequences:{from,to}, round} 透传", () => {
+			const frame = whisperResponse({
+				published: false,
+				reason: "stale",
+				missing_sequences: { from: 3, to: 5 },
+				round: ROUND,
+			});
+			const decoded = decodeServerMessage(Buffer.from(JSON.stringify(frame)));
+			expect(decoded).toEqual(frame);
+		});
+
+		it("A3 round_limit_reached 态：{published:false, reason, hand_raised:true, round} 透传", () => {
+			const frame = whisperResponse({
+				published: false,
+				reason: "round_limit_reached",
+				hand_raised: true,
+				round: ROUND,
+			});
+			const decoded = decodeServerMessage(Buffer.from(JSON.stringify(frame)));
+			expect(decoded).toEqual(frame);
+		});
+
+		it("A4 错误响应（-32110 离线 / -32111 自发自收）走 error 路径可解码", () => {
+			const offline = decodeServerMessage(
+				Buffer.from(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						id: "req-1",
+						error: { code: -32110, message: "Whisper target character is not online" },
+					}),
+				),
+			);
+			expect(offline).toEqual({
+				jsonrpc: "2.0",
+				id: "req-1",
+				error: { code: -32110, message: "Whisper target character is not online" },
+			});
+			const self = decodeServerMessage(
+				Buffer.from(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						id: "req-1",
+						error: { code: -32111, message: "Cannot whisper to yourself" },
+					}),
+				),
+			);
+			expect(self).toEqual({
+				jsonrpc: "2.0",
+				id: "req-1",
+				error: { code: -32111, message: "Cannot whisper to yourself" },
+			});
+		});
+
+		it("A5 非法 reason 拒帧（三态外形态 fail-close）", () => {
+			expect(() =>
+				decodeServerMessage(
+					Buffer.from(JSON.stringify(whisperResponse({ published: false, reason: "unknown", round: ROUND }))),
+				),
+			).toThrow(ProtocolError);
+		});
+	});
 });

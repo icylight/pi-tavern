@@ -489,24 +489,79 @@
         }
       ]
     },
-    // #152：whisper 请求成功响应（发送者获得 sequence——用于游标/后续 stale 检查；
-    // 发送者不额外注入自身事件，只获工具结果）。
+    // #152：whisper 请求响应——与 SpeakResponse 同构三态（五方确认：超额/stale
+    // 走结构化拒绝，客户端按 reason 区分自愈；成功态发送者获得 sequence 用于
+    // 游标/后续 stale 检查，不额外注入自身事件）。
     "WhisperResponse": {
-      "type": "object",
-      "required": ["jsonrpc", "id", "result"],
-      "properties": {
-        "jsonrpc": { "type": "string", "const": "2.0" },
-        "id": { "$ref": "#/$defs/RequestId" },
-        "result": {
+      "anyOf": [
+        {
           "type": "object",
-          "required": ["sequence"],
+          "required": ["jsonrpc", "id", "result"],
           "properties": {
-            "sequence": { "type": "integer", "minimum": 1 }
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "result": {
+              "type": "object",
+              "required": ["published", "sequence", "round"],
+              "properties": {
+                "published": { "type": "boolean", "const": true },
+                "sequence": { "type": "integer", "minimum": 1 },
+                "round": { "$ref": "#/$defs/RoundSnapshot" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["jsonrpc", "id", "result"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "result": {
+              "type": "object",
+              "required": ["published", "reason", "hand_raised", "round"],
+              "properties": {
+                "published": { "type": "boolean", "const": false },
+                "reason": { "type": "string", "const": "round_limit_reached" },
+                "hand_raised": { "type": "boolean", "const": true },
+                "round": { "$ref": "#/$defs/RoundSnapshot" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["jsonrpc", "id", "result"],
+          "properties": {
+            "jsonrpc": { "type": "string", "const": "2.0" },
+            "id": { "$ref": "#/$defs/RequestId" },
+            "result": {
+              "type": "object",
+              "required": ["published", "reason", "missing_sequences", "round"],
+              "properties": {
+                "published": { "type": "boolean", "const": false },
+                "reason": { "type": "string", "const": "stale" },
+                "missing_sequences": {
+                  "type": "object",
+                  "required": ["from", "to"],
+                  "properties": {
+                    "from": { "type": "integer", "minimum": 0 },
+                    "to": { "type": "integer", "minimum": 1 }
+                  },
+                  "additionalProperties": false
+                },
+                "round": { "$ref": "#/$defs/RoundSnapshot" }
+              },
+              "additionalProperties": false
+            }
           },
           "additionalProperties": false
         }
-      },
-      "additionalProperties": false
+      ]
     },
     // #152：私信发送者/接收者（仅 Character；user_persona 不支持私信）。
     "WhisperSender": {

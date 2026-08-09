@@ -529,6 +529,30 @@ describe("PiTavern extension", () => {
 		const failed = await failTool.execute("call-1", { character_id: "offline", content: "hi" });
 		expect(failed.isError).toBe(true);
 		expect(failed.content[0]?.text).toBe("Whisper target character is not online");
+
+		// chain: whisper stale self-heal（#152 阻断 2：stale 拒绝 → markIncrementPending 同 speak 路径）
+		const staleRuntime = {
+			character: { characterId: "dev", name: "Dev", description: "Dev" },
+			close: vi.fn(async () => undefined),
+			getGroupChatState: vi.fn(),
+			whisper: vi.fn(async () => ({
+				published: false,
+				reason: "stale",
+				missingFrom: 3,
+				missingTo: 5,
+				autoRecover: true,
+			})),
+			markIncrementPending: vi.fn(),
+		} as unknown as CharacterRuntime;
+		const staleController = await createCharacterControllerWithRuntime(staleRuntime);
+		const staleTools = captureTools();
+		piTavern(staleTools.api as unknown as ExtensionAPI, staleController);
+		const staleTool = staleTools.tools.find((t) => t.name === "tavern_whisper");
+		if (!staleTool) throw new Error("no tavern_whisper tool");
+		const staleResult = await staleTool.execute("call-1", { character_id: "qa", content: "hi" });
+		expect(staleResult.isError).toBeUndefined();
+		expect(staleResult.content[0]?.text).toContain("out of sync");
+		expect(staleRuntime.markIncrementPending).toHaveBeenCalled();
 	});
 
 	it("tavern_whoami reports a clear error when not in character state (creator/idle)", async () => {

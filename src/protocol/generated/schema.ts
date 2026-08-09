@@ -637,19 +637,61 @@ export const SpeakResponseSchema = Type.Union([
 	),
 ]);
 
-export const WhisperResponseSchema = Type.Object(
-	{
-		jsonrpc: Type.Literal("2.0"),
-		id: RequestIdSchema,
-		result: Type.Object(
-			{
-				sequence: Type.Integer({ minimum: 1 }),
-			},
-			{ additionalProperties: false },
-		),
-	},
-	{ additionalProperties: false },
-);
+export const WhisperResponseSchema = Type.Union([
+	Type.Object(
+		{
+			jsonrpc: Type.Literal("2.0"),
+			id: RequestIdSchema,
+			result: Type.Object(
+				{
+					published: Type.Literal(true),
+					sequence: Type.Integer({ minimum: 1 }),
+					round: RoundSnapshotSchema,
+				},
+				{ additionalProperties: false },
+			),
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			jsonrpc: Type.Literal("2.0"),
+			id: RequestIdSchema,
+			result: Type.Object(
+				{
+					published: Type.Literal(false),
+					reason: Type.Literal("round_limit_reached"),
+					hand_raised: Type.Literal(true),
+					round: RoundSnapshotSchema,
+				},
+				{ additionalProperties: false },
+			),
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			jsonrpc: Type.Literal("2.0"),
+			id: RequestIdSchema,
+			result: Type.Object(
+				{
+					published: Type.Literal(false),
+					reason: Type.Literal("stale"),
+					missing_sequences: Type.Object(
+						{
+							from: Type.Integer({ minimum: 0 }),
+							to: Type.Integer({ minimum: 1 }),
+						},
+						{ additionalProperties: false },
+					),
+					round: RoundSnapshotSchema,
+				},
+				{ additionalProperties: false },
+			),
+		},
+		{ additionalProperties: false },
+	),
+]);
 
 export const BoardNoteSchema = Type.Object(
 	{

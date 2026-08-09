@@ -771,7 +771,18 @@ export class CharacterRuntime {
 	 * 请求者自己的消息排除在 stale 检查之外——schema 注释：sequence 供发送者
 	 * 游标）。发送者不收到任何自身事件（服务端过滤，零注入）。
 	 */
-	async whisper(characterId: string, content: string): Promise<{ published: boolean; sequence: number }> {
+	async whisper(
+		characterId: string,
+		content: string,
+	): Promise<{
+		published: boolean;
+		sequence?: number;
+		reason?: "stale" | "round_limit_reached";
+		missingFrom?: number;
+		missingTo?: number;
+		autoRecover?: boolean;
+		handRaised?: boolean;
+	}> {
 		// #128：未读先读——与 speak 同款本地判定（whisper 也走未读优先）。
 		const unread = this.groupChatInput?.unreadOthersProven();
 		if (unread?.shouldBlock) {
@@ -780,7 +791,7 @@ export class CharacterRuntime {
 				this.unreadBlockNotified = true;
 				this.markIncrementPending();
 			}
-			return { published: false, sequence: 0 };
+			return { published: false };
 		}
 		this.unreadBlockNotified = false;
 		const basedOnSequence = this.loadCursor() ?? 0;
@@ -789,17 +800,49 @@ export class CharacterRuntime {
 			params: { character_id: characterId, content, based_on_sequence: basedOnSequence },
 		});
 		if ("error" in response) {
-			// 错误码透传（-32110 离线 / -32111 自发自收 / 超额 / stale 等）。
+			// 错误码透传（-32110 离线 / -32111 自发自收 / 持久化失败等）。
 			throw new Error(response.error.message);
 		}
 		if (!("result" in response)) {
 			throw new Error(ERROR_UNEXPECTED_WHISPER_RESPONSE);
 		}
-		const result = response.result as { published: boolean; sequence: number };
+		// #152 修复（PR #160 AI 评审阻断 1 配套）：三态 result 与 schema 一致
+		// （published+sequence+round / stale / round_limit_reached，与 speak 同构）。
+		const result = response.result as {
+			published: boolean;
+			sequence?: number;
+			reason?: "stale" | "round_limit_reached";
+			missing_sequences?: { from: number; to: number };
+			hand_raised?: boolean;
+			round: { round_max_messages: number; used_messages: number; remaining_messages: number };
+		};
 		if (result.published) {
-			this.saveCursor(result.sequence);
+			this.saveCursor(result.sequence ?? 0);
+			return { published: true, ...(result.sequence !== undefined ? { sequence: result.sequence } : {}) };
 		}
-		return { published: result.published, sequence: result.sequence };
+		if (result.reason === "stale") {
+			// stale 自愈（与 speak 同路径）：预算内标记增量待投递，settle 补拉
+			// （拉取合并流含 whisper 帧 → 消费占位/全文 + 游标推进）。
+			const key = `${result.round.round_max_messages}:${result.round.used_messages}`;
+			if (this.staleRecoveryKey !== key) {
+				this.staleRecoveryKey = key;
+				this.staleRecoveryCount = 0;
+			}
+			this.staleRecoveryCount += 1;
+			return {
+				published: false,
+				reason: "stale",
+				...(result.missing_sequences !== undefined
+					? { missingFrom: result.missing_sequences.from, missingTo: result.missing_sequences.to }
+					: {}),
+				autoRecover: this.staleRecoveryCount <= MAX_STALE_AUTO_RECOVERIES,
+			};
+		}
+		return {
+			published: false,
+			reason: "round_limit_reached",
+			...(result.hand_raised !== undefined ? { handRaised: result.hand_raised } : {}),
+		};
 	}
 
 	/**

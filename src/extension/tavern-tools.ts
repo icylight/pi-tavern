@@ -454,6 +454,29 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 			try {
 				const result = await state.runtime.whisper(params.character_id, params.content);
 				if (!result.published) {
+					if (result.reason === "stale") {
+						// stale 自愈（与 speak 同路径，ISSUE-013 B3）：预算内标记增量待投递，
+						// settle 补拉（合并流含 whisper 帧 → 机械消费占位/全文 + 游标推进）。
+						if (result.autoRecover) {
+							state.runtime.markIncrementPending();
+						}
+						return {
+							content: [
+								{
+									type: "text",
+									text:
+										`Message NOT published: you are out of sync with the group chat ` +
+										`(you last saw seq ${result.missingFrom !== undefined ? result.missingFrom - 1 : "?"}; ` +
+										`messages ${result.missingFrom}..${result.missingTo} arrived before your whisper). ` +
+										`Your message was not counted against the round quota and no hand was raised.` +
+										(result.autoRecover
+											? `\nThe new messages will be delivered to you after this turn (auto-recovery); re-decide then — revise or drop.`
+											: `\nAuto-recovery budget exhausted this round — wait for the group chat input before whispering again.`),
+								},
+							],
+							details: undefined,
+						};
+					}
 					// 未读先读阻止（与 speak 同款）——不占额度、不举手。
 					return {
 						content: [

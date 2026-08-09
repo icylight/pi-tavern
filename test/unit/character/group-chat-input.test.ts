@@ -379,7 +379,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("WH4 (#152): whisper_message 用 whisper_full 模板 / whisper_placeholder 用占位模板渲染", async () => {
+	it("WH4 (#152): whisper_message 用 whisper_full 模板渲染（接收者实时唤醒，C 回归）", async () => {
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({ hasPublicMessages: true });
@@ -395,6 +395,35 @@ describe("GroupChatInput", () => {
 				content: "secret plan",
 			}),
 		);
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+		const message = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as { content?: string };
+		// 默认模板 full = "{sender} 向 {receiver} 悄悄说：{content}"。
+		expect(message.content ?? "").toContain("Dev 向 QA 悄悄说：secret plan");
+
+		input.stop();
+	});
+
+	it("chain: whisper-placeholder no-wakeup（#152 阻断 2：非参与者占位不注入不唤醒，仅记水位）", async () => {
+		vi.useFakeTimers();
+
+		const runtime = createMockRuntime({ hasPublicMessages: true });
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+		// 先有水位知识（join 后 group_chat_update 到达），再收占位帧。
+		handler({
+			jsonrpc: "2.0",
+			method: "group_chat_update",
+			params: {
+				latest_sequence: 5,
+				preview_messages: [],
+				total_messages: 5,
+			},
+		} as unknown as ServerMessage);
 		handler(
 			createWhisperPlaceholder({
 				sender: { type: "character", character_id: "dev", name: "Dev" },
@@ -403,12 +432,10 @@ describe("GroupChatInput", () => {
 		);
 		await vi.advanceTimersByTimeAsync(1000);
 
-		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
-		const message = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as { content?: string };
-		// 默认模板：full = "{sender} 向 {receiver} 悄悄说：{content}"；
-		// placeholder = "{sender} 向 {receiver} 悄悄说了一句话"（无正文泄露）。
-		expect(message.content ?? "").toContain("Dev 向 QA 悄悄说：secret plan");
-		expect(message.content ?? "").toContain("Dev 向 QA 悄悄说了一句话");
+		// 占位不注入：无 sendMessage（不唤醒、不进 debounce）。
+		expect(pi.sendMessage).not.toHaveBeenCalled();
+		// 占位水位记录（seq 22 > cursor 0）：未读判定合并占位（发言前机械消费）。
+		expect(input.unreadOthersProven()?.shouldBlock).toBe(true);
 
 		input.stop();
 	});
