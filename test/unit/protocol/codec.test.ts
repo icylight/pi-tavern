@@ -464,6 +464,33 @@ describe("PiTavern protocol codec", () => {
 			expect(decodeServerMessage(Buffer.from(JSON.stringify(frame)))).toEqual(frame);
 		});
 
+		it("C5 preview_messages 含 whisper_message 完整帧必拒（group_chat_update 是全员广播面——私信正文不得经公共 preview 广播，隐私契约）", () => {
+			expect(() =>
+				decodeServerMessage(
+					Buffer.from(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							method: "group_chat_update",
+							params: { latest_sequence: 5, preview_messages: [whisperMessage] },
+						}),
+					),
+				),
+			).toThrow(ProtocolError);
+		});
+
+		it("C6 preview_messages 含 whisper_placeholder 必拒（占位不得纳入公共更新唤醒面——WH6 冲突防御，防未来机械扩展再扩大广播契约）", () => {
+			expect(() =>
+				decodeServerMessage(
+					Buffer.from(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							method: "group_chat_update",
+							params: { latest_sequence: 5, preview_messages: [whisperPlaceholder] },
+						}),
+					),
+				),
+			).toThrow(ProtocolError);
+		});
 		it("C4 placeholder 带 content 必拒（任意容器内 fail-close——无 content 字段是契约）", () => {
 			const leaked = {
 				...whisperPlaceholder,

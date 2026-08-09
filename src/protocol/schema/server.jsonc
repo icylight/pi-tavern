@@ -394,11 +394,7 @@
             "latest_sequence": { "type": "integer", "minimum": 0 },
             "preview_messages": {
               "type": "array",
-              "items": { "anyOf": [
-                { "$ref": "#/$defs/PublicMessage" },
-                { "$ref": "#/$defs/WhisperMessage" },
-                { "$ref": "#/$defs/WhisperPlaceholder" }
-              ] }
+              "items": { "$ref": "#/$defs/PublicMessage" }
             },
             "total_messages": { "type": "integer", "minimum": 0 }
           },

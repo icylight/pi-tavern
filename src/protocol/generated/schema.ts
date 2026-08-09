@@ -556,7 +556,7 @@ export const GroupChatUpdateSchema = Type.Object(
 		params: Type.Object(
 			{
 				latest_sequence: Type.Integer({ minimum: 0 }),
-				preview_messages: Type.Array(Type.Union([PublicMessageSchema, WhisperMessageSchema, WhisperPlaceholderSchema])),
+				preview_messages: Type.Array(PublicMessageSchema),
 				total_messages: Type.Integer({ minimum: 0 }),
 			},
 			{ additionalProperties: false },
