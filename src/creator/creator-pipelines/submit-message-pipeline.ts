@@ -4,6 +4,7 @@ import { type GroupChatState, setHandRaised } from "../../data/group-chat-state.
 import { formatEntryContent, type SessionHeaderLike, type SessionStore } from "../../data/session-store.js";
 import type { ClientMessage } from "../../protocol/messages.js";
 import type { PublicMessageState } from "../../protocol/public-message-state.js";
+import type { WhisperMessageState } from "../../protocol/whisper-message-state.js";
 import {
 	ERROR_CODE_MESSAGE_TOO_LARGE,
 	ERROR_CODE_NO_ACTIVE_ROUND,
@@ -17,6 +18,7 @@ import {
 	ERROR_UNKNOWN,
 	ERROR_USER_PERSONA_MESSAGE_TOO_LARGE,
 } from "../../shared/messages.js";
+import { mergeMessageStreams } from "./message-stream.js";
 
 type SpeakMessage = Extract<ClientMessage, { method: "speak" }>;
 
@@ -35,6 +37,8 @@ interface PersistedCountAccess {
 interface SubmitMessagePipelineDependencies {
 	state: GroupChatState;
 	publicMessages: PublicMessageState[];
+	/** #152：私信消息流（speak 陈旧性检查与 whisper 共用合并流，B6 排除自身）。 */
+	whisperMessages: WhisperMessageState[];
 	persistedCount: PersistedCountAccess;
 	sessionStore: SessionStore;
 	broadcastGroupChatUpdate: () => void;
@@ -105,9 +109,11 @@ export class SubmitMessagePipeline {
 		}
 
 		// 阶段 2：陈旧性检查（ISSUE-013 B2/B6）——业务性拒绝：不发布、不耗配额、不举手
+		// #152：基于合并流（公开+私信），排除请求者自己发送的消息（含自己的私信）。
+		const merged = mergeMessageStreams(this.deps.publicMessages, this.deps.whisperMessages);
 		let latestOtherSequence = 0;
-		for (let i = this.deps.publicMessages.length - 1; i >= 0; i--) {
-			const candidate = this.deps.publicMessages[i];
+		for (let i = merged.length - 1; i >= 0; i--) {
+			const candidate = merged[i];
 			if (candidate === undefined) {
 				continue;
 			}
@@ -120,8 +126,8 @@ export class SubmitMessagePipeline {
 			latestOtherSequence = candidate.sequence;
 			break;
 		}
-		const latestPublic = this.deps.publicMessages[this.deps.publicMessages.length - 1];
-		const latestSequence = latestPublic !== undefined ? latestPublic.sequence : 0;
+		const latest = merged[merged.length - 1];
+		const latestSequence = latest !== undefined ? latest.sequence : 0;
 		if (message.params.based_on_sequence !== undefined && message.params.based_on_sequence < latestOtherSequence) {
 			return {
 				published: false,
