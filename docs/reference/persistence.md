@@ -320,8 +320,8 @@ Creator 侧 resume 历史投影的锚定来源 = **当前 pi 会话内本群聊�
 creator-display 条目最大 sequence**（sessionManager.getEntries() 扫描），
 无持久化标记文件：
 
-- fresh 会话（无条目）→ 锚定 0 → 全窗口投影（尾 JOIN_HISTORY_LIMIT 条，
-  与 join 拉取视图对称）——**任何 fresh resume 都有历史**（#42 主场景）
+- fresh 会话（无条目）→ 锚定 0 → 全量投影（#155：移除 JOIN_HISTORY_LIMIT=10
+  截断，展示完整历史）——**任何 fresh resume 都有历史**（#42 主场景）
 - continued 会话（interactive --continue / pi /resume 进旧会话）→ 跳过
   已显示段防重复（防御性设计：unit 钉死扫描逻辑，RPC 测试环境无会话
   文件落盘、无法进程级复现）

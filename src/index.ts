@@ -21,7 +21,6 @@ import { wireAgentLifecycle } from "./extension/agent-lifecycle.js";
 import { registerTavernTools } from "./extension/tavern-tools.js";
 import { type AutoJoinContext, autoJoinCharacter } from "./headless.js";
 import type { PublicMessageState } from "./protocol/public-message-state.js";
-import { JOIN_HISTORY_LIMIT } from "./shared/constants.js";
 import {
 	ERROR_TUI_PROJECTION_FAILED_PREFIX,
 	ERROR_UNKNOWN,
@@ -333,14 +332,15 @@ function appendCreatorDisplayEntry(pi: ExtensionAPI, runtime: CreatorRuntime, ms
 /**
  * #42：resume 历史投影（PM 裁决方案 B：纯扫描锚定，无标记文件）。锚定 =
  * 当前 pi 会话内本群聊 creator-display 条目最大 sequence——fresh 会话
- * （无条目）→ 全窗口投影（每次 fresh resume 都有历史）；continued 会话
- * → 跳过已显示段防重复；同会话重复 resume → 幂等空。窗口 =
- * JOIN_HISTORY_LIMIT 对称（#123：join 不再推送历史，resume 窗口 = 10）。
+ * （无条目）→ 全量投影（每次 fresh resume 都有历史）；continued 会话
+ * → 跳过已显示段防重复；同会话重复 resume → 幂等空。窗口 = 当前全量
+ * 列表长度（#155：移除 JOIN_HISTORY_LIMIT=10 截断，投影完整历史）。
  * 中断重入按已投影最大 sequence 补尾段。新消息增量路径不受影响（A4）。
  */
 function projectResumeHistory(pi: ExtensionAPI, runtime: CreatorRuntime): void {
 	const anchor = computeSessionProjectionAnchor(sessionManagerRef, runtime.state.groupChat.groupChatId);
-	const messages = computeResumeProjection(runtime.publicMessageList, anchor, JOIN_HISTORY_LIMIT);
+	// 窗口 = 当前全量列表长度（空列表时 windowSize=0 → 自然返回 []）。
+	const messages = computeResumeProjection(runtime.publicMessageList, anchor, runtime.publicMessageList.length);
 	for (const message of messages) {
 		appendCreatorDisplayEntry(pi, runtime, message);
 	}
