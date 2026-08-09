@@ -244,26 +244,27 @@ describe("CharacterRuntime reload 延续后 fail-close（#139 方案 B 回归）
 		runtime.activate({ socket: socket as unknown as WebSocket, bufferedMessages: [] });
 		runtimes.push(runtime);
 
-		// ① 模板文件坏 JSON → 后端 warning 回退（loadTavernConfig 不抛）→
-		// 重载结果不带 messageTemplates → 保留旧快照 A。
-		writeFileSync(join(agentDir, "templates.json"), "{broken json");
-		const handoff1 = await runtime.detachForReload("session-2");
-		const taken1 = await CharacterRuntime.takeHandoff(handoff1);
-		runtimes.push(taken1);
-		expect(taken1.messageTemplates?.public_message).toBe("A: {sender}: {content}");
-
 		// ② tavern.json 本身坏 JSON → loadTavernConfig 抛错 → notify warning +
-		// 保留旧快照 A，reload 继续。
+		// 保留旧快照 A，reload 继续（R5b：仅加载失败保留）。
 		writeFileSync(join(agentDir, "tavern.json"), "{broken tavern json");
 		const warnings: string[] = [];
-		const handoff2 = await taken1.detachForReload("session-2");
+		const handoff2 = await runtime.detachForReload("session-2");
 		const taken2 = await CharacterRuntime.takeHandoff(handoff2, undefined, (message) => {
 			warnings.push(message);
 		});
 		runtimes.push(taken2);
-
 		expect(warnings.some((w) => w.includes("failed to reload tavern.json"))).toBe(true);
 		expect(taken2.messageTemplates?.public_message).toBe("A: {sender}: {content}");
+
+		// ① 模板文件坏 JSON → 后端 warning 回退（loadTavernConfig 不抛）→
+		// 重载成功但缺省 → 清除旧快照（消费面回落内置默认；R5a 苍蓝星第三轮复评）。
+		// 先恢复 tavern.json 合法（② 已写坏），只保留 templates.json 坏。
+		writeFileSync(join(agentDir, "tavern.json"), JSON.stringify({ message_templates: "./templates.json" }));
+		writeFileSync(join(agentDir, "templates.json"), "{broken json");
+		const handoff1 = await taken2.detachForReload("session-2");
+		const taken1 = await CharacterRuntime.takeHandoff(handoff1);
+		runtimes.push(taken1);
+		expect(taken1.messageTemplates).toBeUndefined();
 
 		rmSync(dir, { recursive: true, force: true });
 	});

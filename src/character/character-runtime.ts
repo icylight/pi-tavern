@@ -914,9 +914,9 @@ export class CharacterRuntime {
 		if (handoff.agentDir !== undefined && handoff.cwd !== undefined) {
 			try {
 				const reloaded = await loadConfig({ agentDir: handoff.agentDir, cwd: handoff.cwd });
-				if (reloaded.messageTemplates !== undefined) {
-					messageTemplates = reloaded.messageTemplates;
-				}
+				// 复评（苍蓝星第三轮）：reload 成功即采用磁盘配置——messageTemplates
+				// 缺省时清除旧快照（消费面回落内置默认）；仅加载抛错才保留旧快照。
+				messageTemplates = reloaded.messageTemplates;
 			} catch (error) {
 				notify?.(
 					`reload: failed to reload tavern.json, keeping the previous message templates: ${error instanceof Error ? error.message : String(error)}`,
