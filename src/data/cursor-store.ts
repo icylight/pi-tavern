@@ -22,7 +22,6 @@ export function decodeCursor(cursor: string): number | null {
 }
 
 /**
-/**
  * 统计会话条目中 PiTavern 自有的已持久化条目数（resume 恢复用）；类型清单
  * 由 PERSISTED_ENTRY_TYPES 承载，注释不手写清单防漂移。
  */
