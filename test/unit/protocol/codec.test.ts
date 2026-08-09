@@ -420,7 +420,12 @@ describe("PiTavern protocol codec", () => {
 			const frame = whisperResponse({ published: true, sequence: 5, round: ROUND });
 			const decoded = decodeServerMessage(Buffer.from(JSON.stringify(frame)));
 			expect(decoded).toEqual(frame);
-			if ("result" in decoded && "published" in decoded.result) {
+			if (
+				"result" in decoded &&
+				decoded.result !== null &&
+				"published" in decoded.result &&
+				decoded.result.published === true
+			) {
 				expect(decoded.result.published).toBe(true);
 				expect(decoded.result.sequence).toBe(5);
 				expect(decoded.result.round).toEqual(ROUND);
