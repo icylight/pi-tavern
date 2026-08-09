@@ -9,6 +9,8 @@ import {
 	METHOD_MESSAGE_HISTORY,
 	METHOD_PUBLIC_MESSAGE,
 	METHOD_SYSTEM_MESSAGE,
+	METHOD_WHISPER_MESSAGE,
+	METHOD_WHISPER_PLACEHOLDER,
 } from "../shared/messages.js";
 import type { CharacterRuntime } from "./character-runtime.js";
 import {
@@ -97,6 +99,8 @@ export class GroupChatInput {
 	 * stale 兜底）。只存最新一帧：update 是累积水位，新帧包含旧帧信息。
 	 */
 	private latestGroupChatUpdate: Extract<ServerMessage, { method: "group_chat_update" }> | null = null;
+	/** #152（阻断 2 修复）：非参与者占位帧最新水位（未读判定与 group_chat_update 水位合并）。 */
+	private latestWhisperPlaceholderSequence = 0;
 
 	constructor(
 		private readonly runtime: CharacterRuntime,
@@ -186,6 +190,12 @@ export class GroupChatInput {
 				void this.runtime.refreshGroupChatState();
 				return;
 			}
+			// #152（阻断 2 修复）：非参与者占位帧——仅记占位水位（未读判定可见），
+			// 不注入不唤醒不进 debounce（WH6）。
+			if ("method" in message && message.method === METHOD_WHISPER_PLACEHOLDER) {
+				this.noteWhisperPlaceholderWatermark(message);
+				return;
+			}
 			if (!this.isEnvironmentEvent(message)) return;
 			this.pendingEvents.push(message);
 			this.resetJoinDebounce();
@@ -266,13 +276,37 @@ export class GroupChatInput {
 							hasDeliverableUnread = true;
 						}
 					}
+					// #152（PR #160 AI 评审阻断 2 修复）：补拉路径接纳私信两类帧——
+					// 接收者全文（唤醒注入，同 public 语义）/ 非参与者占位（机械消费：
+					// 发言被未读/stale 阻止后的补拉注入，AI 看到占位即完成消费）。
+					// 两类帧都推进游标（拉取窗口 = 已送达），防反复 stale。
+					if (m && typeof m === "object" && "method" in m && m.method === METHOD_WHISPER_MESSAGE) {
+						messages.push(m as ServerMessage);
+						if (i >= page.contextCount) {
+							hasDeliverableUnread = true;
+						}
+					}
+					if (m && typeof m === "object" && "method" in m && m.method === METHOD_WHISPER_PLACEHOLDER) {
+						messages.push(m as ServerMessage);
+						if (i >= page.contextCount) {
+							hasDeliverableUnread = true;
+						}
+					}
 				}
 				if (hasDeliverableUnread) {
 					// 游标推进移至投递成功判定（双通道契约：idle followUp /
 					// 忙态 steer 入队成功 = 投递成功 → saveCursor；失败不推进，
 					// settle 兜底重投——A5 强化实现）。
 					await this.deliver(messages, page.latestSequence);
-				} else if (page.messages.some((message) => "method" in message && message.method === METHOD_PUBLIC_MESSAGE)) {
+				} else if (
+					page.messages.some(
+						(message) =>
+							"method" in message &&
+							(message.method === METHOD_PUBLIC_MESSAGE ||
+								message.method === METHOD_WHISPER_MESSAGE ||
+								message.method === METHOD_WHISPER_PLACEHOLDER),
+					)
+				) {
 					// 拉取窗口只有自身回显时不生成 Agent 输入，但仍消费对应水位；否则
 					// preview 超限的连续自身消息会在每次 settle 被永久重拉。
 					this.runtime.saveCursor(page.latestSequence);
@@ -508,6 +542,13 @@ export class GroupChatInput {
 		switch (message.method) {
 			case METHOD_PUBLIC_MESSAGE:
 				return !this.isOwnEcho(message);
+			// #152（PR #160 AI 评审阻断 2 修复）：私信单播（接收者）是环境事件
+			// （实时唤醒注入，同 public 语义——WH6「接收者实时投递」）；占位广播
+			// （非参与者）**不是**环境事件——不注入、不唤醒、不进 debounce，仅记
+			// 占位水位（WH6「不被主动唤醒」，发言前经未读判定机械消费，见
+			// noteWhisperPlaceholderWatermark / unreadOthersProven）。
+			case METHOD_WHISPER_MESSAGE:
+				return true;
 			case METHOD_MESSAGE_HISTORY:
 				return true;
 			// 白板模型（#114，ADR-0007）：board_update = 环境事件（通知渲染），
@@ -545,18 +586,34 @@ export class GroupChatInput {
 	 * 下界），exact = preview 是否完整覆盖 cursor 后窗口。阻塞条件除 count > 0
 	 * 外，还包括「截断窗口含自身回显」这一发送者未知场景（#128 定稿要求保守阻止）。
 	 */
+	/**
+	 * #152（阻断 2 修复）：记录非参与者占位帧水位。占位不注入（不唤醒），
+	 * 但属未读序列——unreadOthersProven 合并该水位，发言前机械消费（AI 评审
+	 * 阻断 2 的「仅记水位、发言前消费占位」语义落实）。
+	 */
+	private noteWhisperPlaceholderWatermark(message: Extract<ServerMessage, { method: "whisper_placeholder" }>): void {
+		if (message.params.sequence > this.latestWhisperPlaceholderSequence) {
+			this.latestWhisperPlaceholderSequence = message.params.sequence;
+		}
+	}
+
 	unreadOthersProven(): { shouldBlock: boolean; count: number; exact: boolean } | undefined {
 		const update = this.latestGroupChatUpdate;
 		if (update === null) {
 			return undefined;
 		}
 		const cursor = this.runtime.loadCursor() ?? 0;
-		if (update.params.latest_sequence <= cursor) {
+		// #152（阻断 2 修复）：水位合并占位帧（占位属未读序列——发言前机械消费）。
+		const latestSequence = Math.max(update.params.latest_sequence, this.latestWhisperPlaceholderSequence);
+		if (latestSequence <= cursor) {
 			return { shouldBlock: false, count: 0, exact: true };
 		}
 		const unseen = update.params.preview_messages.filter((preview) => preview.params.sequence > cursor);
-		const expected = update.params.latest_sequence - cursor;
-		const exact = unseen.length === expected;
+		const expected = latestSequence - cursor;
+		// 占位帧不进 preview（服务端广播不含正文帧）——按已知水位计入未读：
+		// 占位未消费（seq > cursor）视为一条已证明的他人未读（发送者非本人）。
+		const placeholderUnseen = this.latestWhisperPlaceholderSequence > cursor;
+		const exact = unseen.length + (placeholderUnseen ? 1 : 0) === expected;
 		const otherUnseen = unseen.filter(
 			(preview) =>
 				preview.params.sender.type !== "character" ||
@@ -571,8 +628,8 @@ export class GroupChatInput {
 			// preview 被截断且含自身回显时，缺口中的发送者未知。按 #128 定稿
 			// 保守阻止，由 settle 拉全后再决策；此时 count 只表示已明确看到的
 			// 他人消息数，可能为 0，调用方不得把 0 表述为精确数量。
-			shouldBlock: otherUnseen.length > 0 || (!exact && containsSelf),
-			count: otherUnseen.length,
+			shouldBlock: otherUnseen.length > 0 || placeholderUnseen || (!exact && containsSelf),
+			count: otherUnseen.length + (placeholderUnseen ? 1 : 0),
 			exact,
 		};
 	}
@@ -852,7 +909,12 @@ export class GroupChatInput {
 
 		// 新消息
 		const messages = events.filter(
-			(e) => "method" in e && (e.method === METHOD_PUBLIC_MESSAGE || e.method === METHOD_MESSAGE_HISTORY),
+			(e) =>
+				"method" in e &&
+				(e.method === METHOD_PUBLIC_MESSAGE ||
+					e.method === METHOD_WHISPER_MESSAGE ||
+					e.method === METHOD_WHISPER_PLACEHOLDER ||
+					e.method === METHOD_MESSAGE_HISTORY),
 		);
 		if (messages.length > 0) {
 			parts.push("\n新消息：");
@@ -874,6 +936,31 @@ export class GroupChatInput {
 						renderTemplate(templates.public_message, {
 							sender: when ? `${sender}（${when}）` : sender,
 							content: message.params.content,
+						}),
+					);
+				} else if ("method" in message && message.method === METHOD_WHISPER_MESSAGE) {
+					// #152：私信单播（接收者含正文）——whisper_full 模板渲染。
+					// sender/recipient 为 Character（schema：WhisperSender type const character）。
+					const templates = this.runtime.messageTemplates ?? DEFAULT_TEMPLATES;
+					const senderName = message.params.sender.name ?? message.params.sender.character_id;
+					const recipientName = message.params.recipient.name ?? message.params.recipient.character_id;
+					parts.push(
+						renderTemplate(templates.whisper_full, {
+							sender: senderName,
+							receiver: recipientName,
+							content: message.params.content,
+						}),
+					);
+				} else if ("method" in message && message.method === METHOD_WHISPER_PLACEHOLDER) {
+					// #152：占位广播（无正文，隐私不泄露）——whisper_placeholder 模板。
+					// 无 round 帧：不触碰轮次状态（Arch 确认 17:05）。
+					const templates = this.runtime.messageTemplates ?? DEFAULT_TEMPLATES;
+					const senderName = message.params.sender.name ?? message.params.sender.character_id;
+					const recipientName = message.params.recipient.name ?? message.params.recipient.character_id;
+					parts.push(
+						renderTemplate(templates.whisper_placeholder, {
+							sender: senderName,
+							receiver: recipientName,
 						}),
 					);
 				}

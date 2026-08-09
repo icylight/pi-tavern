@@ -238,7 +238,7 @@ describe("PiTavern extension", () => {
 		const { tools, api } = captureTools();
 		piTavern(api as unknown as ExtensionAPI);
 
-		expect(tools).toHaveLength(5);
+		expect(tools).toHaveLength(6);
 		expect(tools[0]?.name).toBe("tavern_speak");
 		expect(tools[1]?.name).toBe("tavern_board");
 		expect(tools[2]?.name).toBe("tavern_whoami");
@@ -272,8 +272,9 @@ describe("PiTavern extension", () => {
 		expect(text).toContain("{sender}");
 		expect(text).toContain("{count}");
 		expect(text).toContain("JSON 骨架");
-		// 本期三类 key：whisper 两 key 随 #152 一并引入（契约留痕），不暴露。
-		expect(text).not.toContain("whisper");
+		// #152：whisper 两 key 随 #152 引入（WH9，契约定稿规则表）。
+		expect(text).toContain("whisper_full");
+		expect(text).toContain("whisper_placeholder");
 
 		// creator 态：拒绝（门禁同 CE2 语义；不泄漏内部状态细节）。
 		const runtime = createMockCreatorRuntime();

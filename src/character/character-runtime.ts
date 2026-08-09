@@ -45,6 +45,7 @@ import {
 	ERROR_UNEXPECTED_HISTORY_RESPONSE,
 	ERROR_UNEXPECTED_SPEAK_RESPONSE,
 	ERROR_UNEXPECTED_STATE_RESPONSE,
+	ERROR_UNEXPECTED_WHISPER_RESPONSE,
 	METHOD_BOARD_QUERY,
 	METHOD_BOARD_WRITE,
 	METHOD_FETCH_MESSAGES_SINCE,
@@ -57,6 +58,7 @@ import {
 	METHOD_PUBLIC_MESSAGE,
 	METHOD_SPEAK,
 	METHOD_UPDATE_CHARACTER_STATE,
+	METHOD_WHISPER,
 } from "../shared/messages.js";
 import { GroupChatInput } from "./group-chat-input.js";
 import { CHARACTER_REQUEST_TYPES } from "./request-types.js";
@@ -685,8 +687,7 @@ export class CharacterRuntime {
 			remainingMessages: result.round.remaining_messages,
 		};
 		if (result.published) {
-			this.staleRecoveryKey = null;
-			this.staleRecoveryCount = 0;
+			this.resetStaleRecoveryBudget();
 			return {
 				published: true,
 				eventId: result.event_id,
@@ -758,6 +759,102 @@ export class CharacterRuntime {
 			throw new Error(ERROR_UNEXPECTED_BOARD_QUERY_RESPONSE);
 		}
 		return (response.result as { boards: Record<string, BoardNoteWire[]> }).boards;
+	}
+
+	/**
+	 * #152 二轮（苍蓝星/PM/Arch 裁定共享化）：stale 自愈预算重置——「成功同步
+	 * （游标推进）即归零」，绑定同步成功事件而非入口成功（speak/whisper 同调）。
+	 * 预算状态机：key = 轮次额度快照；清零 = 任何成功发布；上限 =
+	 * MAX_STALE_AUTO_RECOVERIES；本质 = 防 stale 自愈循环的启发式非系统保证。
+	 */
+	private resetStaleRecoveryBudget(): void {
+		this.staleRecoveryKey = null;
+		this.staleRecoveryCount = 0;
+	}
+
+	/**
+	 * #152：向指定 Character 发送私信。与 speak 共用：未读先读检查（#128）、
+	 * 服务端在线校验（WS 活跃）、轮次额度、大小限制与基于游标的 stale 检查
+	 * （based_on_sequence 同 speak）；失败不占额度。
+	 *
+	 * 成功后推进本地游标到 result.sequence（发送者无回显投递，服务端把
+	 * 请求者自己的消息排除在 stale 检查之外——schema 注释：sequence 供发送者
+	 * 游标）。发送者不收到任何自身事件（服务端过滤，零注入）。
+	 */
+	async whisper(
+		characterId: string,
+		content: string,
+	): Promise<{
+		published: boolean;
+		sequence?: number;
+		reason?: "stale" | "round_limit_reached";
+		missingFrom?: number;
+		missingTo?: number;
+		autoRecover?: boolean;
+		handRaised?: boolean;
+	}> {
+		// #128：未读先读——与 speak 同款本地判定（whisper 也走未读优先）。
+		const unread = this.groupChatInput?.unreadOthersProven();
+		if (unread?.shouldBlock) {
+			const first = !this.unreadBlockNotified;
+			if (first) {
+				this.unreadBlockNotified = true;
+				this.markIncrementPending();
+			}
+			return { published: false };
+		}
+		this.unreadBlockNotified = false;
+		const basedOnSequence = this.loadCursor() ?? 0;
+		const response = await this.request({
+			method: METHOD_WHISPER,
+			params: { character_id: characterId, content, based_on_sequence: basedOnSequence },
+		});
+		if ("error" in response) {
+			// 错误码透传（-32110 离线 / -32111 自发自收 / 持久化失败等）。
+			throw new Error(response.error.message);
+		}
+		if (!("result" in response)) {
+			throw new Error(ERROR_UNEXPECTED_WHISPER_RESPONSE);
+		}
+		// #152 修复（PR #160 AI 评审阻断 1 配套）：三态 result 与 schema 一致
+		// （published+sequence+round / stale / round_limit_reached，与 speak 同构）。
+		const result = response.result as {
+			published: boolean;
+			sequence?: number;
+			reason?: "stale" | "round_limit_reached";
+			missing_sequences?: { from: number; to: number };
+			hand_raised?: boolean;
+			round: { round_max_messages: number; used_messages: number; remaining_messages: number };
+		};
+		if (result.published) {
+			this.saveCursor(result.sequence ?? 0);
+			// #152 二轮（共享化裁定）：成功发布（游标推进）即归零预算——与 speak 同 helper。
+			this.resetStaleRecoveryBudget();
+			return { published: true, ...(result.sequence !== undefined ? { sequence: result.sequence } : {}) };
+		}
+		if (result.reason === "stale") {
+			// stale 自愈（与 speak 同路径）：预算内标记增量待投递，settle 补拉
+			// （拉取合并流含 whisper 帧 → 消费占位/全文 + 游标推进）。
+			const key = `${result.round.round_max_messages}:${result.round.used_messages}`;
+			if (this.staleRecoveryKey !== key) {
+				this.staleRecoveryKey = key;
+				this.staleRecoveryCount = 0;
+			}
+			this.staleRecoveryCount += 1;
+			return {
+				published: false,
+				reason: "stale",
+				...(result.missing_sequences !== undefined
+					? { missingFrom: result.missing_sequences.from, missingTo: result.missing_sequences.to }
+					: {}),
+				autoRecover: this.staleRecoveryCount <= MAX_STALE_AUTO_RECOVERIES,
+			};
+		}
+		return {
+			published: false,
+			reason: "round_limit_reached",
+			...(result.hand_raised !== undefined ? { handRaised: result.hand_raised } : {}),
+		};
 	}
 
 	/**

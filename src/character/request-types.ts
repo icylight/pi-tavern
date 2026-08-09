@@ -12,6 +12,7 @@ import {
 	METHOD_JOIN_GROUP_CHAT,
 	METHOD_LEAVE_GROUP_CHAT,
 	METHOD_SPEAK,
+	METHOD_WHISPER,
 } from "../shared/messages.js";
 
 /**
@@ -35,4 +36,5 @@ export const CHARACTER_REQUEST_TYPES: Record<
 	[METHOD_BOARD_WRITE]: new RequestType(METHOD_BOARD_WRITE),
 	[METHOD_BOARD_QUERY]: new RequestType0(METHOD_BOARD_QUERY),
 	[METHOD_SPEAK]: new RequestType(METHOD_SPEAK),
+	[METHOD_WHISPER]: new RequestType(METHOD_WHISPER),
 };

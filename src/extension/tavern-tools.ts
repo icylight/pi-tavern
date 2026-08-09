@@ -44,6 +44,8 @@ import {
 	TOOL_TEMPLATE_DEFAULTS_DESCRIPTION,
 	TOOL_TEMPLATE_DEFAULTS_LABEL,
 	TOOL_TEMPLATE_DEFAULTS_STATE_REJECTED,
+	TOOL_WHISPER_DESCRIPTION,
+	TOOL_WHISPER_LABEL,
 	TOOL_WHOAMI_DESC_PREFIX,
 	TOOL_WHOAMI_DESCRIPTION,
 	TOOL_WHOAMI_ID_PREFIX,
@@ -428,12 +430,104 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 			return { content: [{ type: "text", text }], details: undefined };
 		},
 	});
+	pi.registerTool({
+		name: "tavern_whisper",
+		label: TOOL_WHISPER_LABEL,
+		description: TOOL_WHISPER_DESCRIPTION,
+		parameters: Type.Object(
+			{
+				character_id: Type.String(),
+				content: Type.String(),
+			},
+			{ additionalProperties: false },
+		),
+		execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) => {
+			const state = ctrl.getState();
+			// WH1：仅 Character 状态可用（非 character 态拒绝，TOOL_NOT_JOINED_AS_CHARACTER 语义）。
+			if (state.type !== "character") {
+				return {
+					content: [{ type: "text", text: TOOL_NOT_JOINED_AS_CHARACTER }],
+					details: undefined,
+					isError: true,
+				};
+			}
+			try {
+				const result = await state.runtime.whisper(params.character_id, params.content);
+				if (!result.published) {
+					if (result.reason === "stale") {
+						// stale 自愈（与 speak 同路径，ISSUE-013 B3）：预算内标记增量待投递，
+						// settle 补拉（合并流含 whisper 帧 → 机械消费占位/全文 + 游标推进）。
+						if (result.autoRecover) {
+							state.runtime.markIncrementPending();
+						}
+						return {
+							content: [
+								{
+									type: "text",
+									text:
+										`Message NOT published: you are out of sync with the group chat ` +
+										`(you last saw seq ${result.missingFrom !== undefined ? result.missingFrom - 1 : "?"}; ` +
+										`messages ${result.missingFrom}..${result.missingTo} arrived before your whisper). ` +
+										`Your message was not counted against the round quota and no hand was raised.` +
+										(result.autoRecover
+											? `\nThe new messages will be delivered to you after this turn (auto-recovery); re-decide then — revise or drop.`
+											: `\nAuto-recovery budget exhausted this round — wait for the group chat input before whispering again.`),
+								},
+							],
+							details: undefined,
+						};
+					}
+					if (result.reason === "round_limit_reached") {
+						// #152 第二轮评审阻断：与 speak 同款 round-limit 文案（已举手排队），
+						// 不得误报「未读已安排拉取」（未读分支语义不同）。
+						return {
+							content: [
+								{
+									type: "text",
+									text:
+										`Message not published: round limit reached. ` +
+										`Your hand is now raised — the creator will see you have more to say. ` +
+										`The full message remains in your private session.`,
+								},
+							],
+							details: undefined,
+						};
+					}
+					// 未读先读阻止（与 speak 同款）——不占额度、不举手。
+					return {
+						content: [
+							{
+								type: "text",
+								text:
+									"Message NOT published: 有未读消息，请先阅读再决定是否发言。" +
+									"未读已安排拉取，注入后将自动重新决策。",
+							},
+						],
+						details: undefined,
+					};
+				}
+				return {
+					content: [{ type: "text", text: `Message sent (sequence ${result.sequence}).` }],
+					details: undefined,
+				};
+			} catch (error) {
+				// 错误码透传（-32110 离线 / -32111 自发自收 / 超额 / stale 等）。
+				return {
+					content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+					details: undefined,
+					isError: true,
+				};
+			}
+		},
+	});
 }
 
-/** #154 T7：各 key 占位符规则（工具输出文档用；校验逻辑以 validateTemplate 为准）。
- * 本期三类 key；whisper 两 key 随 #152 一并引入（复用本期定稿规则表，契约留痕）。 */
+/** #154/#152 T7：各 key 占位符规则（工具输出文档用；校验逻辑以 validateTemplate 为准）。
+ * 五 key（#152 恢复 whisper 两 key，复用定稿规则表：full 必留三占位/placeholder 禁 content）。 */
 const TEMPLATE_RULES_DOC: Record<MessageTemplateKey, { required: string[]; allowed: string[] }> = {
 	public_message: { required: ["sender", "content"], allowed: ["sender", "content"] },
+	whisper_full: { required: ["sender", "receiver", "content"], allowed: ["sender", "receiver", "content"] },
+	whisper_placeholder: { required: ["sender", "receiver"], allowed: ["sender", "receiver"] },
 	seconds_ago: { required: ["count"], allowed: ["count"] },
 	minutes_ago: { required: ["count"], allowed: ["count"] },
 };
