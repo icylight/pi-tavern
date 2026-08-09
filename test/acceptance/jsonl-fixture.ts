@@ -63,7 +63,7 @@ export function whisperMessageEntry(options: {
 }): SessionEntryLike {
 	return customMessageEntry({
 		customType: "pi-tavern.whisper-message",
-		content: `${options.sender.name}→${options.recipient.name} whisper: ${options.content}`,
+		content: `${options.sender.name} 向 ${options.recipient.name} 悄悄说：${options.content}`,
 		display: true,
 		timestamp: options.timestamp,
 		...(options.parentId !== undefined ? { parentId: options.parentId } : {}),
