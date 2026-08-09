@@ -26,27 +26,15 @@ afterEach(async () => {
 });
 
 describe("DEFAULT_TEMPLATES", () => {
-	it("covers exactly the five message template keys", () => {
-		expect(MESSAGE_TEMPLATE_KEYS).toEqual([
-			"public_message",
-			"whisper_full",
-			"whisper_placeholder",
-			"seconds_ago",
-			"minutes_ago",
-		]);
+	it("covers exactly the current message template keys (#154: whisper keys deferred to #152)", () => {
+		expect(MESSAGE_TEMPLATE_KEYS).toEqual(["public_message", "seconds_ago", "minutes_ago"]);
 		expect(Object.keys(DEFAULT_TEMPLATES).sort()).toEqual([...MESSAGE_TEMPLATE_KEYS].sort());
 	});
 
 	it("keeps the Arch-adjudicated default shapes (#154: public_message contains newline)", () => {
 		expect(DEFAULT_TEMPLATES.public_message).toBe("{sender}:\n{content}");
-		expect(DEFAULT_TEMPLATES.whisper_full).toBe("{sender} 向 {receiver} 悄悄说：{content}");
-		expect(DEFAULT_TEMPLATES.whisper_placeholder).toBe("{sender} 向 {receiver} 悄悄说了一句话");
 		expect(DEFAULT_TEMPLATES.seconds_ago).toBe("{count} 秒前");
 		expect(DEFAULT_TEMPLATES.minutes_ago).toBe("{count} 分钟前");
-	});
-
-	it("whisper_placeholder default never references content", () => {
-		expect(DEFAULT_TEMPLATES.whisper_placeholder).not.toContain("content");
 	});
 });
 
@@ -54,21 +42,17 @@ describe("validateTemplate", () => {
 	it("accepts templates with all required placeholders", () => {
 		expect(validateTemplate("public_message", "{sender}: {content}")).toEqual({ ok: true });
 		expect(validateTemplate("public_message", "{sender}:\n{content}")).toEqual({ ok: true });
-		expect(validateTemplate("whisper_full", "{sender} 向 {receiver} 悄悄说：{content}")).toEqual({ ok: true });
 		expect(validateTemplate("seconds_ago", "{count} 秒前")).toEqual({ ok: true });
 	});
 
 	it("rejects templates missing a required placeholder", () => {
 		expect(validateTemplate("public_message", "{sender}:")).toMatchObject({ ok: false });
 		expect(validateTemplate("public_message", "{content}")).toMatchObject({ ok: false });
-		expect(validateTemplate("whisper_full", "{sender} {receiver}")).toMatchObject({ ok: false });
 		expect(validateTemplate("seconds_ago", "秒前")).toMatchObject({ ok: false });
 	});
 
-	it("rejects whisper_placeholder referencing content (privacy)", () => {
-		expect(validateTemplate("whisper_placeholder", "{sender} 向 {receiver} 说：{content}")).toMatchObject({
-			ok: false,
-		});
+	it("rejects whisper keys as unknown until #152 introduces them", () => {
+		expect(validateTemplate("whisper_placeholder" as never, "{sender} {receiver}")).toMatchObject({ ok: false });
 	});
 
 	it("rejects unknown placeholders", () => {
@@ -127,12 +111,9 @@ describe("mergeMessageTemplates", () => {
 	});
 
 	it("falls back per key with a warning when a layer entry is invalid", () => {
-		const { templates, warnings } = mergeMessageTemplates(
-			{ whisper_placeholder: "{sender} 向 {receiver} 说：{content}" },
-			undefined,
-		);
-		expect(templates.whisper_placeholder).toBe(DEFAULT_TEMPLATES.whisper_placeholder);
-		expect(warnings.some((warning) => warning.includes("whisper_placeholder"))).toBe(true);
+		const { templates, warnings } = mergeMessageTemplates({ seconds_ago: "秒" }, undefined);
+		expect(templates.seconds_ago).toBe(DEFAULT_TEMPLATES.seconds_ago);
+		expect(warnings.some((warning) => warning.includes("seconds_ago"))).toBe(true);
 	});
 
 	it("ignores unknown keys with a warning", () => {

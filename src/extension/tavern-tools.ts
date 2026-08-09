@@ -430,11 +430,10 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 	});
 }
 
-/** #154 T7：各 key 占位符规则（工具输出文档用；校验逻辑以 validateTemplate 为准）。 */
+/** #154 T7：各 key 占位符规则（工具输出文档用；校验逻辑以 validateTemplate 为准）。
+ * 本期三类 key；whisper 两 key 随 #152 一并引入（复用本期定稿规则表，契约留痕）。 */
 const TEMPLATE_RULES_DOC: Record<MessageTemplateKey, { required: string[]; allowed: string[] }> = {
 	public_message: { required: ["sender", "content"], allowed: ["sender", "content"] },
-	whisper_full: { required: ["sender", "receiver", "content"], allowed: ["sender", "receiver", "content"] },
-	whisper_placeholder: { required: ["sender", "receiver"], allowed: ["sender", "receiver"] },
 	seconds_ago: { required: ["count"], allowed: ["count"] },
 	minutes_ago: { required: ["count"], allowed: ["count"] },
 };

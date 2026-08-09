@@ -43,8 +43,6 @@ function creatorHandoff(piSessionId: string, expiresAt: number, cleanup: () => P
 		// #154：群聊文案模板集（配置快照随 handoff 传递）。
 		messageTemplates: {
 			public_message: "{sender}:\\n{content}",
-			whisper_full: "{sender} 向 {receiver} 悄悄说：{content}",
-			whisper_placeholder: "{sender} 向 {receiver} 悄悄说了一句话",
 			seconds_ago: "{count} 秒前",
 			minutes_ago: "{count} 分钟前",
 		},

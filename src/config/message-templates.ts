@@ -11,21 +11,15 @@ import {
  * #154：可配置群聊消息文案——共享纯函数模块（config 域）。
  *
  * 契约（docs/development/acceptance.md T1-T4，2026-08-09 五方确认 + Arch 盖章）：
- * - 五类 key：public_message / whisper_full / whisper_placeholder / seconds_ago / minutes_ago。
- * - 占位符规则：必留占位缺失、禁止占位出现（whisper_placeholder 禁 content）、
- *   未知占位出现 → 单项无效，逐项回退低层并 warning，不阻断群聊启动。
+ * - 三类 key：public_message / seconds_ago / minutes_ago。
+ * - 占位符规则：必留占位缺失、未知占位出现 → 单项无效，逐项回退低层并 warning，不阻断群聊启动。
  * - 合并优先级：项目配置 > 全局配置 > 内置中文（逐 key）。
  * - 渲染期不二次校验（校验在合并期完成）。
- * - whisper 两 key 本期只定义契约与默认值，消费端挂 #152（同 RH3 裁决）。
+ * - whisper_full / whisper_placeholder 两 key 与私信功能（#152）一并引入（苍蓝星 2026-08-09
+ *   裁决：未实现功能不暴露文案；T3 条目已同步）。
  */
 
-export const MESSAGE_TEMPLATE_KEYS = [
-	"public_message",
-	"whisper_full",
-	"whisper_placeholder",
-	"seconds_ago",
-	"minutes_ago",
-] as const;
+export const MESSAGE_TEMPLATE_KEYS = ["public_message", "seconds_ago", "minutes_ago"] as const;
 
 export type MessageTemplateKey = (typeof MESSAGE_TEMPLATE_KEYS)[number];
 
@@ -37,8 +31,6 @@ export type MessageTemplateKey = (typeof MESSAGE_TEMPLATE_KEYS)[number];
  */
 export const DEFAULT_TEMPLATES: Record<MessageTemplateKey, string> = {
 	public_message: "{sender}:\n{content}",
-	whisper_full: "{sender} 向 {receiver} 悄悄说：{content}",
-	whisper_placeholder: "{sender} 向 {receiver} 悄悄说了一句话",
 	seconds_ago: "{count} 秒前",
 	minutes_ago: "{count} 分钟前",
 };
@@ -52,8 +44,6 @@ interface TemplateRule {
 
 const TEMPLATE_RULES: Record<MessageTemplateKey, TemplateRule> = {
 	public_message: { required: ["sender", "content"], allowed: ["sender", "content"] },
-	whisper_full: { required: ["sender", "receiver", "content"], allowed: ["sender", "receiver", "content"] },
-	whisper_placeholder: { required: ["sender", "receiver"], allowed: ["sender", "receiver"] },
 	seconds_ago: { required: ["count"], allowed: ["count"] },
 	minutes_ago: { required: ["count"], allowed: ["count"] },
 };
@@ -67,10 +57,13 @@ export type TemplateValidation = { ok: true } | { ok: false; reason: string };
  * 渲染期不做二次校验（合并期已过滤，契约定稿）。
  */
 export function validateTemplate(key: MessageTemplateKey, template: string): TemplateValidation {
+	const rule = TEMPLATE_RULES[key];
+	if (rule === undefined) {
+		return { ok: false, reason: `unknown template key: ${key}` };
+	}
 	if (template.trim() === "") {
 		return { ok: false, reason: "template is empty" };
 	}
-	const rule = TEMPLATE_RULES[key];
 	const placeholders = [...template.matchAll(PLACEHOLDER_PATTERN)].map((match) => match[1] ?? "");
 	const unknown = placeholders.find((name) => !rule.allowed.includes(name));
 	if (unknown !== undefined) {

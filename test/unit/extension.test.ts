@@ -268,11 +268,11 @@ describe("PiTavern extension", () => {
 		expect(text).toContain("public_message");
 		expect(text).toContain("seconds_ago");
 		expect(text).toContain("minutes_ago");
-		expect(text).toContain("whisper_full");
-		expect(text).toContain("whisper_placeholder");
 		expect(text).toContain("{sender}");
 		expect(text).toContain("{count}");
 		expect(text).toContain("JSON 骨架");
+		// 本期三类 key：whisper 两 key 随 #152 一并引入（契约留痕），不暴露。
+		expect(text).not.toContain("whisper");
 
 		// creator 态：拒绝（门禁同 CE2 语义；不泄漏内部状态细节）。
 		const runtime = createMockCreatorRuntime();

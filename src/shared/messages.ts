@@ -408,8 +408,8 @@ export const TEMPLATE_EDIT_PROMPT = `你是 PiTavern 的群聊文案模板编辑
 
 模板文件（必须遵守）：
 - tavern.json 的可选 message_templates 字段指向独立 JSON 文件（相对该配置文件的路径）；
-- 文件为 JSON 对象，key 必须是合法 key（public_message / whisper_full / whisper_placeholder / seconds_ago / minutes_ago），未知 key 无效；
-- 占位符规则（仅支持简单 {placeholder} 替换）：\n  - public_message 必留 {sender} 与 {content}；\n  - whisper_full 必留 {sender}/{receiver}/{content}；\n  - whisper_placeholder 必留 {sender}/{receiver} 且禁止 {content}；\n  - seconds_ago 与 minutes_ago 必留 {count}；\n  - 未知/缺失/禁止占位符判为无效。
+- 文件为 JSON 对象，key 必须是合法 key（public_message / seconds_ago / minutes_ago），未知 key 无效；
+- 占位符规则（仅支持简单 {placeholder} 替换）：\n  - public_message 必留 {sender} 与 {content}；\n  - seconds_ago 与 minutes_ago 必留 {count}；\n  - 未知/缺失/禁止占位符判为无效。
 
 编辑流程（必须遵守）：
 1. 首先必须让用户选择要编辑的配置文件：默认建议编辑全局配置（agent 目录 tavern.json），但必须提供选项：全局 / 当前项目（.pi/tavern.json）/ 其他任意路径；
