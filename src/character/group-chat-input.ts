@@ -76,6 +76,8 @@ export class GroupChatInput {
 	 * debounce 合并），以及因 Agent turn 运行中而等待的非群消息流输入。
 	 */
 	private pendingEvents: ServerMessage[] = [];
+	/** 串行化所有 flush：事件批、水位提交与失败回槽不得交错。 */
+	private flushTail: Promise<void> = Promise.resolve();
 	private handler: ((message: ServerMessage) => void) | undefined;
 	private stopped = false;
 	/** 单飞行锁：最多同时一个 fetch_messages_since 在途。 */
@@ -786,15 +788,34 @@ export class GroupChatInput {
 	 * （followUp + triggerTurn + 群聊标记），批次仍能唤醒 agent
 	 * （Arch settle 竞态修复）。
 	 */
-	private async flush(events?: ServerMessage[], latestSequence?: number): Promise<void> {
+	private flush(events?: ServerMessage[], latestSequence?: number): Promise<void> {
+		const queued = this.flushTail.then(() => this.flushOnce(events, latestSequence));
+		this.flushTail = queued
+			.catch(() => undefined)
+			.finally(() => {
+				// retryBatch 优先消费期间到达的新事件留在 pendingEvents；当前批结束后
+				// 统一续排。放在串行尾上，覆盖 followUp / steer / 空批三条返回路径。
+				if (this.pendingEvents.length > 0 && this.retryBatch === undefined && !this.stopped) {
+					this.resetJoinDebounce();
+				}
+			});
+		return queued;
+	}
+
+	private async flushOnce(events?: ServerMessage[], latestSequence?: number): Promise<void> {
 		// #152（PR #163 复评阻断修复）：无参 flush 优先原子重投 retryBatch——
 		// 领取即清槽（水位随批绑定，其他 flush 无从借用）；重投失败由
 		// sendWithDeliveryAck catch 重新入槽（水位不丢）。
 		let toDeliver = events ?? this.pendingEvents;
 		let retryLatestSequence: number | undefined;
-		if (events === undefined && this.retryBatch !== undefined) {
-			toDeliver = this.retryBatch.events;
+		if (this.retryBatch !== undefined) {
+			// 已失败批永远先于后来显式批提交；显式 pull 批已从 pendingEvents
+			// 取出，不能搁置，故与 retry 批原子合并。水位取二者上界。
+			toDeliver = events === undefined ? this.retryBatch.events : [...this.retryBatch.events, ...events];
 			retryLatestSequence = this.retryBatch.latestSequence;
+			if (latestSequence !== undefined) {
+				retryLatestSequence = Math.max(retryLatestSequence ?? 0, latestSequence);
+			}
 			this.retryBatch = undefined;
 		}
 		// 仅消费 pendingEvents 自身时才清空——retryBatch 优先分支不得清
@@ -803,13 +824,38 @@ export class GroupChatInput {
 			this.pendingEvents = [];
 		}
 
-		if (toDeliver.length === 0 || this.stopped) return;
+		if (this.stopped) return;
+
+		// flush 入队后，前一批可能已经推进 cursor。执行时再次过滤已消费投影，
+		// 防止等待中的旧实时帧重复注入或把游标从较新值写回旧值。
+		const deliveredCursor = this.runtime.loadCursor() ?? 0;
+		const seenSequences = new Set<number>();
+		toDeliver = toDeliver.filter((event) => {
+			if (!("method" in event)) return true;
+			if (
+				event.method !== METHOD_PUBLIC_MESSAGE &&
+				event.method !== METHOD_WHISPER_MESSAGE &&
+				event.method !== METHOD_WHISPER_PLACEHOLDER
+			) {
+				return true;
+			}
+			if (event.params.sequence <= deliveredCursor || seenSequences.has(event.params.sequence)) {
+				return false;
+			}
+			seenSequences.add(event.params.sequence);
+			return true;
+		});
+		if (toDeliver.length === 0) return;
 
 		// #152（PR #163 阻断 3 修复）：实时路径（无参 flush）无 latestSequence——
 		// 游标候选只取已实际注入帧的最大 sequence。不得用 group_chat_update
 		// 水位（水位含未注入帧，提前 saveCursor 会抢在拉取路径前把消息标记
 		// 已读 → 拉取跳过、消息永不注入——env-time T2 全量失败实证）。
-		const effectiveLatestSequence = latestSequence ?? retryLatestSequence ?? this.watermarkOfDelivered(toDeliver);
+		const candidateLatestSequence = retryLatestSequence ?? latestSequence ?? this.watermarkOfDelivered(toDeliver);
+		const effectiveLatestSequence =
+			candidateLatestSequence !== undefined && candidateLatestSequence > deliveredCursor
+				? candidateLatestSequence
+				: undefined;
 
 		let groupChatState: unknown = null;
 		try {
@@ -868,12 +914,6 @@ export class GroupChatInput {
 		// await 它会锁死单飞行锁；saveCursor 在 preflightResult 内同步执行，
 		// 承诺 resolve 时游标已推进（do-while 复查读新游标，不重投）。
 		await this.sendWithDeliveryAck(toDeliver, content, groupChatState, effectiveLatestSequence, "followUp");
-		// #152（PR #163 复评阻断修复）：重投/拉取循环抢占后 pendingEvents 残留
-		// 帧须续排 flush（无新事件触发即饿死延迟——重试风暴中实时帧积压）。
-		if (this.pendingEvents.length > 0 && this.retryBatch === undefined && !this.stopped) {
-			this.resetJoinDebounce();
-		} else {
-		}
 	}
 
 	/**
@@ -913,7 +953,10 @@ export class GroupChatInput {
 				{ triggerTurn: true, deliverAs },
 			);
 			if (latestSequence !== undefined) {
-				this.runtime.saveCursor(latestSequence);
+				const currentCursor = this.runtime.loadCursor() ?? 0;
+				if (latestSequence > currentCursor) {
+					this.runtime.saveCursor(latestSequence);
+				}
 			}
 		} catch {
 			// 同步抛错（入队拒绝/steer 失败）：不推进。

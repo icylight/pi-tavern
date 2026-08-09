@@ -204,11 +204,11 @@ describe("GroupChatInput", () => {
 		const handler = runtime.onEnvironmentMessage ?? (() => {});
 
 		// 自己的回声
-		handler(aCharacterPublicMessage("dev", { content: "My own" }));
+		handler(aCharacterPublicMessage("dev", { event_id: "evt-own", sequence: 1, content: "My own" }));
 		// 他人的消息
-		handler(aCharacterPublicMessage("other", { content: "Other's message" }));
+		handler(aCharacterPublicMessage("other", { event_id: "evt-other", sequence: 2, content: "Other's message" }));
 		// User Persona 消息
-		handler(aPublicMessage("user_persona", { content: "User says" }));
+		handler(aPublicMessage("user_persona", { event_id: "evt-user", sequence: 3, content: "User says" }));
 
 		await vi.advanceTimersByTimeAsync(1000);
 
@@ -1866,7 +1866,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("chain: whisper retry 批原子——deferred getGroupChatState 交错（#152 复评阻断：A await 中 B 启动，B 成功不提前 saveCursor）", async () => {
+	it("chain: whisper flush 串行——A await 中到达的旧 B 帧不重复投递且 cursor 不回退", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime({ hasPublicMessages: true });
 		const saveCursor = vi.fn();
@@ -1876,7 +1876,6 @@ describe("GroupChatInput", () => {
 			cursorState.value = seq;
 			saveCursor(seq);
 		};
-		runtime.saveCursor = saveCursor;
 		const pi = createMockPi();
 		// A 批首投失败 → retryBatch {A, 2}。
 		let failFirst = true;
@@ -1916,7 +1915,8 @@ describe("GroupChatInput", () => {
 			releaseState?.();
 			runtime.getGroupChatState = originalGetGroupChatState;
 		};
-		// B 帧 seq 1：flush 挂起期游标 0（next=1）可注入（seq 3 此刻是 gap 不注入）。
+		// B 帧 seq 1：A flush 挂起期游标仍为 0，因此会暂存；A 成功后执行 B
+		// flush 时必须按最新 cursor=2 再过滤，不能重复注入或把游标写回 1。
 		handler(whisperMessageFrame(1));
 		await vi.advanceTimersByTimeAsync(1100);
 		// A 的 flush 正挂在 getGroupChatState（B 事件已排队未投递）。
@@ -1926,8 +1926,11 @@ describe("GroupChatInput", () => {
 		// A 重投成功（水位 2，批原子——B 未借用）。
 		expect(saveCursor).toHaveBeenCalledWith(2);
 		await vi.advanceTimersByTimeAsync(2000);
-		// B 延后用自己的水位（1，B 批帧序列）——绝不借 A 水位（2）提前推进。
-		expect(saveCursor).toHaveBeenCalledWith(1);
+		// B 执行时已被 cursor=2 覆盖：不重复投递，游标保持单调，绝不回退到 1。
+		expect(saveCursor).toHaveBeenCalledTimes(1);
+		expect(cursorState.value).toBe(2);
+		// 仅 A 首投失败 + A 重投成功；B 不产生第三次发送。
+		expect(pi.sendMessage).toHaveBeenCalledTimes(2);
 
 		input.stop();
 	});
