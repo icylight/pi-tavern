@@ -98,6 +98,23 @@ describe("cursor-store", () => {
 				message: 1,
 			});
 		});
+
+		it("countEntriesByType is safe against prototype-polluting keys (评审 929b4c1 阻断)", () => {
+			const entries = [
+				{ type: "constructor" },
+				{ type: "custom_message", customType: "__proto__" },
+				{ type: "toString" },
+			];
+			const counts = countEntriesByType(entries);
+			// 无原型对象：constructor/toString 键不再首读拿函数。
+			expect(counts.constructor).toBe(1);
+			expect(counts.toString).toBe(1);
+			expect(Object.getPrototypeOf(counts)).toBeNull();
+			// __proto__ 键不会触发 setter 污染：
+			// Object.create(null) 无 __proto__ setter，普通键写入。
+			expect(Object.getPrototypeOf(counts)).toBeNull();
+			expect(counts.__proto__).toBe(1);
+		});
 	});
 
 	describe("readCursorFile / writeCursorFile（文件原语：同步、失败如实抛错）", () => {
