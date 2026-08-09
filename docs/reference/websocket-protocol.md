@@ -550,7 +550,10 @@ Character 的 `tavern_whisper` Agent tool 通过 WebSocket 发送 `whisper` 请�
 
 ### 私信响应
 
-成功：[`server.jsonc` 的 `ServerMessage`](../../src/protocol/schema/server.jsonc) `whisper` 响应成功分支（`result.sequence` = 私信分配的 sequence——发送者唯一的工具结果，不额外注入自身事件）。
+[`server.jsonc` 的 `ServerMessage`](../../src/protocol/schema/server.jsonc) `whisper` 响应与 `speak` 同构**三态**（Arch 裁定 2026-08-09，契约修订补全失败响应形态）：
+- 成功：`result` = `{ published: true, sequence, round }`——`sequence` = 私信分配的序号（发送者唯一的工具结果，不额外注入自身事件）。
+- 超额：`result` = `{ published: false, reason: "round_limit_reached", hand_raised: true, round }`（不占额度）。
+- stale：`result` = `{ published: false, reason: "stale", missing_sequences: { from, to }, round }`（客户端按 `reason` 区分走自愈，与 speak 同路径）。
 - 发送者不接收自身的 `whisper_message` / `whisper_placeholder`（服务端过滤）。
 - 在线校验通过后目标掉线：已成功持久化的私信**不回滚**（WH7 窄窗口竞态），发送者仍收到成功响应；目标重连后经历史查询可取得。
 
@@ -571,3 +574,16 @@ Character 的 `tavern_whisper` Agent tool 通过 WebSocket 发送 `whisper` 请�
 - 不增加运行时协议版本字段或兼容性校验；本地同版本实例假设（代码注释说明），不支持混合版本互连。
 - 原始 JSONL 明文保存私信；隐私边界仅限交互层，不提供文件系统安全保证。
 - 0.3.x 历史无需迁移（无 whisper-message 类型）。
+
+## 附录：帧 × 消费路径矩阵（ADR-0009）
+
+每格填 `✓复用`（走既有机制）/ `差异化点` / `不适用`；新增服务端帧类型必须逐格核对（空格 = 评审不过）。
+
+| 帧类型 | codec 解码 | 实时注入 | 补拉（pullIncrement） | 游标推进 | 未读（#128） | 渲染 | TUI（创建者） |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `public_message` | ✓复用 | ✓复用（环境事件，唤醒） | ✓复用 | ✓复用 | ✓复用 | ✓复用（public_message 模板） | ✓复用 |
+| `whisper_message` | ✓复用 | ✓复用（环境事件，唤醒——**仅接收者**） | ✓接纳（含正文） | ✓复用 | ✓复用 | whisper_full 模板（sender/receiver/content） | ✓完整正文（恒参与者视角） |
+| `whisper_placeholder` | ✓复用 | **差异化：不注入、不唤醒、不进 debounce（仅水位推进）** | ✓接纳（占位帧，推进游标防反复 stale） | ✓复用 | ✓复用（占位属未读序列） | whisper_placeholder 模板（sender/receiver，无 content） | **不适用**（创建者恒见完整正文） |
+| `group_chat_update` | ✓复用 | ✓复用 | — | — | — | ✓复用 | ✓复用 |
+
+维护：新增帧类型时逐格核对并更新本表（属主=后端，ADR-0009 实施分工）。

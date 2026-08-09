@@ -20,7 +20,7 @@
 | saveCursor 内存先行 vs 磁盘失败不一致窗口 | 2026-08-06 QA 静态分析：语义幂等可接受 | 留注释说明窗口语义即可 | 待内嵌 |
 | refreshGroupChatState catch{} 副作用重评注记 | 2026-08-06 QA 静态分析：当前纯展示安全 | 未来引入副作用时重评；补注释 | 待内嵌 |
 | usage-scenarios/interaction-model 等大文档内容过时核对 | 2026-08-06 docs 重组遗留注记（PM）：本次只归类未重写 | 内容核对另排，过期章节更新或归档 | 待内嵌 |
-| character-runtime finishDisconnected 清 pendingRequests | 2026-08-06 W3 对抗验证坐实（QA）：断开后 pending 请求悬挂至超时；join-attempt rejectPending 有先例 | 一行循环参照 rejectPending；非阻断（超时兜底） | 待内嵌 |
+| ~~character-runtime finishDisconnected 清 pendingRequests~~ | 2026-08-06 W3 对抗验证坐实（QA）：断开后 pending 请求悬挂至超时；join-attempt rejectPending 有先例 | 一行循环参照 rejectPending；非阻断（超时兜底） | 已内嵌完成（#119 ed71515 + #123 06e41f2：clearTimeout + reject 断线原因 + clear()，character-runtime.ts:1235-1240；2026-08-09 后端溯源核实，Arch 确认关闭） |
 | speak 断言宽收窄（W1） | 2026-08-06 W1 对抗验证（QA）：当前 3 种 result 形状全覆盖，未来新增 reason 分支会静默误分类 | 新增 reason 时同步 character 侧断言 | 待内嵌 |
 | claim 错误文案测试覆盖缺口（W6） | 2026-08-06 W6 对抗验证（QA）：acceptance 仅覆盖 claim 1 条，error.message 10 码映射同源有保障 | 补覆盖非 1 条 claim 错误路径的断言 | 待内嵌 |
 | preview 条目字段级断言不全 | 2026-08-06 Arch 弱点 3 对抗验证（QA）：content 只断一条，字段形状有 codec schema 兜底 | 低优先：对 round/sender/event_id 补字段级断言 | 待内嵌 |
