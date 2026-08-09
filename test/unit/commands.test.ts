@@ -13,6 +13,11 @@ import type { CreatorRuntime } from "../../src/creator/creator-runtime.js";
 import { createBoardStore } from "../../src/data/board-store.js";
 import type { ActiveGroupChatDescriptor } from "../../src/data/discovery/active-descriptor.js";
 import { createGroupChatState } from "../../src/data/group-chat-state.js";
+import {
+	CHARACTER_EDIT_PROMPT,
+	ERROR_CHARACTER_EDIT_STATE,
+	NOTIFY_CHARACTER_EDIT_QUEUED,
+} from "../../src/shared/messages.js";
 
 const descriptor: ActiveGroupChatDescriptor = {
 	instanceId: "instance-1",
@@ -59,24 +64,31 @@ function createRuntime(): CreatorRuntime {
 	} as unknown as CreatorRuntime;
 }
 
+type RegisteredCommands = Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">> & {
+	/** pi.sendUserMessage mock（prompt command 注入 LLM 的通道，CE1）。 */
+	sendUserMessage: ReturnType<typeof vi.fn>;
+};
+
 function register(
 	controller: TavernController,
 	overrides: Parameters<typeof registerCommands>[2] = {},
-): Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">> {
+): RegisteredCommands {
 	const commands = new Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">>();
+	const sendUserMessage = vi.fn(() => undefined);
 	const pi = {
 		registerCommand(name: string, command: Omit<RegisteredCommand, "name" | "sourceInfo">) {
 			commands.set(name, command);
 		},
+		sendUserMessage,
 	} as unknown as ExtensionAPI;
 	registerCommands(pi, controller, {
 		agentDir: "/isolated-agent",
 		...overrides,
 	});
-	return commands;
+	return Object.assign(commands, { sendUserMessage });
 }
 
-function createContext(): {
+function createContext(options: { isIdle?: boolean } = {}): {
 	context: ExtensionCommandContext;
 	notify: ReturnType<typeof vi.fn>;
 	select: ReturnType<typeof vi.fn>;
@@ -91,6 +103,7 @@ function createContext(): {
 			hasUI: true,
 			ui: { notify, select, confirm },
 			sessionManager: { getSessionId: () => "session-1" },
+			isIdle: () => options.isIdle ?? true,
 		} as unknown as ExtensionCommandContext,
 		notify,
 		select,
@@ -114,6 +127,7 @@ describe("PiTavern commands", () => {
 				"tavern-status",
 				"tavern-name",
 				"tavern-set-max",
+				"tavern-character-edit",
 				"tavern-leave",
 			]);
 		} finally {
@@ -314,6 +328,103 @@ describe("PiTavern commands", () => {
 
 		expect(runtime.close).toHaveBeenCalledTimes(1);
 		expect(controller.getState()).toEqual({ type: "idle" });
+	});
+
+	it("CE1 (#153): /tavern-character-edit 注册为 prompt command，尾随参数展开进 prompt", async () => {
+		const controller = new TavernController();
+		const commands = register(controller);
+		const { context } = createContext();
+
+		// 带自然语言参数：参数展开在访谈 prompt 之后；非 idle 时排队（followUp）。
+		await commands.get("tavern-character-edit")?.handler("创建一个叫 QA 的角色卡", context);
+		expect(commands.sendUserMessage).toHaveBeenCalledTimes(1);
+		const message = commands.sendUserMessage.mock.calls[0]?.[0];
+		expect(typeof message).toBe("string");
+		expect(message).toContain(CHARACTER_EDIT_PROMPT);
+		expect(message).toContain("用户意图：创建一个叫 QA 的角色卡");
+		expect(commands.sendUserMessage.mock.calls[0]?.[1]).toEqual({ deliverAs: "followUp" });
+
+		// 无参数（仅空白）：只注入 prompt 本体，不追加空意图。
+		commands.sendUserMessage.mockClear();
+		await commands.get("tavern-character-edit")?.handler("   ", context);
+		expect(commands.sendUserMessage).toHaveBeenCalledTimes(1);
+		expect(commands.sendUserMessage.mock.calls[0]?.[0]).toBe(CHARACTER_EDIT_PROMPT);
+	});
+
+	it("CE1 (#153): agent busy 时 followUp 排队并提示，不 throw", async () => {
+		const controller = new TavernController();
+		const commands = register(controller);
+		const { context, notify } = createContext({ isIdle: false });
+
+		await commands.get("tavern-character-edit")?.handler("排队测试", context);
+		// busy 分支：排队通知 + sendUserMessage 仍以 followUp 调用（不 throw）。
+		expect(notify).toHaveBeenCalledWith(NOTIFY_CHARACTER_EDIT_QUEUED, "info");
+		expect(commands.sendUserMessage).toHaveBeenCalledTimes(1);
+		expect(commands.sendUserMessage.mock.calls[0]?.[1]).toEqual({ deliverAs: "followUp" });
+	});
+
+	it("CE2 (#153): 状态门禁——idle/Character 可用，creator/joining 拒绝", async () => {
+		// idle：放行。
+		const idleController = new TavernController();
+		const idleCommands = register(idleController);
+		const { context: idleContext } = createContext();
+		await idleCommands.get("tavern-character-edit")?.handler("", idleContext);
+		expect(idleCommands.sendUserMessage).toHaveBeenCalledTimes(1);
+
+		// creator：拒绝（明确错误响应，不泄漏内部状态细节）。
+		const runtime = createRuntime();
+		const creatorController = new TavernController(async () => runtime);
+		const creatorCommands = register(creatorController);
+		const { context: creatorContext, notify: creatorNotify } = createContext();
+		await creatorCommands.get("tavern-new")?.handler("", creatorContext);
+		expect(creatorController.getState().type).toBe("creator");
+		await creatorCommands.get("tavern-character-edit")?.handler("", creatorContext);
+		expect(creatorNotify).toHaveBeenCalledWith(ERROR_CHARACTER_EDIT_STATE, "error");
+		expect(creatorCommands.sendUserMessage).not.toHaveBeenCalled();
+
+		// joining：拒绝（select 挂起停在 joining 态）。
+		const characterRuntime = {
+			character: { name: "Architect" },
+			close: vi.fn(async () => undefined),
+			getGroupChatState: vi.fn(),
+		} as unknown as CharacterRuntime;
+		const attempt = {
+			availableCharacters: [
+				{
+					character_id: "architect.md",
+					name: "Architect",
+					description: "Architecture",
+				},
+			],
+			isActive: true,
+			claimCharacter: vi.fn(async () => characterRuntime),
+			close: vi.fn(async () => undefined),
+		} as unknown as JoinAttempt;
+		const joinStarter = vi.fn(async () => attempt);
+		const joiningController = new TavernController(undefined, joinStarter);
+		const joiningCommands = register(joiningController, {
+			discoverGroupChats: vi.fn(async () => [descriptor]),
+		});
+		const { context: joiningContext, notify: joiningNotify, select } = createContext();
+		let resolveSelect: ((value: string) => void) | undefined;
+		vi.mocked(select).mockImplementation(
+			() =>
+				new Promise<string>((resolve) => {
+					resolveSelect = resolve;
+				}),
+		);
+		const joinPromise = joiningCommands.get("tavern-join")?.handler("", joiningContext);
+		await vi.waitFor(() => expect(joiningController.getState().type).toBe("joining"));
+		await joiningCommands.get("tavern-character-edit")?.handler("", joiningContext);
+		expect(joiningNotify).toHaveBeenCalledWith(ERROR_CHARACTER_EDIT_STATE, "error");
+		expect(joiningCommands.sendUserMessage).not.toHaveBeenCalled();
+
+		// character：放行（join 流程 claim 完成后）。
+		resolveSelect?.("Architect — Architecture");
+		await joinPromise;
+		expect(joiningController.getState().type).toBe("character");
+		await joiningCommands.get("tavern-character-edit")?.handler("", joiningContext);
+		expect(joiningCommands.sendUserMessage).toHaveBeenCalledTimes(1);
 	});
 
 	it("resumes a selected group chat with its session path", async () => {

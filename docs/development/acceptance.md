@@ -186,6 +186,20 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 
 验收方式：acceptance 断言存在且非空 + 单测（computeResumeProjection 签名保留，窗口参数化单测零改动）+ check 全绿。
 
+### LLM 创建与编辑角色卡（#153，PM 布置，分支 feat/character-card-edit，2026-08-09 User 指示开工）
+
+新增 prompt command `/tavern-character-edit`，由 LLM 访谈用户完成角色卡创建或编辑，不实现固定表单。范围：idle/Character 状态可用、创建位置可自选、写入前展示预览/diff 并取得明确确认；自动化测试只固定 prompt 存在、参数展开和状态门禁，访谈/预览/确认流程手工验收（需求基线 #156 定稿）。
+
+1. **CE1 prompt 注册与参数展开**：`/tavern-character-edit` 注册为 prompt command，可携带自然语言参数，参数正确展开进 prompt（与既有 prompt command 同机制）；
+2. **CE2 状态门禁**：idle 与 Character 状态可用；creator 与 joining 状态拒绝（明确错误响应，不泄漏内部状态细节）；
+3. **CE3 预览与确认**：创建新卡前展示完整新角色卡及配置变化；编辑已有卡前展示 diff；未取得用户明确确认不得写入（取消 = 零写入，角色卡与配置均不落盘）；
+4. **CE4 创建位置选择**：LLM 提问逻辑——项目已有角色卡目录时默认沿用；项目未配置但全局已配置时让用户选择；完全新用户默认当前项目；始终允许选择当前项目、全局或其他路径；
+5. **CE5 配置联动**：新角色卡写入后加入相应 `tavern.json`；选择其他路径时同步确认要更新的配置文件。**frontmatter 契约（后端影响面确认）**：角色卡 `name`/`description` 为必填（character-card.ts readRequiredString），LLM 访谈产出必须含两字段，prompt 约束显式要求，否则下次加载报错；配置写入格式 = `tavern.json` characters 数组追加相对配置文件路径，与现有 schema 一致（后端 config 域零改动）；
+6. **CE6 生效语义**：Character 修改自己的角色卡不增加特殊重载，沿用现有角色卡加载生命周期，并告知持久配置何时生效（reload/重新加入）；
+7. **CE7 测试边界**：自动化覆盖 prompt 存在、参数展开、状态门禁三项（可复用 test/unit/commands.test.ts 范式：registerCommands mock + 四态构造）；访谈/预览/确认全流程手工验收（QA 定稿六场景清单：新建卡预览完整卡+配置变化 → 编辑已有卡 diff → 位置选择四场景（沿用/二选/默认当前/任意路径）→ 明确确认写入 → 取消=零写入（角色卡与配置均不落盘，git status 核验）→ 缺 name/description 字段产出边界（写入前校验或写入后 reload 不报错，实现侧定，后端契约）。
+
+验收方式：acceptance 断言存在且非空 + 单测 + check 全绿 + 手工验收清单（新建/编辑/位置/确认/取消）在 PR 中留痕。
+
 ### 测试门控命令
 
 RPC 模式没有输入通道、也无法调用扩展工具，因此 `PITAVERN_TEST=1`（acceptance 门卫自动设置）时额外注册：
