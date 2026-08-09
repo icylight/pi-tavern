@@ -464,32 +464,58 @@ describe("PiTavern protocol codec", () => {
 			expect(decodeServerMessage(Buffer.from(JSON.stringify(frame)))).toEqual(frame);
 		});
 
-		it("C5 preview_messages 含 whisper_message 完整帧必拒（group_chat_update 是全员广播面——私信正文不得经公共 preview 广播，隐私契约）", () => {
+		it("C5 preview_messages 含 whisper_message 完整帧必拒（单变量负钉：params 完整合法基准，仅换 public→full——拒绝原因唯一）", () => {
 			expect(() =>
 				decodeServerMessage(
 					Buffer.from(
 						JSON.stringify({
 							jsonrpc: "2.0",
 							method: "group_chat_update",
-							params: { latest_sequence: 5, preview_messages: [whisperMessage] },
+							params: { latest_sequence: 5, preview_messages: [whisperMessage], total_messages: 5 },
 						}),
 					),
 				),
 			).toThrow(ProtocolError);
 		});
 
-		it("C6 preview_messages 含 whisper_placeholder 必拒（占位不得纳入公共更新唤醒面——WH6 冲突防御，防未来机械扩展再扩大广播契约）", () => {
+		it("C6 preview_messages 含 whisper_placeholder 必拒（单变量负钉——占位不得纳入公共更新唤醒面，WH6 防御）", () => {
 			expect(() =>
 				decodeServerMessage(
 					Buffer.from(
 						JSON.stringify({
 							jsonrpc: "2.0",
 							method: "group_chat_update",
-							params: { latest_sequence: 5, preview_messages: [whisperPlaceholder] },
+							params: { latest_sequence: 5, preview_messages: [whisperPlaceholder], total_messages: 5 },
 						}),
 					),
 				),
 			).toThrow(ProtocolError);
+		});
+
+		it("C7 preview_messages 含 public_message 解码通过（正向对照——负钉只改变一个变量）", () => {
+			const frame = {
+				jsonrpc: "2.0",
+				method: "group_chat_update",
+				params: {
+					latest_sequence: 5,
+					preview_messages: [
+						{
+							jsonrpc: "2.0",
+							method: "public_message",
+							params: {
+								event_id: "evt-4",
+								sequence: 4,
+								timestamp: "2026-08-09T00:00:04.000Z",
+								sender: { type: "user_persona" },
+								content: "R4",
+								round: ROUND,
+							},
+						},
+					],
+					total_messages: 5,
+				},
+			};
+			expect(decodeServerMessage(Buffer.from(JSON.stringify(frame)))).toEqual(frame);
 		});
 		it("C4 placeholder 带 content 必拒（任意容器内 fail-close——无 content 字段是契约）", () => {
 			const leaked = {
