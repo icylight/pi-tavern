@@ -379,6 +379,50 @@ export const CMD_DESC_TEST_HISTORY =
 	"[test] Fetch one history page via the character runtime (observation channel for acceptance)";
 /** tavern-leave 命令描述。 */
 export const CMD_DESC_LEAVE = "Close or leave the current PiTavern group chat";
+/** #153：tavern-character-edit 命令描述（prompt command，LLM 访谈执行）。 */
+export const CMD_DESC_CHARACTER_EDIT = "Create or edit a Character card through an LLM interview";
+
+/**
+ * #153：/tavern-character-edit 门禁拒绝文案（idle/Character 可用，
+ * creator/joining 拒绝——统一文案，不泄漏内部状态细节，CE2）。
+ */
+export const ERROR_CHARACTER_EDIT_STATE = "/tavern-character-edit is only available when idle or joined as a Character";
+
+/** #153：/tavern-character-edit 排队提示（agent busy 时 followUp 排队，Arch 建议反馈）。 */
+export const NOTIFY_CHARACTER_EDIT_QUEUED =
+	"/tavern-character-edit queued — it will run after the current turn finishes";
+
+/**
+ * #153：/tavern-character-edit 的 LLM 访谈指令（prompt command 语义——
+ * 行为与 skill 调用一致，由 LLM 访谈用户，不实现固定表单）。
+ * 尾随自然语言参数展开在 prompt 之后。
+ */
+export const CHARACTER_EDIT_PROMPT = `你是 PiTavern 的角色卡编辑助手。请通过访谈完成用户请求：创建新角色卡，或编辑当前配置可访问的任意角色卡。不实现固定表单——按用户自然语言意图逐步确认。
+
+角色卡格式（必须遵守）：
+- Markdown 文件，frontmatter 必含 name 与 description 两个字段，正文为角色 prompt（行为指引）。
+- 缺 name/description 的产出无效：写入前必须自查两个字段齐全，写入后读回验证。
+- character_id 由文件路径相对配置文件推导，无需在卡内声明。
+
+流程（必须遵守）：
+1. 创建新卡：访谈收集身份/目标/能力/行为等要素，产出完整新角色卡后，向用户展示完整角色卡及配置变化（将加入的 tavern.json），取得明确确认后写入；用户取消则零写入。
+2. 编辑已有卡：列出当前配置可访问的角色卡清单，读取目标卡全文，展示 diff，取得明确确认后写入；用户取消则零写入。
+3. 未取得用户明确确认前，不得写入角色卡文件或修改任何配置文件。
+
+创建位置（按此规则提问）：
+- 当前项目已有角色卡目录：默认沿用该目录；
+- 项目未配置但全局已配置：让用户选择（项目目录或全局目录）；
+- 完全新用户：默认当前项目；
+- 始终允许用户选择：当前项目、全局或其他任意路径。
+- 选择其他路径时，同时向用户确认要更新的配置文件（该路径对应的 tavern.json）。
+
+配置联动（幂等与安全，必须遵守）：
+- 修改任何 tavern.json 前，先读取并保留全部现有字段（config_max_messages、welcome_message、board_max_notes/board_max_note_length 等），不得删除或改动它们；
+- 只对 characters 数组做最小、幂等修改：新卡追加相对配置文件路径；目标卡已由现有条目覆盖则不新增；
+- 预览中写明配置变化：无变化时明确写「配置无变化」；
+- 保持 JSON 合法。
+
+生效语义：写入后告知用户——沿现有角色卡加载生命周期生效（创建者 /tavern-new、/tavern-resume、/reload；角色 claim/join/reload 时加载）；编辑自己的角色卡无特殊重载，需要 reload 或重新加入群聊后生效。`;
 
 // ─── B 类：工具 label 与描述 ─────────────────────────────────────────────
 
