@@ -133,7 +133,7 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 2. **WL2 不再自动推送历史**：character_ready 后零 message_history 自动推送（旧 100 条行为取消）；
 3. **WL3 主动历史可查**：`get_message_history` / `fetch_messages_since` 仍可用，>10 条可完整分页拉取；
 4. **WL4 配置优先级链三档**：welcome_message 项目 `.pi/tavern.json` > 全局 `~/.pi/tavern.json` > 代码默认值；项目覆盖全局、全局覆盖默认、均缺省用默认，三档各验；
-5. **WL5 resume 投影窗口**：resume 场景历史投影恰 10 条（JOIN_HISTORY_LIMIT 100→10）；
+5. **WL5 resume 投影窗口（已被 #155 修订作废，见 RH1）**：resume 场景历史投影恰 10 条（JOIN_HISTORY_LIMIT 100→10）——#155 起移除截断改完整投影，本条不再作为验收依据；
 6. **WL6 信封一致**：system_message 走 #119 新信封（method/params），与 #97 source 扩展位兼容；websocket-protocol.md 同步。
 7. **WL7 ready 响应携带进入时刻水位（方案 a，User 拍板）**：
    - WL7-1：character_ready 成功响应 result 含 `latest_sequence`（整数 ≥0 = 进入时刻水位）；旧帧（result: null）兼容——客户端回退查询预置路径，行为不降级；
@@ -173,6 +173,18 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 5. **D5 收口门禁 + 消费链**：`npm run check` = biome --error-on-warnings && tsc && generate-schema --check（只读比较，改定义忘生成即红）全绿 exit 0；**消费链** = 定义文件 JSONC（唯一手写处）→ schema-merge（**生成期**加载合并）→ generated/schema.ts（生成产物）→ **codec 运行时 Compile**（直接消费生成产物，不 import 合并器）；messages.ts = re-export + Static 类型保留（消费面零改动）；旧生成链（docs:check 判空 / docs:schema 脚本 / docs/protocol/schema 产物）已退役。
 
 验收方式：acceptance 断言存在且非空 + 单测 + check 全绿 + 协议文档无语义分歧。
+
+### resume 展示完整历史（#155，PM 布置，分支 fix/resume-full-history，2026-08-09 User 拍板先行）
+
+修复 `/tavern-resume` 仅投影最近 10 条（JOIN_HISTORY_LIMIT）的问题：保留群聊选择/删除/startResume/SessionStore/创建者服务恢复流程，仅调整恢复完成后 TUI 投影。RH 条目场景文本由 QA 提供（2026-08-09 群聊确认）。
+
+1. **RH1 完整投影**：>10 条历史群聊经 `/tavern-resume` 恢复后完整投影（移除 JOIN_HISTORY_LIMIT=10 截断）、按 sequence 升序、内容逐条一致（acceptance/resume-history 新增 >10 条场景断言）；
+2. **RH2 幂等投影**：同一当前 Session 重复 resume 不产生重复条目（锚点扫描跳过已投影段）；中断后重入只补缺失尾段（既有 A3-1/A4 语义在 >10 条下仍成立）；
+3. **RH3 类型覆盖**：公开消息与创建者可见私信均完整恢复（创建者对历史私信始终见完整正文）；
+4. **RH4 流程回归**：群聊选择、删除、活跃群聊排除、启动失败行为不变；不调用 `ctx.switchSession()`、不改 `/tavern-new`、不新增空群聊持久化或恢复意图机制；
+5. **RH5 渲染一致**：恢复投影使用统一文案渲染（当前无模板配置时回退内置中文；与 #154 模板契约对齐，私信占位投影规则同 #152）。
+
+验收方式：acceptance 断言存在且非空 + 单测（computeResumeProjection 签名保留，窗口参数化单测零改动）+ check 全绿。
 
 ### 测试门控命令
 
