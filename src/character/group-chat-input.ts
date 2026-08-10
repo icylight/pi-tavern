@@ -76,6 +76,10 @@ export class GroupChatInput {
 	 * debounce 合并），以及因 Agent turn 运行中而等待的非群消息流输入。
 	 */
 	private pendingEvents: ServerMessage[] = [];
+	/** #173（#138 窗口语义回归修复）：本批拉取窗口帧 seq（seq ≤ 拉取时游标的已读上下文，
+	 * 含游标自身）。flush 投递前过滤据此豁免窗口帧——仅本批拉取帧，帧级判定；
+	 * 实时帧 / retryBatch 帧不在集合内，不受豁免。投递完成后清空。 */
+	private pullWindowSeqs = new Set<number>();
 	/** 串行化所有 flush：事件批、水位提交与失败回槽不得交错。 */
 	private flushTail: Promise<void> = Promise.resolve();
 	private handler: ((message: ServerMessage) => void) | undefined;
@@ -300,6 +304,15 @@ export class GroupChatInput {
 					return;
 				}
 				const messages: ServerMessage[] = [];
+				// #173（#138 窗口语义回归修复）：本批窗口帧 seq 收集——
+				// seq ≤ 拉取时 since 的已读上下文（含游标自身），组装后数组被
+				// isEnvironmentEvent 压缩，不能直接用 contextCount 原始 index，
+				// 用 seq 边界判定。
+				const windowSeqs = new Set<number>();
+				const isWindowFrame = (m: ServerMessage): boolean => {
+					const sequence = "params" in m ? (m.params as { sequence?: unknown }).sequence : undefined;
+					return typeof sequence === "number" && sequence <= since;
+				};
 				// #146 P1（Copilot）：上下文窗口（seq ≤ since，前导 contextCount 条已读）
 				// 不得单独触发投递——仅在未读区间（seq > since）存在可投递事件时才
 				// 携带上下文投递；未读仅自身回显/为空 → 不生成 Agent 输入，只消费
@@ -310,6 +323,9 @@ export class GroupChatInput {
 					if (m && typeof m === "object" && "method" in m && m.method === METHOD_PUBLIC_MESSAGE) {
 						if (!this.isEnvironmentEvent(m as ServerMessage)) continue;
 						messages.push(m as ServerMessage);
+						if (isWindowFrame(m as ServerMessage)) {
+							windowSeqs.add((m.params as { sequence: number }).sequence);
+						}
 						if (i >= page.contextCount) {
 							hasDeliverableUnread = true;
 						}
@@ -320,12 +336,18 @@ export class GroupChatInput {
 					// 两类帧都推进游标（拉取窗口 = 已送达），防反复 stale。
 					if (m && typeof m === "object" && "method" in m && m.method === METHOD_WHISPER_MESSAGE) {
 						messages.push(m as ServerMessage);
+						if (isWindowFrame(m as ServerMessage)) {
+							windowSeqs.add((m.params as { sequence: number }).sequence);
+						}
 						if (i >= page.contextCount) {
 							hasDeliverableUnread = true;
 						}
 					}
 					if (m && typeof m === "object" && "method" in m && m.method === METHOD_WHISPER_PLACEHOLDER) {
 						messages.push(m as ServerMessage);
+						if (isWindowFrame(m as ServerMessage)) {
+							windowSeqs.add((m.params as { sequence: number }).sequence);
+						}
 						if (i >= page.contextCount) {
 							hasDeliverableUnread = true;
 						}
@@ -335,7 +357,7 @@ export class GroupChatInput {
 					// 游标推进移至投递成功判定（双通道契约：idle followUp /
 					// 忙态 steer 入队成功 = 投递成功 → saveCursor；失败不推进，
 					// settle 兜底重投——A5 强化实现）。
-					await this.deliver(messages, page.latestSequence);
+					await this.deliver(messages, page.latestSequence, windowSeqs);
 				} else if (
 					page.messages.some(
 						(message) =>
@@ -363,9 +385,14 @@ export class GroupChatInput {
 	 * 历史/白板事件合并并保证顺序。公共消息增量在 settled 后走 followUp；
 	 * 白板等独立事件在活跃 run 中仍可走其既有 steer 通道。
 	 */
-	private async deliver(messages: ServerMessage[], latestSequence: number): Promise<void> {
+	private async deliver(messages: ServerMessage[], latestSequence: number, windowSeqs?: Set<number>): Promise<void> {
 		if (this.stopped) {
 			return;
+		}
+		// #173（#138 窗口语义回归修复）：登记本批拉取窗口帧（seq ≤ 拉取时游标
+		// 的已读上下文，含游标自身）——flush 投递前过滤据此豁免；投递完成后清空。
+		if (windowSeqs !== undefined && windowSeqs.size > 0) {
+			this.pullWindowSeqs = windowSeqs;
 		}
 		const events = [...this.pendingEvents, ...messages];
 		this.pendingEvents = [];
@@ -374,7 +401,11 @@ export class GroupChatInput {
 		}
 		// await 投递链：flush 内 preflightResult 成功才推进游标——do-while 补拉
 		// 决策必须基于已推进的游标（否则重复投递已投窗口）。
-		await this.flush(events, latestSequence);
+		try {
+			await this.flush(events, latestSequence);
+		} finally {
+			this.pullWindowSeqs.clear();
+		}
 	}
 
 	/**
@@ -839,7 +870,14 @@ export class GroupChatInput {
 			) {
 				return true;
 			}
-			if (event.params.sequence <= deliveredCursor || seenSequences.has(event.params.sequence)) {
+			// #173（#138 窗口语义回归修复）：本批拉取窗口帧（seq ≤ 拉取时游标，
+			// 含游标自身最近已读）豁免游标过滤——窗口语义 = 已读上下文重复注入
+			// 属预期设计，不更新游标。实时帧 / retryBatch 帧不在 pullWindowSeqs，
+			// 仍按 b8b259f 既有语义过滤（防旧实时帧重复注入 / 游标回写）。
+			if (event.params.sequence <= deliveredCursor && !this.pullWindowSeqs.has(event.params.sequence)) {
+				return false;
+			}
+			if (seenSequences.has(event.params.sequence)) {
 				return false;
 			}
 			seenSequences.add(event.params.sequence);

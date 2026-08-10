@@ -1004,8 +1004,8 @@ export class CharacterRuntime {
 				`reload: failed to re-read character card ${handoff.character.path}, keeping the previous one: ${error instanceof Error ? error.message : String(error)}`,
 			);
 		}
-		// #154 复评（苍蓝星）：reload 时重新加载磁盘配置——模板修改经
-		// /tavern-template-edit 落盘后，reload 使新配置生效（同角色卡重读模式）。
+		// #154 复评（苍蓝星）：reload 时重新加载磁盘配置——模板文件（message_templates）
+		// 经编辑落盘后，reload 使新配置生效（同角色卡重读模式）。
 		// 失败：warning + 保留旧快照，reload 继续，绝不使会话崩溃。
 		let messageTemplates = handoff.messageTemplates;
 		if (handoff.agentDir !== undefined && handoff.cwd !== undefined) {
