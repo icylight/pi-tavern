@@ -200,6 +200,25 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 
 验收方式：acceptance 断言存在且非空 + 单测 + check 全绿 + 手工验收清单（新建/编辑/位置/确认/取消）在 PR 中留痕。
 
+### 角色卡/模板编辑命令改为扩展自带 skill（#172，PM 布置，分支 feat/tavern-skills，2026-08-10 User 拍板）
+
+User 拍板：「新建角色卡的方式希望通过 skill 的方式，不是现在的方式」「这个扩展自带两个 skill」「不改别人的配置，别人安装扩展了直接自带」。将 `/tavern-character-edit`（#153）与 `/tavern-template-edit`（#154）两个 prompt command 改造为 PiTavern 扩展自带的两个 skill，随包分发，他人 `pi install` 后零配置直接可用（pi package-manager.js:1817/1836「all enabled by default」，仅显式排除才禁用；已有 pi.extensions manifest 须显式声明 `"skills": ["./skills"]`，不能只靠约定目录自动发现——Arch 机制边界确认）。
+
+**⚠️ 裁决反转留痕（Arch 要求）**：#76（2026-08-03）曾拍板「skill 应在本地（~/.pi/skills/）、不从项目仓库分发」；本次反转该裁决，角色卡/模板编辑 skill 随 pi-tavern 包分发。ADR-0011 由 Arch 起草（#76 反转 + 命令→skill 化 + 门禁语义降级 + 单源引用约束）。
+
+1. **SK1 包结构**：包内 `skills/tavern-character-edit/SKILL.md` + `skills/tavern-template-edit/SKILL.md`；命名沿用命令名，与全局 create-character-card / define-persona 不同名（无同名遮蔽，QA 遮蔽实证不适用）；frontmatter 合法、description 写清触发条件与边界（如「角色卡创建/编辑请用本 skill，测试 Persona 用 define-persona」——描述面触发重叠风险接受，2026-08-10 User 拍板全局零改动）；
+2. **SK2 分发声明**：package.json `pi` 清单加 `"skills": ["./skills"]`；npm 发布 files 白名单补 `skills/`（git 钉 hash 安装 clone 即得）；
+3. **SK3 命令删除与迁入**：`/tavern-character-edit`、`/tavern-template-edit` 两命令删除（commands.ts 注册块 + messages.ts CMD_DESC/ERROR/PROMPT 文案）；**CHARACTER_EDIT_PROMPT / TEMPLATE_EDIT_PROMPT 访谈指令迁入对应 SKILL.md（转写为 skill 流程指令，非纯删除——迁移去向 = 删除清单的验收等价物）**；tavern-tools.ts:424 引用注释同步改写（客户端易漏点）；
+4. **SK4 单源约束**：template skill 不内嵌模板默认值/合法 key/占位符规则——指令引用「先调 tavern_template_defaults 工具获取规则」（工具保留：LLM-only、非 slash command，idle/Character 可用、creator/joining 拒绝——代码门禁保留，可自动化断言）；角色卡 frontmatter 契约引用契约文档而非复制；
+5. **SK5 门禁语义降级**：CE2/T6 状态门禁（creator/joining 拒绝）在 skill 方式下无代码强制，靠 skill 指令 prompt 约束；template 侧有工具层兜底（tavern_template_defaults 代码门禁），角色卡侧仅文档自洽 + 人工实测；
+6. **SK6 机械锚单测（QA）**：两 SKILL.md 存在、frontmatter 合法、「diff 预览/明确确认/取消=零写入」关键条款文本存在性、pi.skills 声明与 files 白名单一致；
+7. **SK7 既有锚定面保留**：frontmatter 契约（name/description 必填）、tavern.json 联动（characters 数组追加相对路径）、claim/join 生命周期、模板合并渲染（项目>全局>内置）沿用既有测试面；
+8. **SK8 人工实测**：安装后两 skill 可见可触发（/skill: 手动 + description 自动）；skill 内「适用会话状态」声明与实际行为一致。
+
+验收方式：机械锚单测（SK6）+ 命令删除断言（SK3）+ 既有测试面回归（SK7）+ 人工实测（SK8）在 PR 中留痕。
+
+### 可配置群聊消息文案（#154，PM 布置，分支 feat/message-templates，2026-08-09 User 指示开工）
+
 ### 可配置群聊消息文案（#154，PM 布置，分支 feat/message-templates，2026-08-09 User 指示开工）
 
 `tavern.json` 新增可选 `message_templates` 指向独立 JSON 文案文件，按 key 合并（项目 > 全局 > 内置中文），第一版只覆盖公开消息/完整私信/私信占位/秒前/分钟前五类渲染；实时注入、`tavern_history`、创建者 TUI 共用同一模板集（需求基线 #156 定稿）。
@@ -210,7 +229,7 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 4. **T4 占位符规则**：模板仅支持简单 `{placeholder}` 替换——公开消息必须保留发送者与正文；完整私信必须保留发送者、接收者与正文；私信占位必须保留发送者、接收者且禁止正文；相对时间必须保留数量；未知、缺失或禁止的占位符均判为无效（单项回退）；
 5. **T5 加载生命周期**：creator 在 `/tavern-new`、`/tavern-resume`、`/reload` 加载；Character 在 claim/join/reload 加载；不做文件监听或自动热更新；
 6. **T6 /tavern-template-edit**：prompt command 支持自然语言参数；默认建议编辑全局配置但必须让用户选择（全局/当前项目/其他配置）；写入前展示 diff 并取得明确确认；写入后告知需 reload/rejoin/resume 后生效；
-7. **T7 tavern_template_defaults**：仅 LLM 可调用的只读工具，无参数，返回完整中文默认值、合法 key（本期三类：public_message/seconds_ago/minutes_ago）、占位符规则与 JSON 骨架；idle 与 Character 状态可用，creator 与 joining 拒绝；不注册用户 slash command。
+7. **T7 tavern_template_defaults**：仅 LLM 可调用的只读工具，无参数，返回完整中文默认值、合法 key（本期三类：public_message/seconds_ago/minutes_ago）、占位符规则与 JSON 骨架；idle 与 Character 状态可用，creator 与 joining 拒绝；不注册用户 slash command。（注：#172 起 T6 命令删除、skill 化，T7 保留——template skill 单源引用此工具，见 #172 SK4。）
 
 验收方式：acceptance 断言存在且非空 + 单测 + check 全绿；手工验收（diff 确认/生效提示/位置选择）由苍蓝星实测或 QA 真实环境执行（沿用 #153 先例：PR 中留痕实际执行结果）。
 
