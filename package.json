@@ -14,6 +14,7 @@
 	},
 	"files": [
 		"src",
+		"skills",
 		"README.md",
 		"README.en.md",
 		"CHANGELOG.md",
@@ -43,6 +44,9 @@
 	"pi": {
 		"extensions": [
 			"./src/index.ts"
+		],
+		"skills": [
+			"./skills"
 		]
 	},
 	"dependencies": {

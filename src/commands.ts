@@ -14,8 +14,6 @@ import {
 import type { DiscoverGroupChatsOptions } from "./data/discovery/discover-group-chats.js";
 import type { DeleteGroupChatSessionResult, GroupChatSessionSummary } from "./data/group-chat-sessions.js";
 import {
-	CHARACTER_EDIT_PROMPT,
-	CMD_DESC_CHARACTER_EDIT,
 	CMD_DESC_JOIN,
 	CMD_DESC_LEAVE,
 	CMD_DESC_NAME,
@@ -23,7 +21,6 @@ import {
 	CMD_DESC_RESUME,
 	CMD_DESC_SET_MAX,
 	CMD_DESC_STATUS,
-	CMD_DESC_TEMPLATE_EDIT,
 	CMD_DESC_TEST_BUSY,
 	CMD_DESC_TEST_HISTORY,
 	CMD_DESC_TEST_MESSAGE,
@@ -31,7 +28,6 @@ import {
 	CMD_DESC_TEST_WHOAMI,
 	CONFIRM_DELETE_HISTORY_BODY_PREFIX,
 	CONFIRM_DELETE_HISTORY_TITLE,
-	ERROR_CHARACTER_EDIT_STATE,
 	ERROR_CREATOR_ONLY,
 	ERROR_DELETE_HISTORY_FAILED_PREFIX,
 	ERROR_GROUP_CHAT_CLOSED,
@@ -43,8 +39,6 @@ import {
 	ERROR_NO_ACTIVE_GROUP_CHAT,
 	ERROR_NO_ACTIVE_GROUP_CHAT_FOR_PROJECT,
 	ERROR_RESUME_REQUIRES_UI,
-	ERROR_TEMPLATE_EDIT_STATE,
-	NOTIFY_COMMAND_QUEUED,
 	NOTIFY_CREATED_MID,
 	NOTIFY_CREATED_PREFIX,
 	NOTIFY_CREATOR_ONLY_MESSAGE,
@@ -71,7 +65,6 @@ import {
 	SELECT_DELETE_HISTORY_CHOICE,
 	SELECT_DELETE_HISTORY_LABEL,
 	SELECT_RESUME_LABEL,
-	TEMPLATE_EDIT_PROMPT,
 	UI_GROUP_CHAT_LABEL_PREFIX,
 	UI_ID_LABEL,
 	UI_MESSAGES_USED,
@@ -457,51 +450,6 @@ export function registerCommands(
 			},
 		});
 	}
-
-	pi.registerCommand("tavern-character-edit", {
-		description: CMD_DESC_CHARACTER_EDIT,
-		handler: async (args, ctx) => {
-			// CE2 状态门禁：idle/Character 可用，creator/joining 拒绝
-			// （统一文案，不泄漏内部状态细节）。
-			const state = controller.getState();
-			if (state.type === "creator" || state.type === "joining") {
-				ctx.ui.notify(ERROR_CHARACTER_EDIT_STATE, "error");
-				return;
-			}
-			// CE1：尾随自然语言参数展开进 LLM 访谈 prompt（prompt command 语义）。
-			// deliverAs: "followUp"——非 idle（agent streaming）时排队到当前 turn
-			// 结束，避免 sendUserMessage 直接 throw（pi agent-session prompt()
-			// 无 streamingBehavior 时 streaming 态必抛；idle 时该选项被忽略）。
-			const intent = args.trim();
-			if (!ctx.isIdle()) {
-				ctx.ui.notify(NOTIFY_COMMAND_QUEUED, "info");
-			}
-			pi.sendUserMessage(intent ? `${CHARACTER_EDIT_PROMPT}\n\n用户意图：${intent}` : CHARACTER_EDIT_PROMPT, {
-				deliverAs: "followUp",
-			});
-		},
-	});
-
-	pi.registerCommand("tavern-template-edit", {
-		description: CMD_DESC_TEMPLATE_EDIT,
-		handler: async (args, ctx) => {
-			// T6 状态门禁：idle/Character 可用，creator/joining 拒绝（同 CE2 语义）。
-			const state = controller.getState();
-			if (state.type === "creator" || state.type === "joining") {
-				ctx.ui.notify(ERROR_TEMPLATE_EDIT_STATE, "error");
-				return;
-			}
-			// T6：尾随自然语言参数展开进 LLM 访谈 prompt（#153 同机制）。
-			// deliverAs: "followUp"——非 idle 排队到当前 turn 结束，避免 throw。
-			const intent = args.trim();
-			if (!ctx.isIdle()) {
-				ctx.ui.notify(NOTIFY_COMMAND_QUEUED, "info");
-			}
-			pi.sendUserMessage(intent ? `${TEMPLATE_EDIT_PROMPT}\n\n用户意图：${intent}` : TEMPLATE_EDIT_PROMPT, {
-				deliverAs: "followUp",
-			});
-		},
-	});
 
 	pi.registerCommand("tavern-leave", {
 		description: CMD_DESC_LEAVE,

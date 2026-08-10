@@ -421,7 +421,7 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 
 	// #154 T7：LLM-only 只读工具——返回内置中文默认值/合法 key/占位符规则/JSON 骨架。
 	// 不注册 slash command（仅 registerTool，T7 定稿）；idle/Character 可用，
-	// creator/joining 拒绝（门禁与 /tavern-character-edit 同语义）。
+	// creator/joining 拒绝（状态门禁语义，与已移除的编辑类命令同源）。
 	pi.registerTool({
 		name: "tavern_template_defaults",
 		label: TOOL_TEMPLATE_DEFAULTS_LABEL,

@@ -214,6 +214,7 @@ User 拍板：「新建角色卡的方式希望通过 skill 的方式，不是�
 6. **SK6 机械锚单测（QA）**：两 SKILL.md 存在、frontmatter 合法、「diff 预览/明确确认/取消=零写入」关键条款文本存在性、pi.skills 声明与 files 白名单一致；
 7. **SK7 既有锚定面保留**：frontmatter 契约（name/description 必填）、tavern.json 联动（characters 数组追加相对路径）、claim/join 生命周期、模板合并渲染（项目>全局>内置）沿用既有测试面；
 8. **SK8 人工实测**：安装后两 skill 可见可触发（/skill: 手动 + description 自动）；skill 内「适用会话状态」声明与实际行为一致。
+9. **SK9 联动检查（2026-08-10 风暴定案，方案 A，User 拍板「不建 skill 更好」）**：不建独立 workflow 编辑 skill；tavern-character-edit SKILL.md 收尾含「联动检查清单（写入确认后必做）」段——写入角色卡后检查 workflow.md 文件所有权表/AGENTS.md 上下文清单等是否需同步；无需同步即结束，需要同步则走四步（群聊声明影响面 → 团队收敛 → 属主复核 → PM 落盘），引用契约不复制、skill 不代落盘；机械锚轻断言：character skill 文本含「联动检查」段（触发条件+四步流程），防转写漏掉。
 
 验收方式：机械锚单测（SK6）+ 命令删除断言（SK3）+ 既有测试面回归（SK7）+ 人工实测（SK8）在 PR 中留痕。
 
