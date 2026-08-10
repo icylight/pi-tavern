@@ -18,7 +18,7 @@ import {
 	ERROR_UNKNOWN,
 	ERROR_USER_PERSONA_MESSAGE_TOO_LARGE,
 } from "../../shared/messages.js";
-import { mergeMessageStreams } from "./message-stream.js";
+import { computeLatestOtherSequence, mergeMessageStreams } from "./message-stream.js";
 
 type SpeakMessage = Extract<ClientMessage, { method: "speak" }>;
 
@@ -109,23 +109,10 @@ export class SubmitMessagePipeline {
 		}
 
 		// 阶段 2：陈旧性检查（ISSUE-013 B2/B6）——业务性拒绝：不发布、不耗配额、不举手
-		// #152：基于合并流（公开+私信），排除请求者自己发送的消息（含自己的私信）。
+		// #152：基于合并流（公开+私信），排除请求者自己发送的消息（含自己的私信）；
+		// #170 服务端投影半场：旁观者视角的 whisper（只可见占位）不计入 stale 判定。
 		const merged = mergeMessageStreams(this.deps.publicMessages, this.deps.whisperMessages);
-		let latestOtherSequence = 0;
-		for (let i = merged.length - 1; i >= 0; i--) {
-			const candidate = merged[i];
-			if (candidate === undefined) {
-				continue;
-			}
-			if (
-				candidate.sender.type === "character" &&
-				candidate.sender.character_id === onlineCharacter.character.characterId
-			) {
-				continue;
-			}
-			latestOtherSequence = candidate.sequence;
-			break;
-		}
+		const latestOtherSequence = computeLatestOtherSequence(merged, onlineCharacter.character.characterId);
 		const latest = merged[merged.length - 1];
 		const latestSequence = latest !== undefined ? latest.sequence : 0;
 		if (message.params.based_on_sequence !== undefined && message.params.based_on_sequence < latestOtherSequence) {
