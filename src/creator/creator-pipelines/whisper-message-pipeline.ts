@@ -20,6 +20,8 @@ import {
 	METHOD_WHISPER_PLACEHOLDER,
 } from "../../shared/messages.js";
 
+import { computeLatestOtherSequence } from "./message-stream.js";
+
 type WhisperMessage = Extract<ClientMessage, { method: "whisper" }>;
 
 /** 连接上下文窄接口（与 SubmitMessagePipeline 同构）。 */
@@ -140,20 +142,10 @@ export class WhisperPipeline {
 		}
 
 		// 阶段 2：陈旧性检查（与 speak 同源 B2/B6）——基于合并流（公开+私信），
-		// 排除请求者自己发送的消息（发送者零事件 → 其游标不越过自己的私信）。
+		// 排除请求者自己发送的消息（发送者零事件 → 其游标不越过自己的私信）；
+		// #170 服务端投影半场：旁观者视角的 whisper（只可见占位）不计入 stale 判定。
 		const merged = this.deps.readMergedMessages();
-		let latestOtherSequence = 0;
-		for (let i = merged.length - 1; i >= 0; i--) {
-			const candidate = merged[i];
-			if (candidate === undefined) {
-				continue;
-			}
-			if (candidate.sender.type === "character" && candidate.sender.character_id === senderId) {
-				continue;
-			}
-			latestOtherSequence = candidate.sequence;
-			break;
-		}
+		const latestOtherSequence = computeLatestOtherSequence(merged, senderId);
 		const latest = merged[merged.length - 1];
 		const latestSequence = latest !== undefined ? latest.sequence : 0;
 		if (message.params.based_on_sequence !== undefined && message.params.based_on_sequence < latestOtherSequence) {

@@ -284,7 +284,9 @@
       "additionalProperties": false
     },
     // #152：私信占位帧（广播给非接收者 Character；无正文，隐私不泄露；
-    // 属未读序列——后续发言前必须消费（#128 未读先读）。发送者不收到自身事件）。
+    // 入未读序列供消费，不触发未读先读阻塞（#170：占位零信息增量，协议性回复
+    // 不被拦——公开消息/whisper 全文仍阻塞；服务端 stale 判定同源豁免旁观者
+    // 视角的占位）。发送者不收到自身事件）。
     "WhisperPlaceholder": {
       "type": "object",
       "required": ["jsonrpc", "method", "params"],

@@ -668,6 +668,10 @@ export class GroupChatInput {
 	 * 兜底，Arch ①/③ 口径）；count = 已证明的他人未读条数（preview 截断时给出
 	 * 下界），exact = preview 是否完整覆盖 cursor 后窗口。阻塞条件除 count > 0
 	 * 外，还包括「截断窗口含自身回显」这一发送者未知场景（#128 定稿要求保守阻止）。
+	 *
+	 * #170（占位不阻塞）：whisper 占位事件无正文、零信息增量——计入未读水位
+	 * 与计数（消费语义保留）但不触发阻塞（shouldBlock 剔除占位项）；公开消息
+	 * 与 whisper 全文仍触发未读先读阻塞（防内容风暴意图不动）。
 	 */
 	/**
 	 * #152（阻断 2 修复）：记录非参与者占位帧水位。占位不注入（不唤醒），
@@ -684,14 +688,14 @@ export class GroupChatInput {
 		const update = this.latestGroupChatUpdate;
 		if (update === null) {
 			// #152（PR #163 评审 B 修复）：占位水位独立成立——join 后首条公开
-			// 消息之前收到占位即触发本地阻止 + 补拉（占位属未读序列，发言前
-			// 机械消费）；无任何水位知识时保持 undefined（不阻止）。
+			// 消息之前收到占位即记入未读序列（水位/计数成立）；#170：占位不触发
+			// 阻塞（shouldBlock=false），缺口存在时计数不声称精确。
 			const cursor = this.runtime.loadCursor() ?? 0;
 			if (this.latestWhisperPlaceholderSequence > cursor) {
 				// #152（PR #163 复评 B 修复）：仅知占位 seq 时计数精确性只成立
-				// 于「占位 = 游标+1」（缺口存在则不可称 exact）。
+				// 于「占位 = 游标+1」（缺口存在则不可称 exact）。#170：占位不阻塞。
 				return {
-					shouldBlock: true,
+					shouldBlock: false,
 					count: 1,
 					exact: this.latestWhisperPlaceholderSequence === cursor + 1,
 				};
@@ -699,15 +703,17 @@ export class GroupChatInput {
 			return undefined;
 		}
 		const cursor = this.runtime.loadCursor() ?? 0;
-		// #152（阻断 2 修复）：水位合并占位帧（占位属未读序列——发言前机械消费）。
+		// #152（阻断 2 修复）：水位合并占位帧（占位属未读序列供机械消费；
+		// #170：占位不触发阻塞，仅计入水位/计数）。
 		const latestSequence = Math.max(update.params.latest_sequence, this.latestWhisperPlaceholderSequence);
 		if (latestSequence <= cursor) {
 			return { shouldBlock: false, count: 0, exact: true };
 		}
 		const unseen = update.params.preview_messages.filter((preview) => preview.params.sequence > cursor);
 		const expected = latestSequence - cursor;
-		// 占位帧不进 preview（服务端广播不含正文帧）——按已知水位计入未读：
-		// 占位未消费（seq > cursor）视为一条已证明的他人未读（发送者非本人）。
+		// 占位帧不进 preview（服务端广播不含正文帧）——按已知水位计入计数：
+		// 占位未消费（seq > cursor）计入 count/exact；#170：不参与 shouldBlock
+		// 阻塞判定（占位无正文零信息增量，协议性回复不被拦——防线仅公开/全文保留）。
 		const placeholderUnseen = this.latestWhisperPlaceholderSequence > cursor;
 		const exact = unseen.length + (placeholderUnseen ? 1 : 0) === expected;
 		const otherUnseen = unseen.filter(
@@ -720,11 +726,13 @@ export class GroupChatInput {
 				preview.params.sender.type === "character" &&
 				preview.params.sender.character_id === this.runtime.character.characterId,
 		);
+		// #170：占位不阻塞——shouldBlock 仅由他人未读（公开/全文）与自身回显
+		// 截断保守阻止构成；占位仍计入 count/exact（水位/计数语义保留）。
 		return {
 			// preview 被截断且含自身回显时，缺口中的发送者未知。按 #128 定稿
 			// 保守阻止，由 settle 拉全后再决策；此时 count 只表示已明确看到的
 			// 他人消息数，可能为 0，调用方不得把 0 表述为精确数量。
-			shouldBlock: otherUnseen.length > 0 || placeholderUnseen || (!exact && containsSelf),
+			shouldBlock: otherUnseen.length > 0 || (!exact && containsSelf),
 			count: otherUnseen.length + (placeholderUnseen ? 1 : 0),
 			exact,
 		};
