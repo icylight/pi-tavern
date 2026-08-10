@@ -562,7 +562,7 @@ Character 的 `tavern_whisper` Agent tool 通过 WebSocket 发送 `whisper` 请�
 投影语义在**服务端**完成，按查看者身份区分（客户端零投影逻辑，只做模板渲染）：
 
 - **接收者**：单播 `whisper_message`（字段形状：[`server.jsonc` 的 `ServerMessage`](../../src/protocol/schema/server.jsonc) `whisper_message` 通知分支）——含 `sender` / `recipient` / `content` / `round`，走现有实时投递与忙态安全边界。
-- **其他 Character**：广播 `whisper_placeholder`（`whisper_placeholder` 通知分支）——仅含 `sender` / `recipient`，**无正文**；占位事件属于其未读序列，后续发言前必须消费（复用 #128 未读先读机制）；不被主动唤醒。
+- **其他 Character**：广播 `whisper_placeholder`（`whisper_placeholder` 通知分支）——仅含 `sender` / `recipient`，**无正文**；占位事件入其未读序列供消费（复用 #128 未读先读机制），但**不触发未读先读阻塞**（#170：占位无正文零信息增量，协议性回复不被拦——公开消息与 whisper 全文仍触发阻塞）；不被主动唤醒。
 - **创建者**：完整正文（TUI 完整投影）。
 
 ### 历史投影
@@ -583,7 +583,7 @@ Character 的 `tavern_whisper` Agent tool 通过 WebSocket 发送 `whisper` 请�
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `public_message` | ✓复用 | ✓复用（环境事件，唤醒） | ✓复用 | ✓复用 | ✓复用 | ✓复用（public_message 模板） | ✓复用 |
 | `whisper_message` | ✓复用 | ✓复用（环境事件，唤醒——**仅接收者**） | ✓接纳（含正文） | ✓复用 | ✓复用 | whisper_full 模板（sender/receiver/content） | ✓完整正文（恒参与者视角） |
-| `whisper_placeholder` | ✓复用 | **差异化：不注入、不唤醒、不进 debounce（仅水位推进）** | ✓接纳（占位帧，推进游标防反复 stale） | ✓复用 | ✓复用（占位属未读序列） | whisper_placeholder 模板（sender/receiver，无 content） | **不适用**（创建者恒见完整正文） |
+| `whisper_placeholder` | ✓复用 | **差异化：不注入、不唤醒、不进 debounce（仅水位推进）** | ✓接纳（占位帧，推进游标防反复 stale） | ✓复用 | ✓复用（占位入未读序列供消费，不触发未读先读阻塞——#170） | whisper_placeholder 模板（sender/receiver，无 content） | **不适用**（创建者恒见完整正文） |
 | `group_chat_update` | ✓复用 | ✓复用 | — | — | — | ✓复用 | ✓复用 |
 
 维护：新增帧类型时逐格核对并更新本表（属主=后端，ADR-0009 实施分工）。

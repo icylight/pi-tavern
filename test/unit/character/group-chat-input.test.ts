@@ -1782,7 +1782,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("chain: whisper placeholder-only 未读阻止（#152 PR #163 B：无 group_chat_update 时占位水位独立成立）", async () => {
+	it("chain: whisper placeholder-only 不阻塞（#170：无 group_chat_update 时占位水位独立成立，占位不触发未读先读）", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime({ hasPublicMessages: true });
 		runtime.loadCursor = () => 0;
@@ -1794,10 +1794,12 @@ describe("GroupChatInput", () => {
 		handler(whisperPlaceholderFrame(3));
 		await vi.advanceTimersByTimeAsync(1000);
 
-		// 占位不注入（不唤醒），但未读判定合并占位水位（发言前机械消费）。
+		// 占位不注入（不唤醒），未读判定合并占位水位但不触发阻塞（#170：
+		// 占位无正文零信息增量，不拦协议性回复；水位/计数/消费语义保留）。
 		expect(pi.sendMessage).not.toHaveBeenCalled();
-		// 占位 seq=3、游标 0：缺口存在 → 阻止但不声称精确。
-		expect(input.unreadOthersProven()?.shouldBlock).toBe(true);
+		// 占位 seq=3、游标 0：缺口存在 → 不阻止（shouldBlock=false），计数保留不声称精确。
+		expect(input.unreadOthersProven()?.shouldBlock).toBe(false);
+		expect(input.unreadOthersProven()?.count).toBe(1);
 		expect(input.unreadOthersProven()?.exact).toBe(false);
 
 		input.stop();
@@ -1973,7 +1975,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("chain: whisper placeholder-only exact 仅连续时成立（#152 PR #163 复评 B：占位=游标+1 才 exact）", async () => {
+	it("chain: whisper placeholder-only exact 仅连续时成立（#170：#152 PR #163 复评 B 语义保留——占位=游标+1 才 exact，不阻塞）", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime({ hasPublicMessages: true });
 		runtime.loadCursor = () => 0;
@@ -1985,7 +1987,8 @@ describe("GroupChatInput", () => {
 		handler(whisperPlaceholderFrame(1)); // 占位 = 游标+1（连续）
 		await vi.advanceTimersByTimeAsync(1000);
 
-		expect(input.unreadOthersProven()?.shouldBlock).toBe(true);
+		expect(input.unreadOthersProven()?.shouldBlock).toBe(false);
+		expect(input.unreadOthersProven()?.count).toBe(1);
 		expect(input.unreadOthersProven()?.exact).toBe(true);
 
 		input.stop();
@@ -2045,8 +2048,10 @@ describe("GroupChatInput", () => {
 
 		// 占位不注入：无 sendMessage（不唤醒、不进 debounce）。
 		expect(pi.sendMessage).not.toHaveBeenCalled();
-		// 占位水位记录（seq 22 > cursor 0）：未读判定合并占位（发言前机械消费）。
-		expect(input.unreadOthersProven()?.shouldBlock).toBe(true);
+		// 占位水位记录（seq 22 > cursor 0）：未读判定合并占位水位但不阻塞
+		// （#170：占位零信息增量不拦发言；水位/计数/消费语义保留）。
+		expect(input.unreadOthersProven()?.shouldBlock).toBe(false);
+		expect(input.unreadOthersProven()?.count).toBe(1);
 
 		input.stop();
 	});
