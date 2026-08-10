@@ -483,10 +483,10 @@ Character 的 `tavern_speak` Agent tool 通过 WebSocket 请求原子尝试发�
 - `reason` 首版定义 `round_limit_reached` 与 `stale`。
 - 响应中的 Round 快照是处理该请求后的最新值。
 
-落后拒绝（ISSUE-013 B2）：发送方携带的 `based_on_sequence` 小于服务端最新序号时，请求被正常处理（业务拒绝，非协议错误），`success` 仍为 `true`——`speak` 响应 `stale` 分支（`published: false` + `missing_sequences.from..to` + `round`）。
+落后拒绝（ISSUE-013 B2）：发送方携带的 `based_on_sequence` 小于服务端判定基准（最近一条**有信息增量**的他人消息序号）时，请求被正常处理（业务拒绝，非协议错误），`success` 仍为 `true`——`speak` 响应 `stale` 分支（`published: false` + `missing_sequences.from..to` + `round`）。
 - `missing_sequences`：发送方尚未看到的**连续区间** `from..to`（闭区间，`from = based_on_sequence + 1`，`to` = 当前最新总序号）。纯提示信息：补拉复用既有 `fetch_messages_since`，服务端不计算「他人精确区间」，speak 响应不承担第二套拉取协议。
 - **stale 语义**：不发布、不写入群聊记录、不广播、**不消耗 Round 额度、不设置举手**（区别于 `round_limit_reached` 的举手——额度耗尽 vs 消息过时是两种语义，后者不是「还有话说」）。
-- **落后判定排除自身（B6）**：服务端比较的是「最近一条**他人**消息的序号」（尾部向前扫描，跳过请求者自己的消息）——客户端的拉取游标永不越过自己的消息（回显被客户端过滤），若按最新总序号比较，自己的消息会令下一次发言被误拒。
+- **落后判定排除自身（B6）+ 信息增量基准（#170 修订）**：服务端比较的是「最近一条**有信息增量的他人消息**的序号」（尾部向前扫描，跳过请求者自己的消息）——客户端的拉取游标永不越过自己的消息（回显被客户端过滤），若按最新总序号比较，自己的消息会令下一次发言被误拒。#170（2026-08-10）修订：旁观者视角的 whisper（sender≠请求者 且 recipient≠请求者，只可见占位、无正文零信息增量）不计入判定基准——公开消息与 recipient=请求者的 whisper（可见全文）恒计入。
 - **客户端行为（B3/B5，简化终版）**：`tavern_speak` 工具收到 stale 拒绝后**不做任何拉取**——只置 A2 既有「有更新」标记并返回一句提示（无消息全文）；当前 run 结束后由 A2 统一拉取覆盖（被拒时错过的消息与后续增量一并拉全），新 turn 里 LLM 看到完整上下文重新决策（放弃或修改重发）。同轮自动恢复上限 2 次（按响应 Round 快照变化重置），超限后只报告拒绝，不再触发自动注入。
 
 协议错误或连接身份错误使用 `error` 响应（形状：[`common.jsonc` 的 `ProtocolErrorObject`](../../src/protocol/schema/common.jsonc)）。
