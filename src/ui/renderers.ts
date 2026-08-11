@@ -11,7 +11,7 @@ import {
 
 export function registerRenderers(
 	pi: ExtensionAPI,
-	// #154：模板集 getter 闭包注入（组合根装配；可重赋值字段须 getter 而非值拷贝，
+	// 模板集 getter 闭包注入（组合根装配；可重赋值字段须 getter 而非值拷贝，
 	// 防值拷贝注入陷阱——reload/新群聊后模板集变化需实时可见）。
 	getTemplates: () => Record<MessageTemplateKey, string> = () => DEFAULT_TEMPLATES,
 ): void {
@@ -31,7 +31,7 @@ export function registerRenderers(
 		};
 		const box = new Box(0, 1, (t) => theme.bg("customMessageBg", t));
 		if (data.kind === "board_update") {
-			// 白板模型（#114）：board 实时提示行（纯展示）。
+			// 白板模型：board 实时提示行（纯展示）。
 			const verb =
 				data.action === "add"
 					? UI_BOARD_VERB_ADD
@@ -49,9 +49,9 @@ export function registerRenderers(
 		if (!data.event) {
 			return box;
 		}
-		// #154：TUI 与 history/实时注入共用同一模板集（T3）——模板产出整行字符串，
+		// TUI 与 history/实时注入共用同一模板集——模板产出整行字符串，
 		// Box/Text 只做布局；sender 传值与 history 一致（user_persona → "User Persona"，
-		// 原 TUI 特有 "You"/[label] 前缀样式随统一移除，留痕 T3）。
+		// 原 TUI 特有 "You"/[label] 前缀样式随统一移除）。
 		const sender = data.event.sender;
 		const label =
 			sender.type === "user_persona"
@@ -61,7 +61,7 @@ export function registerRenderers(
 					: sender.type;
 		const templates = getTemplates();
 		if (data.kind === "whisper_message") {
-			// #152：创建者视角完整正文（需求基线 WH4）——whisper_full 模板。
+			// 创建者视角完整正文——whisper_full 模板。
 			const sender = data.event.sender;
 			const recipient = data.event.recipient;
 			const senderLabel = sender.name ?? sender.character_id ?? "Character";

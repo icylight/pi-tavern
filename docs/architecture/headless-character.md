@@ -1,4 +1,4 @@
-# Headless Character 模式（ISSUE-014，CPU 根治）
+# Headless Character 模式
 
 ## 背景
 
@@ -38,12 +38,12 @@ PITAVERN_GROUP_CHAT=xxx scripts/pi-char-dev.sh --character qa
    可用、群聊输入（通知广播 + 增量拉取、Session 级游标持久化）正常；
 4. 群聊输入触发 LLM run 并发言——角色完全通过群聊交互。
 
-## 验收口径（对应 GitHub #29）
+## 验收口径
 
 - RPC 模式空闲 CPU ≤ 2%
 - 自动 join 链路完整：creator 在线列表可见、身份行注入、whoami 一致
 - 群聊输入可用：creator 发言 → headless 角色收到 → 可调用 tavern_speak 回复
-- M6 既有验收不破坏（RPC 模式本就是验收套件底座）
+- 既有验收不破坏（RPC 模式本就是验收套件底座）
 
 ## TUI 保留 + 降载（可选启动选项）
 

@@ -1,5 +1,5 @@
 /**
- * ISSUE-014：headless RPC 角色模式——自动加入群聊。
+ * ：headless RPC 角色模式——自动加入群聊。
  *
  * 以 PITAVERN_AUTO_JOIN=1 启动的 character pi 在 session_start 时无需任何
  * 交互 UI 即加入活跃群聊：群聊与角色以编程方式选定（env 覆盖，然后唯一/首个
@@ -37,15 +37,14 @@ interface AutoJoinOptions {
 	groupChat?: string;
 	/** 行为默认实现由组合根装配注入（五层依赖方向，architecture.md §5）。 */
 	discoverGroupChats?: (options: DiscoverGroupChatsOptions) => Promise<ActiveGroupChatDescriptor[]>;
-	/** #154 T5：配置加载注入（默认 loadTavernConfig）——headless auto-join 与 /tavern-join 同生命周期。 */
+	/**：配置加载注入（默认 loadTavernConfig）——headless auto-join 与 /tavern-join 同生命周期。 */
 	loadConfig?: (options: { agentDir: string; cwd: string }) => Promise<TavernConfig>;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	triggerDebounceMs?: number;
 }
 
 /**
- * auto-join 流程所需的最小上下文面。交互路径传真实 ExtensionContext；
- * headless 启动器提供合成适配器（process.cwd + 生成 session id + stderr
+ * auto-join 流程所需的最小上下文面。交互路径传真实 ExtensionContext * headless 启动器提供合成适配器（process.cwd + 生成 session id + stderr
  * notify），因为 RPC 模式没有 session_start / resources_discover 启动事件。
  */
 export interface AutoJoinContext {
@@ -86,8 +85,8 @@ function pickCharacter(
 }
 
 /**
- * 以角色身份自动加入活跃群聊。纯程序化流程：无对话框、无 select() 调用——
- * headless RPC 角色模式（ISSUE-014）。返回加入的角色名；未加入任何群聊时
+ * 以角色身份自动加入活跃群聊。纯程序化流程：无对话框、无 select 调用——
+ * headless RPC 角色模式。返回加入的角色名；未加入任何群聊时
  * 返回 null。
  */
 export async function autoJoinCharacter(
@@ -125,16 +124,16 @@ export async function autoJoinCharacter(
 	}
 
 	const sessionId = ctx.sessionManager.getSessionId();
-	// #154 T5：headless auto-join 与 /tavern-join 同生命周期——本地加载配置，
-	// 自定义模板集随 claim 达 CharacterRuntime（苍蓝星阻断 3 修复）。
+	//：headless auto-join 与 /tavern-join 同生命周期——本地加载配置，
+	// 自定义模板集随 claim 达 CharacterRuntime（。
 	const loadConfig = options.loadConfig ?? loadTavernConfig;
 	const joinConfig = await loadConfig({ agentDir, cwd: ctx.cwd });
 	const attempt = await controller.startJoining(descriptor, sessionId, {
 		...(options.triggerDebounceMs !== undefined ? { triggerDebounceMs: options.triggerDebounceMs } : {}),
-		// 游标跟随 Session（User 2026-08-02）：cursors/<groupId>/<sessionId>.json，同群聊多角色互不共用
+		// 游标跟随 Session：cursors/<groupId>/<sessionId>.json，同群聊多角色互不共用
 		cursorStorePath: join(getGroupChatCursorDirectory(agentDir, ctx.cwd), descriptor.groupChatId, `${sessionId}.json`),
 		...(joinConfig.messageTemplates !== undefined ? { messageTemplates: joinConfig.messageTemplates } : {}),
-		// #154 复评：路径透传，reload 时重新加载磁盘配置（模板修改落盘后生效）。
+		//  路径透传，reload 时重新加载磁盘配置（模板修改落盘后生效）。
 		agentDir,
 		cwd: ctx.cwd,
 	});

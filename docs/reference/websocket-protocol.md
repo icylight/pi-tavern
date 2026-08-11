@@ -29,11 +29,11 @@ PiTavern 使用标准 WebSocket `ping` / `pong` 控制帧检测半开连接，�
 
 - JSON 字段名统一使用 `snake_case`。
 - `method` 等类型字符串统一使用 `snake_case`。
-- 协议使用 JSON-RPC 2.0 标准信封（#119 M1 迁移，User 拍板豁免零漂移——特例仅此一次）：所有消息必带 `"jsonrpc": "2.0"` 版本字段。
+- 协议使用 JSON-RPC 2.0 标准信封（特例豁免零漂移——仅此一次）：所有消息必带 `"jsonrpc": "2.0"` 版本字段。
 - 请求/响应必带 `id` 关联（`id` = string | number，JSON-RPC 2.0 标准）；仅 `update_character_state` 为无 `id` notification（无响应语义）。缺 `id` 的 request/response = 协议错误 fail-close。
 - 请求/通知载荷一律位于 `params` 对象内。
 
-### Schema 单一事实源（#145 docs-first，苍蓝星拍板）
+### Schema 单一事实源（docs-first）
 
 **全部字段形状（信封/方法/参数/响应）以 src/protocol/schema/*.jsonc 为唯一手写权威**（纯 docs-first：改协议 = 改定义文件 → 重新生成 → 同步提交产物）：
 
@@ -105,7 +105,7 @@ PiTavern 使用两层硬性大小限制：
 
 正文大小使用 `Buffer.byteLength(content, "utf8")` 检查，不使用 JavaScript 字符数量估算。1 MiB frame 上限同时配置在 WebSocket Server 和 Character 客户端；发送前的 codec 也必须检查编码结果，不能只依赖接收方断开。
 
-64 KiB 正文上限保证最近 10 条公开消息及其 sender、Round 和 JSON 元数据能够稳定组成一个不超过 1 MiB 的 `message_history` 分页 frame（#123 起为主动查询响应）。
+64 KiB 正文上限保证最近 10 条公开消息及其 sender、Round 和 JSON 元数据能够稳定组成一个不超过 1 MiB 的 `message_history` 分页 frame（主动查询响应）。
 
 超限时：
 
@@ -125,7 +125,7 @@ PiTavern 使用两层硬性大小限制：
 - User Persona 由群聊创建者本地表示，不是 Character WebSocket 接收者。
 - 向某个连接发送失败时，该 Character 转入断线处理流程；不能静默跳过并继续将其视为在线。
 - Character 手动重新加入后会重新收到最近消息；协议不提供自动重连或按序号补发。
-- 公开消息的广播以 `group_chat_update` 通知形式发出（M7/ISSUE-012）：广播只唤醒角色，完整增量由角色主动 `fetch_messages_since` 拉取（见「增量拉取」）。
+- 公开消息的广播以 `group_chat_update` 通知形式发出：广播只唤醒角色，完整增量由角色主动 `fetch_messages_since` 拉取（见「增量拉取」）。
 
 后文使用“广播”时均遵循此定义，不再逐项声明是否包含发送者或新加入的 Character。
 
@@ -224,7 +224,7 @@ Character 已经被预留或已经在线等失败情况使用 pi-coding-agent �
 请求不携带 `character_id` 或 `session_id`。群聊创建者根据连接闭包中保存的预留确定身份。没有有效预留、预留已释放或连接已经在线时返回通用错误响应。
 
 成功响应：[`server.jsonc` 的 `ServerMessage`](../../src/protocol/schema/server.jsonc) `character_ready` 响应分支（`result.latest_sequence` 或 `result: null`）。
-- `result.latest_sequence`（#144 方案 a，Optional 向后兼容）：角色**进入时刻**的公开消息水位（当前已聊到的最后一条序号）——客户端据此预置 Session 游标：进入前历史不自动注入（经 `tavern_history` 按需自查），进入时刻之后的消息一条不漏（增量拉取基线 = 进入时刻，误差窗口归零）。
+- `result.latest_sequence`（方案 a，Optional 向后兼容）：角色**进入时刻**的公开消息水位（当前已聊到的最后一条序号）——客户端据此预置 Session 游标：进入前历史不自动注入（经 `tavern_history` 按需自查），进入时刻之后的消息一条不漏（增量拉取基线 = 进入时刻，误差窗口归零）。
 - 旧服务端/旧客户端兼容：缺省 `result: null` 时客户端回退「预置查询」路径（join 后一次 `fetchMessageHistoryPage(null)` 取水位 CAS 写，有毫秒级误差窗口，见「最近群聊消息」节）。
 
 处理 `character_ready` 时，群聊创建者原子执行：
@@ -233,7 +233,7 @@ Character 已经被预留或已经在线等失败情况使用 pi-coding-agent �
 2. 将 `session_id` 与 WebSocket 写入正式连接集合；
 3. 将 `session_id` 与 Character 写入在线 Character 状态。
 
-成功响应发出后，群聊创建者先向新 Character 单播 `system_message` 欢迎语（#123：替代历史自动推送），再向全部在线 Character 广播 `character_joined`。加入方收到成功响应后把准备好的 `CharacterRuntime` 激活，转交 WebSocket，并将 Controller 从 `joining` 切换为 `character`；激活前已到达的欢迎消息和广播由 `JoinAttempt` 缓冲并按接收顺序转交。Character 在环境批次窗口结束后主动请求 `get_group_chat_state`。
+成功响应发出后，群聊创建者先向新 Character 单播 `system_message` 欢迎语（替代历史自动推送），再向全部在线 Character 广播 `character_joined`。加入方收到成功响应后把准备好的 `CharacterRuntime` 激活，转交 WebSocket，并将 Controller 从 `joining` 切换为 `character`；激活前已到达的欢迎消息和广播由 `JoinAttempt` 缓冲并按接收顺序转交。Character 在环境批次窗口结束后主动请求 `get_group_chat_state`。
 
 加入方在发送 `character_ready` 前本地准备失败时，关闭 WebSocket 并回到 `idle`；群聊创建者随连接关闭释放预留。首版不自动重试。
 
@@ -244,8 +244,8 @@ Character 完成 `character_ready` 并正式成为群成员后，群聊创建者
 - 消息只携带公开 Character 摘要，不携带 `is_streaming` 或 `hand_raised`。
 - `character_joined` **不是环境事件**（`isEnvironmentEvent` 不含 joined/left），不进入环境聚合批次，也不触发 Agent run（成员变化不产生 Agent 输入），只用于界面通知。
 - 新加入的 Character 先处理 `system_message`（欢迎语），再处理自己的 `character_joined` 广播（缓冲按接收顺序转交，欢迎语是环境事件、计入首次环境批次）。
-- 首次环境批次 = `system_message` 欢迎语（#123：环境事件）；**进入前历史不自动注入**，经 `tavern_history` 工具按需分页拉取（tool result 直回上下文）；进入时刻之后到达的新消息经增量拉取（`fetch_messages_since`，严格区间 = 游标预置完成后，#144 方案 a）进入批次；`character_joined` 不在其中。
-- 群聊尚无公开消息时，`system_message` 和 `character_joined` 不会因空历史额外触发拉取；欢迎语本身是注入内容，计入首次环境批次（#123：欢迎语必非空 → join 后必有首次可见注入）。
+- 首次环境批次 = `system_message` 欢迎语（环境事件）；**进入前历史不自动注入**，经 `tavern_history` 工具按需分页拉取（tool result 直回上下文）；进入时刻之后到达的新消息经增量拉取（`fetch_messages_since`，严格区间 = 游标预置完成后，方案 a）进入批次；`character_joined` 不在其中。
+- 群聊尚无公开消息时，`system_message` 和 `character_joined` 不会因空历史额外触发拉取；欢迎语本身是注入内容，计入首次环境批次（欢迎语必非空 → join 后必有首次可见注入）。
 - 群聊创建者界面同时显示一次 Character 加入通知。
 - 成员关系是临时状态；加入广播不写入群聊记录文件，也不使用 `event_id` 或 `sequence`。
 
@@ -319,7 +319,7 @@ PiTavern 与 pi-coding-agent session 一样，不持久化“已结束”状态�
 
 ## 最近群聊消息（历史主动查询）
 
-#123 起 join/ready 不再自动推送历史（改为单播 `system_message` 欢迎语）；历史全部经主动查询获取。Character 需要历史时发送 `get_message_history`（字段形状：[`client.jsonc` 的 `ClientMessage`](../../src/protocol/schema/client.jsonc) `get_message_history` 分支，`params.cursor` 可选）。
+join/ready 不再自动推送历史（改为单播 `system_message` 欢迎语）；历史全部经主动查询获取。Character 需要历史时发送 `get_message_history`（字段形状：[`client.jsonc` 的 `ClientMessage`](../../src/protocol/schema/client.jsonc) `get_message_history` 分支，`params.cursor` 可选）。
 
 响应：[`server.jsonc` 的 `ServerMessage`](../../src/protocol/schema/server.jsonc) `get_message_history` 响应分支（`result.messages` / `cursor` / `has_more` / `total_messages`）。
 - 每次固定获取 10 条，首版不提供 `limit`。
@@ -333,7 +333,7 @@ PiTavern 与 pi-coding-agent session 一样，不持久化“已结束”状态�
 
 ## 欢迎消息（system_message）
 
-#123：`character_ready` 成功后，群聊创建者向新 Character **单播**一条 `system_message` 欢迎语（不再自动推送历史；字段形状：[`server.jsonc` 的 `ServerMessage`](../../src/protocol/schema/server.jsonc) `system_message` 通知分支，`params` 仅 `content`）：
+`character_ready` 成功后，群聊创建者向新 Character **单播**一条 `system_message` 欢迎语（不再自动推送历史；字段形状：[`server.jsonc` 的 `ServerMessage`](../../src/protocol/schema/server.jsonc) `system_message` 通知分支，`params` 仅 `content`）：
 - **通知帧**（无 `id`），与 `character_joined` / `group_chat_update` 同族，由 `method` 判别。
 - `params` 仅 `content`；**非公共消息**：无 `sequence` / `round` / `source`，不落公共消息流、不计入轮次额度（与 `public_message` 的 `source` 字段互不干扰）。
 - **时序**：ready 响应（`result: null`）先到，随后单播 `system_message`，再广播 `character_joined`——新 Character 处理自己的 join 事件时欢迎语已就位。
@@ -392,16 +392,16 @@ PiTavern 与 pi-coding-agent session 一样，不持久化“已结束”状态�
 
 环境批次触发的状态响应与该批次合并后，作为一次群聊输入提交给当前 pi Agent。Character 提示词由加入期间持续生效的 system prompt 扩展提供，不进入该输入。手动状态命令取得的响应只更新界面，不触发 Agent。
 
-Character 成功领取角色后，群聊创建者单播 `system_message` 欢迎语（#123：替代旧的自动发送 `message_history`）。欢迎语非空时，Character 将其加入首次环境批次；批次窗口（1 秒合并防抖）结束后主动请求群聊状态，再将批次和最新状态作为群聊输入提交给当前 pi Agent。进入前历史不自动注入，经 `tavern_history` 工具按需分页拉取（tool result 直回上下文）；进入后增量经 `fetch_messages_since` 按预置游标（= 进入时刻水位）不重不漏拉取。
+Character 成功领取角色后，群聊创建者单播 `system_message` 欢迎语（替代旧的自动发送 `message_history`）。欢迎语非空时，Character 将其加入首次环境批次；批次窗口（1 秒合并防抖）结束后主动请求群聊状态，再将批次和最新状态作为群聊输入提交给当前 pi Agent。进入前历史不自动注入，经 `tavern_history` 工具按需分页拉取（tool result 直回上下文）；进入后增量经 `fetch_messages_since` 按预置游标（= 进入时刻水位）不重不漏拉取。
 
 首次处理没有特殊的禁言规则。`tavern_speak` 是否被接受只由收到请求时当前 Round 的剩余发言次数判断；没有当前 Round 或当前 Round 没有剩余次数时，公开消息不能进入群聊。
 
-### 环境消息聚合与 run 边界投递（#60/#62/#64 pull 模型）
+### 环境消息聚合与 run 边界投递（pull 模型）
 
 Character 使用固定 1 秒聚合窗口（闲态）合并连续到达的公共消息通知；忙态只排隐藏打断令牌，等安全边界 abort、agent settle 后拉取并重开：
 
 1. 收到 `group_chat_update` 通知（水位 + 最近 3 条预览）后只记录未读触发；预览不并入 Agent 输入。
-2. 闲态：固定 1s 聚合窗口，窗口内多次变化并入**单次消费**（N→1），不重置计时（#60/#62）。
+2. 闲态：固定 1s 聚合窗口，窗口内多次变化并入**单次消费**（N→1），不重置计时。
 3. 忙态：先标记未读挂起，最多排一个 `pi-tavern.abort-control` 隐藏 steer 令牌；当前工具批结束、下一次模型调用前由 `context` 钩子过滤令牌并调用一次 abort。`agent_settled` 后按本 Session 持久化游标 `fetch_messages_since` 拉取全部未读；密集 update 合并为一个令牌、一次 abort、一次拉全。
 4. 拉取完成后请求最新群聊状态，将批次与状态快照合并提交。
 
@@ -413,12 +413,12 @@ Character 使用固定 1 秒聚合窗口（闲态）合并连续到达的公共�
 - 当前 pi Agent 正在运行：公共群消息正文不进入 steer；白板等非消息流输入仍按其独立语义在 run 边界投递。
 - **安全边界 abort**：忙态 `group_chat_update` 到达只置未读标记并排隐藏空令牌，群消息正文不进入 steer。令牌在工具批完成后的 `context` 钩子中被过滤，且仅当前 runtime 仍有待打断状态时调用 `ctx.abort()`。主链等待 `agent_settled` 后拉全未读，经 followUp + triggerTurn 唤醒新 run。观察通道依次为 `[tavern-inject] abort=0 token=queued` 与 `abort=1 boundary=steer`。
 
-WebSocket 环境消息不会逐条直接追加到 pi session。Agent 输入只包含公共群消息（增量拉取结果）、白板更新及 `system_message` 系统通知；`character_joined`、`character_left` 与流式状态变化不进入 Agent 输入。进入前历史不自动注入，经 `tavern_history` 工具按需分页拉取（tool result 直回上下文）；join 游标预置只取水位、不注入历史（#123/#144）。隐藏打断令牌作为内部 custom message 记录在 session JSONL，但始终从模型上下文过滤。
+WebSocket 环境消息不会逐条直接追加到 pi session。Agent 输入只包含公共群消息（增量拉取结果）、白板更新及 `system_message` 系统通知；`character_joined`、`character_left` 与流式状态变化不进入 Agent 输入。进入前历史不自动注入，经 `tavern_history` 工具按需分页拉取（tool result 直回上下文）；join 游标预置只取水位、不注入历史。隐藏打断令牌作为内部 custom message 记录在 session JSONL，但始终从模型上下文过滤。
 
 聚合批次适用于：
 
 - 增量拉取的公共消息（`fetch_messages_since` 结果；join 后首次拉取从预置游标 = 进入时刻水位开始）
-- `system_message` 系统通知（#123 欢迎语，环境事件）
+- `system_message` 系统通知（欢迎语，环境事件）
 - User Persona 的公开消息
 - 其他 Character 的公开消息
 
@@ -429,7 +429,7 @@ WebSocket 环境消息不会逐条直接追加到 pi session。Agent 输入只�
 - 流式状态变化
 - 普通请求响应
 
-`get_group_chat_state` 响应不独立触发 Agent，而是作为触发它的环境批次的最新快照。聚合窗口本身不修改 `is_streaming`；该字段始终跟随当前 pi Agent 的原生状态（#14 watchdog 兜底）。聚合批次只是短暂的消息合并机制，不替代 pi-coding-agent 的 follow-up queue。闲态窗口固定为 1 秒，不提供配置项。
+`get_group_chat_state` 响应不独立触发 Agent，而是作为触发它的环境批次的最新快照。聚合窗口本身不修改 `is_streaming`；该字段始终跟随当前 pi Agent 的原生状态（watchdog 兜底）。聚合批次只是短暂的消息合并机制，不替代 pi-coding-agent 的 follow-up queue。闲态窗口固定为 1 秒，不提供配置项。
 
 ## Character 状态同步
 
@@ -456,7 +456,7 @@ Character 上报（字段形状：[`client.jsonc` 的 `ClientMessage`](../../src
 Character 的 `tavern_speak` Agent tool 通过 WebSocket 请求原子尝试发布完整内容（字段形状：[`client.jsonc` 的 `ClientMessage`](../../src/protocol/schema/client.jsonc) `speak` 分支，`params.content` + 可选 `params.based_on_sequence`）：
 - `id` 用于将 WebSocket 响应关联回本次 `tavern_speak` 调用。
 - `content` 是准备公开发布的完整内容。
-- `based_on_sequence`（可选，ISSUE-013 B1）：发送方最后已见的公开消息序号（与增量拉取游标同一概念——最后一次成功投递的 sequence）。带该字段时，服务端对滞后的发言执行落后校验（B2）；**缺省 = 不校验**——旧客户端/手动 WebSocket/既有测试不带该字段时行为与首版完全一致（平滑演进），但新客户端（`tavern_speak` 工具）总是携带。
+- `based_on_sequence`（可选，B1）：发送方最后已见的公开消息序号（与增量拉取游标同一概念——最后一次成功投递的 sequence）。带该字段时，服务端对滞后的发言执行落后校验（B2）；**缺省 = 不校验**——旧客户端/手动 WebSocket/既有测试不带该字段时行为与首版完全一致（平滑演进），但新客户端（`tavern_speak` 工具）总是携带。
 - 只有已经完成 `character_ready` 且当前 WebSocket 已连接时，角色 pi 才启用 `tavern_speak`。
 - WebSocket 断开后工具立即停用，Character 领取关系同时释放。
 - 断线后无法形成 WebSocket `speak` 请求，本地工具调用失败且不产生举手。用户手动重新加入并完成 `character_ready` 后才重新启用工具。
@@ -473,7 +473,7 @@ Character 的 `tavern_speak` Agent tool 通过 WebSocket 请求原子尝试发�
 
 成功发布：[`server.jsonc` 的 `ServerMessage`](../../src/protocol/schema/server.jsonc) `speak` 响应成功分支（`published: true` + `event_id` / `sequence` / `latest_sequence` / `round`）。
 
-- `latest_sequence`（ISSUE-013）：发布后服务端最新序号（成功时等于本次 `sequence`）。**纯信息字段、非推进源**——客户端不据此推进游标或任何已见序号（B6 由服务端排除自身判定保证不误拒），客户端不得依赖该字段做状态推进。
+- `latest_sequence`：发布后服务端最新序号（成功时等于本次 `sequence`）。**纯信息字段、非推进源**——客户端不据此推进游标或任何已见序号（B6 由服务端排除自身判定保证不误拒），客户端不得依赖该字段做状态推进。
 
 额度耗尽：[`server.jsonc` 的 `ServerMessage`](../../src/protocol/schema/server.jsonc) `speak` 响应 `round_limit_reached` 分支（`published: false` + `hand_raised: true` + `round`）。
 
@@ -482,15 +482,15 @@ Character 的 `tavern_speak` Agent tool 通过 WebSocket 请求原子尝试发�
 - `reason` 首版定义 `round_limit_reached` 与 `stale`。
 - 响应中的 Round 快照是处理该请求后的最新值。
 
-落后拒绝（ISSUE-013 B2）：发送方携带的 `based_on_sequence` 小于服务端判定基准（最近一条**有信息增量**的他人消息序号）时，请求被正常处理（业务拒绝，非协议错误），`success` 仍为 `true`——`speak` 响应 `stale` 分支（`published: false` + `missing_sequences.from..to` + `round`）。
+落后拒绝（B2）：发送方携带的 `based_on_sequence` 小于服务端判定基准（最近一条**有信息增量**的他人消息序号）时，请求被正常处理（业务拒绝，非协议错误），`success` 仍为 `true`——`speak` 响应 `stale` 分支（`published: false` + `missing_sequences.from..to` + `round`）。
 - `missing_sequences`：发送方尚未看到的**连续区间** `from..to`（闭区间，`from = based_on_sequence + 1`，`to` = 当前最新总序号）。纯提示信息：补拉复用既有 `fetch_messages_since`，服务端不计算「他人精确区间」，speak 响应不承担第二套拉取协议。
 - **stale 语义**：不发布、不写入群聊记录、不广播、**不消耗 Round 额度、不设置举手**（区别于 `round_limit_reached` 的举手——额度耗尽 vs 消息过时是两种语义，后者不是「还有话说」）。
-- **落后判定排除自身（B6）+ 信息增量基准（#170 修订）**：服务端比较的是「最近一条**有信息增量的他人消息**的序号」（尾部向前扫描，跳过请求者自己的消息）——客户端的拉取游标永不越过自己的消息（回显被客户端过滤），若按最新总序号比较，自己的消息会令下一次发言被误拒。#170（2026-08-10）修订：旁观者视角的 whisper（sender≠请求者 且 recipient≠请求者，只可见占位、无正文零信息增量）不计入判定基准——公开消息与 recipient=请求者的 whisper（可见全文）恒计入。
+- **落后判定排除自身（B6）+ 信息增量基准**：服务端比较的是「最近一条**有信息增量的他人消息**的序号」（尾部向前扫描，跳过请求者自己的消息）——客户端的拉取游标永不越过自己的消息（回显被客户端过滤），若按最新总序号比较，自己的消息会令下一次发言被误拒。旁观者视角的 whisper（sender≠请求者 且 recipient≠请求者，只可见占位、无正文零信息增量）不计入判定基准——公开消息与 recipient=请求者的 whisper（可见全文）恒计入。
 - **客户端行为（B3/B5，简化终版）**：`tavern_speak` 工具收到 stale 拒绝后**不做任何拉取**——只置 A2 既有「有更新」标记并返回一句提示（无消息全文）；当前 run 结束后由 A2 统一拉取覆盖（被拒时错过的消息与后续增量一并拉全），新 turn 里 LLM 看到完整上下文重新决策（放弃或修改重发）。同轮自动恢复上限 2 次（按响应 Round 快照变化重置），超限后只报告拒绝，不再触发自动注入。
 
 协议错误或连接身份错误使用 `error` 响应（形状：[`common.jsonc` 的 `ProtocolErrorObject`](../../src/protocol/schema/common.jsonc)）。
 
-### 公开消息广播与增量拉取（M7/ISSUE-012)
+### 公开消息广播与增量拉取
 
 #### `public_message`（历史/拉取消息形态）
 
@@ -503,7 +503,7 @@ User Persona 和 Character 的公开消息统一使用 `public_message` 结构�
 - `timestamp` 是群聊创建者接受消息的时间。
 - `content` 是公开消息的完整内容。
 - `sender.type` 首版支持 `user_persona` 和 `character`。
-- `source`（#97 来源显式化）：声明消息来源，首版唯一取值为 `group`（群聊）。**缺省 = `group`**——旧消息/旧客户端不带该字段时按群聊语义处理，向后兼容不拒帧；未知取值在严格校验下 fail-close。私聊不经本协议/公共消息流，无此字段。`message_history.messages` 条目同字段语义。
+- `source`（来源显式化）：声明消息来源，首版唯一取值为 `group`（群聊）。**缺省 = `group`**——旧消息/旧客户端不带该字段时按群聊语义处理，向后兼容不拒帧；未知取值在严格校验下 fail-close。私聊不经本协议/公共消息流，无此字段。`message_history.messages` 条目同字段语义。
 - Character sender 携带 `character_id` 和当时的显示名称；User Persona 不携带 Character 字段。
 - Character 消息携带成功计数后的 Round 快照。
 - User Persona 消息携带新 Round 的初始快照，其中 `used_messages` 为 `0`。
@@ -534,7 +534,7 @@ Character 发言成功时，群聊创建者原子分配 `sequence`、更新 Roun
 
 session append 成功是公开消息的成立点。append 失败时，不递增 `sequence`、不消耗 Round 额度、不广播，并返回 `error` 响应（PERSIST_FAILED）。append 成功后，即使某个 WebSocket 发送失败，公开消息也不撤销；对应连接进入断线处理。
 
-## Character 间私信（#152）
+## Character 间私信
 
 私信是 Character 之间的定向消息，与公开消息共用连续 `sequence`、轮次额度、消息大小限制、持久化失败恢复、未读优先、陈旧性检查和举手逻辑；失败发送不占额度。不支持 User Persona、自发自收、离线排队或已读状态。
 
@@ -549,7 +549,7 @@ Character 的 `tavern_whisper` Agent tool 通过 WebSocket 发送 `whisper` 请�
 
 ### 私信响应
 
-[`server.jsonc` 的 `ServerMessage`](../../src/protocol/schema/server.jsonc) `whisper` 响应与 `speak` 同构**三态**（Arch 裁定 2026-08-09，契约修订补全失败响应形态）：
+[`server.jsonc` 的 `ServerMessage`](../../src/protocol/schema/server.jsonc) `whisper` 响应与 `speak` 同构**三态**（契约修订补全失败响应形态）：
 - 成功：`result` = `{ published: true, sequence, round }`——`sequence` = 私信分配的序号（发送者唯一的工具结果，不额外注入自身事件）。
 - 超额：`result` = `{ published: false, reason: "round_limit_reached", hand_raised: true, round }`（不占额度）。
 - stale：`result` = `{ published: false, reason: "stale", missing_sequences: { from, to }, round }`（客户端按 `reason` 区分走自愈，与 speak 同路径）。
@@ -561,7 +561,7 @@ Character 的 `tavern_whisper` Agent tool 通过 WebSocket 发送 `whisper` 请�
 投影语义在**服务端**完成，按查看者身份区分（客户端零投影逻辑，只做模板渲染）：
 
 - **接收者**：单播 `whisper_message`（字段形状：[`server.jsonc` 的 `ServerMessage`](../../src/protocol/schema/server.jsonc) `whisper_message` 通知分支）——含 `sender` / `recipient` / `content` / `round`，走现有实时投递与忙态安全边界。
-- **其他 Character**：广播 `whisper_placeholder`（`whisper_placeholder` 通知分支）——仅含 `sender` / `recipient`，**无正文**；占位事件入其未读序列供消费（复用 #128 未读先读机制），但**不触发未读先读阻塞、不触发服务端 stale 判定**（#170：占位无正文零信息增量，协议性回复不被拦——公开消息与 whisper 全文仍触发阻塞/仍参与 stale）；不被主动唤醒。
+- **其他 Character**：广播 `whisper_placeholder`（`whisper_placeholder` 通知分支）——仅含 `sender` / `recipient`，**无正文**；占位事件入其未读序列供消费（复用未读先读机制），但**不触发未读先读阻塞、不触发服务端 stale 判定**（占位无正文零信息增量，协议性回复不被拦——公开消息与 whisper 全文仍触发阻塞/仍参与 stale）；不被主动唤醒。
 - **创建者**：完整正文（TUI 完整投影）。
 
 ### 历史投影
@@ -574,7 +574,7 @@ Character 的 `tavern_whisper` Agent tool 通过 WebSocket 发送 `whisper` 请�
 - 原始 JSONL 明文保存私信；隐私边界仅限交互层，不提供文件系统安全保证。
 - 0.3.x 历史无需迁移（无 whisper-message 类型）。
 
-## 白板协议（#114）
+## 白板协议
 
 白板是独立于消息流的当前状态表达渠道：每个 Character 只操作自己的白板，全群可查询；User Persona 只读。字段形状以 [`board.jsonc`](../../src/protocol/schema/board.jsonc) 为准。
 
@@ -602,11 +602,11 @@ Character 的 `tavern_whisper` Agent tool 通过 WebSocket 发送 `whisper` 请�
 
 每格填 `✓复用`（走既有机制）/ `差异化点` / `不适用`；新增服务端帧类型必须逐格核对（空格 = 评审不过）。
 
-| 帧类型 | codec 解码 | 实时注入 | 补拉（pullIncrement） | 游标推进 | 未读（#128） | 渲染 | TUI（创建者） |
+| 帧类型 | codec 解码 | 实时注入 | 补拉（pullIncrement） | 游标推进 | 未读 | 渲染 | TUI（创建者） |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `public_message` | ✓复用 | ✓复用（环境事件，唤醒） | ✓复用 | ✓复用 | ✓复用 | ✓复用（public_message 模板） | ✓复用 |
 | `whisper_message` | ✓复用 | ✓复用（环境事件，唤醒——**仅接收者**） | ✓接纳（含正文） | ✓复用 | ✓复用 | whisper_full 模板（sender/receiver/content） | ✓完整正文（恒参与者视角） |
-| `whisper_placeholder` | ✓复用 | **差异化：不注入、不唤醒、不进 debounce（仅水位推进）** | ✓接纳（占位帧，推进游标防反复 stale） | ✓复用 | ✓复用（占位入未读序列供消费，不触发未读先读阻塞/服务端 stale——#170） | whisper_placeholder 模板（sender/receiver，无 content） | **不适用**（创建者恒见完整正文） |
+| `whisper_placeholder` | ✓复用 | **差异化：不注入、不唤醒、不进 debounce（仅水位推进）** | ✓接纳（占位帧，推进游标防反复 stale） | ✓复用 | ✓复用（占位入未读序列供消费，不触发未读先读阻塞/服务端 stale） | whisper_placeholder 模板（sender/receiver，无 content） | **不适用**（创建者恒见完整正文） |
 | `group_chat_update` | ✓复用 | ✓复用 | — | — | — | ✓复用 | ✓复用 |
 | `board_update` | ✓复用 | ✓复用（他人更新；自回显过滤） | 不适用 | 不适用 | 不适用 | 白板更新桶 | ✓变更提示 |
 

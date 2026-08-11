@@ -70,7 +70,7 @@ function creatorWidgetLines(state: {
 		.map((online) => online.character.name);
 	const lines = [`${onlineCount}${UI_ONLINE_COUNT_SUFFIX}`];
 	if (streaming.length > 0) {
-		// #77：语义 = 「正在工作」（run 活跃即亮，User 2026-08-03 拍板）。
+		// 语义 = 「正在工作」（run 活跃即亮）。
 		lines.push(`正在工作：${streaming.join("、")}`);
 	}
 	const round = state.round;
@@ -101,7 +101,7 @@ function characterWidgetLines(
 	const lines = [`${snapshot.online_characters.length + 1}${UI_ONLINE_COUNT_SUFFIX}`];
 	const streaming = snapshot.online_characters.filter((c) => c.is_streaming).map((c) => c.name);
 	if (streaming.length > 0) {
-		// #77：语义 = 「正在工作」（run 活跃即亮，User 2026-08-03 拍板）。
+		// 语义 = 「正在工作」（run 活跃即亮）。
 		lines.push(`正在工作：${streaming.join("、")}`);
 	}
 	const round = snapshot.round;

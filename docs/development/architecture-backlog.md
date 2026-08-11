@@ -14,14 +14,16 @@
 | saveCursor 内存先行 vs 磁盘失败不一致窗口 | 语义幂等可接受，留注释说明窗口语义 | 待内嵌 |
 | refreshGroupChatState catch{} 副作用重评注记 | 未来引入副作用时重评；补注释 | 待内嵌 |
 | speak 断言宽收窄（W1） | 新增 reason 分支时同步 character 侧断言 | 待内嵌 |
-| claim 错误文案测试覆盖缺口（W6） | 补覆盖非 1 条 claim 错误路径的断言 | 待内嵌 |
 | preview 条目字段级断言不全 | 低优先：对 round/sender/event_id 补字段级断言 | 待内嵌 |
 | 去重路径压力测试 | 压力化覆盖交叉去重（message_history 拉取 vs preview） | 待内嵌 |
 | writer.onRequestWritten 登记先于 OPEN 检查 | 低风险：改登记顺序或补注释；无数据面危害 | 待内嵌 |
-| handler 异常端到端故障注入测试（-32603 路径） | creator 侧故障注入普通 Error → 端到端验证 -32603 收敛 | 待内嵌 |
+| handler 异常端到端故障注入测试（-32603 路径） | creator 侧故障注入普通 Error → 端到端验证 -32603 收敛（unit 已钉接受性） | 待内嵌 |
 | 欢迎语动态化（群名/在线成员/轮次状态入 system_message） | 增强候选：welcome 内容模板化，含群名/成员数/轮次摘要 | 待内嵌 |
 | 协议文档生成化（typebox schema → JSON Schema → 文档渲染） | 结构化字段节改生成产物（schema 单一事实源），时序/语义/边界节保留手写 | 待内嵌 |
 | group-chat-state.round 字段半死数据 | 评估 ui 展示语义后移除 round 字段或补写入方；低优先 | 待内嵌 |
 | whisper 回执可选提示目标离线 | 窄窗口现实概率低，暂不实现；若实现走回执 result 加可选字段（需契约修订） | 待内嵌 |
 | docs/api/ 生成物 README.en.md「中文文档」链接指向缺失 README.md | 修 typedoc 生成源/模板，不在文档仓内修（gitignored 生成物） | 待内嵌 |
 | 历史注释/不可达分支清理（5 处） | 随下次 src 重构：删 group-chat-input.ts L1173-1185 不可达渲染段；修 commands.ts L234「兼容回退」旧注释、group-chat-input.ts L646「同批」误导注释、streaming-truth.test.ts L151 与 paging-and-speak-order.test.ts L245 join 历史旧注释 | 待内嵌 |
+| 失败注入/竞态测试缺口（send 失败断线清理 / 持久化后响应发送失败 / 断开→idle 窗口） | send 同步抛错与回调异步错误的断线清理注入钉测未见（现有 fail-close 测试均为接收坏帧路径）；「持久化后响应发送失败」注入钉测未见；「Runtime 已断开但 Controller 未完成 idle transition」窗口测试未见 | 补齐三类注入/竞态钉测（integration 层）；interactive abort 清空已入队 steer 已知边界见 group-chat-input.md「已知边界」节；drain 注入已有覆盖（creator-runtime.test.ts） | 待内嵌 |
+| 游标语义多文档重复（单源化） | 游标/预置水位语义在 6 份文档重复描述（websocket-protocol/persistence/group-chat-input/interaction-model/architecture-backlog/acceptance） | 契约细节以 websocket-protocol/persistence 为单一事实源，其余文档改引用 | 待内嵌 |
+| 产品改进候选 | ① 决策点聚合 UI：待拍板项在创建者界面汇总；② 验证留痕工具化：V0 一行式做成扩展内命令；③ reload 期间群聊状态展示：热重载接管提示；④ 发言配额预警：群聊输入状态快照带剩余次数（供 agent 省话）；⑤ 分支/PR 关联展示 | 均为产品增强候选，按需评估 | 待内嵌 |

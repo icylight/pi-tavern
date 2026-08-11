@@ -88,9 +88,9 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 					};
 				}
 				if (result.reason === "unread_first") {
-					// #128：未读先读（两段式，B3 零动摇）——本地判定、不耗配额、不举手。
+					// 未读先读（两段式）——本地判定、不耗配额、不举手。
 					// 首拒已安排 settle 拉全（markIncrementPending）；重复调用只短告知
-					//（风暴场景防刷）。告知无预览（苍蓝星选 A）：只含未读条数。
+					//（风暴场景防刷）。告知无预览（。
 					const countText =
 						result.unreadCount !== undefined
 							? result.unreadExact
@@ -113,10 +113,10 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 					};
 				}
 				if (result.reason === "stale") {
-					// ISSUE-013 B3（最终版，按 User「怎么简单怎么来」）：不在工具内拉取、
-					// 无缓存、无截断——只标记既有 A2 增量待投递并返回简短提示。settle
+					// 不在工具内拉取、
+					// 无缓存、无截断——只标记既有增量待投递并返回简短提示。settle
 					// 钩子经统一管道补拉一次（身份行、快照、echo 过滤），LLM 在下一轮
-					// 以完整上下文重新决策。B5：每轮配额预算——超限后只有提示，无自动恢复。
+					// 以完整上下文重新决策。每轮配额预算——超限后只有提示，无自动恢复。
 					if (result.autoRecover) {
 						state.runtime.markIncrementPending();
 					}
@@ -185,10 +185,10 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 	}
 
 	/**
-	 * F11（PR #116 review）：工具层形状前置校验——判别 union 收窄后的运行时兜底。
+	 * 工具层形状前置校验——判别 union 收窄后的运行时兜底。
 	 * 返回错误提示文本（null = 合法）。非法组合在工具层即拒（isError、可读可恢复），
 	 * 不发 wire 请求——模型误调不会触发服务端 fail-close 断连（防线分层：
-	 * 工具层拒非法参数 → codec 拒畸形消息 → 断连仅兜底，Arch 权衡结论）。
+	 * 工具层拒非法参数 → codec 拒畸形消息 → 断连仅兜底）。
 	 */
 	function validateBoardToolParams(params: unknown): string | null {
 		if (typeof params !== "object" || params === null) {
@@ -258,7 +258,7 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 				};
 			}
 			try {
-				// F11：形状前置校验（判别 union 类型收窄后此处兜底运行时畸形输入——
+				// 形状前置校验（判别 union 类型收窄后此处兜底运行时畸形输入——
 				// 工具层即拒、不发 wire 请求，杜绝模型误调触发服务端 fail-close 断连）。
 				const invalid = validateBoardToolParams(params);
 				if (invalid !== null) {
@@ -368,13 +368,13 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 					};
 				}
 				// P1-4：AI 自主拉取——消息列表 + 游标/分页元数据（has_more 决定续页）。
-				// #154：统一文案模板渲染（默认模板 `{sender}:\n{content}`，双行化按
-				// Arch 裁决 2026-08-09 留痕 T3；自定义模板逐字生效）。
+				// 统一文案模板渲染（默认模板 `{sender}:\n{content}`，双行化按
+				// ；自定义模板逐字生效）。
 				const templates = state.runtime.messageTemplates ?? DEFAULT_TEMPLATES;
 				const lines = page.messages.map((m) => {
 					if (!("method" in m)) return "";
-					// #152（PR #163 评审阻断 1 修复）：tavern_history 与实时注入同一投影
-					// （WH4/WH9 三消费面一致）——whisper_message（参与者）渲染 whisper_full
+					// tavern_history 与实时注入同一投影
+					// （三消费面一致）——whisper_message（参与者）渲染 whisper_full
 					// 模板（sender/receiver/content）；whisper_placeholder（旁观者）渲染
 					// whisper_placeholder 模板（sender/receiver，无正文不泄露）。
 					if (m.method === METHOD_WHISPER_MESSAGE) {
@@ -419,8 +419,8 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 		},
 	});
 
-	// #154 T7：LLM-only 只读工具——返回内置中文默认值/合法 key/占位符规则/JSON 骨架。
-	// 不注册 slash command（仅 registerTool，T7 定稿）；idle/Character 可用，
+	//：LLM-only 只读工具——返回内置中文默认值/合法 key/占位符规则/JSON 骨架。
+	// 不注册 slash command（仅 registerTool）；idle/Character 可用，
 	// creator/joining 拒绝（状态门禁语义，与已移除的编辑类命令同源）。
 	pi.registerTool({
 		name: "tavern_template_defaults",
@@ -467,7 +467,7 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 		),
 		execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) => {
 			const state = ctrl.getState();
-			// WH1：仅 Character 状态可用（非 character 态拒绝，TOOL_NOT_JOINED_AS_CHARACTER 语义）。
+			// 仅 Character 状态可用（非 character 态拒绝，TOOL_NOT_JOINED_AS_CHARACTER 语义）。
 			if (state.type !== "character") {
 				return {
 					content: [{ type: "text", text: TOOL_NOT_JOINED_AS_CHARACTER }],
@@ -479,7 +479,7 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 				const result = await state.runtime.whisper(params.character_id, params.content);
 				if (!result.published) {
 					if (result.reason === "stale") {
-						// stale 自愈（与 speak 同路径，ISSUE-013 B3）：预算内标记增量待投递，
+						// stale 自愈（与 speak 同路径）：预算内标记增量待投递，
 						// settle 补拉（合并流含 whisper 帧 → 机械消费占位/全文 + 游标推进）。
 						if (result.autoRecover) {
 							state.runtime.markIncrementPending();
@@ -502,7 +502,7 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 						};
 					}
 					if (result.reason === "round_limit_reached") {
-						// #152 第二轮评审阻断：与 speak 同款 round-limit 文案（已举手排队），
+						// 与 speak 同款 round-limit 文案（已举手排队），
 						// 不得误报「未读已安排拉取」（未读分支语义不同）。
 						return {
 							content: [
@@ -546,8 +546,8 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 	});
 }
 
-/** #154/#152 T7：各 key 占位符规则（工具输出文档用；校验逻辑以 validateTemplate 为准）。
- * 五 key（#152 恢复 whisper 两 key，复用定稿规则表：full 必留三占位/placeholder 禁 content）。 */
+/** /：各 key 占位符规则（工具输出文档用；校验逻辑以 validateTemplate 为准）。
+ * 五 key。 */
 const TEMPLATE_RULES_DOC: Record<MessageTemplateKey, { required: string[]; allowed: string[] }> = {
 	public_message: { required: ["sender", "content"], allowed: ["sender", "content"] },
 	whisper_full: { required: ["sender", "receiver", "content"], allowed: ["sender", "receiver", "content"] },

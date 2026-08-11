@@ -80,11 +80,11 @@ interface RegisterCommandsOptions {
 	listGroupChatSessions?: (agentDir: string, cwd: string) => Promise<GroupChatSessionSummary[]>;
 	deleteGroupChatSession?: (path: string) => Promise<DeleteGroupChatSessionResult>;
 	/**
-	 * 白板模型（#114）：删除群聊时同步清理白板文件
+	 * 白板模型：删除群聊时同步清理白板文件
 	 * （boards/<groupId>.json）。best-effort：失败仅 warning，不阻塞会话删除主流程。
 	 * boardDir 由调用方按项目传入（index.ts 注册时无 cwd，闭包无法静态绑定）。
 	 * 每调用新建 store 实例 = 无共享缓存；删除仅发生在非活跃群聊（resumable
-	 * 语义），无并发写者，缓存一致性成立（B3 活动实例复用同一 store 时另行显式摘除）。
+	 * 语义），无并发写者，缓存一致性成立（活动实例复用同一 store 时另行显式摘除）。
 	 */
 	deleteBoard?: (groupId: string, boardDir: string) => Promise<DeleteBoardResult>;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
@@ -98,8 +98,7 @@ export function registerCommands(
 ): void {
 	const agentDir = options.agentDir ?? getAgentDir();
 	const loadConfig = options.loadConfig ?? loadTavernConfig;
-	// 行为默认实现由组合根（index.ts）装配注入（五层依赖方向，architecture.md §5）；
-	// 未注入时调用点为装配错误，显式报错。
+	// 行为默认实现由组合根（index.ts）装配注入（五层依赖方向，architecture.md §5）	// 未注入时调用点为装配错误，显式报错。
 	const discoverGroupChats = options.discoverGroupChats;
 	// 行为默认实现由组合根（index.ts）装配注入（五层依赖方向，architecture.md §5）。
 	const listGroupChatSessions = options.listGroupChatSessions;
@@ -115,12 +114,12 @@ export function registerCommands(
 					cwd: ctx.cwd,
 					agentDir,
 					configMaxMessages: options.configMaxMessages ?? config.configMaxMessages ?? DEFAULT_CONFIG_MAX_MESSAGES,
-					// 白板模型（#114）：白板额度透传（缺省 undefined → store 默认 5/140）。
+					// 白板模型：白板额度透传（缺省 undefined → store 默认 5/140）。
 					...(config.boardMaxNotes !== undefined ? { boardMaxNotes: config.boardMaxNotes } : {}),
 					...(config.boardMaxNoteLength !== undefined ? { boardMaxNoteLength: config.boardMaxNoteLength } : {}),
-					// #123：欢迎文案透传（缺省 undefined → creator-factory 回落代码默认值）。
+					// 欢迎文案透传（缺省 undefined → creator-factory 回落代码默认值）。
 					...(config.welcomeMessage !== undefined ? { welcomeMessage: config.welcomeMessage } : {}),
-					// #154：群聊文案模板集透传（缺省 undefined → creator-factory 回落内置中文）。
+					// 群聊文案模板集透传（缺省 undefined → creator-factory 回落内置中文）。
 					...(config.messageTemplates !== undefined ? { messageTemplates: config.messageTemplates } : {}),
 					characters: config.characters,
 				});
@@ -160,7 +159,7 @@ export function registerCommands(
 				}
 				if (choice === deleteLabel) {
 					// 组合根契约：index.ts 装配注入行为默认实现（五层依赖方向，architecture.md §5）——
-					// 契约违反时显式报错（fail fast），替代非空断言（#89 check 清零）。
+					// 契约违反时显式报错（fail fast），替代非空断言。
 					if (!deleteGroupChatSession) {
 						throw new Error(ERROR_INJECTION_DELETE_SESSION);
 					}
@@ -184,12 +183,12 @@ export function registerCommands(
 					agentDir,
 					sessionPath: session.path,
 					configMaxMessages: options.configMaxMessages ?? config.configMaxMessages ?? DEFAULT_CONFIG_MAX_MESSAGES,
-					// 白板模型（#114）：白板额度透传（缺省 undefined → store 默认 5/140）。
+					// 白板模型：白板额度透传（缺省 undefined → store 默认 5/140）。
 					...(config.boardMaxNotes !== undefined ? { boardMaxNotes: config.boardMaxNotes } : {}),
 					...(config.boardMaxNoteLength !== undefined ? { boardMaxNoteLength: config.boardMaxNoteLength } : {}),
-					// #123：欢迎文案透传（缺省 undefined → creator-factory 回落代码默认值）。
+					// 欢迎文案透传（缺省 undefined → creator-factory 回落代码默认值）。
 					...(config.welcomeMessage !== undefined ? { welcomeMessage: config.welcomeMessage } : {}),
-					// #154：群聊文案模板集透传（缺省 undefined → creator-factory 回落内置中文）。
+					// 群聊文案模板集透传（缺省 undefined → creator-factory 回落内置中文）。
 					...(config.messageTemplates !== undefined ? { messageTemplates: config.messageTemplates } : {}),
 					characters: config.characters,
 				});
@@ -226,11 +225,11 @@ export function registerCommands(
 					return;
 				}
 				const sessionId = ctx.sessionManager.getSessionId();
-				// #154 T5：Character 在 join 时加载配置（本地），模板集随 claim 转发。
+				//：Character 在 join 时加载配置（本地），模板集随 claim 转发。
 				const joinConfig = await loadConfig({ agentDir, cwd: ctx.cwd });
 				const attempt = await controller.startJoining(descriptor, sessionId, {
 					...(options.triggerDebounceMs !== undefined ? { triggerDebounceMs: options.triggerDebounceMs } : {}),
-					// 游标跟随 Session（User 2026-08-02）：cursors/<groupId>/<sessionId>.json，
+					// 游标跟随 Session：cursors/<groupId>/<sessionId>.json，
 					// 同群聊多角色互不共用游标文件；旧群聊级单文件由 loadCursor 兼容回退。
 					cursorStorePath: join(
 						getGroupChatCursorDirectory(agentDir, ctx.cwd),
@@ -238,7 +237,7 @@ export function registerCommands(
 						`${sessionId}.json`,
 					),
 					...(joinConfig.messageTemplates !== undefined ? { messageTemplates: joinConfig.messageTemplates } : {}),
-					// #154 复评：路径透传，reload 时重新加载磁盘配置（模板修改落盘后生效）。
+					//  路径透传，reload 时重新加载磁盘配置（模板修改落盘后生效）。
 					agentDir,
 					cwd: ctx.cwd,
 				});
@@ -532,7 +531,7 @@ async function runDeleteGroupChatFlow(
 	const result = await deleteSession(session.path);
 	if (result.ok) {
 		notify(`${NOTIFY_DELETED_PREFIX}${result.method}${NOTIFY_DELETED_SUFFIX}`, "info");
-		// 白板模型（#114）：best-effort 同步清理白板——
+		// 白板模型：best-effort 同步清理白板——
 		// 失败仅 warning，不阻塞会话删除主流程。
 		if (deleteBoard && boardDir) {
 			try {
@@ -594,8 +593,8 @@ function formatCreatorStatus(runtime: CreatorRuntime): string {
 		`Round: ${roundStatus}`,
 	];
 
-	// 白板模型（#114）：白板快照小节（纯展示，不扩协议面）——
-	// store 随 runtime 装配（B3），按在线/全员角色名展示条列表。
+	// 白板模型：白板快照小节（纯展示，不扩协议面）——
+	// store 随 runtime 装配，按在线/全员角色名展示条列表。
 	const boards = runtime.boardStore.read(groupChat.groupChatId);
 	const boardCharacters = Object.keys(boards);
 	if (boardCharacters.length > 0) {

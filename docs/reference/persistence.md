@@ -263,7 +263,7 @@ round      = entry.details.round
 
 如果持久化成功后部分 WebSocket 发送失败，公开消息仍然有效。发送失败的连接进入断线处理；Character 重新加入后可通过最近消息历史取得该消息。
 
-## 私信消息（#152）
+## 私信消息
 
 私信使用独立 `customType`，与公开消息写入**同一群聊 JSONL**（同一 session 文件追加写），读取时合并为统一 sequence 时间序消息流：
 
@@ -293,7 +293,7 @@ round      = entry.details.round
 - `details.sequence` 与公开消息**共用同一递增器**（`state.nextSequence`），交错分配、无空洞；恢复群聊时从最后一条消息（公开或私信）的 `details.sequence` 继续递增。
 - `details.content` 原样保存私信正文（明文；隐私边界仅限交互层，不提供文件系统安全保证，WH8）。
 - `details.round` 与公开消息同语义（成功私信消耗同一轮次额度池）。
-- `content` 是**创建者视角完整投影**（固定语义，与查看者无关）：`{sender} 向 {receiver} 悄悄说：{正文}`，经 whisper_full 模板渲染（#154）；**不随查看者变化**——其他 Character 从不读原始 JSONL（只经服务端 wire 投影，按查看者身份返回完整帧或占位帧，WH4），读取路径（恢复/查询投影）的唯一来源是 `details.content`（顶层 content 仅创建者进程 pi 上下文注入消费）。
+- `content` 是**创建者视角完整投影**（固定语义，与查看者无关）：`{sender} 向 {receiver} 悄悄说：{正文}`，经 whisper_full 模板渲染；**不随查看者变化**——其他 Character 从不读原始 JSONL（只经服务端 wire 投影，按查看者身份返回完整帧或占位帧，WH4），读取路径（恢复/查询投影）的唯一来源是 `details.content`（顶层 content 仅创建者进程 pi 上下文注入消费）。
 - 读取（恢复 / 历史查询 / 增量拉取）时，公开与私信按 `details.sequence` 合并排序为统一消息流；查询按当前连接 `character_id` 执行相同投影。
 
 ### 私信提交顺序
@@ -311,7 +311,7 @@ round      = entry.details.round
 
 0.3.x 历史无需迁移（不存在 whisper-message 类型）。
 
-## 白板状态（#114）
+## 白板状态
 
 白板独立于群聊消息流，持久化为 `boards/<group_chat_id>.json`：
 
@@ -361,25 +361,25 @@ groupMaxMessages
 roundMaxMessages
 ```
 
-## Character 侧游标（M7/ISSUE-012）
+## Character 侧游标
 
 角色侧本地持久化「上次成功投递的最后一条消息 sequence」，重启/重连不丢：
 
-- 路径：**游标跟随 Session**——`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>/<session_id>.json`（同群聊多角色各持独立游标文件，互不推进）；**旧版群聊级单文件（`cursors/<group_chat_id>.json`）废弃不采用**——其值无 Session 身份、可能由其他角色推进，回退采用会跳过本 Session 从未看过的消息（User 2026-08-02 裁定）；新 Session 无独立游标时**预置游标 = 进入时刻水位**（#144 方案 a：ready 响应 `latest_sequence` 直接写；旧帧缺字段回退预置查询 `fetchMessageHistoryPage(null)` 取水位 CAS 写）；仅预置失败静默时游标保持 null → 完整历史分页兜底（最多重复、绝不跳过），旧文件物理遗留不写不删
+- 路径：**游标跟随 Session**——`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>/<session_id>.json`（同群聊多角色各持独立游标文件，互不推进）；**旧版群聊级单文件（`cursors/<group_chat_id>.json`）废弃不采用**——其值无 Session 身份、可能由其他角色推进，回退采用会跳过本 Session 从未看过的消息；新 Session 无独立游标时**预置游标 = 进入时刻水位**（方案 a：ready 响应 `latest_sequence` 直接写；旧帧缺字段回退预置查询 `fetchMessageHistoryPage(null)` 取水位 CAS 写）；仅预置失败静默时游标保持 null → 完整历史分页兜底（最多重复、绝不跳过），旧文件物理遗留不写不删
 - 内容：`{ "last_sequence": 42, "updated_at": "..." }`（一次性写入：tmp 文件 + rename，同步原语）
-- 更新时机：**每次成功投递后**更新（投递失败游标不动 → 下次重拉同一窗口，按 sequence 幂等）。成功判定为双通道同规则：闲态 followUp / 忙态 steer 在 sendMessage 调用无同步异常后**同步乐观推进**；同步抛错不推进 → settle 兜底重投；异步 run 启动失败（pi 环境不可用）面与改造前一致。游标单调（只前进、不后退）保证双通道不重不漏（User 2026-08-02 忙态 steer 恢复，契约变更）
+- 更新时机：**每次成功投递后**更新（投递失败游标不动 → 下次重拉同一窗口，按 sequence 幂等）。成功判定为双通道同规则：闲态 followUp / 忙态 steer 在 sendMessage 调用无同步异常后**同步乐观推进**；同步抛错不推进 → settle 兜底重投；异步 run 启动失败（pi 环境不可用）面与改造前一致。游标单调（只前进、不后退）保证双通道不重不漏
 - join/重连差分同步：有游标 → `fetch_messages_since(游标)`；预置失败无游标（残余无游标态唯一来源）→ `message_history` 全量分页兜底（正常 join 已预置进入时刻水位）
 - 随 reload handoff 传递（`cursorStorePath` 字段），reload 后继续（sessionId 稳定 → 同路径读回）
 - 不提供服务端 per-character 已读游标（游标在角色侧本地，按 session 维度隔离）
 
-## Creator 侧 resume 投影锚定（#42/ISSUE-042，方案 B：纯扫描语义）
+## Creator 侧 resume 投影锚定（方案 B：纯扫描语义）
 
 Creator 侧 resume 历史投影的锚定来源 = **当前 pi 会话内本群聊的
 creator-display 条目最大 sequence**（sessionManager.getEntries() 扫描），
 无持久化标记文件：
 
-- fresh 会话（无条目）→ 锚定 0 → 全量投影（#155：移除 JOIN_HISTORY_LIMIT=10
-  截断，展示完整历史）——**任何 fresh resume 都有历史**（#42 主场景）
+- fresh 会话（无条目）→ 锚定 0 → 全量投影（移除 JOIN_HISTORY_LIMIT=10
+  截断，展示完整历史）——**任何 fresh resume 都有历史**（主场景）
 - continued 会话（interactive --continue / pi /resume 进旧会话）→ 跳过
   已显示段防重复（防御性设计：unit 钉死扫描逻辑，RPC 测试环境无会话
   文件落盘、无法进程级复现）
