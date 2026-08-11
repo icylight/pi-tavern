@@ -1,6 +1,7 @@
 # ADR-0003：is_streaming 语义收敛与 group_chat_update 双触发（#14 / 方案 A）
 
 - 状态：**Accepted，决策 3/4 已被 v0.5 功能收窄取代**（2026-08-05：`group_chat_update` 恢复为仅公共消息通知）
+- 修订注记（2026-08-11）：决策 3「group_chat_update 双触发」（成员加入/离开、`is_streaming` 翻转、举手状态变化均复用广播）**superseded-by ADR-0008**——现行语义 = `group_chat_update` 仅由公共消息成功持久化触发（与 v0.5 超驰注记一致）；白板走独立 `board_update`（ADR-0007）；成员/流式状态变化不唤醒 Agent、不进 Agent 输入。决策 1/2（is_streaming 语义与 watchdog）已被 #77 修订注记覆盖、不受本次影响。
 - 决策者：架构师（评审/契约定稿）、开发工程师（实现）、产品经理（#14 口径裁决、谓词式断言裁决）、测试工程师（验收 A1-A6）
 - 关联：ISSUE-014 / GitHub #14（正在发言状态）、#12/#20/#21（TUI 呈现）、websocket-protocol.md 双触发注记（c57e28e）；延续 ADR-0002 的 CPU 敏感约束
 

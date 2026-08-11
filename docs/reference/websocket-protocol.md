@@ -242,10 +242,9 @@ Character 已经被预留或已经在线等失败情况使用 pi-coding-agent �
 Character 完成 `character_ready` 并正式成为群成员后，群聊创建者向此时的全部在线 Character 广播 `character_joined`（字段形状：[`server.jsonc` 的 `ServerMessage`](../../src/protocol/schema/server.jsonc) `character_joined` 通知分支，`params.character` = 公开摘要）。
 - 广播遵循协议的统一广播语义。
 - 消息只携带公开 Character 摘要，不携带 `is_streaming` 或 `hand_raised`。
-- 群聊已有公开消息时，该消息属于环境事件，进入每个接收方的环境聚合批次（闲态 1s 窗口，N→1）。
-- 群聊尚无公开消息时，该消息只用于界面通知，不进入环境批次，也不触发 Agent run。
-- 新加入的 Character 先处理 `system_message`（欢迎语），再处理自己的 `character_joined` 广播。
-- 群聊已有公开消息时，历史中的 `public_message` 经主动查询（`get_message_history` / `fetch_messages_since`）按历史顺序排在自己的加入事件之前，二者合并到同一个首次环境批次。
+- `character_joined` **不是环境事件**（`isEnvironmentEvent` 不含 joined/left），不进入环境聚合批次，也不触发 Agent run（ADR-0008/A9：成员变化不产生 Agent 输入），只用于界面通知。
+- 新加入的 Character 先处理 `system_message`（欢迎语），再处理自己的 `character_joined` 广播（缓冲按接收顺序转交，欢迎语是环境事件、计入首次环境批次）。
+- 首次环境批次 = `system_message` 欢迎语（#123：环境事件）；**进入前历史不自动注入**，经 `tavern_history` 工具按需分页拉取（tool result 直回上下文）；进入时刻之后到达的新消息经增量拉取（`fetch_messages_since`，严格区间 = 游标预置完成后，#144 方案 a）进入批次；`character_joined` 不在其中。
 - 群聊尚无公开消息时，`system_message` 和 `character_joined` 不会因空历史额外触发拉取；欢迎语本身是注入内容，计入首次环境批次（#123：欢迎语必非空 → join 后必有首次可见注入）。
 - 群聊创建者界面同时显示一次 Character 加入通知。
 - 成员关系是临时状态；加入广播不写入群聊记录文件，也不使用 `event_id` 或 `sequence`。
@@ -284,8 +283,7 @@ WebSocket 意外断开时没有离开请求和响应。群聊创建者立即执�
 `character_left`：
 
 - 遵循协议的统一广播语义，接收范围基于成员移除后的在线 Character 集合。
-- 群聊已有公开消息时属于环境事件，进入接收方的环境聚合批次（闲态 1s 窗口，N→1）。
-- 群聊尚无公开消息时只用于界面通知，不进入环境批次，也不触发 Agent run。
+- `character_left` **不是环境事件**（`isEnvironmentEvent` 不含 joined/left），不进入环境聚合批次，也不触发 Agent run（ADR-0008/A9：成员变化不产生 Agent 输入），只用于界面通知。
 - 不写入群聊记录文件，也不使用 `event_id` 或 `sequence`。
 - 群聊整体关闭使用单独的关闭消息，不将其表示为所有 Character 逐个离开。
 
@@ -394,7 +392,7 @@ PiTavern 与 pi-coding-agent session 一样，不持久化“已结束”状态�
 
 环境批次触发的状态响应与该批次合并后，作为一次群聊输入提交给当前 pi Agent。Character 提示词由加入期间持续生效的 system prompt 扩展提供，不进入该输入。手动状态命令取得的响应只更新界面，不触发 Agent。
 
-Character 成功领取角色后，群聊创建者单播 `system_message` 欢迎语（#123：替代旧的自动发送 `message_history`）。欢迎语非空时，Character 将其加入首次环境批次；批次窗口（1 秒合并防抖）结束后主动请求群聊状态，再将批次和最新状态作为群聊输入提交给当前 pi Agent。历史经 `get_message_history` / `fetch_messages_since` 主动拉取，按游标不重不漏。
+Character 成功领取角色后，群聊创建者单播 `system_message` 欢迎语（#123：替代旧的自动发送 `message_history`）。欢迎语非空时，Character 将其加入首次环境批次；批次窗口（1 秒合并防抖）结束后主动请求群聊状态，再将批次和最新状态作为群聊输入提交给当前 pi Agent。进入前历史不自动注入，经 `tavern_history` 工具按需分页拉取（tool result 直回上下文）；进入后增量经 `fetch_messages_since` 按预置游标（= 进入时刻水位）不重不漏拉取。
 
 首次处理没有特殊的禁言规则。`tavern_speak` 是否被接受只由收到请求时当前 Round 的剩余发言次数判断；没有当前 Round 或当前 Round 没有剩余次数时，公开消息不能进入群聊。
 
@@ -415,11 +413,12 @@ Character 使用固定 1 秒聚合窗口（闲态）合并连续到达的公共�
 - 当前 pi Agent 正在运行：公共群消息正文不进入 steer；白板等非消息流输入仍按其独立语义在 run 边界投递。
 - **安全边界 abort（ADR-0008）**：忙态 `group_chat_update` 到达只置未读标记并排隐藏空令牌，群消息正文不进入 steer。令牌在工具批完成后的 `context` 钩子中被过滤，且仅当前 runtime 仍有待打断状态时调用 `ctx.abort()`。主链等待 `agent_settled` 后拉全未读，经 followUp + triggerTurn 唤醒新 run。观察通道依次为 `[tavern-inject] abort=0 token=queued` 与 `abort=1 boundary=steer`。
 
-WebSocket 环境消息不会逐条直接追加到 pi session。Agent 输入只包含公共群消息、白板更新及加入时的公共历史；`character_joined`、`character_left` 与流式状态变化不进入 Agent 输入。隐藏打断令牌作为内部 custom message 记录在 session JSONL，但始终从模型上下文过滤。
+WebSocket 环境消息不会逐条直接追加到 pi session。Agent 输入只包含公共群消息（增量拉取结果）、白板更新及 `system_message` 系统通知；`character_joined`、`character_left` 与流式状态变化不进入 Agent 输入。进入前历史不自动注入，经 `tavern_history` 工具按需分页拉取（tool result 直回上下文）；join 游标预置只取水位、不注入历史（#123/#144）。隐藏打断令牌作为内部 custom message 记录在 session JSONL，但始终从模型上下文过滤。
 
 聚合批次适用于：
 
-- 加入时主动查询的 `message_history`（`get_message_history` 响应）中的公共历史
+- 增量拉取的公共消息（`fetch_messages_since` 结果；join 后首次拉取从预置游标 = 进入时刻水位开始）
+- `system_message` 系统通知（#123 欢迎语，环境事件）
 - User Persona 的公开消息
 - 其他 Character 的公开消息
 

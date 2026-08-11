@@ -35,6 +35,7 @@
 | group-chat-state.round 字段半死数据（3 操作函数删除后无写入方，恒 null） | 2026-08-08 dead-exports 评审（Arch）：startNewRound/advanceSequence/consumeRoundMessage 删除后 round 无写入方，ui 层只读展示（tavern-ui-presenter.ts:62） | 评估 ui 展示语义后移除 round 字段或补写入方；低优先 | 待内嵌 |
 | whisper 回执可选提示目标离线 | 2026-08-09 #152 WH7 评审（Arch，苍蓝星问「测试/开发哪种更对」）：静默成功回执语义 = 已记录非已送达；可选附「目标当前离线，消息已记录，恢复后送达」提示，知情不改变语义 | 窄窗口（校验-投递毫秒级）现实概率低，暂不实现；若实现走回执 result 加可选字段（需契约修订） | 待内嵌 |
 | docs/api/ 生成物 README.en.md「中文文档」链接指向缺失 README.md | 2026-08-11 docs 清理断链门禁预检（客户端定性：typedoc 生成目录，.gitignore:16 忽略、git 未跟踪，豁免于活文档门禁） | 修 typedoc 生成源/模板（改链接或删行），不在文档仓内修（会被再生成覆盖） | 待内嵌 |
+| 历史注释/不可达分支清理（5 处） | 2026-08-11 docs 清理行为审计（客户端/后端/PM 二次扫描）：① group-chat-input.ts L1173-1185 成员变化渲染段不可达（isEnvironmentEvent 无 joined/left 分支，ADR-0008 口径）；② src/commands.ts L234 注释「旧群聊级单文件由 loadCursor 兼容回退」与实现相反（不采用）；③ test/acceptance/streaming-truth.test.ts L151 注释称 join 批次含 character_joined（旧口径）；④ group-chat-input.ts L646 注释「system_message 与 character_joined 同批注入」误导（joined 不注入，实际为帧序描述）；⑤ test/integration/creator/paging-and-speak-order.test.ts L245 注释「join 期 message_history」（旧口径） | 随下次 src 重构清理：删不可达段、修正四处注释；同类同扫（成员/流式渲染残留、v1 游标旧注释、join 历史旧注释） | 待内嵌 |
 
 ## 已落地
 

@@ -101,7 +101,7 @@ description: 负责 PiTavern 的 pi 集成层——扩展注册、工具、CLI�
 ## 2. 目标
 
 - 核心目标：把服务端能力接入 pi 生命周期——工具（tavern_speak/tavern_board）、CLI、headless 自动加入、TUI 与 agent 事件接线，按现行验收标准交付
-- 严格对齐 pi 生命周期（M5）：不另建 Agent、session 或消息队列；群聊输入与用户输入进入同一个 pi Agent 和 session，遵循 pi-coding-agent 原生的 followUp 队列
+- 严格对齐 pi 生命周期：不另建 Agent、session 或消息队列；群聊输入与用户输入进入同一个 pi Agent 和 session，遵循 pi-coding-agent 原生的 followUp 队列
 - 守护组合根装配：index.ts 是唯一装配点，装配顺序与豁免面以 `docs/architecture/architecture.md` §5 为准；五层依赖方向（lint:layers）不破坏
 - 遵守架构边界：不引入首版明确排除的实体（独立 Group、成员级接收列表、角色活跃度配置）
 

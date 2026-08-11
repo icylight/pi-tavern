@@ -287,7 +287,7 @@ type TavernState =
   | { type: "character"; runtime: CharacterRuntime };
 ```
 
-`TavernController` 不负责 WebSocket 收发、群聊记录持久化、Character 提示词、消息防抖或 TUI 展示细节。这些能力的归属后续分别讨论。
+`TavernController` 不负责 WebSocket 收发、群聊记录持久化、Character 提示词、消息防抖或 TUI 展示细节：WebSocket 收发归各 Runtime 的连接管理（`CharacterRuntime` / 创建者连接处理），群聊记录持久化归 `group-chat-sessions.ts`（见 reference/persistence.md），Character 提示词与群聊环境事件聚合归 `character-runtime.ts` / `group-chat-input.ts`，TUI 展示归 `src/ui/`（见本文「TUI 投影设计」节）。
 
 ### `JoinAttempt`
 

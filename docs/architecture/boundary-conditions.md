@@ -4,7 +4,7 @@
 
 新增边界条件来自审查或线上发现时更新本文；已修复的条件不删除，而是更新状态和检测结果。
 
-状态统一使用（未完成项可追加“阻塞 Mx”限定）：
+状态统一使用：
 
 - `待修复`
 - `部分修复`
@@ -12,7 +12,6 @@
 - `已满足`
 - `已修复，待补测试`
 - `已修复`
-- `计划于 Mx`
 - `需确认`
 - `设计已接受`
 
@@ -29,7 +28,7 @@
 
 **状态：** 已修复
 
-**关联审查条目：** M3 第 2 条、第 4 条
+**关联审查：** 双文档交叉审查（SessionManager 内部顺序）
 
 **发生条件：**
 
@@ -74,7 +73,7 @@ SessionManager._appendEntry() 的内部顺序是：
 
 **状态：** 已修复
 
-**关联审查条目：** M3 第 2 条（"started 由至少一条公开消息推导，无公开消息不留下 JSONL"）
+**关联审查：** 双文档交叉审查（started 由至少一条公开消息推导，无公开消息不留下 JSONL）
 
 **发生条件：**
 
@@ -123,7 +122,7 @@ SessionManager._appendEntry() 的内部顺序是：
 
 **状态：** 已修复
 
-**关联审查条目：** M3 第 2 条、第 6 条
+**关联审查：** 双文档交叉审查（timestamp 一致性）
 
 **发生条件：**
 
@@ -156,7 +155,7 @@ SessionManager._appendEntry() 的内部顺序是：
 
 **状态：** 已修复
 
-**关联审查条目：** M3 第 11 条
+**关联审查：** 双文档交叉审查（tavern_speak 工具生命周期）
 
 **已验证行为：**
 
@@ -182,7 +181,7 @@ SessionManager._appendEntry() 的内部顺序是：
 
 ## BC-5: session_shutdown(quit) 未实现优雅退出
 
-**状态：** 已修复（M5）
+**状态：** 已修复
 
 **关联设计文档：**
 
@@ -193,21 +192,10 @@ SessionManager._appendEntry() 的内部顺序是：
 
 > pi 正常退出并触发 `session_shutdown(reason: "quit")` 时，PiTavern 先退出或关闭群聊，再允许 pi 继续退出。清理最多等待 5 秒；超时后停止等待远端确认并强制完成本地 WebSocket 清理。
 
-**当前状态：**
+**当前实现：**
 
-在 `src/index.ts` 和 `src/controller/tavern-controller.ts` 中搜索 `session_shutdown` 无任何结果。该事件未被注册处理。
-
-**缺失行为：**
-
-1. 无 `pi.on("session_shutdown", ...)` 监听器
-2. 无法在 pi 退出前对所有非 idle 状态执行统一清理
-3. 缺少 5 秒超时后强制清理的定时逻辑
-
-**预期实现：**
-
-- 在 `src/index.ts` 注册 `session_shutdown` handler。
-- `creator`、`character` 和 `joining` 都通过 Controller 的统一清理入口；只有 `idle` 可以直接放行。
-- 超时不仅停止等待，还必须显式强制完成本地 WebSocket、reservation 和活动描述清理。单独使用 `Promise.race()` 不等于强制清理。
+- `src/index.ts:192` 已注册 `pi.on("session_shutdown", ...)`；`creator`、`character` 和 `joining` 通过 Controller 统一清理入口，`idle` 直接放行。
+- 清理最多等待 5 秒；超时后停止等待远端确认并强制完成本地 WebSocket、reservation 和活动描述清理（reload 拆离发布交接语义见 tavern-controller.ts:171 注释）。
 
 **涉及组件：**
 
@@ -215,13 +203,13 @@ SessionManager._appendEntry() 的内部顺序是：
 - `TavernController`（leave/close 入口）
 - `CreatorRuntime`、`CharacterRuntime`（远程通知和清理）
 
-**当前检测：** 无测试。本项按 M5 的组件测试和真实进程验收计划实现，不阻塞 M3。
+**当前检测：** `test/unit/extension.test.ts` 已覆盖 `session_shutdown` 退出清理路径。
 
 ---
 
 ## BC-6: WebSocket send 失败静默吞下、不触发断线清理
 
-**状态：** 已修复（M5）
+**状态：** 已修复
 
 **关联设计文档：**
 
@@ -234,21 +222,27 @@ SessionManager._appendEntry() 的内部顺序是：
 
 **当前实现：**
 
-`src/creator/creator-runtime.ts` 的 `send()`：
+`src/creator/broadcast-hub.ts` 的 `send()`：
 
 ```typescript
-private send(socket: WebSocket, message: unknown): void {
+send(socket: WebSocket, message: unknown): void {
     try {
         if (socket.readyState === WebSocket.OPEN) {
             socket.send(encodeMessage(message));
+            return;
         }
     } catch {
-        // Per-socket failure must not affect other sockets or the caller
+        // 落入下面：socket 不可用。
+    }
+    // close/detach 期间由运行时自行清理；发送失败不得与终止流程竞争。
+    if (this.options.isActive()) {
+        this.options.onSendFailure(socket);
     }
 }
 ```
 
-catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不广播 `character_left`。
+- 发送失败或 socket 非 OPEN 时，通过 `onSendFailure` 回调（`creator-runtime.ts` 装配为 `handleSendFailure`）将失败连接排入 runtime queue，走统一断线清理（`removeOnlineCharacter(connection, "disconnected")`）并广播 `character_left`。
+- close/detach 期间（`isActive()` 为 false）不触发失败清理，避免与终止流程竞争。
 
 **预期行为：**
 
@@ -258,21 +252,17 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 **涉及组件：**
 
-- `CreatorRuntime.send()`
-- `CreatorRuntime.removeOnlineCharacter()`
+- `BroadcastHub.send()` / `onSendFailure`
+- `CreatorRuntime.handleSendFailure()`
+- `MemberBookkeeping.removeOnlineCharacter()`
 
-**当前检测：** 无测试。测试需要同时覆盖：
-
-- `socket.send()` 同步抛错；
-- send callback 异步返回错误；
-- 发送前 socket 已不再是 `OPEN`；
-- 清理广播不会递归命中同一失败连接。
+**当前检测：** 断线清理路径由 integration 覆盖（`runtime-fail-close` 等）；send 同步抛错与回调异步错误的注入钉测未见专门覆盖，留痕。
 
 ---
 
 ## BC-7: closePermanently 不在 enqueue 队列中
 
-**状态：** 已修复（M5）
+**状态：** 已修复
 
 **关联设计文档：**
 
@@ -304,18 +294,22 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 - 超时后强制清理本地资源；已经持久化的消息不撤销。
 - 不应简单地在任意上下文中把 `closePermanently()` 再次 enqueue，以免从队列任务内部调用关闭时产生自等待。
 
+**当前实现：**
+
+关闭流程已拆至 `src/creator/runtime-lifecycle.ts` 的 `performClose()`：先置 `disposed` 生命周期，`drainRuntimeQueue()` 等待在途任务（最多 drainTimeout）后再广播 `group_chat_closed`、关闭连接与 WebSocketServer、清理连接表与活动描述——close 不再与 pending frame（如 `handleSpeak` 正在 append）交错执行；`close()` 与 `detachForReload()` 为互斥路径。
+
 **涉及组件：**
 
-- `CreatorRuntime.closePermanently()`
+- `CreatorRuntime` / `runtime-lifecycle.ts`（performClose）
 - `CreatorRuntime.enqueue()`
 
-**当前检测：** 无测试覆盖 close 与 speak 的交错时序。本项不阻塞 M3。
+**当前检测：** 未发现专门「close 与 speak 交错」时序钉测；close 路径由 lifecycle 串行化保证，留痕。
 
 ---
 
 ## BC-8: reload handoff 未实现
 
-**状态：** 已修复（M5）
+**状态：** 已修复
 
 **关联设计文档：**
 
@@ -328,30 +322,18 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 > registry 使用 globalThis 上的 PiTavern 私有 Symbol.for(...) key 保存一次性槽位，使重新加载后的扩展代码可以取得旧 Runtime 发布的底层资源。
 
-**当前状态：**
+**当前实现：**
 
-搜索 `handoff`、`reload`、`Symbol.for`、`globalThis` 在所有源文件中零匹配。
-
-- 无 `ReloadHandoffRegistry`
-- 无 `CreatorReloadHandoff` / `CharacterReloadHandoff`
-- 无全局槽位保存机制
-- 无 5 秒超时和超时后清理逻辑
-
-**预期实现：**
-
-1. 创建 `src/controller/reload-handoff-registry.ts`
-2. 定义 `Symbol.for("pi-tavern.reload-handoff")`
-3. 旧 Extension Runtime 仅在收到 reload shutdown/detach 信号时 publish handoff
-4. 新 Extension Runtime activate 时尝试 take handoff
-5. 5 秒超时后自动清理
+- `src/controller/reload-handoff-registry.ts` 已实现：`Symbol.for("pi-tavern.reload-handoff")` 全局槽位、publish/take、5 秒超时清理。
+- reload 流程在 `src/creator/reload-flow.ts`（Creator）与 CharacterRuntime 侧均有实现，handoff 资源含游标路径等（`cursorStorePath` 字段随交接传递）。
 
 **涉及组件：**
 
-- `src/controller/reload-handoff-registry.ts`（新建）
+- `src/controller/reload-handoff-registry.ts`
 - `src/index.ts`（activate 时 take）
 - `CreatorRuntime`、`CharacterRuntime`（publish 接管资源）
 
-**当前检测：** 无。按 M5 增加组件测试，并在 M6 使用真实 reload 进程场景验收；不阻塞 M3。
+**当前检测：** `test/unit/controller/reload-handoff-registry.test.ts` 已覆盖 publish/take/超时清理；integration 真实 reload 进程场景由 reload 验收锚覆盖。
 
 ---
 
@@ -383,7 +365,7 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 ## BC-10: speak 持久化成功但响应发送超时——消息不撤销
 
-**状态：** 已满足，测试已覆盖（M6 补测）
+**状态：** 已满足，测试已覆盖
 
 **关联设计文档：**
 
@@ -404,15 +386,17 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 如果步骤 4 的响应未送达，步骤 1–3 已完成，不会撤销。这与文档一致。这里的“超时”是 CharacterRuntime 等待请求响应超时，不是服务端 `socket.send()` 自身提供了响应超时。
 
-**需确认：**
+**已确认：**
 
-- 是否有测试验证"speak 持久化后 send 响应失败，消息仍然广播给其他 Character"？
-- CharacterRuntime 在请求超时时是否正确处理"未收到响应但消息可能已生效"的情况？
+- 服务端对已经完成持久化提交的公开消息不因响应发送超时而撤销——顺序保证（先 broadcast 后 send response）意味着即使响应失败，其他 Character 已收到广播，消息不丢失。
+- `handleSendFailure` 只处理连接级失败（断线清理），不撤销已提交消息；CharacterRuntime 请求超时后从公开广播或历史观察消息是否生效（首版不自动重试同一 speak，避免重复公开）。
 
 **涉及组件：**
 
 - `CreatorRuntime.handleSpeak()`
 - `CharacterRuntime`（请求超时处理）
+
+**当前检测：** speak 管线 integration 覆盖正常与额度路径（paging-and-speak-order、round-quota-hand-raise）；专门「持久化后响应发送失败」注入钉测未见，留痕。
 
 ---
 
@@ -448,9 +432,9 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 ---
 
-## BC-12: character_joined 事件对加入者本人因消息顺序会从首次环境批次丢失
+## BC-12: character_joined 是否进入首次环境批次（结构性消除）
 
-**状态：** 已修复，测试已覆盖（M6 补测）
+**状态：** 已满足（结构性消除）
 
 **关联设计文档：**
 
@@ -461,26 +445,26 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 协议原先要求 Creator 先广播 `character_joined`，再向新 Character 自动发送历史。加入者处理 `character_joined` 时尚不知道群聊已有公开消息，`hasPublicMessages` 为 false，导致自己的加入事件被过滤。
 
-**当前实现：**
+**当前实现（结构性消除）：**
 
-- ready 成功后 Creator 只单播 `system_message` 欢迎语（#123：替代历史自动推送），不再自动发送 `message_history`；历史由加入方经 `get_message_history` / `fetch_messages_since` 主动拉取（游标预置 = 进入时刻水位，#144 方案 a）。
-- 拉到非空历史后 `hasPublicMessages` 变为 true，因此随后到达的加入事件能够进入同一个首次环境批次；历史 `public_message` 按历史顺序排在 `character_joined` 之前（websocket-protocol.md「加入」节）。
-- 空群聊没有历史可拉，随后加入事件仍被过滤，符合 empty 群聊不触发 Agent run 的要求。
+- `character_joined`/`character_left` **不是环境事件**（`GroupChatInput.isEnvironmentEvent()` 的 switch 不含 joined/left），不进入环境聚合批次，也不触发 Agent run（ADR-0008/A9：成员变化不产生 Agent 输入）；与群聊是否已有公开消息无关。
+- 首次环境批次 = `system_message` 欢迎语（#123：环境事件，帧序先于 `character_joined`）；**进入前历史不自动注入**，经 `tavern_history` 工具 AI 主动分页拉取（tool result 直回上下文，不进环境批次）；进入时刻（游标预置）之后到达的新消息经增量拉取（`fetch_messages_since`）不重不漏进入批次（严格区间 = 预置完成后，#144 方案 a）。
+- 空群聊同样有欢迎语（必非空）→ join 后必有首次可见注入；`character_joined` 仅用于界面通知。
 
 **测试要求：**
 
-- started 群聊中，新 Character 的首次 `sendMessage()` 同时包含主动拉取的历史和自己的加入事件。
-- `details.events` 中历史 `public_message` 保持历史顺序，并排在 `character_joined` 之前。
-- empty 群聊中，空历史和自己的加入事件不触发 `sendMessage()`。
-- 其他在线 Character 仍只收到一次 `character_joined`。
+- started 群聊中，新 Character 的首次 `sendMessage()` 包含 `system_message` 欢迎语；进入后若有新消息，再经增量拉取进入后续批次。
+- `details.events` 中 `system_message` 是首次批次内容；进入前历史不经环境批次注入（`tavern_history` 工具）。
+- empty 群聊中，首次 `sendMessage()` 只含 `system_message` 欢迎语。
+- 其他在线 Character 仍只收到一次 `character_joined`（界面通知）。
 
 **涉及组件：**
 
 - `CreatorRuntime`——`character_ready` 响应（`latest_sequence`）与欢迎语单播
-- `GroupChatInput`——游标预置（进入时刻水位）与历史主动拉取
-- `CharacterRuntime.hasPublicMessages`——经主动拉取的历史设置
+- `GroupChatInput`——游标预置（进入时刻水位）与进入后增量拉取
+- `GroupChatInput.isEnvironmentEvent()`——不含 joined/left
 
-**当前检测：** welcome-message 锚点测试断言 ready 后单播欢迎语而非历史自动推送；Creator lifecycle 测试断言 history → joined 的首次批次顺序。
+**当前检测：** welcome-message / creator-join-lifecycle 锚点测试断言 ready 后单播欢迎语且零自动 history 注入（不拉进入前历史）；首次批次不含加入事件。
 
 ---
 
@@ -553,7 +537,7 @@ sendMessage: (message, options) => {
 
 ## BC-16: WebSocket 心跳未实现
 
-**状态：** 已修复（M5）
+**状态：** 已修复
 
 **关联设计文档：**
 
@@ -566,34 +550,23 @@ sendMessage: (message, options) => {
 
 > 心跳仍使用独立确定的 30 秒 ping 间隔和 120 秒失效阈值。
 
-**当前状态：**
+**当前实现：**
 
-`src/` 和 `test/` 中搜索 `ping`、`pong`、`heartbeat`、`keepalive`、`isAlive` 全部零匹配。ws 库不自动发送 ping——必须显式实现。
-
-**缺失行为：**
-
-- Creator 不向已连接 Character 发送 WebSocket ping
-- Character 由 ws 自动回复 pong，但不检测 120 秒未收到 Creator ping
-- 半开连接（TCP 看似存活但对端已死）不会被检测到
-- Creator 会继续向已死连接广播消息并认为该 Character 在线
-
-**预期实现：**
-
-- Creator 侧：`WebSocketServer` 定时（30s）向每个连接发送 ping；120s 未收到 pong 则主动关闭连接并触发 `disconnected` 清理
-- Character 侧：ws 库自动回复 pong；PiTavern 必须记录最近一次 Creator ping，并在 120 秒未收到 ping 时主动终止连接
+- Creator 侧 `HeartbeatRegistry`（30s ping 间隔 / 120s 失效阈值，常量 `HEARTBEAT_PING_INTERVAL_MS` / `HEARTBEAT_TIMEOUT_MS`）周期性向连接发送 ping，超时未收到 pong 则终止连接并触发 `disconnected` 清理。
+- Character 侧记录最近一次 Creator ping，120s 未收到 ping 时主动终止连接（`heartbeatIntervalMs` / `heartbeatTimeoutMs` 配置）。
 
 **涉及组件：**
 
-- `CreatorRuntime`（ping 定时器、pong 超时检测）
+- `CreatorRuntime` / `HeartbeatRegistry`（ping 定时器、pong 超时检测）
 - `CharacterRuntime`（Creator ping 时间记录和 120 秒超时检测）
 
-**当前检测：** 无测试。M5 需要分别验证 Creator 未收到 pong 和 Character 未收到 ping 的清理路径。
+**当前检测：** `test/integration/character/join-attempt.test.ts` 已覆盖：心跳帧不作为环境消息（不唤醒 Agent）、creator 停止发送心跳后连接被终止。
 
 ---
 
 ## BC-17: Agent 调用 tavern_speak 时 Character 已断开
 
-**状态：** 已满足，测试已覆盖（M6 补测）
+**状态：** 已满足，测试已覆盖
 
 **排查结论：**
 

@@ -77,7 +77,7 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 5. **A5 run 状态信号（可测性契约，按 ADR-0008 收敛）**：**单测层（主验证）**：注入 run 状态信号——`isAgentActive` 活跃时收到通知 → 零拉取（只置未读标记/排隐藏令牌，ADR-0008）；`onAgentSettled` → 立即拉全未读并投递（≤5s）；**验收层**：RPC 无真实 run（已知边界）→ 降级为「收到通知后投递发生 + 进程稳定」烟雾；**isAgentActive 无 run 时视为空闲（false）→ 立即投递**（否则 RPC 模式永远排队）；
 6. **A6 统一逻辑（可测性契约）**：投递时经 `PITAVERN_TEST=1` testNotify 注入 `latest_sequence` + 投递消息数，验收断言与 TUI 预览同源（同一消息数据）；
 7. **A7 边界**：join 游标预置 = 进入时刻水位（WL7 三分路径：①已有游标直接返回；②新帧 `latest_sequence` 预置 = 进入时刻水位；③旧帧回退查询水位 CAS 写）；仅预置失败时游标保持 null 回退全量分页兜底（残余无游标态唯一来源）；单飞行锁防并发竞态；自己的 echo 仍过滤；`message_history`/`get_message_history` 回归不破坏。
-8. **A8 游标 Session 隔离**：同群聊多 Session 游标文件互异（`cursors/<groupId>/<sessionId>.json`）；A 推进游标不影响 B；旧群聊级文件保守回退为起点（只读不写不删）、save 只写新路径；reload 后同 session 游标接续（integration 四项：隔离/旧兼容/并发写/重启恢复）。
+8. **A8 游标 Session 隔离**：同群聊多 Session 游标文件互异（`cursors/<groupId>/<sessionId>.json`）；A 推进游标不影响 B；**旧群聊级共享游标不采用（不读不写不删、物理遗留）**——v1 文件无 Session 身份、可能由其他角色推进，回退采用其值会跳过本 Session 从未看过的消息（User 2026-08-02 裁决：新 Session 无独立游标 = 从完整历史重新拉取，最多重复、绝不跳过）；本 Session 游标文件不存在仅出现于预置失败时（正常 join 先预置并创建 Session 游标，#144 方案 a）——游标保持 null → 完整历史分页兜底（2026-08-02 旧裁决只覆盖「不采用共享游标、失败时最多重复不跳过」，不覆盖 #144 主路径）；save 只写新路径；reload 后同 session 游标接续（integration 钉测：does not adopt the v1 group-chat cursor / 隔离 / 并发写 / 重启恢复）。
 9. **A9 steer 安全边界打断**：忙态通知只排一个隐藏空令牌，正文不入 steer、通知到达时不 abort；当前工具批完成、令牌在下一模型调用前消费时才 abort。密集通知 N→1；settled 后一次拉全并 followUp 重开；历史令牌不进模型上下文；成员/流式变化不产生 Agent 输入，白板投递保持。
 
 ### 仓库健康度检查（#87）

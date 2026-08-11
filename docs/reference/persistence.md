@@ -355,10 +355,10 @@ roundMaxMessages
 
 角色侧本地持久化「上次成功投递的最后一条消息 sequence」，重启/重连不丢：
 
-- 路径：**游标跟随 Session**——`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>/<session_id>.json`（同群聊多角色各持独立游标文件，互不推进）；**旧版群聊级单文件（`cursors/<group_chat_id>.json`）废弃不读**——其值无 Session 身份、可能由其他角色推进，回退采用会跳过本 Session 从未看过的消息（User 2026-08-02 裁定）；新 Session 无独立游标时从完整历史分页重新拉取（最多重复、绝不跳过），旧文件物理遗留不写不删
+- 路径：**游标跟随 Session**——`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>/<session_id>.json`（同群聊多角色各持独立游标文件，互不推进）；**旧版群聊级单文件（`cursors/<group_chat_id>.json`）废弃不采用**——其值无 Session 身份、可能由其他角色推进，回退采用会跳过本 Session 从未看过的消息（User 2026-08-02 裁定）；新 Session 无独立游标时**预置游标 = 进入时刻水位**（#144 方案 a：ready 响应 `latest_sequence` 直接写；旧帧缺字段回退预置查询 `fetchMessageHistoryPage(null)` 取水位 CAS 写）；仅预置失败静默时游标保持 null → 完整历史分页兜底（最多重复、绝不跳过），旧文件物理遗留不写不删
 - 内容：`{ "last_sequence": 42, "updated_at": "..." }`（一次性写入：tmp 文件 + rename，同步原语）
 - 更新时机：**每次成功投递后**更新（投递失败游标不动 → 下次重拉同一窗口，按 sequence 幂等）。成功判定为双通道同规则：闲态 followUp / 忙态 steer 在 sendMessage 调用无同步异常后**同步乐观推进**；同步抛错不推进 → settle 兜底重投；异步 run 启动失败（pi 环境不可用）面与改造前一致。游标单调（只前进、不后退）保证双通道不重不漏（User 2026-08-02 忙态 steer 恢复，契约变更）
-- join/重连差分同步：有游标 → `fetch_messages_since(游标)`；无游标 → 现有 `message_history` 全量分页
+- join/重连差分同步：有游标 → `fetch_messages_since(游标)`；预置失败无游标（残余无游标态唯一来源）→ `message_history` 全量分页兜底（正常 join 已预置进入时刻水位）
 - 随 reload handoff 传递（`cursorStorePath` 字段），reload 后继续（sessionId 稳定 → 同路径读回）
 - 不提供服务端 per-character 已读游标（游标在角色侧本地，按 session 维度隔离）
 
