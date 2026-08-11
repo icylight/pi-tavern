@@ -12,26 +12,26 @@ import type { BufferedWsClient } from "./ws-helper.js";
 import { joinCharacterWs } from "./ws-helper.js";
 
 /**
- * #170 服务端投影半场 acceptance 锚点（QA 起草，2026-08-10 风暴定案）：
+ *  服务端投影半场 acceptance 锚点：
  *
- * 本地半场（#170 客户端修复）剔除占位对 unread_first 的阻塞后，旁观者可在
+ * 本地半场（客户端修复）剔除占位对 unread_first 的阻塞后，旁观者可在
  * 「占位未消费」状态下直接发言——首请求携带旧 based_on_sequence，服务端 stale
  * 扫描若仍把 A→B whisper 计为 latestOtherSequence（无投影视角），请求将被判
- * stale，#170 目标（协议性回复一次成功）不实现。服务端半场 = stale 判定按请求者
+ * stale， 目标（协议性回复一次成功）不实现。服务端半场 = stale 判定按请求者
  * 投影：旁观者视角（sender≠我 且 recipient≠我）的 whisper 跳过，公开消息与
  * 接收者全文恒计入（防线保留）。
  *
- * 锚点（对 #170 验收口径）：
+ * 锚点（对  验收口径）：
  * - 旁观者 C 游标落后于 A→B whisper（只见占位、未消费）时，C 的 speak 与
  *   whisper 首请求均 published（无 stale）；
  * - 防线回归：全文接收者（recipient=我）游标落后时 speak 仍 stale；公开消息
  *   游标落后时 speak 仍 stale。
  *
- * WS 直驱（ADR-0010 方案 1）：基于真实 pi 进程 + 协议帧，显式携带
+ * WS 直驱（剧本驱动 e2e 方案 1）：基于真实 pi 进程 + 协议帧，显式携带
  * based_on_sequence 模拟「占位未消费直接发言」的首请求（绕开客户端本地门，
  * 与服务端投影判定形成红/绿判别——修复前 stale，修复后 published）。
  */
-describe("acceptance: #170 服务端投影半场（旁观者占位不触发 stale）", () => {
+describe("acceptance: 服务端投影半场（旁观者占位不触发 stale）", () => {
 	let root: string;
 	let agentDir: string;
 	let projectDir: string;
@@ -115,7 +115,7 @@ describe("acceptance: #170 服务端投影半场（旁观者占位不触发 stal
 		return { alice, carol, bystander, descriptor };
 	}
 
-	it("旁观者占位未消费时 speak/whisper 首请求成功（#170 服务端半场红/绿判别）", async () => {
+	it("旁观者占位未消费时 speak/whisper 首请求成功（服务端半场红/绿判别）", async () => {
 		const { alice, bystander, descriptor } = await startTrio();
 		try {
 			// A→B whisper（seq2）：bystander 只见占位、游标停在 seq1。

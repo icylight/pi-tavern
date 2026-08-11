@@ -2,7 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 /**
- * 游标观测解耦（Arch 2026-08-02：测试不拼实现路径——PR #71 后写路径 =
+ * 游标观测解耦（测试不拼实现路径——后写路径 =
  * cursors/<groupId>/<sessionId>.json，sessionId 由进程生成、测试不可预知；
  * 旧平铺路径仅历史遗留。统一经本 helper 读目录内全部游标文件取最大
  * last_sequence（会话无关）。
@@ -29,8 +29,8 @@ export async function readAnySessionCursor(cursorDir: string, groupChatId: strin
 }
 
 /**
- * 密轮询等待游标到达 target（25ms 间隔 + 失败早退，Arch ③：事件驱动不可行处
- * 用密轮询替代粗轮询，不砍 #43 上界裕量——上界只作防 flake 的兜底）。
+ * 密轮询等待游标到达 target（25ms 间隔 + 失败早退，③：事件驱动不可行处
+ * 用密轮询替代粗轮询，不砍  上界裕量——上界只作防 flake 的兜底）。
  */
 export async function pollSessionCursor(
 	cursorDir: string,

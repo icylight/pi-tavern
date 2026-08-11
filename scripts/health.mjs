@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 仓库健康度检查（#87，承接 #53 凭据扫描诉求）。
+ * 仓库健康度检查（含凭据扫描诉求）。
  *
  * 聚合三项子检查，本地手动运行：npm run health
  *   1. audit   —— 依赖漏洞（npm audit --omit=dev，生产依赖面；需联网）
@@ -60,7 +60,7 @@ function checkAudit() {
 function checkGitleaks() {
 	const which = run("which", ["gitleaks"]);
 	if (which.status !== 0) {
-		report("gitleaks", false, "未安装 gitleaks（凭据扫描承接 #53；安装后重跑，如 brew install gitleaks）");
+		report("gitleaks", false, "未安装 gitleaks（凭据扫描依赖 gitleaks；安装后重跑，如 brew install gitleaks）");
 		return;
 	}
 	const reportPath = join(tmpdir(), `health-gitleaks-${process.pid}.json`);

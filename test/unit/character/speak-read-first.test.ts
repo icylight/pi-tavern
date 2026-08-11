@@ -7,7 +7,7 @@ import type { PublicMessage, ServerMessage } from "../../../src/protocol/message
 import { ERROR_CONNECTION_NOT_OPEN } from "../../../src/shared/messages.js";
 
 /**
- * #128：speak 前置「未读先读」单测（Dev 属主实现侧）。
+ * ：speak 前置「未读先读」单测（Dev 属主实现侧）。
  * 契约：已证明他人未读或截断窗口需保守阻止 → 不发布/不耗配额/不举手，
  * 首拒 markIncrementPending，重复调用短告知；游标追平或水位未知 → 放行
  *（服务端 stale 兜底）。
@@ -159,7 +159,7 @@ describe("GroupChatInput.unreadOthersProven（推导式判定，Arch ①）", ()
 	});
 });
 
-describe("CharacterRuntime.speak 前置判定（#128）", () => {
+describe("CharacterRuntime.speak 前置判定", () => {
 	it("已证明他人未读 → 首拒：unread_first + first + markIncrementPending 一次", async () => {
 		const runtime = RealCharacterRuntime.prepare({
 			groupChatId: "group-1",

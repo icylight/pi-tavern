@@ -7,7 +7,7 @@ import {
 import type { PublicMessageState } from "../../../src/protocol/public-message-state.js";
 
 /**
- * #42 红测（unit 层）：resume 历史投影的窗口-锚定纯逻辑。
+ *  红测（unit 层）：resume 历史投影的窗口-锚定纯逻辑。
  *
  * 契约（与 Dev 落点对齐，index.ts 扩展层调用）：
  * - 窗口：取 publicMessages 尾部 windowSize 条（sequence 序）；长度 ≤
@@ -40,7 +40,7 @@ function aSequenceRange(from: number, to: number): PublicMessageState[] {
 	return messages;
 }
 
-describe("#42 resume projection: window-anchor pure logic (A1/A3)", () => {
+describe("resume projection: window-anchor pure logic (A1/A3)", () => {
 	it("A1: 长度 ≤ 窗口时全量投影（30 条 < 100）", () => {
 		const messages = aSequenceRange(1, 30);
 		const projected = computeResumeProjection(messages, 0, 100);
@@ -109,7 +109,7 @@ describe("#42 resume projection: window-anchor pure logic (A1/A3)", () => {
 		}
 	});
 
-	describe("#42 resume projection: session-anchor scan (A3-1 会话复用防御)", () => {
+	describe("resume projection: session-anchor scan (A3-1 会话复用防御)", () => {
 		const GROUP_CHAT_ID = "group-1";
 
 		function aDisplayEntry(

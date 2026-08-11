@@ -233,7 +233,7 @@ describe("PiTavern extension", () => {
 		} finally {
 			await rm(agentDir, { recursive: true, force: true });
 		}
-	}, 30_000); // Loader 做了两遍真实发现；并发负载（acceptance 套件）下可能超出 vitest 默认 5s 超时（#32）。按测试扩展逐个说明：对负载敏感，非功能失败；#34（maxWorkers: 2）降低争用，保留此裕量。
+	}, 30_000); // Loader 做了两遍真实发现；并发负载（acceptance 套件）下可能超出 vitest 默认 5s 超时。按测试扩展逐个说明：对负载敏感，非功能失败；（maxWorkers: 2）降低争用，保留此裕量。
 
 	it("registers the tavern_speak, tavern_board, tavern_whoami and tavern_history tools and reports error when not a character", async () => {
 		const { tools, api } = captureTools();
@@ -244,7 +244,7 @@ describe("PiTavern extension", () => {
 		expect(tools[1]?.name).toBe("tavern_board");
 		expect(tools[2]?.name).toBe("tavern_whoami");
 		expect(tools[3]?.name).toBe("tavern_history");
-		// #154 T7：LLM-only 只读工具（不注册 slash command）。
+		//  T7：LLM-only 只读工具（不注册 slash command）。
 		expect(tools[4]?.name).toBe("tavern_template_defaults");
 
 		const tool = tools[0];
@@ -255,7 +255,7 @@ describe("PiTavern extension", () => {
 		expect(result.content[0]?.text).toContain("not currently joined");
 	});
 
-	it("T7 (#154): tavern_template_defaults 只读工具——门禁（creator/joining 拒绝）+ 内容含默认值/key/规则/骨架", async () => {
+	it("T7: tavern_template_defaults 只读工具——门禁（creator/joining 拒绝）+ 内容含默认值/key/规则/骨架", async () => {
 		// idle 态：放行，返回完整契约信息。
 		const idleController = new TavernController();
 		const { tools, api } = captureTools();
@@ -273,7 +273,7 @@ describe("PiTavern extension", () => {
 		expect(text).toContain("{sender}");
 		expect(text).toContain("{count}");
 		expect(text).toContain("JSON 骨架");
-		// #152：whisper 两 key 随 #152 引入（WH9，契约定稿规则表）。
+		// whisper 两 key 随引入（WH9，契约定稿规则表）。
 		expect(text).toContain("whisper_full");
 		expect(text).toContain("whisper_placeholder");
 
@@ -340,7 +340,7 @@ describe("PiTavern extension", () => {
 		await tool.execute("call-2", { cursor: "opaque-1" });
 		expect(runtime.fetchMessageHistoryPage).toHaveBeenCalledWith("opaque-1");
 	});
-	it("chain: tavern_history whisper 投影渲染（#152 PR #163 阻断 1：whisper_full/placeholder 模板，WH4/WH9 三消费面一致）", async () => {
+	it("chain: tavern_history whisper 投影渲染（阻断 1：whisper_full/placeholder 模板，WH4/WH9 三消费面一致）", async () => {
 		const historyPage = {
 			messages: [
 				{
@@ -392,7 +392,7 @@ describe("PiTavern extension", () => {
 		expect(text).not.toContain("secret plan 说了一句话");
 	});
 
-	it("T3 (#154): tavern_history 用自定义 public_message 模板渲染（三面同变）", async () => {
+	it("T3: tavern_history 用自定义 public_message 模板渲染（三面同变）", async () => {
 		const historyPage = {
 			messages: [
 				{
@@ -445,7 +445,7 @@ describe("PiTavern extension", () => {
 		expect(result.content[0]?.text).toContain("not currently joined");
 	});
 
-	it("tavern_whoami returns the registered character identity when in character state (ISSUE-007)", async () => {
+	it("tavern_whoami returns the registered character identity when in character state ", async () => {
 		const controller = await createCharacterController({});
 		const runtime = (controller.getState() as { type: "character"; runtime: CharacterRuntime }).runtime;
 
@@ -479,7 +479,7 @@ describe("PiTavern extension", () => {
 		expect(result.content[0]?.text).toContain("not currently joined");
 	});
 
-	it("tavern_board 工具参数判别：非法组合工具层即拒——不发 wire 请求、不断连（PR #116 F11）", async () => {
+	it("tavern_board 工具参数判别：非法组合工具层即拒——不发 wire 请求、不断连（F11）", async () => {
 		const runtime = createMockCharacterRuntime({});
 		const controller = await createCharacterControllerWithRuntime(runtime);
 		const { tools, api } = captureTools();
@@ -572,7 +572,7 @@ describe("PiTavern extension", () => {
 		expect(result.content[0]?.text).toContain("round limit reached");
 	});
 
-	it("#128 tavern_speak 未读先读：未知数量使用通用告知，不伪造至少 0 条", async () => {
+	it("tavern_speak 未读先读：未知数量使用通用告知，不伪造至少 0 条", async () => {
 		const controller = await createCharacterController({
 			published: false,
 			reason: "unread_first",
@@ -592,7 +592,7 @@ describe("PiTavern extension", () => {
 		expect(result.content[0]?.text).toContain("no hand was raised");
 	});
 
-	it("ISSUE-013 B3: stale speak flags the increment; notice only, no in-tool pull", async () => {
+	it("B3: stale speak flags the increment; notice only, no in-tool pull", async () => {
 		const runtime = createMockCharacterRuntime({
 			published: false,
 			reason: "stale",
@@ -626,7 +626,7 @@ describe("PiTavern extension", () => {
 		expect(runtime.markIncrementPending).toHaveBeenCalledTimes(1);
 	});
 
-	it("ISSUE-013 B5: no auto-recovery flag when the budget is exhausted", async () => {
+	it("B5: no auto-recovery flag when the budget is exhausted", async () => {
 		const runtime = createMockCharacterRuntime({
 			published: false,
 			reason: "stale",
@@ -1191,7 +1191,7 @@ describe("PiTavern extension", () => {
 		expect(runtime.detachForReload).toHaveBeenCalledWith("pi-session-1");
 		expect(runtime.close).not.toHaveBeenCalled();
 	});
-	it("J4 断言②a: character 断连离开后 syncActiveTools 移除 tavern_speak（#83 风暴→failConnection→工具消失链）", async () => {
+	it("J4 断言②a: character 断连离开后 syncActiveTools 移除 tavern_speak（风暴→failConnection→工具消失链）", async () => {
 		const controller = await createCharacterController({ published: true, eventId: "evt-1", sequence: 1 });
 		const api = createMockExtensionAPI();
 		api.getActiveTools.mockReturnValue(["tavern_speak", "tavern_whoami", "other_tool"]);
@@ -1206,7 +1206,7 @@ describe("PiTavern extension", () => {
 		expect(lastCall).not.toContain("tavern_speak");
 		expect(lastCall).toContain("other_tool");
 	});
-	it("WH4 (#152 Arch 阻断修复): 创建者 TUI 投影——实时 onWhisperMessage 接线 + 恢复合并流", async () => {
+	it("WH4 (Arch 阻断修复): 创建者 TUI 投影——实时 onWhisperMessage 接线 + 恢复合并流", async () => {
 		// 实时：wireCreatorDisplay 接线后触发 onWhisperMessage → appendEntry 收到
 		// kind whisper_message 完整正文条目（创建者恒参与者视角）。
 		const runtime = createMockCreatorRuntime();
@@ -1273,7 +1273,7 @@ describe("PiTavern extension", () => {
 			resumeEntries.some((entry) => entry.kind === "whisper_message" && entry.event?.content === "secret history"),
 		).toBe(true);
 	});
-	it("WH1 (#152): tavern_whisper 注册 + 门禁（非 character 拒绝）+ 成功/错误透传", async () => {
+	it("WH1 : tavern_whisper 注册 + 门禁（非 character 拒绝）+ 成功/错误透传", async () => {
 		// 非 character 态（idle）：拒绝。
 		const idleController = new TavernController();
 		const idleTools = captureTools();
@@ -1317,7 +1317,7 @@ describe("PiTavern extension", () => {
 		expect(failed.isError).toBe(true);
 		expect(failed.content[0]?.text).toBe("Whisper target character is not online");
 
-		// #152 二轮阻断：round_limit_reached 显式区分（不得误报未读分支）。
+		//  二轮阻断：round_limit_reached 显式区分（不得误报未读分支）。
 		const limitRuntime = {
 			character: { characterId: "dev", name: "Dev", description: "Dev" },
 			close: vi.fn(async () => undefined),
@@ -1338,7 +1338,7 @@ describe("PiTavern extension", () => {
 		expect(limitResult.content[0]?.text).not.toContain("有未读");
 		expect(limitRuntime.markIncrementPending).not.toHaveBeenCalled();
 
-		// chain: whisper stale self-heal（#152 阻断 2：stale 拒绝 → markIncrementPending 同 speak 路径）
+		// chain: whisper stale self-heal（阻断 2：stale 拒绝 → markIncrementPending 同 speak 路径）
 		const staleRuntime = {
 			character: { characterId: "dev", name: "Dev", description: "Dev" },
 			close: vi.fn(async () => undefined),

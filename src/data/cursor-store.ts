@@ -23,7 +23,7 @@ export function decodeCursor(cursor: string): number | null {
 
 /**
  * PiTavern 自有、写入群聊 session JSONL 的条目类型集合（单一事实源）；新增
- * JSONL 持久化类型必须同步此处（#152 评审 B4 教训——whisper 曾漏计）。
+ * JSONL 持久化类型必须同步此处（评审 B4 教训——whisper 曾漏计）。
  * 注：board 为独立 JSON 文件（不写 session JSONL）；creator-display 为创建者
  * TUI 投影条目（与 public/whisper 一一对应，计入会双倍重复）——均不属计数对象。
  */
@@ -54,7 +54,7 @@ export function countPersistedEntries(entries: readonly { type: string; customTy
 }
 
 /**
- * 按类型分列的条目统计（不带总数，苍蓝星 2026-08-09 指示；QA 形状确认）：
+ * 按类型分列的条目统计（不带总数；QA 形状确认）：
  * key = entry.customType ?? entry.type，value = 计数；纯观测面（调试/展示分布），
  * 不参与恢复逻辑、不做总数合并。新增 JSONL 持久化类型无需改动即自动纳入。
  * 原型污染防护（评审 929b4c1 阻断）：key 来自 JSONL 未受限，普通对象 {} 的
@@ -92,7 +92,7 @@ export function readCursorFile(path: string): number | null {
 /**
  * 游标文件原子写原语（无状态同步）：mkdir 递归建目录 + tmp 写入 + rename
  * 替换，任何失败如实抛错。固定 tmp 名在同步原语下无竞态（事件循环内天然
- * 串行）——保持同步是行为零变化铁律（Arch 评审阻断项：async 化 = 阻断）。
+ * 串行）——保持同步是行为零变化铁律（async 化 = 行为变化）。
  */
 export function writeCursorFile(path: string, sequence: number): void {
 	mkdirSync(dirname(path), { recursive: true });

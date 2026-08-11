@@ -31,7 +31,7 @@ function whisper(sequence: number, senderId: string, recipientId: string): Whisp
 	};
 }
 
-describe("computeLatestOtherSequence（#170 服务端投影半场：旁观者占位豁免 stale）", () => {
+describe("computeLatestOtherSequence（服务端投影半场：旁观者占位豁免 stale）", () => {
 	it("旁观者视角：A→B whisper 跳过（只可见占位零信息增量），回落更早公开消息", () => {
 		const merged = [publicMessage(1, "A"), whisper(2, "A", "B")];
 		// 请求者 C：既非 sender 也非 recipient → whisper seq2 不计入 → 回落 seq1。

@@ -4,7 +4,7 @@ import { CharacterRuntime } from "../../../src/character/character-runtime.js";
 import type { CharacterCard } from "../../../src/config/character-card.js";
 
 /**
- * A3（验收清单 #14-A3）：悬挂兜底——armStreamingResetWatchdog 定时复位。
+ * A3（验收清单 -A3）：悬挂兜底——armStreamingResetWatchdog 定时复位。
  *
  * Node 定时器不依赖 agent 状态：agent_end 后若 agent_settled 迟迟不来
  * （run 卡死/异常中止），watchdog 在窗口结束后强制 updateStreaming(false)，
@@ -73,7 +73,7 @@ function createRuntime(): {
 	return { runtime, socket, closeSocket };
 }
 
-describe("A3: streaming reset watchdog (#14 悬挂兜底)", () => {
+describe("A3: streaming reset watchdog ( 悬挂兜底)", () => {
 	it("force-resets is_streaming when agent_settled never arrives", () => {
 		vi.useFakeTimers();
 		try {
@@ -125,10 +125,10 @@ describe("A3: streaming reset watchdog (#14 悬挂兜底)", () => {
 		}
 	});
 
-	it("#77 semantics: is_streaming is driven by run activity, not a turn marker", () => {
+	it("semantics: is_streaming is driven by run activity, not a turn marker", () => {
 		const { runtime } = createRuntime();
 
-		// #77：标记机制已删除——点亮由 agent_start 无条件执行（run 活跃即亮），
+		// 标记机制已删除——点亮由 agent_start 无条件执行（run 活跃即亮），
 		// 复位由 agent_end/settle/watchdog 完成。直接验证 updateStreaming 通道。
 		const updateStreaming = vi.spyOn(runtime, "updateStreaming");
 		runtime.updateStreaming(true);
@@ -137,14 +137,14 @@ describe("A3: streaming reset watchdog (#14 悬挂兜底)", () => {
 		expect(updateStreaming).toHaveBeenCalledTimes(2);
 	});
 
-	it("#77 candidate-1: state refresh re-sends is_streaming=true while a run is active (self-healing)", async () => {
+	it("candidate-1: state refresh re-sends is_streaming=true while a run is active (self-healing)", async () => {
 		const { runtime } = createRuntime();
 		const updateStreaming = vi.spyOn(runtime, "updateStreaming");
 		runtime.isAgentActive = true;
 		// request 为私有方法——经类型断言的 spy（仅测试态）。
 		const mockRequest = vi.spyOn(runtime as unknown as { request: (message: unknown) => Promise<unknown> }, "request");
 
-		// 场景 A（#83 收敛修正）：快照中本角色 is_streaming == false（点亮确实
+		// 场景 A（收敛修正）：快照中本角色 is_streaming == false（点亮确实
 		// 丢失）且 run 活跃 → 补发点亮（自愈保留）。
 		mockRequest.mockResolvedValueOnce({
 			jsonrpc: "2.0",
@@ -157,7 +157,7 @@ describe("A3: streaming reset watchdog (#14 悬挂兜底)", () => {
 		await runtime.getGroupChatState();
 		expect(updateStreaming).toHaveBeenCalledWith(true);
 
-		// 场景 B（#83 收敛修正）：快照已是 true（状态一致）→ 不补发——
+		// 场景 B（收敛修正）：快照已是 true（状态一致）→ 不补发——
 		// 自激循环在此终止（原无条件补发 + creator 无条件广播 = 风暴掉线根因）。
 		updateStreaming.mockClear();
 		mockRequest.mockResolvedValueOnce({
@@ -185,14 +185,14 @@ describe("A3: streaming reset watchdog (#14 悬挂兜底)", () => {
 	});
 });
 
-describe("A4: run wedged watchdog (#66 兑底)", () => {
+describe("A4: run wedged watchdog ( 兑底)", () => {
 	// 契约（Phase 3 定稿）：agent_start 布防 run watchdog（W = agentWedgedTimeoutMs，构造
 	// 可注入）；W 内未收到 agent_settled = wedged → 强制 settle（等价 agent_settled 路径：
 	// isAgentActive=false + 清 watchdog + updateStreaming(false) + onAgentSettled 冲刷）。
 	// 双窗口：① agent_start 后无 agent_end（完全卡死）② agent_end 已到但 agent_settled 永不
-	// 到（#14 只复位 is_streaming 不碰 isAgentActive，② 为真洞）——v2 为 #14 超集。
+	// 到（只复位 is_streaming 不碰 isAgentActive，② 为真洞）——v2 为  超集。
 	// API 面（QA 契约建议）：armRunWedgedWatchdog(timeoutMs)/clearRunWedgedWatchdog()，
-	// 与 #14 armStreamingResetWatchdog 同风格；Dev 落 API 骨架后本组钉即红。
+	// 与  armStreamingResetWatchdog 同风格；Dev 落 API 骨架后本组钉即红。
 
 	it("window ①: agent_start without agent_end forces settle past W", () => {
 		vi.useFakeTimers();
@@ -228,7 +228,7 @@ describe("A4: run wedged watchdog (#66 兑底)", () => {
 
 			runtime.armRunWedgedWatchdog(50);
 			runtime.isAgentActive = true;
-			// agent_end：#14 只复位显示层（is_streaming），isAgentActive 保持 true（窗口②真洞）。
+			// agent_end： 只复位显示层（is_streaming），isAgentActive 保持 true（窗口②真洞）。
 			runtime.armStreamingResetWatchdog(5);
 
 			vi.advanceTimersByTime(5);
@@ -314,7 +314,7 @@ describe("A4: run wedged watchdog (#66 兑底)", () => {
 });
 
 describe("connection-closed resilience（死连接点火= uncaughtException 根因回归）", () => {
-	// 线上两例崩溃同源（用户 2026-08 报告）：连接先断（pi 退出竞态/心跳超时），
+	// 线上两例崩溃同源：连接先断（pi 退出竞态/心跳超时），
 	// ① agent_settled→settleRun 把异常炸进 ExtensionRunner.emit（报错但不致命）；
 	// ② agent_end 布防的流式复位定时器在 socket 置空后点火——定时器内 throw =
 	// uncaughtException = 杀死整个 pi 进程。双修复：finishDisconnected 拆定时器
@@ -368,8 +368,8 @@ describe("connection-closed resilience（死连接点火= uncaughtException 根�
 		}
 	});
 });
-it("#90 W1-b: agent_end→continue 后 watchdog 不误灭活跃 run 的灯（isAgentActive 守卫）", () => {
-	// User 观察（2026-08-03）：群聊面板「正在工作」run 中不亮——根因 =
+it("W1-b: agent_end→continue 后 watchdog 不误灭活跃 run 的灯（isAgentActive 守卫）", () => {
+	// 群聊面板「正在工作」run 中不亮——根因 =
 	// agent_end 布防 5s 显示 watchdog 后 continue → agent_start 再亮但
 	// 不清定时器（W1-a 接线修复），且回调无 isAgentActive 守卫（本钉）：
 	// 定时器到点时 run 仍活跃 → 必须跳过灭灯（双保险之二）。
@@ -392,8 +392,8 @@ it("#90 W1-b: agent_end→continue 后 watchdog 不误灭活跃 run 的灯（isA
 	}
 });
 
-it("#90 W2 回归: 真悬挂（无 agent_start 续命）仍 5s 复位", () => {
-	// W1 修复不得破坏 #14 防悬挂语义：agent_end 后无新 agent_start、
+it("W2 回归: 真悬挂（无 agent_start 续命）仍 5s 复位", () => {
+	// W1 修复不得破坏  防悬挂语义：agent_end 后无新 agent_start、
 	// 无 settle → 5s 后仍灭灯。
 	vi.useFakeTimers();
 	try {

@@ -10,15 +10,15 @@ import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 import { decodeServerMessage, encodeMessage } from "../../../src/protocol/codec.js";
 
 /**
- * tier-2 精简下沉（User 拍板 2026-08-02）：acceptance 的细粒度断言下沉 integration
+ * tier-2 精简下沉：acceptance 的细粒度断言下沉 integration
  * 后，两项原属 acceptance 独有语义在此进程内覆盖（QA 属主补测）：
- * - ISSUE-008 join 快照分页契约（100 条窗口 + has_more/cursor/total）
+ * -  join 快照分页契约（100 条窗口 + has_more/cursor/total）
  * - 并发 speaks 保持 creator 顺序（多接收者一致）+ round 配额拒绝
  *
  * Peer 帧语义 = BufferedWsClient 同款（acceptance/ws-helper）：frames 只增不消费、
- * waitFor/collect 从 fromIndex 扫描——绝不在谓词等待中丢弃帧（2026-08-02 QA 踩坑：
+ * waitFor/collect 从 fromIndex 扫描——绝不在谓词等待中丢弃帧（QA 踩坑：
  * 消费式 next() + 谓词丢弃会把目标帧之前的广播提前吞掉，导致 collect 缺帧）。
- * #119 M1/M2：信封迁移（请求 {jsonrpc,id,method,params}、通知 method+params、响应 result）。
+ * 信封迁移（请求 {jsonrpc,id,method,params}、通知 method+params、响应 result）。
  */
 const temporaryDirectories: string[] = [];
 const runtimes: CreatorRuntime[] = [];
@@ -192,7 +192,7 @@ async function joinAndReady(runtime: CreatorRuntime, sessionId: string, characte
 	return peer;
 }
 
-describe("ISSUE-008 join snapshot paging contract (integration)", () => {
+describe("join snapshot paging contract (integration)", () => {
 	it("get_message_history beyond the default window advertises has_more + cursor", async () => {
 		const runtime = await startRuntime();
 		for (let i = 1; i <= 102; i++) {
@@ -200,7 +200,7 @@ describe("ISSUE-008 join snapshot paging contract (integration)", () => {
 		}
 
 		const peer = await joinAndReady(runtime, "session-paging", characters[0].characterId);
-		// #123：ready 不再推历史，分页语义经主动查询验证（WL3）。
+		// ready 不再推历史，分页语义经主动查询验证（WL3）。
 		peer.send({ jsonrpc: "2.0", id: "hist-1", method: "get_message_history", params: {} });
 		const response = await peer.waitFor((m) => m.id === "hist-1" && ("result" in m || "error" in m));
 		const historyParams = response.result as Record<string, unknown>;
@@ -221,7 +221,7 @@ describe("ISSUE-008 join snapshot paging contract (integration)", () => {
 		await runtime.submitUserPersonaMessage("hello 2");
 
 		const peer = await joinAndReady(runtime, "session-paging2", characters[0].characterId);
-		// #123：ready 不再推历史，主动查询验证全量（WL3）。
+		// ready 不再推历史，主动查询验证全量（WL3）。
 		peer.send({ jsonrpc: "2.0", id: "hist-2", method: "get_message_history", params: {} });
 		const response = await peer.waitFor((m) => m.id === "hist-2" && ("result" in m || "error" in m));
 		const historyParams = response.result as Record<string, unknown>;
@@ -249,7 +249,7 @@ describe("concurrent speaks keep creator order + round quota (integration)", () 
 		// 并发 burst（对齐 acceptance speak-order 原版语义）：不带 based_on_sequence
 		// （undefined → stale 检查跳过）→ 三连并发确定性全发布 [2,3,4]；交错发送
 		// 保留「creator 顺序权威 + 双接收者一致」的并发语义（stale 拒绝语义由
-		// family-messages B2/B4/B6 专测，不在本用例混测——Arch 2026-08-02 定夺）。
+		// family-messages B2/B4/B6 专测，不在本用例混测——定夺）。
 		memberA.send({ jsonrpc: "2.0", id: "s1", method: "speak", params: { content: "one" } });
 		memberB.send({ jsonrpc: "2.0", id: "s2", method: "speak", params: { content: "two" } });
 		memberA.send({ jsonrpc: "2.0", id: "s3", method: "speak", params: { content: "three" } });

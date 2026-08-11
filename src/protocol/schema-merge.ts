@@ -1,5 +1,5 @@
 /**
- * 协议 schema 合并加载器（后端属主，docs-first 迁移 #145）：
+ * 协议 schema 合并加载器（后端属主，docs-first 迁移 ）：
  * 读 src/protocol/schema/*.jsonc（唯一手写源头）→ 解析（jsonc-parser）→
  * 合并单一 $defs 树 → 返回 client/server 两个入口 schema 对象。
  *

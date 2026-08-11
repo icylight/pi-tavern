@@ -9,9 +9,9 @@ import { type CharacterCard, loadCharacterCard } from "../../../src/config/chara
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 
 /**
- * #68 回声钉测（QA 属主，integration 层）：
+ *  回声钉测（QA 属主，integration 层）：
  *
- * 契约（#64 pull 模型 + #38 steer 修订）：自己 speak 成功后，服务端广播
+ * 契约（pull 模型 +  steer 修订）：自己 speak 成功后，服务端广播
  * group_chat_update（发送者也收，websocket-protocol §广播语义）→ 拉取结果
  * 在 group_chat_update 水位门闸直接过滤；回声不产生任何投递、不触发新 run、
  * 不推进游标（B6：游标停在
@@ -118,7 +118,7 @@ afterEach(async () => {
 	await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-describe("#68 self-echo", () => {
+describe("self-echo", () => {
 	it("E1: idle echo broadcast → zero delivery, no new run", { timeout: 15_000 }, async () => {
 		const { creator, character } = await startCreator();
 		await creator.submitUserPersonaMessage("hello 1"); // 序号 1，轮次已创建
@@ -198,7 +198,7 @@ describe("#68 self-echo", () => {
 	});
 
 	it(
-		"E5/WL-F: 窗口旧他人消息 + 连续自身回显 → 不投递不唤醒（#146 P1 修复目标，红钉先行）",
+		"E5/WL-F: 窗口旧他人消息 + 连续自身回显 → 不投递不唤醒（P1 修复目标，红钉先行）",
 		{ timeout: 20_000 },
 		async () => {
 			const { creator, character } = await startCreator();

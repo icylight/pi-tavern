@@ -1,5 +1,5 @@
 // ===== 协议 schema 定义：client.jsonc =====
-// 客户端消息判别联合（#119 M1 信封层校验）：request 带 id + method + params
+// 客户端消息判别联合（信封层校验）：request 带 id + method + params
 // （update_character_state 为无 id notification）；未知 method / 形状 fail-close。
 // 纯 docs-first：本文件为唯一手写源头，程序用的 schema 对象由它自动生成。
 {
@@ -114,7 +114,7 @@
           },
           "additionalProperties": false
         },
-        // fetch_messages_since 请求：增量拉取（#138 上下文窗口服务端侧）。
+        // fetch_messages_since 请求：增量拉取（上下文窗口服务端侧）。
         {
           "type": "object",
           "required": ["jsonrpc", "id", "method", "params"],
@@ -282,7 +282,7 @@
           },
           "additionalProperties": false
         },
-        // #152：whisper 请求——Character 间私信。character_id/content 必带；
+        // whisper 请求——Character 间私信。character_id/content 必带；
         // based_on_sequence 可选（stale 检查与 speak 同源，拒绝语义同 speak）。
         // 目标必须在在线 Character（WS 连接活跃）；自发自收拒绝；
         // 无活跃轮次/超额/过大/持久化失败复用 speak 语义。

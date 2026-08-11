@@ -8,7 +8,7 @@
 
 - 注释的目的、理由、约束、时序、边界等说明性内容一律中文；
 - 技术术语、API 标识符、协议字段名、函数/变量名保留英文原文（如 `steer`、`followUp`、`triggerTurn`、`isAgentActive`、`cursor`、`settle`、`debounce`、`is_streaming` 等）——翻译后难以对应代码，易产生歧义；
-- 编号引用保留原文（GitHub issue `#38`、本地 `ISSUE-0xx`、验收条目 `T1-T4`/`A1-A6`、里程碑 `M7 A5`、commit hash 等）；
+- 编号引用保留原文（验收条目 `T1-T4`/`A1-A6`、commit hash 等）；GitHub issue 编号与本地 `ISSUE-xxx` 不保留（追溯交 Git/GitHub）；
 - 注释中的代码示例、伪代码结构保持原样；
 - 翻译不得改变注释语义（对照原英文含义，防错译——尤其关键语义注释如竞态、边界、契约）。
 
@@ -18,7 +18,7 @@
 
 注释与文档中的中文文案统一遵循中文文案排版指北（sparanoid/chinese-copywriting-guidelines）：
 
-- **中英文之间加空格**：如「在 LeanCloud 上」「基于 ADR-0004」；
+- **中英文之间加空格**：如「在 LeanCloud 上」「基于 WebSocket 契约」；
 - **中文与数字之间加空格**：如「3 个文件」「10 条消息」；
 - **全角中文标点**：句号、逗号、引号（「」『』）用全角；英文整句/专名内部保留半角标点；
 - **数字用半角字符**（不用全角数字）；
@@ -27,12 +27,12 @@
 
 可选用自动化工具辅助（pangu.js、autocorrect），但以人工审查为准。
 
-## package.json prepare 红线（团队收敛）
+## package.json prepare 红线
 
 - `scripts.prepare` 的语义是**纯 husky 开发便利**（初始化 git hooks），不得混入构建/生成等必须步骤。
 - 现状容错形态：`"prepare": "husky || echo \"husky init skipped/inactive\" >&2 || true"`——pi 从 git 安装包时跑 `npm install --omit=dev`（不装 devDependencies，husky 为 devDep），prepare 在安装时必执行；`|| true` 保证 husky 缺失时静默跳过不报错（本地开发有 husky 时正常初始化 hooks）。
 - **红线**：若未来 prepare 需要承担构建/生成（必须步骤），必须撤销 `|| true` 容错或拆分为 `prepare:dev`/`prepare:build`，不得让必须步骤被静默吞掉。
-- 配套依赖归属红线：**运行期 import 的包一律进 `dependencies`，且不得同列 `devDependencies`**（双列会导致 lockfile 打 `dev: true` 标记，`--omit=dev` 安装时被跳过 → 装成功启动崩；typebox 双列教训，vscode-jsonrpc 同规）。
+- 配套依赖归属红线：**运行期 import 的包一律进 `dependencies`，且不得同列 `devDependencies`**（双列会导致 lockfile 打 `dev: true` 标记，`--omit=dev` 安装时被跳过 → 装成功启动崩；vscode-jsonrpc 同规）。
 
 ## 自定义 JSON
 
@@ -198,7 +198,7 @@ vitest
 
 ## 质量命令
 
-npm scripts（**门卫语义，v1.3**：无参调用拒绝 exit 1 并打印指引——验证必须显式指定目标，默认不跑）：
+npm scripts（**门卫语义**：无参调用拒绝 exit 1 并打印指引——验证必须显式指定目标，默认不跑）：
 
 ```text
 npm run test:unit -- <pattern> → 只跑指定文件/目录（unit / integration / acceptance 同规）

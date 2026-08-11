@@ -12,21 +12,21 @@ import { leaveAndReset, spawnCreator, startFreshGroup } from "./process-fixture.
 import { joinCharacterWs } from "./ws-helper.js";
 
 /**
- * #123 红钉（acceptance 进程级）：welcome system_message 替代历史推送。
+ *  红钉（acceptance 进程级）：welcome system_message 替代历史推送。
  *
- * 验收锚点：acceptance.md WL1–WL6（QA 提供场景文本，2026-08-08 落文）。
+ * 验收锚点：acceptance.md WL1–WL6。
  *
  * - WL1：ready 后新角色恰收 1 条 system_message（单播、非公共消息、不计轮次）；
  * - WL2：零 message_history 自动推送（旧 100 条行为取消）；
  * - WL3：get_message_history 主动分页仍完整可用（>10 条可全量拉取）；
  * - WL4：welcome_message 配置链——项目 .pi/tavern.json > 全局 tavern.json > 默认；
- * - WL6：system_message 走 #119 新信封（{jsonrpc:"2.0", method, params:{content}}，
- *   通知帧无 id），与 #97 source 扩展位互不干扰。
+ * - WL6：system_message 走  新信封（{jsonrpc:"2.0", method, params:{content}}，
+ *   通知帧无 id），与  source 扩展位互不干扰。
  *
  * 红测语义：当前实现（main 7fa5e2f）ready 后推送 message_history（100 窗口）
  * 且无 system_message——本文件在实现前为红。
  */
-describe("acceptance: #123 welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => {
+describe("acceptance: welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => {
 	const roots: string[] = [];
 	const extraProcesses: PiProcess[] = [];
 	const sockets: WebSocket[] = [];
@@ -144,7 +144,7 @@ describe("acceptance: #123 welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => 
 			expect(params.round).toBeUndefined();
 			expect(params.source).toBeUndefined();
 
-			// 时序（Arch 定案）：ready 响应（id=3 result）先到 → setImmediate 内
+			// 时序：ready 响应（id=3 result）先到 → setImmediate 内
 			// system_message → character_joined。
 			const readyIndex = framesA.findIndex((m) => m.id === "3" && "result" in m);
 			const welcomeIndex = framesA.indexOf(welcomeA);
@@ -153,9 +153,8 @@ describe("acceptance: #123 welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => 
 			expect(welcomeIndex).toBeGreaterThan(readyIndex);
 			expect(joinedIndex).toBeGreaterThan(welcomeIndex);
 
-			// 方案 a（User 拍板）：ready 响应携带进入时刻水位 latest_sequence
-			// （业务语义：入场即告诉角色「你进来时聊到第几条」，之后一条不漏）——
-			// 红钉先行：当前实现 result 仍为 null → 红；实现后转绿。
+			// 方案 a：ready 响应携带进入时刻水位 latest_sequence
+			// （业务语义：入场即告诉角色「你进来时聊到第几条」，之后一条不漏）——// 红钉先行：当前实现 result 仍为 null → 红；实现后转绿。
 			const readyFrame = framesA.find((m) => m.id === "3" && "result" in m);
 			expect(readyFrame?.result).toMatchObject({ latest_sequence: expect.any(Number) });
 
@@ -163,7 +162,7 @@ describe("acceptance: #123 welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => 
 			expect(framesA.some((m) => m.method === "message_history")).toBe(false);
 
 			// 单播验证：第二位成员加入后 system_message 只发给新成员，
-			// memberA 已在线不收第二条（Arch 定案：send 单播非 broadcast）。
+			// memberA 已在线不收第二条（send 单播非 broadcast）。
 			// 注意：角色唯一性（claim 占用检查）——memberB 须用不同角色。
 			memberB = await joinCharacterWs(descriptor, "ws-welcome-b", "characters/reviewer.md");
 			sockets.push(memberB.socket);
@@ -184,9 +183,9 @@ describe("acceptance: #123 welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => 
 		void descriptor;
 		void checkpoint;
 		try {
-			// 角色可见（PM 裁决口径 = 进环境注入）：真实角色进程 join 后，
+			// 角色可见（裁决口径 = 进环境注入）：真实角色进程 join 后，
 			// 其注入批次含欢迎文案——经观察通道 [tavern-inject] system_messages=…
-			// 断言（客户端 #123 扩展行，board_updates 同族模式；携带文案原文）。
+			// 断言（客户端  扩展行，board_updates 同族模式；携带文案原文）。
 			const charProcess = PiProcess.spawn({
 				label: "char-welcome",
 				agentDir,
@@ -429,7 +428,7 @@ describe("acceptance: #123 welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => 
 		await creator6.kill("SIGTERM");
 	});
 
-	it("WL7: tavern_history 历史可达 + 欢迎语指引 + join 无新消息场景（P1-4 定案）", async () => {
+	it("WL7: tavern_history 历史可达 + 欢迎语指引 + join 无新消息场景", async () => {
 		// 场景（User P1-4 反例）：新角色 join 已有 12 条消息、随后无人再发言的群聊。
 		// 验收：① 欢迎语含 tavern_history 指引（AI 自主决策拉历史）② 历史可经
 		// tavern_history 观察通道分页拉取（10 + has_more + total=12）③ 无机械拉取

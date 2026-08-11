@@ -108,9 +108,9 @@ ws://127.0.0.1:<port>/<group_chat_id>/<instance_id>
 
 因此即使描述文件陈旧、PID 被复用或端口被其他进程重新占用，也不能仅凭描述文件成为有效群聊连接。
 
-## 角色清单按需刷新（#25
+## 角色清单按需刷新
 
-宿主（creator）的角色清单默认是启动快照：`/tavern-new` 或 `/tavern-resume` 时扫描一次角色卡目录，此后固定。这带来两个缺陷（#25）：
+宿主（creator）的角色清单默认是启动快照：`/tavern-new` 或 `/tavern-resume` 时扫描一次角色卡目录，此后固定。这带来两个缺陷：
 
 - 新增角色卡后，已运行的群聊 join 不可见新卡。
 - 已有卡 name/description 变更后，leave→join 时 claim 返回旧摘要，与客户端磁盘重读的新卡不一致，`loadClaimedCharacter` 校验抛错导致 join 失败。
@@ -135,5 +135,5 @@ ws://127.0.0.1:<port>/<group_chat_id>/<instance_id>
 
 - 刷新成功且结果非空 = **原地更新** characters Map（`clear` + `set`，保持 Map 实例引用——member-bookkeeping 与各 pipeline 持有的同一引用自动可见）。
 - 刷新失败或结果为空 = **回退旧快照**（不动 Map），join/claim 按旧清单继续工作。
-- reload 路径（`createFromHandoff`）不注入刷新来源 = 保持 handoff 快照，不破坏 ISSUE-005 的 reload 语义。
+- reload 路径（`createFromHandoff`）不注入刷新来源 = 保持 handoff 快照，不破坏 reload 语义。
 - 协议/持久化契约零改动；刷新只影响宿主内存中的角色清单。

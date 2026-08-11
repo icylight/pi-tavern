@@ -1,7 +1,7 @@
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 
 /**
- * #42（ISSUE-042）：resume 历史投影的窗口-锚定纯逻辑。
+ * ：resume 历史投影的窗口-锚定纯逻辑。
  *
  * 契约（test/unit/ui/resume-projection.test.ts 固化，8 用例）：
  * - 窗口：取 publicMessages 尾部 windowSize 条（sequence 序）；长度 ≤
@@ -28,7 +28,7 @@ export function computeResumeProjection(
 }
 
 /**
- * #42：会话内投影条目扫描所需的最小接口（兼容 ReadonlySessionManager）。
+ * ：会话内投影条目扫描所需的最小接口（兼容 ReadonlySessionManager）。
  * 结构化而非直接依赖 pi SDK 类型，保持纯逻辑模块可独立测试。
  */
 export interface ProjectionEntryReader {
@@ -40,9 +40,9 @@ export interface ProjectionEntryReader {
 }
 
 /**
- * #42：扫描当前 pi 会话内本群聊的 creator-display 条目，返回最大 sequence。
+ * ：扫描当前 pi 会话内本群聊的 creator-display 条目，返回最大 sequence。
  *
- * resume 投影锚定的唯一来源（PM 裁决方案 B，无标记文件）：fresh 会话
+ * resume 投影锚定的唯一来源（方案 B，无标记文件）：fresh 会话
  * （无条目）→ 锚定 0 → 全窗口投影（每次 fresh resume 都有历史）；continued
  * 会话（interactive --continue / pi /resume 进旧会话）→ 跳过已显示段防重复；
  * 同会话重复 resume → 扫描幂等空。中断重入按已投影最大 sequence 补尾段。

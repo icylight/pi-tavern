@@ -38,12 +38,12 @@ function creatorHandoff(piSessionId: string, expiresAt: number, cleanup: () => P
 		activeDescriptor: descriptor,
 		activeDescriptorPath: "/agent/chats/group-1.jsonl",
 		configMaxMessages: 10,
-		// #123：欢迎文案（配置快照随 handoff 传递）。
+		// 欢迎文案（配置快照随 handoff 传递）。
 		welcomeMessage: "welcome-default",
-		// #154：群聊文案模板集（配置快照随 handoff 传递）。
+		// 群聊文案模板集（配置快照随 handoff 传递）。
 		messageTemplates: {
 			public_message: "{sender}:\\n{content}",
-			// #152：whisper 两 key 随 #152 重新引入（WH9）。
+			// whisper 两 key 随  重新引入（WH9）。
 			whisper_full: "{sender} 向 {receiver} 悄悄说：{content}",
 			whisper_placeholder: "{sender} 向 {receiver} 悄悄说了一句话",
 			seconds_ago: "{count} 秒前",

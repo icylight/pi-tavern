@@ -4,12 +4,12 @@ import type { CharacterRuntime } from "../../../src/character/character-runtime.
 import { GroupChatInput } from "../../../src/character/group-chat-input.js";
 import type { PublicMessage, ServerMessage } from "../../../src/protocol/messages.js";
 
-// #83 会话侧投递挂起形态（PM 领办：13:44-48 Dev 会话零投递 8 分钟 → 会话侧链路）：
+//  会话侧投递挂起形态（PM 领办：13:44-48 Dev 会话零投递 8 分钟 → 会话侧链路）：
 // settled 后拉取挂起（fetchMessagesSince 永不 resolve = WS 请求挂起的极端形态）时，
 // 单飞行锁（fetchInFlight）不得并发拉取（S1）；挂起 resolve 后必须自愈——
 // refetchRequested 补拉 + 投递（S2，锁不死、不丢）。
-// 红绿：f2ac85f（#73 忙态立即拉取 + 单飞行锁）预期绿；d5aa913（Phase 3 忙态
-// 只置标记不拉取）预期红 = #73 忙态契约变更钉死。
+// 红绿：f2ac85f（忙态立即拉取 + 单飞行锁）预期绿；d5aa913（Phase 3 忙态
+// 只置标记不拉取）预期红 =  忙态契约变更钉死。
 
 function createMockRuntime(
 	overrides: {
@@ -67,7 +67,7 @@ function aPublicMessage(sequence: number): ServerMessage {
 	} as unknown as PublicMessage as ServerMessage;
 }
 
-// 忙态拉取由 group_chat_update（水位广播）触发（#68 契约），非 public_message。
+// 忙态拉取由 group_chat_update（水位广播）触发（契约），非 public_message。
 function aGroupChatUpdate(latestSequence: number): ServerMessage {
 	return {
 		jsonrpc: "2.0",
@@ -80,7 +80,7 @@ function aGroupChatUpdate(latestSequence: number): ServerMessage {
 	} as unknown as ServerMessage;
 }
 
-describe("GroupChatInput #83 会话侧投递挂起（单飞行锁形态）", () => {
+describe("GroupChatInput  会话侧投递挂起（单飞行锁形态）", () => {
 	it("S1: 忙态拉取挂起期间，后续 update 不并发拉取、不投递（单飞行锁钉死）", async () => {
 		let release: (() => void) | undefined;
 		const stalled = new Promise<void>((resolveStalled) => {

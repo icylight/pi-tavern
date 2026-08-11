@@ -1,5 +1,5 @@
 /**
- * #145 docs-first 迁移：翻译器单测（客户端交付物，#145 验收项③）。
+ *  docs-first 迁移：翻译器单测（客户端交付物， 验收项③）。
  *
  * 覆盖：toTypeBox 全部类型构造（object/string/integer(minimum)/number/
  * boolean/null/array/anyOf/enum/const/$ref/patternProperties/description/

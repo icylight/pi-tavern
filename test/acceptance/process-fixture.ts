@@ -1,11 +1,11 @@
 import { type EventCheckpoint, PiProcess, type SpawnPiOptions } from "./pi-process.js";
 
 /**
- * 测试架构改造 v2（User 拍板 2026-08-02，Arch 评审）：兼容场景串行共享 creator
+ * 测试架构改造 v2：兼容场景串行共享 creator
  * fixture——同一时刻只服务一个群聊（tavern-controller 单状态机契约），并发隔离
  * 单元 = 进程工作区；场景间隔离经 EventCheckpoint（pi-process.waitForAfter）。
  *
- * 硬约束（Arch 已核源码）：① controller 单状态机（idle|joining|creator|character），
+ * 硬约束：① controller 单状态机（idle|joining|creator|character），
  * 未 leave 再 /tavern-new 必 "already bound"；② 共享后事件必然串扰 → waitForAfter
  * 场景内强制使用；③ 失败传染 → leaveAndReset/resetOrRespawnCreator 双保险。
  */

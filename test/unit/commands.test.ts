@@ -107,7 +107,7 @@ function createContext(options: { isIdle?: boolean } = {}): {
 }
 
 describe("PiTavern commands", () => {
-	it("registers the M2 command set", () => {
+	it("registers the command set", () => {
 		// 隔离 PITAVERN_TEST 环境变量泄漏——测试专用命令
 		// （tavern-test-*）是条件注册的，不应出现在基础命令集断言中。
 		const saved = process.env.PITAVERN_TEST;
@@ -251,11 +251,11 @@ describe("PiTavern commands", () => {
 		expect(message).toContain("Config max messages: 12");
 		expect(message).toContain("Group max messages: 10");
 		expect(message).toContain("Round: not started");
-		// 白板模型（#114）：空板不渲染小节（无 Boards 段）
+		// 白板模型：空板不渲染小节（无 Boards 段）
 		expect(message).not.toContain("Boards:");
 	});
 
-	it("shows the board snapshot in creator status (B5, #114)", async () => {
+	it("shows the board snapshot in creator status (B5)", async () => {
 		const runtime = createRuntime();
 		const controller = new TavernController(async () => runtime);
 		await controller.startNew({ cwd: "/project", agentDir: "/agent" });

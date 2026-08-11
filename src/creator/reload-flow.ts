@@ -32,13 +32,13 @@ export interface ReloadFlowHost {
 	activeDescriptor: ActiveGroupChatDescriptor;
 	activeDescriptorPath: string;
 	configMaxMessages: number;
-	/** #123：欢迎文案（reload handoff 传递，与 configMaxMessages 同源）。 */
+	/** ：欢迎文案（reload handoff 传递，与 configMaxMessages 同源）。 */
 	welcomeMessage: string;
-	/** #154：群聊文案模板集（reload handoff 传递，与 configMaxMessages 同源）。 */
+	/** ：群聊文案模板集（reload handoff 传递，与 configMaxMessages 同源）。 */
 	messageTemplates: Record<MessageTemplateKey, string>;
 	characters: ReadonlyMap<string, CharacterCard>;
 	publicMessages: PublicMessageState[];
-	/** #152：私信消息流快照（reload handoff 传递，与 publicMessages 同源）。 */
+	/** ：私信消息流快照（reload handoff 传递，与 publicMessages 同源）。 */
 	whisperMessages: WhisperMessageState[];
 	persistedCount: number;
 	sessionStore: SessionStore;

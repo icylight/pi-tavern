@@ -1,4 +1,4 @@
-// 由 scripts/generate-schema.mjs 生成（docs-first：#145）——请勿手改。
+// 由 scripts/generate-schema.mjs 生成（docs-first）——请勿手改。
 // 权威源 = src/protocol/schema/*.jsonc（4 个协议定义文件，唯一手写处）。
 import { Type } from "typebox";
 export const CharacterSummarySchema = Type.Object(

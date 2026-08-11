@@ -46,8 +46,8 @@ afterEach(async () => {
 });
 
 describe("CreatorRuntime Character join lifecycle", () => {
-	it("#123 WL1/WL2 红钉：ready 后收 1 条 system_message 且不再自动推 message_history", async () => {
-		// 与 #123 指定默认文案一致（DEFAULT_WELCOME_MESSAGE 待实现落定后引用）。
+	it("WL1/WL2 红钉：ready 后收 1 条 system_message 且不再自动推 message_history", async () => {
+		// 与  指定默认文案一致（DEFAULT_WELCOME_MESSAGE 待实现落定后引用）。
 		const WELCOME = DEFAULT_WELCOME_MESSAGE;
 
 		const runtime = await startRuntime();
@@ -157,7 +157,7 @@ describe("CreatorRuntime Character join lifecycle", () => {
 			// P1-4 方案 a：ready 携带进入时刻水位 latest_sequence（契约流程 WL1 帧序钉更新）。
 			result: { latest_sequence: 0 },
 		});
-		// #123：ready 后不再自动推 message_history，改发 system_message 欢迎单播。
+		// ready 后不再自动推 message_history，改发 system_message 欢迎单播。
 		expect(await peer.next()).toEqual({
 			jsonrpc: "2.0",
 			method: "system_message",

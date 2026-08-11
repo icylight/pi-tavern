@@ -12,12 +12,12 @@ import type {
 } from "./generated/schema.js";
 
 /**
- * JSON-RPC 2.0 标准信封（#119 M1 迁移，User 拍板豁免零漂移——特例仅此一次）。
+ * JSON-RPC 2.0 标准信封（迁移豁免零漂移——特例仅此一次）。
  * 判别字段 type → method；请求/响应/通知统一 {jsonrpc:"2.0"}；载荷进 params；
  * 响应 {command, success, data} → {result} / {error:{code,message}}。
- * F 类 method 判别常量（#109 欠账）挂 M2 同批抽取，M1 先用字面量。
+ * F 类 method 判别常量（欠账）挂同批抽取，先用字面量。
  *
- * docs-first（#145）：schema 定义已迁移至 src/protocol/schema/*.jsonc（唯一手写
+ * docs-first：schema 定义已迁移至 src/protocol/schema/*.jsonc（唯一手写
  * 源头），本文件从生成产物 re-export——生成产物不得手改；类型继续由 Static
  * 从同一 schema 对象推导（消费面零变化）。
  */
@@ -85,7 +85,7 @@ export type ClaimCharacterSuccess = Extract<
 	ServerMessage,
 	{ result: { character: Static<typeof ClaimedCharacterSchema> } }
 >;
-/** #144 P1-4 方案 a：ready 成功响应（result 含进入时刻水位）。 */
+/**   方案 a：ready 成功响应（result 含进入时刻水位）。 */
 export type ReadyResponse = Extract<ServerMessage, { result: { latest_sequence: number } }>;
 export type GroupChatStateSuccess = Extract<ServerMessage, { result: { group_chat: unknown } }>;
 export type GroupChatStateMessage = GroupChatStateSuccess["result"];

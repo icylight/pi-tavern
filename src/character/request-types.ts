@@ -16,7 +16,7 @@ import {
 } from "../shared/messages.js";
 
 /**
- * #119 connection 接线：character 侧请求类型注册表（method 与 creator dispatch
+ *  connection 接线：character 侧请求类型注册表（method 与 creator dispatch
  * 注册表同源 F 常量；库按 id 关联响应）。JoinAttempt（join/claim/ready 三握手）
  * 与 CharacterRuntime（运行期 11 类）共用同一注册表——同一连接跨握手/运行期
  * 延续（connection 实例 + 序列跨 handoff 单调，代际 id 不撞车）。

@@ -34,7 +34,7 @@ interface ReadyPipelineDependencies {
 	connections: Map<string, WebSocket>;
 	heartbeatRegistry: HeartbeatRegistry;
 	characters: ReadonlyMap<string, CharacterCard>;
-	/** #123：欢迎文案（配置链合并结果，缺省 = DEFAULT_WELCOME_MESSAGE）。 */
+	/** ：欢迎文案（配置链合并结果，缺省 = DEFAULT_WELCOME_MESSAGE）。 */
 	welcomeMessage: string;
 	/** 预留定时器清理（runtime 方法注入，与超时释放同一归属）。 */
 	clearReadyTimer: (connection: ReadyConnectionLike) => void;
@@ -49,14 +49,14 @@ interface ReadyPipelineDependencies {
 	/** 组播通道（载荷 = 完整 ServerMessage 通知帧，B1 收窄）。 */
 	broadcast: (message: ServerMessage) => void;
 	onMembersChanged: (() => void) | undefined;
-	/** #144 P1-4 方案 a：ready 响应携带的进入时刻水位（公开消息总数，与 group_chat_update 同源）。 */
+	/**   方案 a：ready 响应携带的进入时刻水位（公开消息总数，与 group_chat_update 同源）。 */
 	latestSequence: () => number;
 }
 
 /**
  * character_ready 门面（短流程：阶段多为发送顺序而非 IO 管线）。阶段：
  * validate（预留有效性）→ commit 在线态 → 响应 + 欢迎消息 → 广播序列。
- * #123：ready 后不再自动推送 message_history，改为单播 system_message 欢迎文案
+ * ：ready 后不再自动推送 message_history，改为单播 system_message 欢迎文案
  * （历史改由 get_message_history / fetch_messages_since 主动拉取，WL1-WL3）。
  */
 export class ReadyPipeline {
@@ -91,7 +91,7 @@ export class ReadyPipeline {
 		});
 		connection.online = true;
 
-		// #144 P1-4 方案 a（User 拍板）：ready 响应携带进入时刻水位 latest_sequence——
+		//   方案 a：ready 响应携带进入时刻水位 latest_sequence——
 		// 客户端游标以此为锚（join 时刻）精确预置，误差窗口归零（此前查询预置的
 		// round-trip 窗口可吞 join 后立即到达的消息，T2 稳定复现）。响应先到（result），
 		// 随后 system_message 欢迎单播 + character_joined 广播。connection 模式下

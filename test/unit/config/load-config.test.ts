@@ -111,7 +111,7 @@ describe("loadTavernConfig", () => {
 		await expect(loadTavernConfig({ agentDir, cwd })).rejects.toThrow(characterPath);
 	});
 
-	describe("welcome_message 三档合并与 wire 安全校验（#123 + PR #144 P1，Arch 属主）", () => {
+	describe("welcome_message 三档合并与 wire 安全校验（P1，Arch 属主）", () => {
 		async function configWithWelcome(
 			root: string,
 			projectWelcome: string | undefined,

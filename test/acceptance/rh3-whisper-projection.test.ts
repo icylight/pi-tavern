@@ -8,17 +8,17 @@ import { PiProcess, waitForDescriptor } from "./pi-process.js";
 import { type BufferedWsClient, connectCharacter } from "./ws-helper.js";
 
 /**
- * RH3-whisper 首部剧本（ADR-0010 剧本驱动 e2e MVP v0，一用例一剧本）。
+ * RH3-whisper 首部剧本（剧本驱动 e2e MVP v0，一用例一剧本）。
  * 剧本：test/acceptance/scripts/rh3-whisper-projection.jsonc
  *
  * 场景：Alice 公开消息打底 → whisper Carol「悄悄话R1」→ 创建者完整正文 /
  * 接收者实时正文 / 旁观者占位（无正文）→ 重启 resume 后创建者仍见完整正文。
  *
- * 断言（#152 RH3 补验 + WH8 恢复 + WH4 投影 + WH6 非唤醒）：
+ * 断言（RH3 补验 + WH8 恢复 + WH4 投影 + WH6 非唤醒）：
  * - 创建者实时投影 whisper_message 含完整正文；
  * - 接收者 Carol 实时收到正文（whisper_message 帧）；
  * - 旁观者仅 whisper_placeholder 且无正文；
- * - 重启恢复后创建者投影仍含完整正文（RH3 验收点，AI 评审第三轮阻断）。
+ * - 重启恢复后创建者投影仍含完整正文（RH3 验收点）。
  *
  * 红测语义：旧实现（bc5fd5e 前无 whisper 投影/占位广播）下创建者投影
  * 无 whisper 分支、旁观者无占位帧 → 断言必红。
@@ -50,7 +50,7 @@ interface Script {
 	};
 }
 
-describe("acceptance: RH3-whisper-projection（#152 剧本驱动首部剧本）", () => {
+describe("acceptance: RH3-whisper-projection（剧本驱动首部剧本）", () => {
 	let root: string | undefined;
 	const processes: PiProcess[] = [];
 
@@ -198,7 +198,7 @@ describe("acceptance: RH3-whisper-projection（#152 剧本驱动首部剧本）"
 						if (expected.sequence !== undefined && params.sequence !== expected.sequence) return false;
 						if (expected.content_absent) {
 							// WH4/WH6 契约：占位帧无正文——content 字段必须不存在（而非
-							// 内容为空/不含某字面量——防泄露帧假绿，第五轮 AI 评审阻断）。
+							// 内容为空/不含某字面量——防泄露帧假绿）。
 							return !("content" in params) && !Object.hasOwn(params, "content");
 						}
 						if (expected.content_contains !== undefined) {

@@ -21,7 +21,7 @@ export interface ConnectionContext {
 		close: () => void;
 		error: () => void;
 	} | null;
-	/** #119 connection 接线：per-socket JSON-RPC 连接（响应关联/错误码序列化由库承担）。 */
+	/**  connection 接线：per-socket JSON-RPC 连接（响应关联/错误码序列化由库承担）。 */
 	jsonrpcConnection: MessageConnection | null;
 	/** reader 引用：socket 关闭时 notifyClose 触发库内 pending 拒绝编排。 */
 	jsonrpcReader: WebSocketMessageReaderT | null;
@@ -113,7 +113,7 @@ export class ConnectionManager {
 		this.attachSocketHandlers(socket, connection);
 	}
 
-	/** #119 connection 接线：创建并注册 per-socket JSON-RPC 连接（handleFrame
+	/**  connection 接线：创建并注册 per-socket JSON-RPC 连接（handleFrame
 	 * 解码校验后经 reader.deliver 喂入；reader 仅提供接口形状 + close 通知）。 */
 	private attachJsonRpc(socket: WebSocket, connection: ConnectionContext): void {
 		const jsonrpcReader = new WebSocketMessageReader();
@@ -162,7 +162,7 @@ export class ConnectionManager {
 			return;
 		}
 		try {
-			// #119 connection 接线：消息经 reader.deliver 喂入 connection 内部
+			//  connection 接线：消息经 reader.deliver 喂入 connection 内部
 			// 处理链（onRequest/onNotification 注册表分发；ResponseError → 库发
 			// error 响应；请求 id 由库关联）。
 			if (connection.jsonrpcReader) {

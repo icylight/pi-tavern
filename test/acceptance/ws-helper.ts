@@ -24,7 +24,7 @@ export class BufferedWsClient {
 	}
 
 	/**
-	 * 剧本驱动/协议直驱通用发帧（ADR-0010 方案 1）：自动分配递增 id，
+	 * 剧本驱动/协议直驱通用发帧（剧本驱动 e2e 方案 1）：自动分配递增 id，
 	 * 等待同 id 响应（result 或 error 信封），支持超时。供 act:whisper /
 	 * act:speak 等剧本条目映射（解释器零业务逻辑，只做映射与对照）。
 	 */
@@ -60,7 +60,7 @@ export class BufferedWsClient {
 			if (remaining <= 0) {
 				throw new Error("timeout waiting for WebSocket message");
 			}
-			// 基建修复（QA 2026-08-08，#123 定位）：无新帧到达时 waiter 永不
+			// 基建修复：无新帧到达时 waiter 永不
 			// resolve、deadline 永不检查（原实现超时形同虚设——测试挂起而非
 			// 明确报错）。独立 timer 保证超时真正生效，帧到达路径清除 timer。
 			await new Promise<void>((resolveWait) => {
@@ -113,7 +113,7 @@ export class BufferedWsClient {
 	}
 }
 
-/** ADR-0010：Character 连接工厂（joinCharacterWs 的封装名，样板单点）。 */
+/** 剧本驱动 e2e：Character 连接工厂（joinCharacterWs 的封装名，样板单点）。 */
 export const connectCharacter = joinCharacterWs;
 
 /** 连接裸 WebSocket 客户端并完成加入流程。 */

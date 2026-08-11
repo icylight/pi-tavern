@@ -48,7 +48,7 @@ interface CreatorDisplayEntryData {
 	event: CreatorDisplayEvent;
 }
 
-/** 白板模型（#114）：creator-display 的 board_update 条目（纯展示，非协议）。 */
+/** 白板模型：creator-display 的 board_update 条目（纯展示，非协议）。 */
 interface CreatorBoardEntryData {
 	kind: "board_update";
 	group_chat_id: string;
@@ -58,7 +58,7 @@ interface CreatorBoardEntryData {
 	note?: { id: string; content: string };
 }
 
-/** #42：当前 pi 会话的只读引用（session_start 捕获，用于投影锚定扫描）。 */
+/** 当前 pi 会话的只读引用（session_start 捕获，用于投影锚定扫描）。 */
 let sessionManagerRef: ProjectionEntryReader | null = null;
 
 export default function piTavern(pi: ExtensionAPI, controller?: TavernController): void {
@@ -67,7 +67,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	const triggerDebounceMs = Number(process.env.PITAVERN_TRIGGER_DEBOUNCE_MS ?? "1000");
 	const injectTriggerDebounce =
 		Number.isFinite(triggerDebounceMs) && triggerDebounceMs >= 0 ? triggerDebounceMs : undefined;
-	// #138：增量拉取上下文窗口——拉取起点前移游标前 N 条已读（默认 1，暂不配置）。
+	// 增量拉取上下文窗口——拉取起点前移游标前 N 条已读（默认 1，暂不配置）。
 	// getter 闭包注入（每轮拉取实时取值，非快照）；显式传入优先，undefined → 窗口 0 行为不变。
 	const DEFAULT_FETCH_CONTEXT_WINDOW = 1;
 	const getFetchContextWindow = () => DEFAULT_FETCH_CONTEXT_WINDOW;
@@ -80,7 +80,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 			}),
 		);
 	const presenter = new TavernUiPresenter();
-	// 组合根装配（ADR-0005 层方向，Phase 4）：adapter 行为默认实现在此注入——
+	// 组合根装配（五层依赖方向，architecture.md §5）：adapter 行为默认实现在此注入——
 	// commands/headless 只留注入面与类型/纯函数导入。
 	const piSessionManager = {
 		list: (cwd: string, sessionDir: string) => SessionManager.list(cwd, sessionDir),
@@ -95,12 +95,12 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 				sessionManager: piSessionManager,
 			}),
 		deleteGroupChatSession: (path) => deleteGroupChatSessionFile(path),
-		// 白板模型（#114，ADR-0007 契约④）：删除群聊同步清理白板（boards/<groupId>.json）。
-		// 组合根装配行为默认实现（ADR-0005 层方向）；每调用新建 store 实例——删除仅发生在
-		// 非活跃群聊（resumable 语义），无并发写者；B3 活动实例复用同一 store 时另行显式摘除。
+		// 白板模型：删除群聊同步清理白板（boards/<groupId>.json）。
+		// 组合根装配行为默认实现（五层依赖方向）；每调用新建 store 实例——删除仅发生在
+		// 非活跃群聊（resumable 语义），无并发写者；活动实例复用同一 store 时另行显式摘除。
 		deleteBoard: (groupId, boardDir) => createBoardStore({ boardDir }).deleteBoard(groupId),
 	});
-	// #154：TUI 模板集 getter 闭包——从当前 creator runtime 实时取（reload/
+	// TUI 模板集 getter 闭包——从当前 creator runtime 实时取（reload/
 	// 新群聊后模板集变化可见），非 creator 态回落内置中文。
 	registerRenderers(pi, () => {
 		const state = ctrl.getState();
@@ -109,7 +109,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	registerTavernTools(pi, ctrl);
 	wireAgentLifecycle(pi, ctrl);
 
-	// ISSUE-014：headless RPC 角色模式——启动时自动 join。RPC 模式不触发
+	// headless RPC 角色模式——启动时自动 join。RPC 模式不触发
 	// session_start/resources_discover 事件，因此 join 从扩展加载时调度（会话
 	// 在扩展运行时已绑定；延迟只是让 runner 完成会话引导）。reload 不属于
 	// headless 操作（无 TUI 命令）；身份与连接由进程生命周期持有。
@@ -124,12 +124,12 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 				},
 			},
 		};
-		// headless 进程不触发 session_start（观察通道在 headless 是死通道，QA B6
-		// 实证）——补接线：注入代码有 PITAVERN_TEST=1 门闸，生产零影响。
+		// headless 进程不触发 session_start（观察通道在 headless 是死通道）——
+		// 补接线：注入代码有 PITAVERN_TEST=1 门闸，生产零影响。
 		setTestNotify(ctx.ui.notify);
 		const run = () => {
 			void autoJoinCharacter(pi, ctrl, ctx, {
-				// 组合根装配（ADR-0005 层方向，Phase 4）。
+				// 组合根装配（五层依赖方向，architecture.md §5）。
 				...(injectTriggerDebounce !== undefined ? { triggerDebounceMs: injectTriggerDebounce } : {}),
 				discoverGroupChats: (options) => discoverActiveGroupChats(options),
 				...(process.env.PITAVERN_CHARACTER !== undefined && process.env.PITAVERN_CHARACTER !== ""
@@ -159,7 +159,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 
 	// 仅 character 状态启用 tavern_speak，其余禁用
 	pi.on("session_start", (event, ctx) => {
-		// #42：捕获会话引用供 resume 投影锚定扫描（会话复用场景跳过已显示段）。
+		// 捕获会话引用供 resume 投影锚定扫描（会话复用场景跳过已显示段）。
 		sessionManagerRef = ctx.sessionManager;
 		presenter.bind(ctx.ui);
 		setTestNotify(ctx.ui.notify);
@@ -231,12 +231,12 @@ function wireCreatorDisplay(pi: ExtensionAPI, ctrl: TavernController): void {
 		appendCreatorDisplayEntry(pi, state.runtime, msg);
 	};
 
-	// #152（Arch 阻断修复）：私信提交后投影完整正文（创建者恒参与者视角）。
+	// 私信提交后投影完整正文（创建者恒参与者视角）。
 	state.runtime.onWhisperMessage = (whisper) => {
 		appendCreatorWhisperEntry(pi, state.runtime, whisper);
 	};
 
-	// 白板模型（#114）：board_update 实时提示（纯展示，不扩协议面）——
+	// 白板模型：board_update 实时提示（纯展示，不扩协议面）——
 	// 组合根接线，runtime 无 ui 句柄；显示通道与 public_message 同源。
 	state.runtime.onBoardUpdated = (update) => {
 		appendCreatorBoardEntry(pi, state.runtime, update);
@@ -262,16 +262,16 @@ function wireCreatorDisplay(pi: ExtensionAPI, ctrl: TavernController): void {
 		}
 	};
 
-	// #42（ISSUE-042）：resume 后把持久化历史窗口投影到当前会话。
-	// 幂等（会话扫描锚定防重复，方案 B），creator-runtime 零改动、零协议变更。
+	// resume 后把持久化历史窗口投影到当前会话。
+	// 幂等（会话扫描锚定防重复），creator-runtime 零改动、零协议变更。
 	projectResumeHistory(pi, state.runtime);
 }
 
 /**
- * #42：增量/回放共用的 creator-display 条目落盘（格式唯一来源，保证
- * 回放与增量投影逐字一致——A2）。失败时降级为错误通知条目（与旧行为一致）。
+ * 增量/回放共用的 creator-display 条目落盘（格式唯一来源，保证
+ * 回放与增量投影逐字一致。失败时降级为错误通知条目（与旧行为一致）。
  */
-/** 白板模型（#114）：creator 实时提示——board_update 追加到 creator-display
+/** 白板模型：creator 实时提示——board_update 追加到 creator-display
  * 面板（尽力而为；与 appendCreatorDisplayEntry 同容错）。
  */
 function appendCreatorBoardEntry(
@@ -343,7 +343,7 @@ function appendCreatorDisplayEntry(pi: ExtensionAPI, runtime: CreatorRuntime, ms
 }
 
 /**
- * #152（Arch 阻断修复）：私信条目投影（创建者恒参与者视角——完整正文）。
+ * ：私信条目投影（创建者恒参与者视角——完整正文）。
  * 与 appendCreatorDisplayEntry 同容错；renderers whisper_message 分支的
  * 实时产生源（恢复投影走 projectResumeHistory 合并流）。
  */
@@ -381,20 +381,20 @@ function appendCreatorWhisperEntry(
 }
 
 /**
- * #42：resume 历史投影（PM 裁决方案 B：纯扫描锚定，无标记文件）。锚定 =
+ * resume 历史投影（纯扫描锚定，无标记文件）。锚定 =
  * 当前 pi 会话内本群聊 creator-display 条目最大 sequence——fresh 会话
  * （无条目）→ 全量投影（每次 fresh resume 都有历史）；continued 会话
  * → 跳过已显示段防重复；同会话重复 resume → 幂等空。窗口 = 当前全量
- * 列表长度（#155：移除 JOIN_HISTORY_LIMIT=10 截断，投影完整历史）。
- * 中断重入按已投影最大 sequence 补尾段。新消息增量路径不受影响（A4）。
+ * 列表长度（移除 JOIN_HISTORY_LIMIT=10 截断，投影完整历史）。
+ * 中断重入按已投影最大 sequence 补尾段。新消息增量路径不受影响。
  */
 function projectResumeHistory(pi: ExtensionAPI, runtime: CreatorRuntime): void {
 	const anchor = computeSessionProjectionAnchor(sessionManagerRef, runtime.state.groupChat.groupChatId);
 	// 窗口 = 合并流全量长度（public + whisper 共用递增器，sequence 无空洞——
-	// 等价全量窗口；#155 结论）。
+	// 等价全量窗口）。
 	const windowSize = runtime.publicMessageList.length + runtime.whisperMessageList.length;
 	const publicMessages = computeResumeProjection(runtime.publicMessageList, anchor, windowSize);
-	// #152（Arch 阻断修复）：私信按同 anchor/窗口过滤（共享递增器，锚定一致），
+	// 私信按同 anchor/窗口过滤（共享递增器，锚定一致），
 	// 与公开消息按 sequence 归并后统一投影（创建者恒参与者视角，完整正文）。
 	const whisperMessages = runtime.whisperMessageList
 		.filter((message) => message.sequence > anchor)
@@ -409,7 +409,7 @@ function projectResumeHistory(pi: ExtensionAPI, runtime: CreatorRuntime): void {
 	}
 }
 
-/** #152：合并流类型守卫（whisper 独占 recipient 字段）。 */
+/** 合并流类型守卫（whisper 独占 recipient 字段）。 */
 function isWhisperState(message: PublicMessageState | WhisperMessageState): message is WhisperMessageState {
 	return "recipient" in message;
 }

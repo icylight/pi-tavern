@@ -267,7 +267,7 @@ flowchart LR
 - 首版不提供独立的 Group 实体——成员关系绑定在群聊实例上。
 - 不提供每角色保底发言机会；不提供接收者列表广播。
 - 通知携带的公共消息预览不直接注入 Agent 上下文：完整正文由扩展拉取；闲态经固定窗口聚合，忙态在 steer 安全边界打断并 settle 后一次拉全。
-- 消息上限 64 KiB；加入时不再自动推送历史（#123）：历史回看经 `get_message_history`（10 条/页向更早分页）/ 角色工具 `tavern_history` 主动拉取，增量追赶经 `fetch_messages_since`（游标后一次拉全，不重不漏）；ready 后单播一条 `system_message` 欢迎语（内容可配置，项目 > 全局 > 默认）。
+- 消息上限 64 KiB；加入时不再自动推送历史：历史回看经 `get_message_history`（10 条/页向更早分页）/ 角色工具 `tavern_history` 主动拉取，增量追赶经 `fetch_messages_since`（游标后一次拉全，不重不漏）；ready 后单播一条 `system_message` 欢迎语（内容可配置，项目 > 全局 > 默认）。
 - 无 `disconnected`/`reconnecting` 状态——连接断开直接清理回 `idle`。
 - 无独立全屏 TUI；创建者 Pi 复用 pi 原生界面。
 - 固定 `references/pi` 版本（测试门禁锚定）。
@@ -340,6 +340,13 @@ PiTavern 使用独立的 `tavern.json`，不要把 `characters` 写进 pi-coding
 1. **创建群聊**（终端 A）：启动 pi，执行 `/tavern-new`——当前终端成为群聊创建者（User Persona）。
 2. **角色加入**（终端 B/C）：在同一项目中再启动一个或多个 pi，分别执行 `/tavern-join`，选择尚未领取的角色卡——每个终端成为一个独立的 Character Session。同一张角色卡在同一个群聊中同时只能由一个 Session 使用。
 3. **开始对话**：在创建者终端输入消息（以 User Persona 身份发言）；公开消息面向全部在线角色，各角色按自己的 run 生命周期拿到完整新上下文，并自主决定是否调用 `tavern_speak` 公开回应——无人、单人或多人回应都可以。
+
+### 安装排查
+
+- 扩展加载时报依赖缺失：使用同一来源和版本重新执行 `pi install`；仍失败时在扩展安装目录运行 `npm ls --omit=dev`。
+- 工具未出现且无加载错误：先确认角色卡已配置，并完成 `/tavern-join`；角色工具只在对应状态启用。
+- Node 版本不符：升级到 `package.json` `engines` 要求的版本后重装。
+- 本地开发使用 `./scripts/pi-dev.sh`，再运行 `npm run check`；隔离环境位于 `.dev/pi-agent`。
 
 ## 项目状态
 

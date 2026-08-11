@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 /**
- * JSONL fixture 生成器（ADR-0010 剧本驱动 e2e，Arch 优化方案 3）。
- * pi session JSONL 格式（session-manager.js 实证）：
+ * JSONL fixture 生成器（剧本驱动 e2e，优化方案 3）。
+ * pi session JSONL 格式（依据 session-manager.js）：
  * - 第 1 行 header = {type:"session", version, id, timestamp, cwd, parentSession}
  * - 后续每行 = {type, id, parentId, timestamp, ...payload}
  * 格式敏感收敛单点：恢复类 fixture 一律经本模块构造。
@@ -51,7 +51,7 @@ export function customMessageEntry(options: {
 	};
 }
 
-/** #152：whisper-message entry 构造（details 形状与 creator-factory 恢复读取一致）。 */
+/** ：whisper-message entry 构造（details 形状与 creator-factory 恢复读取一致）。 */
 export function whisperMessageEntry(options: {
 	sender: { character_id: string; name: string };
 	recipient: { character_id: string; name: string };

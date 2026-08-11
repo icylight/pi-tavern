@@ -1,7 +1,7 @@
 /**
- * B1 codec 契约测试：白板模型（#114）board_write / board_query / board_update 编解码。
+ * B1 codec 契约测试：白板模型board_write / board_query / board_update 编解码。
  *
- * 契约来源：issue #114（09:24 版）B1 节 + ADR-0007 §3；#119 M1 信封迁移
+ * 契约来源：issue （09:24 版）B1 节；信封迁移
  * （type → method + jsonrpc"2.0" + params 嵌套 + result/error 响应）。
  * 覆盖：客户端消息往返（三 action / query）；board_write 响应四态
  * （applied 带/不带 note、告知码、拒绝码）；board_query 响应；board_update 通知
@@ -16,7 +16,7 @@ import { decodeClientMessage, decodeServerMessage, encodeMessage } from "../../.
 const decodeClient = (wire: string) => decodeClientMessage(Buffer.from(wire));
 const decodeServer = (wire: string) => decodeServerMessage(Buffer.from(wire));
 
-describe("board codec（B1，白板模型 #114，新信封 #119 M1）", () => {
+describe("board codec（B1，白板模型 ，新信封）", () => {
 	describe("客户端消息 board_write", () => {
 		it("set 新贴（无 id）往返", () => {
 			const wire = encodeMessage({
@@ -83,9 +83,9 @@ describe("board codec（B1，白板模型 #114，新信封 #119 M1）", () => {
 			).toThrow();
 		});
 
-		// PR #116 review（F1，2026-08-04）：跨字段契约 fail-close——按 action 判别
+		// review（F1）：跨字段契约 fail-close——按 action 判别
 		// 的非法组合在 codec 层即拒（不再落业务 no-op）。
-		describe("按 action 判别的不变量（PR #116 F1）", () => {
+		describe("按 action 判别的不变量（F1）", () => {
 			it("remove 必须带 id：无 id 的 remove 被拒", () => {
 				expect(() =>
 					decodeClient(
@@ -276,9 +276,9 @@ describe("board codec（B1，白板模型 #114，新信封 #119 M1）", () => {
 			).toThrow();
 		});
 
-		// PR #116 review（F3，2026-08-04）：board_update 判别 union——
+		// review（F3）：board_update 判别 union——
 		// add/update/remove 必带 note、clear 禁 note。
-		describe("按 action 判别的不变量（PR #116 F3）", () => {
+		describe("按 action 判别的不变量（F3）", () => {
 			it("add/update/remove 必须携带 note：缺 note 被拒", () => {
 				for (const action of ["add", "update", "remove"]) {
 					expect(() =>

@@ -10,9 +10,9 @@ import { type CharacterCard, loadCharacterCard } from "../../../src/config/chara
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 
 /**
- * A6（验收清单 #21-A6）：join 后主动拉取——「成员数未知」窗口消除。
+ * A6（验收清单 -A6）：join 后主动拉取——「成员数未知」窗口消除。
  *
- * 架构师定位的 #21 根因：join 完成不主动拉状态，加入/离开广播不进批次
+ * 架构师定位的  根因：join 完成不主动拉状态，加入/离开广播不进批次
  * 不触发 flush，首条公开消息前 lastGroupChatState 恒为 null。
  * 修法（③-2）：claimCharacter 尾部主动 refreshGroupChatState()。
  * 本测试锁定：join 完成后、无任何公开消息时，character 侧快照已含
@@ -59,7 +59,7 @@ async function startCreator(
 	return { creator, character: characters[0] as CharacterCard };
 }
 
-describe("A6: join-time active state refresh (#21 成员数未知窗口)", () => {
+describe("A6: join-time active state refresh ( 成员数未知窗口)", () => {
 	it("joins with a populated snapshot: no messages yet, member count already known", async () => {
 		const { creator, character } = await startCreator();
 		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-1");

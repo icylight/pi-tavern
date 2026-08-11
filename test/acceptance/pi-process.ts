@@ -12,7 +12,7 @@ import {
 const STEP_TIMEOUT_MS = 30_000;
 
 export const REPO_ROOT = resolve(import.meta.dirname, "..", "..");
-// #83 版本缺口补跑：默认门禁锚定 references/pi（0.82.1 子模块）；PI_TEST_SH 环境
+//  版本缺口补跑：默认门禁锚定 references/pi（0.82.1 子模块）；PI_TEST_SH 环境
 // 覆盖用于一次性 0.83.0 验证（tmp/pi-test-083.sh，不入库）。注意 spawn cwd 是临时
 // 目录，覆盖值必须解析为绝对路径。默认路径零变化。
 const PI_TEST_SH = process.env.PI_TEST_SH
@@ -36,7 +36,7 @@ export interface RpcEvent {
 }
 
 /**
- * 事件流检查点（测试架构改造 v2，Arch 评审 2026-08-02）：共享 fixture 下场景间
+ * 事件流检查点（测试架构改造 v2）：共享 fixture 下场景间
  * 事件必然串扰（pi-process 保留全量事件、waitFor 全历史重放）——场景隔离单元
  * 升级为 checkpoint 游标。checkpoint() 快照当前事件流位置，waitForAfter 只匹配
  * 检查点之后的事件（含检查点后新到达的，先查重放、后查新到）。
@@ -67,11 +67,10 @@ export class PiProcess {
 	/**
 	 * 生成真实 pi（经 references/pi/pi-test.sh）加载工作区扩展。
 	 *
-	 * #52（QA，2026-08-02）：白名单 env 替代 {...process.env, ...} 展开 + 去 --no-env——
-	 * ① 堵开发机真 key/模型配置泄漏进测试进程（Dev 归因：PI_PROVIDER/PI_MODEL/
+	 * 白名单 env 替代 {...process.env, ...} 展开 + 去 --no-env——① 堵开发机真 key/模型配置泄漏进测试进程（PI_PROVIDER/PI_MODEL/
 	 * DEEPSEEK_API_KEY 曾泄漏 → 每次 run 真实调用 LLM；白名单确定性零 LLM）；
-	 * ② 白名单不含任何 key 变量（缺席形态，PM 定案；配对实测 ms 级）；
-	 * ③ options.env 闸门（PM 安全审查补强）：仅允许 PITAVERN_*、HOME 与基础名，
+	 * ② 白名单不含任何 key 变量（缺席形态；配对实测 ms 级）；
+	 * ③ options.env 闸门：仅允许 PITAVERN_*、HOME 与基础名，
 	 * 其余一律丢弃——堵死未来测试传真实 key 的通道（现有测试仅用 PITAVERN_*、HOME）。
 	 */
 	static spawn(options: SpawnPiOptions): PiProcess {
@@ -176,7 +175,7 @@ export class PiProcess {
 			);
 			const waiter = (event: RpcEvent, index: number): void => {
 				// checkpoint.index 之后到达的事件从 index == checkpoint.index 起算；
-				// < 的才是检查点前的旧事件（off-by-one 修正 2026-08-02）。
+				// < 的才是检查点前的旧事件（off-by-one 修正）。
 				if (index < checkpoint.index || !predicate(event)) {
 					return;
 				}
@@ -371,7 +370,7 @@ export class PiProcess {
 }
 
 /**
- * options.env 闸门（PM 安全审查补强，2026-08-02）：仅放行 PITAVERN_*、
+ * options.env 闸门：仅放行 PITAVERN_*、
  * HOME 与基础环境名，其余键一律丢弃——堵死测试显式传真实凭据的通道。
  */
 function gateTestEnv(env: Record<string, string> | undefined): Record<string, string> | undefined {

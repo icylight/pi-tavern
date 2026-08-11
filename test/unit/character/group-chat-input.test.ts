@@ -35,7 +35,7 @@ function createMockRuntime(
 		// P1-4 方案 a：进入时刻水位（新帧数字 / 旧帧 null）。mock 默认 null = 旧帧回退路径。
 		readyLatestSequence: null,
 		fetchMessagesSince: async () => ({ messages: [], latestSequence: 0, totalMessages: 0, contextCount: 0 }),
-		// #77：标记机制已删除（agent_start 无条件点亮）。
+		// 标记机制已删除（agent_start 无条件点亮）。
 		refreshGroupChatState: async () => undefined,
 	} as unknown as CharacterRuntime;
 }
@@ -107,7 +107,7 @@ function createWhisperMessage(params: {
 	} as ServerMessage;
 }
 
-/** #152：私信占位广播帧（无正文）。 */
+/** ：私信占位广播帧（无正文）。 */
 function createWhisperPlaceholder(params: {
 	sender: { type: "character"; character_id: string; name?: string };
 	recipient: { type: "character"; character_id: string; name?: string };
@@ -219,9 +219,9 @@ describe("GroupChatInput", () => {
 		expect(message.details.events).toHaveLength(1);
 		expect(message.details.group_chat_state).toEqual(stateSnapshot);
 		expect(message.content).toContain("First message");
-		// ISSUE-003 三字段身份契约（cab1fd7）
+		//  三字段身份契约（cab1fd7）
 		expect(message.content).toContain("你的当前角色：Developer（character_id=dev，注册名=Developer）");
-		// #104：环境文本带当前时间（头部）+ 消息发言时间/间隔（存在性断言防脆测）
+		// 环境文本带当前时间（头部）+ 消息发言时间/间隔（存在性断言防脆测）
 		expect(message.content).toMatch(/当前时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/);
 		expect(message.content).toMatch(/User Persona（\d{4}-\d{2}-\d{2} \d{2}:\d{2}（\d+ 秒前|\d+ 分钟前））:/);
 
@@ -263,7 +263,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("filters out own board_update echo while keeping others' updates (User 拍板 2026-08-04)", async () => {
+	it("filters out own board_update echo while keeping others. updates", async () => {
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({ characterId: "dev" });
@@ -330,7 +330,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("T3 (#154): 实时注入用自定义 public_message 模板渲染（三面同变）", async () => {
+	it("T3: 实时注入用自定义 public_message 模板渲染（三面同变）", async () => {
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({
@@ -354,7 +354,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("T3 (#154): 实时注入相对时间用自定义模板渲染（minutes_ago 接入 formatMessageTime）", async () => {
+	it("T3: 实时注入相对时间用自定义模板渲染（minutes_ago 接入 formatMessageTime）", async () => {
 		vi.useFakeTimers();
 
 		// 消息 timestamp = 2026-01-01，fake timers 基准 = 真实当前时间 → 间隔巨大 → 分钟分支。
@@ -457,7 +457,7 @@ describe("GroupChatInput", () => {
 		expect(pi.sendMessage).not.toHaveBeenCalled();
 	});
 
-	it("pages older history when message_history has_more is set (ISSUE-008)", async () => {
+	it("pages older history when message_history has_more is set ", async () => {
 		vi.useFakeTimers();
 
 		// 第一页：最新 10 条（sequence 11-20），带 cursor 的 has_more。
@@ -512,7 +512,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("does not page when has_more is false, and stops on a repeated cursor (ISSUE-008 A1/A5)", async () => {
+	it("does not page when has_more is false, and stops on a repeated cursor (A1/A5)", async () => {
 		vi.useFakeTimers();
 
 		const page = Array.from({ length: 3 }, (_, i) =>
@@ -551,7 +551,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("ignores has_more=false history without paging (ISSUE-008 A5)", async () => {
+	it("ignores has_more=false history without paging (A5)", async () => {
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({
@@ -669,7 +669,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("M7 A1（#64 修订）: idle update arms the 1s trigger window and consumes once at expiry", async () => {
+	it("A1（修订）: idle update arms the 1s trigger window and consumes once at expiry", async () => {
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({
@@ -704,7 +704,7 @@ describe("GroupChatInput", () => {
 		await vi.advanceTimersByTimeAsync(999);
 		expect(runtime.fetchMessagesSince).not.toHaveBeenCalled();
 
-		// 窗口到期：1 次拉全 + 投递（M7 A1 修订：闲态 ≤1s 触发）。
+		// 窗口到期：1 次拉全 + 投递（A1 修订：闲态 ≤1s 触发）。
 		await vi.advanceTimersByTimeAsync(1);
 		expect(runtime.fetchMessagesSince).toHaveBeenCalledWith(4);
 		expect(runtime.saveCursor).toHaveBeenCalledWith(5);
@@ -713,7 +713,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("M7 A3/A4: pull returns strictly increasing no-gap messages after cursor", async () => {
+	it("A3/A4: pull returns strictly increasing no-gap messages after cursor", async () => {
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({
@@ -744,7 +744,7 @@ describe("GroupChatInput", () => {
 				total_messages: 5,
 			},
 		} as unknown as ServerMessage);
-		// #64：闲态 1s 触发窗口到期后拉取。
+		// 闲态 1s 触发窗口到期后拉取。
 		await vi.advanceTimersByTimeAsync(1000);
 
 		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
@@ -758,8 +758,8 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("#64→busy-steer: member events during a run merge with the immediately-pulled batch, order preserved", async () => {
-		// 忙态 steer 契约（User 拍板 2026-08-02）：成员事件仍走 join debounce
+	it("→busy-steer: member events during a run merge with the immediately-pulled batch, order preserved", async () => {
+		// 忙态 steer 契约：成员事件仍走 join debounce
 		// （1000ms）入 pendingEvents；run 活跃期 update 立即拉取 + steer 投递，
 		// 与待处理成员事件合并为一次投递（到达顺序保持：事件先到，消息更新）。
 		vi.useFakeTimers();
@@ -959,9 +959,9 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("#38 T3 (revised #77): delivery channels keep steer semantics; no group-chat marker involved", async () => {
-		// #77：标记机制已删除——点亮由 agent_start 无条件执行（run 活跃即亮，
-		// User 2026-08-03 拍板），投递路径不再涉及标记。保留的语义断言 =
+	it("T3 (revised ): delivery channels keep steer semantics; no group-chat marker involved", async () => {
+		// 标记机制已删除——点亮由 agent_start 无条件执行（run 活跃即亮，
+		// 拍板），投递路径不再涉及标记。保留的语义断言 =
 		// 通道选择：idle 用 followUp+triggerTurn，忙态用 steer+triggerTurn。
 		vi.useFakeTimers();
 
@@ -1016,7 +1016,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("M7 A7（#64 修订）: single-flight lock coalesces concurrent consumes into one refetch", async () => {
+	it("A7（修订）: single-flight lock coalesces concurrent consumes into one refetch", async () => {
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({
@@ -1123,7 +1123,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("#64: idle updates consume once at the 1s trigger window (M7 A1 修订)", async () => {
+	it(": idle updates consume once at the 1s trigger window (A1 修订)", async () => {
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({ getGroupChatState: async () => ({}) });
@@ -1161,7 +1161,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	// #64（pull 模型：广播 = 标记、消费 = run 边界拉取）红钉先行：当前代码活跃期
+	// （pull 模型：广播 = 标记、消费 = run 边界拉取）红钉先行：当前代码活跃期
 	// update 走 400ms 聚合窗口拉取+投递，以下断言必红；实施「标记不拉取 + run 内
 	// 零中间注入 + settle = 忙态触发点」后变绿。空拉取 mock：settle 消费发生（1 次
 	// 拉取）但无内容可投递 → 不触发空 run（0 次投递）。
@@ -1213,9 +1213,9 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	// #64（pull 模型混合触发，User 倾向「agent 忙立即拉、不忙等一等」）：闲态 = 首条标记
+	// （pull 模型混合触发，User 倾向「agent 忙立即拉、不忙等一等」）：闲态 = 首条标记
 	// 启动 1s 固定窗口，窗口内 N 条并入 → 1 次触发拉全。当前代码空闲期逐条立即拉取，必红。
-	it("#64 RED: idle markers aggregate in a 1s window and trigger a single fetch-all", async () => {
+	it("RED: idle markers aggregate in a 1s window and trigger a single fetch-all", async () => {
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({ getGroupChatState: async () => ({}) });
@@ -1261,7 +1261,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	// 忙态契约（User 拍板 2026-08-02）：run 活跃期 update 立即拉取（无窗口、
+	// 忙态契约：run 活跃期 update 立即拉取（无窗口、
 	// 无有界延迟设计），单飞行锁仅并发保护；投递走 steer 通道。
 	it("busy-steer: busy updates pull immediately (single-flight) and deliver via steer", async () => {
 		vi.useFakeTimers();
@@ -1435,13 +1435,13 @@ describe("GroupChatInput", () => {
 		resumed.stop();
 	});
 
-	it("P1-F1 窗口含已读他人消息 + 连续自身回显 → 不投递不唤醒（#146 P1 评审回归，红钉）", async () => {
+	it("P1-F1 窗口含已读他人消息 + 连续自身回显 → 不投递不唤醒（P1 评审回归，红钉）", async () => {
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({
 			getGroupChatState: async () => ({}),
 		});
-		// #138 窗口语义：since=4 前移 1 → 服务端返回 seq>3 的集合 = 已读游标自身
+		//  窗口语义：since=4 前移 1 → 服务端返回 seq>3 的集合 = 已读游标自身
 		// （seq4 他人消息，窗口带入）+ 未读自身回显（seq5/seq6）。
 		runtime.fetchMessagesSince = vi.fn(
 			async (_since: number): Promise<Awaited<ReturnType<CharacterRuntime["fetchMessagesSince"]>>> => ({
@@ -1547,7 +1547,7 @@ describe("GroupChatInput", () => {
 		} as unknown as ServerMessage;
 	}
 
-	it("chain: join-snapshot whisper 帧投递（#152 PR #163 阻断 2：首屏 message_history 接纳两类 whisper 帧）", async () => {
+	it("chain: join-snapshot whisper 帧投递（阻断 2：首屏 message_history 接纳两类 whisper 帧）", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime({ hasPublicMessages: true });
 		const pi = createMockPi();
@@ -1591,7 +1591,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("chain: whisper realtime 连续帧游标推进（#152 PR #163 阻断 3：seq=游标+1 注入 + saveCursor）", async () => {
+	it("chain: whisper realtime 连续帧游标推进（阻断 3：seq=游标+1 注入 + saveCursor）", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime({ hasPublicMessages: true });
 		runtime.loadCursor = () => 0;
@@ -1614,7 +1614,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("chain: whisper realtime 同 seq 去重内容仅一份（#152 PR #163 复评阻断 1：flush 前同帧两次只进一份）", async () => {
+	it("chain: whisper realtime 同 seq 去重内容仅一份（复评阻断 1：flush 前同帧两次只进一份）", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime({ hasPublicMessages: true });
 		runtime.loadCursor = () => 0;
@@ -1636,7 +1636,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("chain: whisper realtime gap idle 主动补拉（#152 PR #163 复评阻断 1：idle 无 settle，须主动安排拉取）", async () => {
+	it("chain: whisper realtime gap idle 主动补拉（复评阻断 1：idle 无 settle，须主动安排拉取）", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime({ hasPublicMessages: true });
 		runtime.loadCursor = () => 0;
@@ -1674,7 +1674,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("chain: whisper realtime 旧帧忽略（#152 PR #163 复评阻断 2：seq <= 已投递游标不去重丢帧亦不重复注入）", async () => {
+	it("chain: whisper realtime 旧帧忽略（复评阻断 2：seq <= 已投递游标不去重丢帧亦不重复注入）", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime({ hasPublicMessages: true });
 		runtime.loadCursor = () => 5; // 已投递到 5
@@ -1691,7 +1691,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("chain: whisper realtime 连续两帧有序投递（#152 PR #163 复评阻断 2：同 debounce 连续帧不误判 gap）", async () => {
+	it("chain: whisper realtime 连续两帧有序投递（复评阻断 2：同 debounce 连续帧不误判 gap）", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime({ hasPublicMessages: true });
 		runtime.loadCursor = () => 0;
@@ -1712,7 +1712,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("chain: whisper realtime 同步失败 requeue 恢复（#152 PR #163 复评阻断 2：真实抛错 → 游标不推进 → requeue 重投成功）", async () => {
+	it("chain: whisper realtime 同步失败 requeue 恢复（复评阻断 2：真实抛错 → 游标不推进 → requeue 重投成功）", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime({ hasPublicMessages: true });
 		runtime.loadCursor = () => 0;
@@ -1748,7 +1748,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("chain: whisper steer 同步失败 requeue 不丢（#152 PR #163 复评阻断 1：busy 实时私信 steer 抛错 → 重排重投成功只推进一次）", async () => {
+	it("chain: whisper steer 同步失败 requeue 不丢（复评阻断 1：busy 实时私信 steer 抛错 → 重排重投成功只推进一次）", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime({ hasPublicMessages: true });
 		runtime.loadCursor = () => 0;
@@ -1782,7 +1782,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("chain: whisper placeholder-only 不阻塞（#170：无 group_chat_update 时占位水位独立成立，占位不触发未读先读）", async () => {
+	it("chain: whisper placeholder-only 不阻塞（无 group_chat_update 时占位水位独立成立，占位不触发未读先读）", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime({ hasPublicMessages: true });
 		runtime.loadCursor = () => 0;
@@ -1794,7 +1794,7 @@ describe("GroupChatInput", () => {
 		handler(whisperPlaceholderFrame(3));
 		await vi.advanceTimersByTimeAsync(1000);
 
-		// 占位不注入（不唤醒），未读判定合并占位水位但不触发阻塞（#170：
+		// 占位不注入（不唤醒），未读判定合并占位水位但不触发阻塞
 		// 占位无正文零信息增量，不拦协议性回复；水位/计数/消费语义保留）。
 		expect(pi.sendMessage).not.toHaveBeenCalled();
 		// 占位 seq=3、游标 0：缺口存在 → 不阻止（shouldBlock=false），计数保留不声称精确。
@@ -1805,7 +1805,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("chain: whisper pull 占位窗口失败恢复推进原始水位（#152 PR #163 复评阻断 2：requeue 保留 latestSequence，占位窗口游标不卡）", async () => {
+	it("chain: whisper pull 占位窗口失败恢复推进原始水位（复评阻断 2：requeue 保留 latestSequence，占位窗口游标不卡）", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime({ hasPublicMessages: true });
 		runtime.loadCursor = () => 0;
@@ -1851,7 +1851,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("chain: whisper retry 批原子——B 批成功不得借用 A 批水位（#152 复评阻断：A 重试中 B 成功，saveCursor 随批不全局借用）", async () => {
+	it("chain: whisper retry 批原子——B 批成功不得借用 A 批水位（复评阻断：A 重试中 B 成功，saveCursor 随批不全局借用）", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime({ hasPublicMessages: true });
 		const saveCursor = vi.fn();
@@ -1975,7 +1975,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("chain: whisper placeholder-only exact 仅连续时成立（#170：#152 PR #163 复评 B 语义保留——占位=游标+1 才 exact，不阻塞）", async () => {
+	it("chain: whisper placeholder-only exact 仅连续时成立（复评 B 语义保留——占位=游标+1 才 exact，不阻塞）", async () => {
 		vi.useFakeTimers();
 		const runtime = createMockRuntime({ hasPublicMessages: true });
 		runtime.loadCursor = () => 0;
@@ -1993,7 +1993,7 @@ describe("GroupChatInput", () => {
 
 		input.stop();
 	});
-	it("WH4 (#152): whisper_message 用 whisper_full 模板渲染（接收者实时唤醒，C 回归）", async () => {
+	it("WH4 : whisper_message 用 whisper_full 模板渲染（接收者实时唤醒，C 回归）", async () => {
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({ hasPublicMessages: true });
@@ -2019,7 +2019,7 @@ describe("GroupChatInput", () => {
 
 		input.stop();
 	});
-	it("chain: whisper-placeholder no-wakeup（#152 阻断 2：非参与者占位不注入不唤醒，仅记水位）", async () => {
+	it("chain: whisper-placeholder no-wakeup（阻断 2：非参与者占位不注入不唤醒，仅记水位）", async () => {
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({ hasPublicMessages: true });
@@ -2049,7 +2049,7 @@ describe("GroupChatInput", () => {
 		// 占位不注入：无 sendMessage（不唤醒、不进 debounce）。
 		expect(pi.sendMessage).not.toHaveBeenCalled();
 		// 占位水位记录（seq 22 > cursor 0）：未读判定合并占位水位但不阻塞
-		// （#170：占位零信息增量不拦发言；水位/计数/消费语义保留）。
+		// （占位零信息增量不拦发言；水位/计数/消费语义保留）。
 		expect(input.unreadOthersProven()?.shouldBlock).toBe(false);
 		expect(input.unreadOthersProven()?.count).toBe(1);
 

@@ -1,11 +1,11 @@
 // ===== 协议 schema 定义：server.jsonc =====
-// 服务端消息判别联合（#119 M1）：响应帧（id 关联请求）+ 通知帧（无 id，method
+// 服务端消息判别联合：响应帧（id 关联请求）+ 通知帧（无 id，method
 // 判别）。业务错误 = error 信封（10 码 + 库标准码）；未知形状 fail-close。
 // 纯 docs-first：本文件为唯一手写源头，程序用的 schema 对象由它自动生成。
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
-    // join_group_chat 成功响应：available_characters = 群聊角色清单（#25 懒刷新入口）。
+    // join_group_chat 成功响应：available_characters = 群聊角色清单（懒刷新入口）。
     "JoinGroupChatResponse": {
       "type": "object",
       "required": ["jsonrpc", "id", "result"],
@@ -67,7 +67,7 @@
       },
       "additionalProperties": false
     },
-    // #144 P1-4 方案 a：character_ready 成功响应——携带进入时刻水位，客户端游标精确锚定。
+    //   方案 a：character_ready 成功响应——携带进入时刻水位，客户端游标精确锚定。
     "ReadyResponse": {
       "type": "object",
       "required": ["jsonrpc", "id", "result"],
@@ -174,7 +174,7 @@
       },
       "additionalProperties": false
     },
-    // #123：系统消息（ready 后欢迎语单播；通知帧无 id）。params 仅 content——
+    // 系统消息（ready 后欢迎语单播；通知帧无 id）。params 仅 content——
     // 非公共消息：无 sequence/round/source，不落消息流、不计轮次（WL1 语义）。
     "SystemMessage": {
       "type": "object",
@@ -247,7 +247,7 @@
                 }
               ]
             },
-            // #97 来源显式化（S1）：群聊消息显式携带 source="group"；缺省 =
+            //  来源显式化（S1）：群聊消息显式携带 source="group"；缺省 =
             // 视为 group（旧消息/旧客户端向后兼容，不拒帧）。
             "source": { "type": "string", "const": "group" },
             "content": { "type": "string" },
@@ -258,7 +258,7 @@
       },
       "additionalProperties": false
     },
-    // #152：私信完整帧（单播——只投递给接收者；含正文，sequence 与公开消息
+    // 私信完整帧（单播——只投递给接收者；含正文，sequence 与公开消息
     // 共用同一递增器、无空洞；sender/recipient 仅 Character 类型）。
     "WhisperMessage": {
       "type": "object",
@@ -283,8 +283,8 @@
       },
       "additionalProperties": false
     },
-    // #152：私信占位帧（广播给非接收者 Character；无正文，隐私不泄露；
-    // 入未读序列供消费，不触发未读先读阻塞（#170：占位零信息增量，协议性回复
+    // 私信占位帧（广播给非接收者 Character；无正文，隐私不泄露；
+    // 入未读序列供消费，不触发未读先读阻塞占位零信息增量，协议性回复
     // 不被拦——公开消息/whisper 全文仍阻塞；服务端 stale 判定同源豁免旁观者
     // 视角的占位）。发送者不收到自身事件）。
     "WhisperPlaceholder": {
@@ -308,7 +308,7 @@
       },
       "additionalProperties": false
     },
-    // message_history 推送（join 后最近 10 条 + cursor 续页；ISSUE-008）。
+    // message_history 推送（join 后最近 10 条 + cursor 续页；）。
     "MessageHistory": {
       "type": "object",
       "required": ["jsonrpc", "method", "params"],
@@ -382,7 +382,7 @@
       },
       "additionalProperties": false
     },
-    // group_chat_update 通知（拉取触发标记 + preview + 最新水位；#64 纯标记）。
+    // group_chat_update 通知（拉取触发标记 + preview + 最新水位； 纯标记）。
     "GroupChatUpdate": {
       "type": "object",
       "required": ["jsonrpc", "method", "params"],
@@ -426,10 +426,10 @@
     // speak 响应三态：
     // - published:true 成功含 event_id/sequence/latest_sequence（回声被过滤，
     //   游标不会自行推进，latest_sequence 让客户端把 last-seen 推进到自己消息之后，
-    //   而不会被误判为 stale——ISSUE-013 B6）
+    //   而不会被误判为 stale——B6）
     // - published:false + round_limit_reached（拒绝镜像，hand_raised:true）
     // - published:false + stale（业务拒绝而非协议错误；只携带缺失的 sequence
-    //   区间，客户端经 fetch_messages_since 拉增量——ISSUE-013 B2）
+    //   区间，客户端经 fetch_messages_since 拉增量——B2）
     "SpeakResponse": {
       "anyOf": [
         {
@@ -503,7 +503,7 @@
         }
       ]
     },
-    // #152：whisper 请求响应——与 SpeakResponse 同构三态（五方确认：超额/stale
+    // whisper 请求响应——与 SpeakResponse 同构三态（五方确认：超额/stale
     // 走结构化拒绝，客户端按 reason 区分自愈；成功态发送者获得 sequence 用于
     // 游标/后续 stale 检查，不额外注入自身事件）。
     "WhisperResponse": {
@@ -577,7 +577,7 @@
         }
       ]
     },
-    // #152：私信发送者/接收者（仅 Character；user_persona 不支持私信）。
+    // 私信发送者/接收者（仅 Character；user_persona 不支持私信）。
     "WhisperSender": {
       "type": "object",
       "required": ["type", "character_id", "name"],

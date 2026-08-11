@@ -47,16 +47,16 @@ export interface StartNewCreatorRuntimeOptions {
 	cwd: string;
 	agentDir: string;
 	configMaxMessages?: number;
-	/** 白板模型（#114）：白板额度（缺省 = store 默认 5/140，PR #116 F4）。 */
+	/** 白板模型：白板额度（缺省 = store 默认 5/140）。 */
 	boardMaxNotes?: number;
 	boardMaxNoteLength?: number;
-	/** #123：欢迎文案（缺省 = DEFAULT_WELCOME_MESSAGE 代码默认值）。 */
+	/** ：欢迎文案（缺省 = DEFAULT_WELCOME_MESSAGE 代码默认值）。 */
 	welcomeMessage?: string;
-	/** #154：群聊文案模板集（缺省 = DEFAULT_TEMPLATES 内置中文）。 */
+	/** ：群聊文案模板集（缺省 = DEFAULT_TEMPLATES 内置中文）。 */
 	messageTemplates?: Record<MessageTemplateKey, string>;
 	characters?: CharacterCard[];
 	/**
-	 * #25：角色清单按需刷新（懒刷新）——join/claim/query 前重扫磁盘。
+	 * ：角色清单按需刷新（懒刷新）——join/claim/query 前重扫磁盘。
 	 * 注入磁盘重扫实现（组合根提供，默认 = 重新 loadTavernConfig）；
 	 * 未注入 = 启动快照行为（零变化）。刷新失败/空结果回退旧快照。
 	 */
@@ -68,21 +68,21 @@ export interface ResumeCreatorRuntimeOptions {
 	agentDir: string;
 	sessionPath: string;
 	configMaxMessages?: number;
-	/** 白板模型（#114）：白板额度（缺省 = store 默认 5/140，PR #116 F4）。 */
+	/** 白板模型：白板额度（缺省 = store 默认 5/140）。 */
 	boardMaxNotes?: number;
 	boardMaxNoteLength?: number;
-	/** #123：欢迎文案（缺省 = DEFAULT_WELCOME_MESSAGE 代码默认值）。 */
+	/** ：欢迎文案（缺省 = DEFAULT_WELCOME_MESSAGE 代码默认值）。 */
 	welcomeMessage?: string;
-	/** #154：群聊文案模板集（缺省 = DEFAULT_TEMPLATES 内置中文）。 */
+	/** ：群聊文案模板集（缺省 = DEFAULT_TEMPLATES 内置中文）。 */
 	messageTemplates?: Record<MessageTemplateKey, string>;
 	characters?: CharacterCard[];
-	/** #25：同 StartNewCreatorRuntimeOptions.loadCharacters。 */
+	/** ：同 StartNewCreatorRuntimeOptions.loadCharacters。 */
 	loadCharacters?: () => Promise<CharacterCard[]>;
 }
 
 interface PersistedRuntimeState {
 	publicMessages: PublicMessageState[];
-	/** #152：私信消息流（恢复/交接时随公开流一并重建）。 */
+	/** ：私信消息流（恢复/交接时随公开流一并重建）。 */
 	whisperMessages: WhisperMessageState[];
 	persistedCount: number;
 }
@@ -102,7 +102,7 @@ export interface CreatorRuntimeDependencies {
 	/** close()/detachForReload() 等待运行时队列排空的最长时间。 */
 	drainTimeoutMs: number;
 	/**
-	 * #25：角色清单磁盘重扫（懒刷新）。未注入 = 不刷新（启动快照语义）。
+	 * ：角色清单磁盘重扫（懒刷新）。未注入 = 不刷新（启动快照语义）。
 	 * 由组合根注入（creator-factory 默认装配 = loadTavernConfig 重读）。
 	 */
 	loadCharacters?: () => Promise<CharacterCard[]>;
@@ -136,9 +136,9 @@ export class CreatorRuntime {
 	private readonly claimDeps: ConstructorParameters<typeof ClaimPipeline>[0];
 	private readonly readyDeps: ConstructorParameters<typeof ReadyPipeline>[0];
 	private readonly queryDeps: ConstructorParameters<typeof QueryPipeline>[0];
-	/** 白板模型（#114）：board 管线依赖（pipeline-assembly 装配）。 */
+	/** 白板模型：board 管线依赖（pipeline-assembly 装配）。 */
 	private readonly boardDeps: ConstructorParameters<typeof BoardPipeline>[0];
-	/** #152：whisper 管线依赖（pipeline-assembly 装配）。 */
+	/** ：whisper 管线依赖（pipeline-assembly 装配）。 */
 	private readonly whisperDeps: ConstructorParameters<typeof WhisperPipeline>[0];
 	/** @internal reload-flow 快照读取；语义不变。 */
 	persistedCount = 0;
@@ -163,7 +163,7 @@ export class CreatorRuntime {
 	onPublicMessageError: ((error: string, sequence: number, timestamp: string) => void) | undefined;
 
 	/**
-	 * #152（Arch 阻断修复）：私信提交后触发（创建者视角完整正文，TUI 投影）。
+	 * （Arch 阻断修复）：私信提交后触发（创建者视角完整正文，TUI 投影）。
 	 * 与 onPublicMessage 同构；WhisperPipeline 提交阶段调用。
 	 */
 	onWhisperMessage:
@@ -181,7 +181,7 @@ export class CreatorRuntime {
 	/** 在线成员或流式状态变化时触发（TUI 刷新信号）。 */
 	onMembersChanged: (() => void) | undefined;
 
-	/** 白板模型（#114）：board_update applied 时触发（creator 实时提示，纯展示）。 */
+	/** 白板模型：board_update applied 时触发（creator 实时提示，纯展示）。 */
 	onBoardUpdated:
 		| ((update: {
 				actor: string;
@@ -193,16 +193,16 @@ export class CreatorRuntime {
 	/** @internal reload-flow 快照读取；对外读走 publicMessageList getter。 */
 	publicMessages: PublicMessageState[] = [];
 
-	/** #152：私信消息流（与公开共用递增器；对外读走 whisperMessageList getter）。 */
+	/** ：私信消息流（与公开共用递增器；对外读走 whisperMessageList getter）。 */
 	whisperMessages: WhisperMessageState[] = [];
 
-	/** #152：私信消息列表只读访问（返回拷贝，与 publicMessageList 同模式）。 */
+	/** ：私信消息列表只读访问（返回拷贝，与 publicMessageList 同模式）。 */
 	get whisperMessageList(): WhisperMessageState[] {
 		return [...this.whisperMessages];
 	}
 
 	/**
-	 * #42：消息列表只读访问（返回拷贝，防外部变异）。resume 历史投影使用；
+	 * ：消息列表只读访问（返回拷贝，防外部变异）。resume 历史投影使用；
 	 * 增量路径仍走内部引用，语义零变化。
 	 */
 	get publicMessageList(): PublicMessageState[] {
@@ -216,7 +216,7 @@ export class CreatorRuntime {
 		readonly webSocketServer: WebSocketServer,
 		/** @internal reload-flow 访问；语义不变。 */
 		readonly sessionStore: SessionStore,
-		/** 白板模型（#114）：每角色白板 store（creator-factory 按项目装配，reload 经 handoff 传递）。 */
+		/** 白板模型：每角色白板 store（creator-factory 按项目装配，reload 经 handoff 传递）。 */
 		readonly boardStore: BoardStore,
 		readonly state: GroupChatState,
 		readonly activeDescriptor: ActiveGroupChatDescriptor,
@@ -427,15 +427,15 @@ export class CreatorRuntime {
 		return this.runtimeLifecycle.drainRuntimeQueue(timeoutMs);
 	}
 
-	/** #83（Arch 评审要点③）：角色清单刷新单飞行锁——并发 join/claim/query 复用飞行中刷新，防重扫风暴。 */
+	/** 角色清单刷新单飞行锁——并发 join/claim/query 复用飞行中刷新，防重扫风暴。 */
 	private refreshInFlight: Promise<void> | null = null;
 
 	/**
-	 * #25：角色清单懒刷新——join/claim/query 前重扫磁盘。
+	 * ：角色清单懒刷新——join/claim/query 前重扫磁盘。
 	 * 成功且非空 = 原地更新 characters Map（保持实例引用，member-bookkeeping
 	 * 与各 pipeline 持有的同一引用自动可见）；失败/空结果 = 回退旧快照（不动 Map）。
 	 * 未注入 loadCharacters = 启动快照语义（行为零变化）。
-	 * #83（QA 红绿钉死 + Arch 评审三要点）：
+	 * （红绿钉死）：
 	 * ① 竞速短超时（1s）——挂起重扫不得无限阻塞 join 热路径，超时按失败回退；
 	 * ② 迟到成功仍更新 Map（load 不可取消，完成后 .then 照常应用）——保延迟可见性、不丢刷新；
 	 * ③ 单飞行锁复用飞行中刷新——并发 join/claim/query 不重复重扫。
@@ -495,7 +495,7 @@ export class CreatorRuntime {
 		}
 	}
 
-	/** #119 connection 接线：per-socket JSON-RPC 连接（dispatch 注册表 + deps 装配）。 */
+	/**  connection 接线：per-socket JSON-RPC 连接（dispatch 注册表 + deps 装配）。 */
 	private createJsonRpcConnection(
 		socket: WebSocket,
 		connection: ConnectionContext,
@@ -518,7 +518,7 @@ export class CreatorRuntime {
 			socket,
 			connection,
 			jsonrpcConnection,
-			// #25：角色清单入口（join/claim/query）前懒刷新（原 dispatchClientMessage 前置）。
+			// 角色清单入口（join/claim/query）前懒刷新（原 dispatchClientMessage 前置）。
 			async (method) => {
 				if (
 					method === METHOD_JOIN_GROUP_CHAT ||
@@ -538,7 +538,7 @@ export class CreatorRuntime {
 		connection: ConnectionContext,
 		message: ClientMessage,
 	): Promise<unknown> {
-		// #25：角色清单入口（join 的 available_characters / claim 的摘要 /
+		// 角色清单入口（join 的 available_characters / claim 的摘要 /
 		// query 的群聊状态）前懒刷新，失败由 refreshCharacters 内部回退旧快照。
 		if (
 			message.method === METHOD_JOIN_GROUP_CHAT ||

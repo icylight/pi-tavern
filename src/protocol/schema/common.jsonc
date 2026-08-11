@@ -33,7 +33,7 @@
     },
     // 请求/响应必带 id（仅 update_character_state 为无 id notification；服务端
     // 通知同样无 id——由各自 schema 形状区分）。无 id 的 request/response 一律
-    // fail-close（#137）。id = string | number（JSON-RPC 2.0 标准；vscode-jsonrpc
+    // fail-close。id = string | number（JSON-RPC 2.0 标准；vscode-jsonrpc
     // 库 sendRequest 自增数字 id，手写握手用 string——双兼容）。
     "RequestId": {
       "anyOf": [{ "type": "string" }, { "type": "integer" }]

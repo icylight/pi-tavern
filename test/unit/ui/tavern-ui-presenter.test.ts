@@ -122,7 +122,7 @@ describe("U1 正在工作状态呈现", () => {
 	});
 });
 
-describe("U2 发言次数呈现（新增元素 #12）", () => {
+describe("U2 发言次数呈现（新增元素 ）", () => {
 	it("creator 视图：显示发言次数与剩余（used/max/remaining 来自 round）", () => {
 		const state = creatorState({
 			onlineCharacters: new Map([["s1", { character: { name: "A" }, isStreaming: false, handRaised: false }]]),
@@ -153,7 +153,7 @@ describe("U2 发言次数呈现（新增元素 #12）", () => {
 	});
 });
 
-describe("U3 举手状态呈现（新增元素 #20）", () => {
+describe("U3 举手状态呈现（新增元素 ）", () => {
 	it("creator 视图：hand_raised=true 的角色出现在「举手」行", () => {
 		const state = creatorState({
 			onlineCharacters: new Map([
@@ -191,7 +191,7 @@ describe("U3 举手状态呈现（新增元素 #20）", () => {
 	});
 });
 
-describe("U4 成员数呈现（#21）", () => {
+describe("U4 成员数呈现", () => {
 	it("creator 视图：成员数 = onlineCharacters + User Persona", () => {
 		const state = creatorState({
 			onlineCharacters: new Map([

@@ -82,13 +82,13 @@ interface PrepareCharacterRuntimeOptions {
 	/** creator ping 超时阈值（默认 120s）；超时 → 终止连接。 */
 	heartbeatTimeoutMs?: number;
 	/**
-	 * M7 (ISSUE-012/#24)：群聊级游标文件绝对路径
+	 *  (/)：群聊级游标文件绝对路径
 	 * （“最后一条成功投递的消息序号”），跨重启持久化。
 	 * 缺省 → 增量拉取关闭（仅历史模式）。
 	 */
 	cursorStorePath?: string;
 	/**
-	 * #66: run wedged watchdog 超时（agent_start 布防、agent_settled 清除；
+	 * : run wedged watchdog 超时（agent_start 布防、agent_settled 清除；
 	 * 超时 → 强制 settle，恢复增量投递）。默认 180s（3min，产品参数 PM 定值）；
 	 * 测试可注入短值（QA 红钉 1/2 窗口用）。
 	 */
@@ -96,26 +96,26 @@ interface PrepareCharacterRuntimeOptions {
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	triggerDebounceMs?: number;
 	/**
-	 * #138：增量拉取上下文窗口 getter（getter 闭包注入，每轮拉取实时取值，
+	 * ：增量拉取上下文窗口 getter（getter 闭包注入，每轮拉取实时取值，
 	 * 非快照）。拉取起点前移至 max(0, cursor - window)——额外 N 条已读上下文
 	 * 不更新游标、不污染未读语义。缺省 undefined → 窗口 0（行为不变）；
 	 * 生产接线 = 客户端域组合根注入 getFetchContextWindow（默认 1）。
 	 */
 	getFetchContextWindow?: () => number;
-	/** #154：群聊文案模板集（缺省 undefined → 消费面回落 DEFAULT_TEMPLATES）。 */
+	/** ：群聊文案模板集（缺省 undefined → 消费面回落 DEFAULT_TEMPLATES）。 */
 	messageTemplates?: Record<MessageTemplateKey, string>;
-	/** #154 复评：reload 时重新加载磁盘配置所需路径（可选；无则 reload 沿用快照）。 */
+	/**  复评：reload 时重新加载磁盘配置所需路径（可选；无则 reload 沿用快照）。 */
 	agentDir?: string;
 	cwd?: string;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
 
-/** #66 产品参数（PM/User 定值 2026-08-02）：run wedged 判定阈值，默认 3 分钟。 */
+/** 产品参数（PM/User 定值）：run wedged 判定阈值，默认 3 分钟。 */
 const DEFAULT_AGENT_WEDGED_TIMEOUT_MS = 180_000;
 
 /**
- * ISSUE-013 B5：每轮自动 stale 恢复拉取的上限。超过预算后 speak 工具
+ *  B5：每轮自动 stale 恢复拉取的上限。超过预算后 speak 工具
  * 直接上报拒绝而不再自动拉取，防止消息洪泛让 agent 在拒绝与重发之间
  * 死循环。
  */
@@ -130,39 +130,39 @@ export class CharacterRuntime {
 	/** 最新群聊状态快照（缓存供只读 TUI 投影）。 */
 	lastGroupChatState: GroupChatStateMessage | null = null;
 	/**
-	 * ISSUE-014/#14：agent_end 看门狗——若 agent_settled 迟迟不到则把
+	 * /：agent_end 看门狗——若 agent_settled 迟迟不到则把
 	 * is_streaming 复位（被中止/报错的 run 不能一直挂着“正在发言”灯）。
 	 * agent_settled 清除；reload 经 activateFromHandoff 的显式 false 重发重新布防。
 	 */
 	private streamingResetWatchdog: NodeJS.Timeout | null = null;
 	/**
-	 * #66: run wedged watchdog——agent_start 布防、agent_settled 清除。覆盖双
-	 * wedged 窗口（Arch 2026-08-02）：① agent_start 后无 agent_end（完全卡死）
-	 * ② agent_end 已到但 agent_settled 永不到（#14 只复位 is_streaming，不碰
-	 * isAgentActive——② 为真洞）。v2 = #14 超集；超时 → 强制 settle（同路径
+	 * : run wedged watchdog——agent_start 布防、agent_settled 清除。覆盖双
+	 * wedged 窗口：① agent_start 后无 agent_end（完全卡死）
+	 * ② agent_end 已到但 agent_settled 永不到（只复位 is_streaming，不碰
+	 * isAgentActive——② 为真洞）。v2 =  超集；超时 → 强制 settle（同路径
 	 * 幂等：isAgentActive=false + 冲刷排队增量，incrementPending 防重入）。
 	 */
 	private runWedgedWatchdog: NodeJS.Timeout | null = null;
 	private readonly agentWedgedTimeoutMs: number;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	private readonly triggerDebounceMs: number | undefined;
-	/** #138：增量拉取上下文窗口 getter（undefined → 窗口 0，行为不变）。 */
+	/** ：增量拉取上下文窗口 getter（undefined → 窗口 0，行为不变）。 */
 	private readonly getFetchContextWindow: (() => number) | undefined;
 	readonly messageTemplates: Record<MessageTemplateKey, string> | undefined;
-	/** #154 复评：reload 重载磁盘配置所需路径（join 时透传；undefined = 不重载）。 */
+	/**  复评：reload 重载磁盘配置所需路径（join 时透传；undefined = 不重载）。 */
 	private readonly agentDir: string | undefined;
 	private readonly cwd: string | undefined;
 	/** 新鲜状态快照到达后触发（TUI 刷新钩子）。 */
 	onStateSnapshot: ((snapshot: GroupChatStateMessage) => void) | undefined;
 	/**
-	 * M7 (ISSUE-012/#24)：pi Agent 运行中（agent_start 已触发、agent_settled
+	 *  (/)：pi Agent 运行中（agent_start 已触发、agent_settled
 	 * 未到）为 true。GroupChatInput 在活跃期间排队增量、run 一 settle 立即
 	 * 冲刷，拉取永远不会打断当前 run。
 	 */
 	isAgentActive = false;
 	/**
 	 * Agent run settle（agent_settled）后触发，供排队输入冲刷。
-	 * #66：wedged 强制收敛后（wedgedSettled=true）getter 返回 undefined——迟到的
+	 * ：wedged 强制收敛后（wedgedSettled=true）getter 返回 undefined——迟到的
 	 * 真实 settle 经 onAgentSettled?.() 路径幂等跳过，不重复冲刷。
 	 */
 	private _onAgentSettled: (() => void) | undefined;
@@ -175,12 +175,12 @@ export class CharacterRuntime {
 	set onAgentSettled(callback: (() => void) | undefined) {
 		this._onAgentSettled = callback;
 	}
-	/** #66：run wedged 强制收敛已执行标记（下一 run agent_start 时重置）。 */
+	/** ：run wedged 强制收敛已执行标记（下一 run agent_start 时重置）。 */
 	private wedgedSettled = false;
 	groupChatInput: GroupChatInput | undefined;
 
 	private socket: WebSocket | null = null;
-	/** #119 connection 接线：per-socket JSON-RPC 连接（响应关联/超时取消由库承担）。
+	/**  connection 接线：per-socket JSON-RPC 连接（响应关联/超时取消由库承担）。
 	 * 连接实例跨 owner 延续（JoinAttempt → runtime → reload 新 runtime），
 	 * 断线终态才 dispose。 */
 	private jsonrpcConnection: MessageConnection | null = null;
@@ -190,7 +190,7 @@ export class CharacterRuntime {
 	private jsonrpcWriter: WebSocketMessageWriter | null = null;
 	/** 断线原因（request() 映射库 dispose 拒绝码 -32097 → 以断线原因 reject）。 */
 	private disconnectError: Error | undefined;
-	/** 在途请求登记（detach 显式取消用：clearTimeout + reject——三轮评审阻断⑨：
+	/** 在途请求登记（detach 显式取消用：clearTimeout + reject 断线原因）：
 	 * 旧 owner 的 timer 不得在移交后点火，否则 failConnection → finishDisconnected
 	 * 会 dispose 新 runtime 正在使用的共享 connection）。 */
 	private readonly inflightRequests = new Set<{ timer: NodeJS.Timeout; reject: (error: Error) => void }>();
@@ -201,7 +201,7 @@ export class CharacterRuntime {
 	private readonly cursorStorePath: string | undefined;
 	private cursorSequence: number | null = null;
 	/**
-	 * P1-4 方案 a：ready 响应携带的进入时刻水位（latest_sequence）。
+	 *  方案 a：ready 响应携带的进入时刻水位（latest_sequence）。
 	 * 新帧有值 → 游标预置直接用（精确锚点，误差窗口归零）；旧帧 null →
 	 * 回退查询预置（双路径兼容旧服务端）。只读快照语义（join 时写入，
 	 * 值传豁免）。
@@ -209,14 +209,14 @@ export class CharacterRuntime {
 	readyLatestSequence: number | null = null;
 
 	/**
-	 * ISSUE-013 B5：每轮 stale 自动恢复预算。按每次 speak 响应带回的轮次
+	 *  B5：每轮 stale 自动恢复预算。按每次 speak 响应带回的轮次
 	 * 快照跟踪；轮次变化（新轮或他人发布）时 key 变化即重置预算。超过预算后
 	 * 客户端不再标记 A2 注入，而是上报拒绝供人工重新决策。
 	 */
 	private staleRecoveryKey: string | null = null;
 	private staleRecoveryCount = 0;
 	/**
-	 * #128：speak 被「未读先读」阻止后置位（首拒已 markIncrementPending）。
+	 * ：speak 被「未读先读」阻止后置位（首拒已 markIncrementPending）。
 	 * 游标追平后下次 speak 判定通过即复位；置位期间重复 speak 只返回短告知，
 	 * 不重复标记（风暴场景防刷）。
 	 */
@@ -278,7 +278,7 @@ export class CharacterRuntime {
 		return new CharacterRuntime(options);
 	}
 
-	/** #119 connection 接线：新建 per-socket JSON-RPC 连接（character 侧只发请求收响应）。
+	/**  connection 接线：新建 per-socket JSON-RPC 连接（character 侧只发请求收响应）。
 	 * 仅无既有连接时使用（首次 join / 测试直构兼容）；跨 owner 移交走 adoptJsonRpc。 */
 	private attachJsonRpc(socket: WebSocket): void {
 		const reader = new WebSocketMessageReader();
@@ -290,8 +290,8 @@ export class CharacterRuntime {
 		jsonrpcConnection.listen();
 	}
 
-	/** #119 connection 延续：接管既有 JSON-RPC 连接（不重建 = 库内序列单调，
-	 * 代际 id 不撞车——评审阻断②）。 */
+	/**  connection 延续：接管既有 JSON-RPC 连接（不重建 = 库内序列单调，
+	 * 代际 id 不撞车）。 */
 	private adoptJsonRpc(jsonrpc: CharacterJsonRpcTransfer): void {
 		this.jsonrpcConnection = jsonrpc.connection;
 		this.jsonrpcReader = jsonrpc.reader;
@@ -326,7 +326,7 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * ISSUE-014/#14 看门狗：agent_end 之后，若 agent_settled 在窗口内未到，
+	 * / 看门狗：agent_end 之后，若 agent_settled 在窗口内未到，
 	 * 强制把 is_streaming 复位为 false。Node 定时器不依赖 agent 状态，
 	 * 因此 wedged run 也会被复位。
 	 */
@@ -334,10 +334,10 @@ export class CharacterRuntime {
 		this.clearStreamingResetWatchdog();
 		this.streamingResetWatchdog = setTimeout(() => {
 			this.streamingResetWatchdog = null;
-			// #90：isAgentActive 守卫——run 仍活跃（continue 段进行中）时不灭灯；
+			// isAgentActive 守卫——run 仍活跃（continue 段进行中）时不灭灯；
 			// 误灭窗口 = agent_end 布防后 5s 内无 agent_start/settle，段内 LLM
 			// 调用 >5s 时触发。真悬挂（agent_end 后无任何事件）由 wedged 3min
-			// 兜底强制收敛（#66），显示复位语义不丢失（#14/W2 回归保持）。
+			// 兜底强制收敛，显示复位语义不丢失（W2 回归保持）。
 			if (this.isAgentActive) {
 				return;
 			}
@@ -353,11 +353,11 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * #66：agent_start 时布防 run wedged watchdog。agent_settled 正常到达由
+	 * ：agent_start 时布防 run wedged watchdog。agent_settled 正常到达由
 	 * clearRunWedgedWatchdog 清除（happy path 零触发）；超时触发强制 settle——
 	 * 与正常 settle 同路径幂等（isAgentActive 先判、触发自清、onAgentSettled
-	 * 内部 incrementPending 防重入）。覆盖双窗口（① 无 agent_end ② #14 不碰
-	 * isAgentActive），v2 = #14 超集。
+	 * 内部 incrementPending 防重入）。覆盖双窗口（① 无 agent_end ②  不碰
+	 * isAgentActive），v2 =  超集。
 	 */
 	armRunWedgedWatchdog(delayMs?: number): void {
 		this.clearRunWedgedWatchdog();
@@ -385,7 +385,7 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * #66：agent_settled 统一处理（agent-lifecycle 接线）。与强制收敛幂等合并——
+	 * ：agent_settled 统一处理（agent-lifecycle 接线）。与强制收敛幂等合并——
 	 * wedged 已触发时迟到 settle 只复位显示，不重复冲刷；happy path 正常冲刷。
 	 */
 	settleRun(): void {
@@ -400,7 +400,7 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * ISSUE-014/#14 / #21：按需刷新缓存的群聊状态快照。v0.5 收窄后成员/
+	 * / / ：按需刷新缓存的群聊状态快照。v0.5 收窄后成员/
 	 * 流式变化不再广播 group_chat_update；调用点只在消息边界或显式交互刷新，
 	 * 无消息期间不承诺 Character widget 实时。失败仅影响展示。
 	 */
@@ -441,7 +441,7 @@ export class CharacterRuntime {
 	 * cursor（服务端提供的不透明序号边界）向更早消息推进；
 	 * 传入 message_history 事件或上一页响应中的 cursor 可继续向后翻页。
 	 * 服务端拒绝请求时返回 null（例如窗口中途掉线）。
-	 * ISSUE-008：join 时 message_history 只携带最近 10 条消息，
+	 * ：join 时 message_history 只携带最近 10 条消息，
 	 * 客户端靠本方法走完剩余历史。
 	 */
 	async fetchMessageHistoryPage(cursor: string | null): Promise<{
@@ -485,12 +485,12 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * M7 (ISSUE-012/#24)：从 creator 拉取所有 sequence > since 的消息。
+	 *  (/)：从 creator 拉取所有 sequence > since 的消息。
 	 * 服务端按 sequence 过滤，因此漏掉的通知（gap）由下一次拉取补齐。
 	 * 连接中途断开时返回 null。
 	 */
 	/**
-	 * #138：拉取起点前移游标前 N 条已读上下文（方案 A，零协议变更）。
+	 * ：拉取起点前移游标前 N 条已读上下文（方案 A，零协议变更）。
 	 * 额外 N 条仅作上下文窗口：不更新游标、不污染未读语义；前移只作用
 	 * 增量拉取路径（pageOlderHistory 走 fetchMessageHistoryPage，不叠加）。
 	 * 默认 0 行为不变（无注入/显式传 0 = 既有语义，测试零影响）。
@@ -503,7 +503,7 @@ export class CharacterRuntime {
 		latestSequence: number;
 		totalMessages: number;
 		/**
-		 * #146 P1（Copilot）：前导上下文条数 = seq ≤ sinceSequence 的窗口内容
+		 * 前导上下文条数 = seq ≤ sinceSequence 的窗口内容
 		 * （含游标自身最近已读）。未读 = 本字段之后（seq > sinceSequence）。
 		 * 下游据此只在未读区间存在可投递事件时才携带上下文投递。
 		 */
@@ -534,7 +534,7 @@ export class CharacterRuntime {
 			latest_sequence: number;
 			total_messages: number;
 		};
-		// #146 P1：上下文/未读分界 = 原始 since（窗口前移前的拉取起点）。
+		// 上下文/未读分界 = 原始 since（窗口前移前的拉取起点）。
 		// 服务端按 sequence 升序返回（submit 原子 +1 无空洞），上下文恒为前缀。
 		const contextCount = data.messages.filter((m) => {
 			const sequence = "params" in m && (m.params as { sequence?: unknown }).sequence;
@@ -568,7 +568,7 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * M7：加载本群聊的持久化游标（最后一条成功投递的消息序号）。
+	 * ：加载本群聊的持久化游标（最后一条成功投递的消息序号）。
 	 * 尚无游标（首次 join）或存储不可用时返回 null——调用方随即回退到
 	 * 完整历史分页路径。
 	 */
@@ -581,7 +581,7 @@ export class CharacterRuntime {
 		}
 		// 游标跟随 Session：只读本 Session 文件。v1 群聊级共享游标无 Session 身份，
 		// 可能由其他角色推进——若回退采用其值会跳过本 Session 从未看过的消息，故
-		// 不采用（User 2026-08-02：新 Session 无独立游标 = 从完整历史重新拉取，
+		// 不采用（新 Session 无独立游标 = 从完整历史重新拉取，
 		// 最多重复、绝不跳过）。旧共享文件物理遗留但不读不写。
 		let sequence: number | null = null;
 		try {
@@ -596,17 +596,17 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * M7：成功投递后持久化游标。写入是原子的（tmp 文件 + rename），
+	 * ：成功投递后持久化游标。写入是原子的（tmp 文件 + rename），
 	 * 写中途崩溃不会损坏游标；投递失败绝不能推进游标（重试语义）。
 	 * 内存先行窗口：cursorSequence 先推进、文件后写——写失败时同进程
-	 * loadCursor 仍回读新值（QA 场景 7 钉）；跨进程恢复以文件为准（
-	 * 内存先行不落盘则下次 join 从更早位置重拉，按 sequence 幂等）。
+	 * loadCursor 仍回读新值；跨进程恢复以文件为准（内存先行不落盘则下次
+	 * join 从更早位置重拉，按 sequence 幂等）。
 	 */
 	saveCursor(sequence: number): void {
 		if (!this.cursorStorePath) {
 			return;
 		}
-		// 内存先推进（保持：写失败时同进程 loadCursor 仍回读新值——QA 场景 7 钉）
+		// 内存先推进（写失败时同进程 loadCursor 仍回读新值）
 		this.cursorSequence = sequence;
 		try {
 			writeCursorFile(this.cursorStorePath, sequence);
@@ -626,15 +626,15 @@ export class CharacterRuntime {
 		missingTo?: number;
 		autoRecover?: boolean;
 		round?: { roundMaxMessages: number; usedMessages: number; remainingMessages: number };
-		/** #128：未读先读阻止（first = 首拒，已安排拉取；unreadCount/unreadExact = 告知条数）。 */
+		/** ：未读先读阻止（first = 首拒，已安排拉取；unreadCount/unreadExact = 告知条数）。 */
 		first?: boolean;
 		unreadCount?: number;
 		unreadExact?: boolean;
 	}> {
-		// #128：未读先读——发言前若有已证明的他人未读，不发布、不耗配额、不举手。
-		// 本地判定（零协议变更，Arch 评审 ②）：判定后直接返回、不发请求；拉取注入
+		// 未读先读——发言前若有已证明的他人未读，不发布、不耗配额、不举手。
+		// 本地判定（零协议变更）：判定后直接返回、不发请求；拉取注入
 		// 走既有 markIncrementPending → settle 拉全 → followUp 重开的两段式链路。
-		// 水位未知（reload 后）时放行；截断窗口含自身回显时按 #128 定稿保守阻止。
+		// 水位未知（reload 后）时放行；截断窗口含自身回显时按  定稿保守阻止。
 		// 其余无法证明他人未读的场景放行，由服务端 stale 拒绝兜底。
 		const unread = this.groupChatInput?.unreadOthersProven();
 		if (unread?.shouldBlock) {
@@ -652,7 +652,7 @@ export class CharacterRuntime {
 			};
 		}
 		this.unreadBlockNotified = false;
-		// ISSUE-013 B1：客户端始终携带自己的投递游标（最后一条成功投递的
+		//  B1：客户端始终携带自己的投递游标（最后一条成功投递的
 		// sequence——A5：只能由投递路径推进）。客户端不会自行推进游标；
 		// 服务端把请求者自己的消息排除在 stale 检查之外（B6），
 		// 因此游标停在自己已发布的消息之前永远不会导致误拒。
@@ -720,12 +720,12 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * 白板模型（#114，ADR-0007）：board_write——贴/改/撕/清本人板。
+	 * 白板模型：board_write——贴/改/撕/清本人板。
 	 * 返回响应 data（四态：changed:true 带/不带 note；changed:false 带告知/拒绝码）。
 	 * 群聊静默：changed:false 不广播 board_update（接口层告知）。
 	 */
 	/**
-	 * 白板写入（#114，F11 收窄）：判别 union 类型——set 带全可选 note（业务幂等
+	 * 白板写入（F11 收窄）：判别 union 类型——set 带全可选 note（业务幂等
 	 * note_unchanged 保留）、remove 必带 {id}（content 禁）、clear 无参。非法组合
 	 * 在调用侧（工具层/测试）即拒，不发 wire——避免服务端 fail-close 断连。
 	 */
@@ -749,7 +749,7 @@ export class CharacterRuntime {
 		return response.result as BoardWriteDataWire;
 	}
 
-	/** 白板模型（#114）：board_query——全量 per-character 条目（本人视角）。 */
+	/** 白板模型：board_query——全量 per-character 条目（本人视角）。 */
 	async boardQuery(): Promise<Record<string, BoardNoteWire[]>> {
 		const response = await this.request({ method: METHOD_BOARD_QUERY, params: {} });
 		if ("error" in response) {
@@ -762,7 +762,7 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * #152 二轮（苍蓝星/PM/Arch 裁定共享化）：stale 自愈预算重置——「成功同步
+	 *  二轮（裁定共享化）：stale 自愈预算重置——「成功同步
 	 * （游标推进）即归零」，绑定同步成功事件而非入口成功（speak/whisper 同调）。
 	 * 预算状态机：key = 轮次额度快照；清零 = 任何成功发布；上限 =
 	 * MAX_STALE_AUTO_RECOVERIES；本质 = 防 stale 自愈循环的启发式非系统保证。
@@ -773,7 +773,7 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * #152：向指定 Character 发送私信。与 speak 共用：未读先读检查（#128）、
+	 * ：向指定 Character 发送私信。与 speak 共用：未读先读检查、
 	 * 服务端在线校验（WS 活跃）、轮次额度、大小限制与基于游标的 stale 检查
 	 * （based_on_sequence 同 speak）；失败不占额度。
 	 *
@@ -793,7 +793,7 @@ export class CharacterRuntime {
 		autoRecover?: boolean;
 		handRaised?: boolean;
 	}> {
-		// #128：未读先读——与 speak 同款本地判定（whisper 也走未读优先）。
+		// 未读先读——与 speak 同款本地判定（whisper 也走未读优先）。
 		const unread = this.groupChatInput?.unreadOthersProven();
 		if (unread?.shouldBlock) {
 			const first = !this.unreadBlockNotified;
@@ -816,7 +816,7 @@ export class CharacterRuntime {
 		if (!("result" in response)) {
 			throw new Error(ERROR_UNEXPECTED_WHISPER_RESPONSE);
 		}
-		// #152 修复（PR #160 AI 评审阻断 1 配套）：三态 result 与 schema 一致
+		//  修复（三态 result 与 schema 一致）：三态 result 与 schema 一致
 		// （published+sequence+round / stale / round_limit_reached，与 speak 同构）。
 		const result = response.result as {
 			published: boolean;
@@ -828,7 +828,7 @@ export class CharacterRuntime {
 		};
 		if (result.published) {
 			this.saveCursor(result.sequence ?? 0);
-			// #152 二轮（共享化裁定）：成功发布（游标推进）即归零预算——与 speak 同 helper。
+			//  二轮（共享化裁定）：成功发布（游标推进）即归零预算——与 speak 同 helper。
 			this.resetStaleRecoveryBudget();
 			return { published: true, ...(result.sequence !== undefined ? { sequence: result.sequence } : {}) };
 		}
@@ -858,7 +858,7 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * ISSUE-013 B3：标记 A2“增量挂起”标记，让 settle 钩子经统一投递管线
+	 *  B3：标记 A2“增量挂起”标记，让 settle 钩子经统一投递管线
 	 * 拉取错过的增量。由 speak 工具在 stale 拒绝需要自动恢复时调用；
 	 * 工具本身只返回简短提示（不带消息文本——完整增量在下一轮经正常
 	 * 群聊输入到达）。
@@ -915,15 +915,15 @@ export class CharacterRuntime {
 			socket,
 			character: this.character,
 			...(this.cursorStorePath !== undefined ? { cursorStorePath: this.cursorStorePath } : {}),
-			// #138：上下文窗口 getter 跨 reload 携带（reload 后与 join 路径行为一致）。
+			// 上下文窗口 getter 跨 reload 携带（reload 后与 join 路径行为一致）。
 			...(this.getFetchContextWindow !== undefined ? { getFetchContextWindow: this.getFetchContextWindow } : {}),
-			// #154 T5：模板集快照跨 reload 携带（reload 后渲染一致，不回落默认）。
+			//  T5：模板集快照跨 reload 携带（reload 后渲染一致，不回落默认）。
 			...(this.messageTemplates !== undefined ? { messageTemplates: this.messageTemplates } : {}),
-			// #154 复评：路径随 handoff 携带，takeHandoff 据此重新加载磁盘配置。
+			//  复评：路径随 handoff 携带，takeHandoff 据此重新加载磁盘配置。
 			...(this.agentDir !== undefined ? { agentDir: this.agentDir } : {}),
 			...(this.cwd !== undefined ? { cwd: this.cwd } : {}),
-			// #119 connection 延续：连接实例随 handoff 移交（新 runtime 不重建——
-			// 库内序列单调，旧代际响应撞不上新请求 id，评审阻断②）。
+			//  connection 延续：连接实例随 handoff 移交（新 runtime 不重建——
+			// 库内序列单调，旧代际响应撞不上新请求 id）。
 			...(this.jsonrpcConnection && this.jsonrpcReader && this.jsonrpcWriter
 				? {
 						jsonrpc: {
@@ -949,7 +949,7 @@ export class CharacterRuntime {
 			},
 		};
 		this.socket = null;
-		// 三轮评审阻断⑨：显式取消旧 in-flight（clearTimeout + reject 断线原因）——
+		// 显式取消旧 in-flight（clearTimeout + reject 断线原因）——
 		// 旧 owner 的 timer 不再点火，杜绝 failConnection → finishDisconnected →
 		// dispose 新 runtime 正在使用的共享 connection；随后脱离共享连接引用与
 		// 关联元数据（任何迟到的 finishDisconnected 都碰不到移交的连接）。
@@ -970,7 +970,7 @@ export class CharacterRuntime {
 	 * 环境输入管线（含挂起事件、未读标记与触发窗口），然后按到达顺序
 	 * 重放缓冲帧。reload 窗口期间断线的成员走正常断线清理。
 	 *
-	 * ISSUE-005：reload 时重新从磁盘读角色卡，因此加入期间对卡片的编辑
+	 * ：reload 时重新从磁盘读角色卡，因此加入期间对卡片的编辑
 	 * （例如四方 0.5 协作合并）会在 reload 后反映到注入的 persona。若重读
 	 * 失败则保留旧卡并把警告经可选 notify 回调暴露——reload 继续，绝不
 	 * 使会话崩溃。
@@ -979,7 +979,7 @@ export class CharacterRuntime {
 		handoff: CharacterReloadHandoff,
 		pi?: ExtensionAPI,
 		notify?: (message: string) => void,
-		// #154 复评（Arch）：恢复路径配置加载器注入化（同 headless AutoJoinOptions
+		//  复评（Arch）：恢复路径配置加载器注入化（同 headless AutoJoinOptions
 		// loadConfig 模式，默认 loadTavernConfig；测试可注入 mock）。
 		loadConfig: (options: { agentDir: string; cwd: string }) => Promise<TavernConfig> = loadTavernConfig,
 	): Promise<CharacterRuntime> {
@@ -1004,14 +1004,14 @@ export class CharacterRuntime {
 				`reload: failed to re-read character card ${handoff.character.path}, keeping the previous one: ${error instanceof Error ? error.message : String(error)}`,
 			);
 		}
-		// #154 复评（苍蓝星）：reload 时重新加载磁盘配置——模板文件（message_templates）
+		//  复评：reload 时重新加载磁盘配置——模板文件（message_templates）
 		// 经编辑落盘后，reload 使新配置生效（同角色卡重读模式）。
 		// 失败：warning + 保留旧快照，reload 继续，绝不使会话崩溃。
 		let messageTemplates = handoff.messageTemplates;
 		if (handoff.agentDir !== undefined && handoff.cwd !== undefined) {
 			try {
 				const reloaded = await loadConfig({ agentDir: handoff.agentDir, cwd: handoff.cwd });
-				// 复评（苍蓝星第三轮）：reload 成功即采用磁盘配置——messageTemplates
+				// 复评：reload 成功即采用磁盘配置——messageTemplates
 				// 缺省时清除旧快照（消费面回落内置默认）；仅加载抛错才保留旧快照。
 				messageTemplates = reloaded.messageTemplates;
 			} catch (error) {
@@ -1025,11 +1025,11 @@ export class CharacterRuntime {
 			sessionId: handoff.piSessionId,
 			character,
 			...(handoff.cursorStorePath !== undefined ? { cursorStorePath: handoff.cursorStorePath } : {}),
-			// #138：上下文窗口 getter 跨 reload 延续（reload 后与 join 路径行为一致）。
+			// 上下文窗口 getter 跨 reload 延续（reload 后与 join 路径行为一致）。
 			...(handoff.getFetchContextWindow !== undefined ? { getFetchContextWindow: handoff.getFetchContextWindow } : {}),
-			// #154 T5：模板集跨 reload 延续——先磁盘重载、失败回落快照。
+			//  T5：模板集跨 reload 延续——先磁盘重载、失败回落快照。
 			...(messageTemplates !== undefined ? { messageTemplates } : {}),
-			// #154 复评：路径随 runtime 延续（后续再次 reload 仍可重载磁盘配置）。
+			//  复评：路径随 runtime 延续（后续再次 reload 仍可重载磁盘配置）。
 			...(handoff.agentDir !== undefined ? { agentDir: handoff.agentDir } : {}),
 			...(handoff.cwd !== undefined ? { cwd: handoff.cwd } : {}),
 		});
@@ -1046,7 +1046,7 @@ export class CharacterRuntime {
 		socket.off("close", handoff.bufferingHandlers.close);
 		this.socket = socket;
 		if (handoff.jsonrpc) {
-			// #119 connection 延续：接管旧 runtime 的既有连接（序列单调，代际隔离）。
+			//  connection 延续：接管旧 runtime 的既有连接（序列单调，代际隔离）。
 			this.adoptJsonRpc(handoff.jsonrpc);
 		} else {
 			this.attachJsonRpc(socket);
@@ -1074,10 +1074,10 @@ export class CharacterRuntime {
 			this.handleIncomingData(frame.data, false);
 		}
 
-		// ISSUE-014/#14 reload 角落：旧 runtime 的流式看门狗定时器
+		// / reload 角落：旧 runtime 的流式看门狗定时器
 		// 随旧 Extension Runtime 一起消亡。若上一次 agent run 中途被打断
 		// （streaming 卡在 true），这里显式复位——run 已死，展示不能一直
-		// 挂着。这是 reload 路径唯一确定性的覆盖（M5 handoff）。
+		// 挂着。这是 reload 路径唯一确定性的覆盖（handoff）。
 		this.updateStreaming(false);
 	}
 
@@ -1131,7 +1131,7 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * #119 connection 接线：sendRequest 替代手写 pending（响应关联/取消由库承担）。
+	 *  connection 接线：sendRequest 替代手写 pending（响应关联/取消由库承担）。
 	 * 超时语义保留（Promise.race + failConnection）；ResponseError 包装回
 	 * {error:{code,message}} 响应形状——调用方 `"error" in response` 判别语法不变。
 	 */
@@ -1168,7 +1168,7 @@ export class CharacterRuntime {
 		});
 		return withTimeout.then(
 			(result) => {
-				// #139 方案 B：解析时形状校验（method 调用点已知，替代 feed 前 gate）。
+				//  方案 B：解析时形状校验（method 调用点已知，替代 feed 前 gate）。
 				// 同 id 错 result = 协议错位 fail-close：显式 ERROR_UNEXPECTED_* reject +
 				// 断链（failConnection → finishDisconnected，其他 in-flight 经 dispose
 				// -32097 → disconnectError 路径，文案同源）。
@@ -1182,7 +1182,7 @@ export class CharacterRuntime {
 			(error) => {
 				if (error instanceof ResponseError && error.code === PENDING_RESPONSE_REJECTED_CODE) {
 					// 断线 dispose 的库内拒绝（-32097）：以断线原因 reject（立即收敛，
-					// 不悬挂到超时——评审阻断③）。fail-close 场景 = ERROR_UNEXPECTED_*。
+					// 不悬挂到超时）。fail-close 场景 = ERROR_UNEXPECTED_*。
 					return Promise.reject(this.disconnectError ?? new Error(ERROR_CONNECTION_HAS_BEEN_CLOSED));
 				}
 				if (error instanceof ResponseError) {
@@ -1209,9 +1209,9 @@ export class CharacterRuntime {
 	}
 
 	private handleServerMessage(message: ServerMessage): void {
-		// #139 方案 B：响应帧直接喂 connection（库按 id 关联原请求，id 关联/丢弃
+		//  方案 B：响应帧直接喂 connection（库按 id 关联原请求，id 关联/丢弃
 		// 由库承担）；result 形状校验移到 request() 解析时（method 在调用点已知，
-		// 同 id 错 result 仍 fail-close——#137 阻断②语义保留）。error 自描述、
+		// 同 id 错 result 仍 fail-close（语义保留）。error 自描述、
 		// 未知 id（旧代际迟到响应 / reload 缓冲重放）→ 库按 id 结算或丢弃；
 		// 代际隔离由连接延续保证。
 		if (("result" in message || "error" in message) && message.id !== undefined) {
@@ -1281,9 +1281,9 @@ export class CharacterRuntime {
 				socket.close();
 			}
 		}
-		// #119 connection 接线：断线终态 dispose connection——v9 实证 reader close
+		//  connection 接线：断线终态 dispose connection——v9 实证 reader close
 		// 只置 Closed 不拒 pending，dispose() 才遍历 reject responsePromises
-		// （评审阻断③）。request() 把 -32097 映射为断线原因立即 reject。
+		// request() 把 -32097 映射为断线原因立即 reject。
 		// B3（W3 补全）：显式清本地 in-flight 登记（clearTimeout + reject 断线原因）
 		// ——与 detach 先例对称；dispose() 虽已拒库内 pending，但本地 timer 若不
 		// 清则悬挂至超时（QA 对抗坐实，超时兜底存在但延迟 5s）。

@@ -18,7 +18,7 @@ const checkClientMessage = Compile(ClientMessageSchema);
 const checkServerMessage = Compile(ServerMessageSchema);
 
 /**
- * 解码客户端消息（#119 M1：JSON-RPC 2.0 标准信封）。
+ * 解码客户端消息JSON-RPC 2.0 标准信封）。
  * 信封层校验：JSON 解析 → vscode-jsonrpc Message 骨架 → TypeBox 判别结构
  * （method 判别 + params 形状 + 10 码业务枚举收窄，未知 code fail-close）。
  */

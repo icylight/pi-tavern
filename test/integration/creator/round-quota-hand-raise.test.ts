@@ -9,9 +9,9 @@ import { loadCharacterCard } from "../../../src/config/character-card.js";
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 
 /**
- * A5（验收清单 #20-A5）：hand_raised 真值流转——round-limit 拒绝后自动举手。
+ * A5（验收清单 -A5）：hand_raised 真值流转——round-limit 拒绝后自动举手。
  *
- * 场景对应 User 实证（#20）：发言配额用尽举手后 TUI 无显示。
+ * 场景对应 User 实证：发言配额用尽举手后 TUI 无显示。
  * 协议无独立举手消息（websocket-protocol.md:640：hand_raised 由 creator
  * 按规则维护）；现有规则 = round-limit 拒绝时自动置位
  * （creator-runtime setHandRaised(true)）。本测试锁定真值层：
@@ -117,7 +117,7 @@ describe("A5: hand_raised truth flow on round-limit refusal", () => {
 		});
 
 		// 第二条发言超过配额 → 以 round_limit_reached 拒绝并
-		// hand raised (User-observed #20 chain: 配额用尽 → 自动举手).
+		// hand raised (User-observed  chain: 配额用尽 → 自动举手).
 		client.send(JSON.stringify({ jsonrpc: "2.0", id: "s2", method: "speak", params: { content: "second" } }));
 		const refusal = await waitForMessage(client, "response");
 		expect(refusal).toMatchObject({

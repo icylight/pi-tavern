@@ -100,7 +100,7 @@ export class BroadcastHub {
 	}
 
 	/**
-	 * M7（ISSUE-012/#24）：广播 group_chat_update 通知而非完整 public_message
+	 * 广播 group_chat_update 通知而非完整 public_message
 	 * 事件。角色收到通知后经 fetch_messages_since 拉取真实增量。preview 携带
 	 * 最近消息（微信风格）；内容与拉取路径同源（publicMessages），UI 与
 	 * agent 上下文永不分叉。

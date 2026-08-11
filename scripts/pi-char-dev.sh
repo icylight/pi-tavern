@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# PiTavern headless character launcher (ISSUE-014, CPU 根治).
+# PiTavern headless character launcher (CPU 根治).
 #
-# Runs a Character pi in RPC mode (no TUI — the rendering pipeline that
-# burns 35-42% CPU per idle character in real terminals). The character
+# Runs a Character pi in RPC mode (no TUI — autonomous Characters do not need
+# a terminal UI rendering pipeline). The character
 # auto-joins an active group chat on startup and participates via the
 # group-chat input pipeline; interaction happens entirely through the
 # group chat (tavern_speak / tavern_whoami tools).

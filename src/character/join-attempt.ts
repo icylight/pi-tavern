@@ -37,18 +37,18 @@ export interface JoinAttemptOptions {
 	/** 移交后的 Character 连接上的 creator ping 超时阈值。 */
 	heartbeatTimeoutMs?: number;
 	/**
-	 * M7 (ISSUE-012/#24)：群聊级游标文件绝对路径，转发给
+	 *  (/)：群聊级游标文件绝对路径，转发给
 	 * CharacterRuntime，让增量拉取跨重启与 reload 续接。
 	 */
 	cursorStorePath?: string;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	triggerDebounceMs?: number;
-	/** #138：增量拉取上下文窗口 getter（getter 闭包，每轮实时取值），转发给 CharacterRuntime。 */
+	/** ：增量拉取上下文窗口 getter（getter 闭包，每轮实时取值），转发给 CharacterRuntime。 */
 	getFetchContextWindow?: () => number;
-	/** #154：群聊文案模板集（claim 时本地配置加载，转发给 CharacterRuntime）。 */
+	/** ：群聊文案模板集（claim 时本地配置加载，转发给 CharacterRuntime）。 */
 	messageTemplates?: Record<MessageTemplateKey, string>;
 	/**
-	 * #154 苍蓝星复评：reload 时重新加载磁盘配置所需路径（join 时透传，
+	 *  复评：reload 时重新加载磁盘配置所需路径（join 时透传，
 	 * runtime 持有；无则 reload 不重载、沿用快照——兼容旧 handoff）。
 	 */
 	agentDir?: string;
@@ -58,9 +58,9 @@ export interface JoinAttemptOptions {
 const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
 
 /**
- * join 三阶段握手（#119 #139 完整迁移）：join/claim/ready 经 vscode-jsonrpc
+ * join 三阶段握手（完整迁移）：join/claim/ready 经 vscode-jsonrpc
  * connection 发送（库内建 id 关联/超时取消），手工 pending/matcher 由
- * RequestManager 替代；响应 result 形状校验在 request() 解析时执行（#139 方案 B，
+ * RequestManager 替代；响应 result 形状校验在 request() 解析时执行（方案 B，
  * 同 id 错 result fail-close 语义保留，与 CharacterRuntime 同机制）。
  */
 export class JoinAttempt {
@@ -103,7 +103,7 @@ export class JoinAttempt {
 			return;
 		}
 		if (("result" in message || "error" in message) && message.id !== undefined) {
-			// #139 方案 B：响应帧直接喂库（id 关联/丢弃由库承担）；result 形状校验
+			//  方案 B：响应帧直接喂库（id 关联/丢弃由库承担）；result 形状校验
 			// 在 request() 解析时（method 调用点已知）——同 id 错 result 仍 fail-close。
 			this.jsonrpcReader?.deliver(message);
 			return;
@@ -139,7 +139,7 @@ export class JoinAttempt {
 		this.socket.on("message", this.onMessage);
 		this.socket.on("close", this.onClose);
 		this.socket.on("error", this.onError);
-		// #119 connection 接线：握手连接实例随 takeConnection 移交 runtime 延续
+		//  connection 接线：握手连接实例随 takeConnection 移交 runtime 延续
 		// （不重建 = 库内序列单调，代际 id 不撞车）。
 		const reader = new WebSocketMessageReader();
 		const writer = new WebSocketMessageWriter(socket);
@@ -229,7 +229,7 @@ export class JoinAttempt {
 			if (!("result" in readyResponse)) {
 				throw new Error(ERROR_UNEXPECTED_READY_RESPONSE);
 			}
-			// P1-4 方案 a：ready 响应携带进入时刻水位（latest_sequence，新帧 Optional）——
+			//  方案 a：ready 响应携带进入时刻水位（latest_sequence，新帧 Optional）——
 			// 游标预置精确锚点（误差窗口归零）；旧帧 result=null 保持 readyLatestSequence=null
 			// → GroupChatInput 回退查询预置（双路径兼容）。
 			if (
@@ -239,7 +239,7 @@ export class JoinAttempt {
 				runtime.readyLatestSequence = (readyResponse.result as { latest_sequence: number }).latest_sequence;
 			}
 			runtime.activate(this.takeConnection(), pi);
-			// ISSUE-014/#21：join 后立即拉取群聊状态快照，
+			// /：join 后立即拉取群聊状态快照，
 			// 让 widget 马上显示真实成员数——在第一条公共消息
 			// 到达之前（不再有“成员数未知”窗口期）。
 			void runtime.refreshGroupChatState();
@@ -283,7 +283,7 @@ export class JoinAttempt {
 			socket,
 			bufferedMessages: this.bufferedMessages.splice(0),
 		};
-		// #119 connection 延续：握手连接随移交（runtime adoptJsonRpc 接管，
+		//  connection 延续：握手连接随移交（runtime adoptJsonRpc 接管，
 		// 序列单调——旧代际响应撞不上新请求 id）。
 		if (this.jsonrpcConnection && this.jsonrpcReader && this.jsonrpcWriter) {
 			transfer.jsonrpc = {
@@ -323,7 +323,7 @@ export class JoinAttempt {
 		this.onDisconnected?.();
 	}
 
-	/** #119 connection 接线：sendRequest 替代手写 pending（响应关联/取消由库承担）。
+	/**  connection 接线：sendRequest 替代手写 pending（响应关联/取消由库承担）。
 	 * 超时语义保留（Promise.race + closeWithError）；ResponseError 包装回
 	 * {error:{code,message}} 响应形状——调用方 `"error" in response` 判别语法不变。 */
 	private request(message: { method: string; params: unknown }): Promise<ServerMessage> {
@@ -355,7 +355,7 @@ export class JoinAttempt {
 		});
 		return withTimeout.then(
 			(result) => {
-				// #139 方案 B：解析时形状校验（method 调用点已知，替代 feed 前 gate）。
+				//  方案 B：解析时形状校验（method 调用点已知，替代 feed 前 gate）。
 				// 同 id 错 result = 协议错位 fail-close：显式 ERROR_UNEXPECTED_* reject +
 				// 关链（closeWithError → dispose，其他 in-flight 经 -32097 → closeError）。
 				const failCloseError = validateResult(message.method, result);

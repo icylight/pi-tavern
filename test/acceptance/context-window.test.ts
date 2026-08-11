@@ -7,9 +7,9 @@ import { afterAll, describe, expect, it } from "vitest";
 import { PiProcess, waitForDescriptor } from "./pi-process.js";
 
 /**
- * #138 红钉（acceptance 进程级）：拉取附加上下文窗口（方案 A，零协议变更）。
+ *  红钉（acceptance 进程级）：拉取附加上下文窗口（方案 A，零协议变更）。
  *
- * 验收锚点：acceptance.md WL-A/B（QA 起草，2026-08-08 PM 冻结）。
+ * 验收锚点：acceptance.md WL-A/B。
  *
  * - WL-A：增量拉取注入含「游标自身最近已投递 seq（起点退 N 返回集）+ 未读全量」，
  *   升序无缺失无重复（服务端 > 排他语义：窗口 = 起点退 N 后返回集含游标自身）；
@@ -20,7 +20,7 @@ import { PiProcess, waitForDescriptor } from "./pi-process.js";
  * → 下一次注入批次应含 cw-a（窗口重复）+ cw-b（未读）；再发布 cw-c → 注入批次
  * 含 cw-b（窗口滑移）+ cw-c，cw-a 移出。
  */
-describe("acceptance: #138 上下文窗口注入（WL-A/WL-B）", () => {
+describe("acceptance: 上下文窗口注入（WL-A/WL-B）", () => {
 	let index = 0;
 	const roots: string[] = [];
 	const processes: PiProcess[] = [];

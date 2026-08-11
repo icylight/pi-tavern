@@ -36,7 +36,7 @@ export interface TrashResult {
 
 /**
  * 会话摘要的本地结构接口（pi SessionInfo 的结构子集）。skills 不 import pi
- * 包（ADR-0005 §2），真实现由 adapter 层（commands.ts）装配。
+ * 包（五层依赖方向），真实现由 adapter 层（commands.ts）装配。
  */
 interface GroupChatSessionInfoLike {
 	id: string;

@@ -6,7 +6,7 @@ import { DEFAULT_TEMPLATES, type MessageTemplateKey } from "../../../src/config/
 import { registerRenderers } from "../../../src/ui/renderers.js";
 
 /**
- * #154 T3 红测：创建者 TUI 消费同一模板集（与实时注入/tavern_history 同源）。
+ *  T3 红测：创建者 TUI 消费同一模板集（与实时注入/tavern_history 同源）。
  * 自定义 public_message 模板 → TUI 输出同变；默认模板 → 内置中文直出。
  */
 
@@ -34,7 +34,7 @@ function themeMock() {
 	};
 }
 
-describe("T3 (#154) creator-display 模板渲染", () => {
+describe("T3  creator-display 模板渲染", () => {
 	it("默认模板：public_message 直出 `{sender}:\\n{content}`（双行化，Arch 裁决留痕）", () => {
 		const renderers = captureRenderers(() => DEFAULT_TEMPLATES);
 		const display = renderers.find((r) => r.customType === "pi-tavern.creator-display");

@@ -564,11 +564,11 @@ describe("CreatorRuntime", () => {
 
 		const publicMessage = await broadcastPromise;
 
-		// M7（ISSUE-012）：广播即 group_chat_update 通知；
+		// 广播即 group_chat_update 通知；
 		// 预览携带消息内容。
 		const publicMessageParams = publicMessage.params as Record<string, unknown>;
 
-		// M7（ISSUE-012）：广播即 group_chat_update 通知；
+		// 广播即 group_chat_update 通知；
 		// 预览携带消息内容。
 		const preview = publicMessageParams.preview_messages as PublicMessage[];
 		expect(preview.at(-1)?.params?.content).toBe("Hello everyone");
@@ -794,7 +794,7 @@ describe("CreatorRuntime", () => {
 		const speakResponse = await waitForMessage(client, "response");
 
 		// 发送者也收到 group_chat_update 通知（广播
-		// 包含所有在线成员；M7 预览携带新消息）。
+		// 包含所有在线成员；预览携带新消息）。
 		const senderEcho = receivedMessages.find(
 			(m) =>
 				m.method === "group_chat_update" &&
@@ -811,7 +811,7 @@ describe("CreatorRuntime", () => {
 			published: true,
 			event_id: expect.any(String) as string,
 			sequence: expect.any(Number) as number,
-			// ISSUE-013 B6：成功响应携带 latest_sequence（== 已发布序号
+			//  B6：成功响应携带 latest_sequence（== 已发布序号
 			// 成功时）以便客户端越过自己的消息推进游标。
 			latest_sequence: expect.any(Number) as number,
 			round: { round_max_messages: 20, used_messages: 1, remaining_messages: 19 },
@@ -852,7 +852,7 @@ describe("CreatorRuntime", () => {
 			name: "Developer",
 		});
 
-		// 广播时间戳与持久化条目时间戳一致（M7：
+		// 广播时间戳与持久化条目时间戳一致（
 		// 预览携带持久化后的消息字段）。
 		const echoPreview = ((senderEcho as Record<string, unknown>).params as Record<string, unknown>)
 			.preview_messages as Array<{
@@ -1243,7 +1243,7 @@ describe("CreatorRuntime", () => {
 		await runtime.close();
 	});
 
-	it("ready 后收 system_message 欢迎（#123 WL1）；历史经 get_message_history 主动拉取（WL3）", async () => {
+	it("ready 后收 system_message 欢迎（WL1）；历史经 get_message_history 主动拉取（WL3）", async () => {
 		const root = await createTemporaryDirectory();
 		const runtime = await CreatorRuntime.startNew({
 			cwd: join(root, "project"),
@@ -1278,7 +1278,7 @@ describe("CreatorRuntime", () => {
 		await waitForMessage(client, "response");
 		client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
 
-		// #123：ready 后只推 system_message 欢迎（内容 = 默认文案），零 message_history。
+		// ready 后只推 system_message 欢迎（内容 = 默认文案），零 message_history。
 		const welcomePromise = new Promise<Record<string, unknown>>((resolve) => {
 			const onMessage = (data: WebSocket.RawData) => {
 				const msg = JSON.parse(data.toString()) as Record<string, unknown>;
@@ -1618,7 +1618,7 @@ describe("CreatorRuntime", () => {
 		const lastEntry = JSON.parse(lines[lines.length - 1] as string) as { details: { sequence: number } };
 		expect(lastEntry.details.sequence).toBe(4);
 
-		// #123：新角色 ready 后不再自动推历史——主动 get_message_history 拉取磁盘重建的历史。
+		// 新角色 ready 后不再自动推历史——主动 get_message_history 拉取磁盘重建的历史。
 		const joined = await joinCharacter(resumed, "session-2", "dev");
 		joined.client.send(JSON.stringify({ jsonrpc: "2.0", id: "6", method: "get_message_history", params: {} }));
 		const historyResponse = await waitForMessage(joined.client, "response");
@@ -1676,7 +1676,7 @@ describe("CreatorRuntime", () => {
 	});
 });
 
-describe("CreatorRuntime lifecycle alignment (M5)", () => {
+describe("CreatorRuntime lifecycle alignment", () => {
 	it("keeps a persisted speak even when its response cannot be delivered (BC-10)", async () => {
 		const root = await createTemporaryDirectory();
 		const runtime = await CreatorRuntime.startNew({
@@ -2000,7 +2000,7 @@ describe("CreatorRuntime lifecycle alignment (M5)", () => {
 	});
 });
 
-describe("ISSUE-013 B2: speak staleness check", () => {
+describe("B2: speak staleness check", () => {
 	it("rejects a stale speak with missing_sequences and no quota/hand side effects", async () => {
 		const root = await createTemporaryDirectory();
 		const runtime = await CreatorRuntime.startNew({
@@ -2167,7 +2167,7 @@ function waitForMessage(socket: WebSocket, expected: string): Promise<Record<str
 		const timeout = setTimeout(() => reject(new Error(`Timed out waiting for ${expected}`)), 5000);
 		const onMessage = (data: WebSocket.RawData) => {
 			const message = JSON.parse(data.toString()) as Record<string, unknown>;
-			// #119 M1：响应帧判别 = result/error 信封；通知按 method 判别。
+			// 响应帧判别 = result/error 信封；通知按 method 判别。
 			const matches = expected === "response" ? "result" in message || "error" in message : message.method === expected;
 			if (matches) {
 				clearTimeout(timeout);
@@ -2199,7 +2199,7 @@ async function joinCharacter(
 	);
 	await waitForMessage(client, "response");
 	client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
-	// #123：ready 后不再自动推 message_history，改等 system_message 欢迎单播。
+	// ready 后不再自动推 message_history，改等 system_message 欢迎单播。
 	// 响应与 system_message 相继到达，若在响应解析后才添加监听器会错过欢迎帧。
 	const welcomePromise = waitForMessage(client, "system_message");
 	await waitForMessage(client, "response");

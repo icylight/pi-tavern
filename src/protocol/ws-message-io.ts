@@ -7,7 +7,7 @@ import { ERROR_CONNECTION_NOT_OPEN } from "../shared/messages.js";
 import { MAX_WEBSOCKET_FRAME_BYTES } from "./codec.js";
 
 /**
- * 单帧 JSON WS → vscode-jsonrpc MessageReader（#119 connection 接线）。
+ * 单帧 JSON WS → vscode-jsonrpc MessageReader（connection 接线）。
  *
  * 分帧语义：每一条 ws 消息 = 一个完整 JSON-RPC 信封（MAX_WEBSOCKET_FRAME_BYTES
  * 单帧守卫），与 vscode-jsonrpc 内置 StreamMessageReader 的 LSP Content-Length

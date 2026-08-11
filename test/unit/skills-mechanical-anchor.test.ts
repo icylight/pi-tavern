@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
-// #172 SK6 机械锚：两 SKILL.md 存在、frontmatter 合法、关键安全条款文本存在性、
+//  SK6 机械锚：两 SKILL.md 存在、frontmatter 合法、关键安全条款文本存在性、
 // pi.skills 声明与 files 白名单一致。静态断言，不依赖真实 pi 进程。
 // 校验语义对齐 pi 源码（references/pi packages/coding-agent/src/core/skills.ts）：
 // name ^[a-z0-9-]+$、≤64、不以连字符开头/结尾、不含连续连字符；description 必填、≤1024。
@@ -74,7 +74,7 @@ describe("SK6 机械锚：包内 skill 结构与分发声明", () => {
 		},
 	);
 
-	it("联动检查：character skill 含「联动检查清单」段（#172 方案 A）", async () => {
+	it("联动检查：character skill 含「联动检查清单」段（方案 A）", async () => {
 		const raw = await readFile(skillUrl("tavern-character-edit"), "utf-8");
 		expect(raw).toMatch(/联动检查/);
 	});

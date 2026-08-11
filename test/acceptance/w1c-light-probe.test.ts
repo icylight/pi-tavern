@@ -7,18 +7,18 @@ import { afterAll, describe, expect, it } from "vitest";
 import { PiProcess, waitForDescriptor } from "./pi-process.js";
 
 /**
- * #90 W1-c 端到端点亮钉（QA，2026-08-03）：真实 pi 下触发 run →
+ *  W1-c 端到端点亮钉：真实 pi 下触发 run →
  * creator 收到 character 的 update_character_state(true)（点亮事件存在）。
  *
- * 背景：#81「run 活跃即亮」验收缺「真实 run 下点亮时刻」端到端断言（PM 登记
- * 测试缺口，2026-08-03）；Arch 代码面已排除 agent_start 不发路径（pi
+ * 背景：「run 活跃即亮」验收缺「真实 run 下点亮时刻」端到端断言（登记
+ * 测试缺口）；代码面已排除 agent_start 不发路径（pi
  * agent-loop 每次 run/continue 必发）——本钉 = 回归钉：triggerTurn 触发 run
  * 后点亮事件必须端到端到达 creator（白名单 run 毫秒级，断言「至少收到过
  * true」即可，不依赖 run 时长）。
  *
  * 绿 = 点亮链路正常；红基线 = 点亮事件未达 creator（链路断，升级上游候选）。
  */
-describe("acceptance: #90 W1-c 端到端点亮点亮", () => {
+describe("acceptance: W1-c 端到端点亮点亮", () => {
 	let index = 0;
 	const roots: string[] = [];
 	const processes: PiProcess[] = [];
@@ -90,7 +90,7 @@ describe("acceptance: #90 W1-c 端到端点亮点亮", () => {
 			30_000,
 		);
 
-		// ② 端到端点亮点亮：creator widget 出现「正在工作：」行（#81 语义，
+		// ② 端到端点亮点亮：creator widget 出现「正在工作：」行（语义，
 		// run 活跃即亮；T4 同信号已证可达）。白名单 run 毫秒级：行可能在
 		// 事件流早期出现（全历史重放），等待即可。
 		const seen = await creator
