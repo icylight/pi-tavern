@@ -7,27 +7,27 @@ import { afterAll, describe, expect, it } from "vitest";
 import { PiProcess } from "./pi-process.js";
 
 /**
- * #42/#155 红测（acceptance 进程级）：resume 历史投影。
+ *  红测（acceptance 进程级）：resume 历史投影。
  *
  * 场景：创建群聊 → 发 12 条消息（> 旧 JOIN_HISTORY_LIMIT=10 窗口）→
  * 终止进程 → 重新启动（同 agent 目录 + pi 会话目录）→ /tavern-resume →
  * TUI 历史消息完整可见。
  *
  * 断言（验收条目 RH1/RH2/RH3/RH4 + 既有 A3-1/A4）：
- * - RH1（#155）：>10 条历史完整投影（12 条）、sequence 升序、内容逐条一致；
- * - RH2（#155）：活跃群聊二次 resume 零新增投影条目；
- * - RH3（#155）：公开消息完整恢复 + 创建者私信正文投影（#152 已落地：
+ * - RH1：>10 条历史完整投影（12 条）、sequence 升序、内容逐条一致；
+ * - RH2：活跃群聊二次 resume 零新增投影条目；
+ * - RH3：公开消息完整恢复 + 创建者私信正文投影（已落地：
  *   由 test/acceptance/rh3-whisper-projection.test.ts 剧本补验，剧本见
  *   acceptance/scripts/rh3-whisper-projection.jsonc）；
- * - RH4（#155）：活跃群聊排除、无可恢复提示、选择/删除流程行为不变；
+ * - RH4：活跃群聊排除、无可恢复提示、选择/删除流程行为不变；
  * - A3-1：重复 resume 不产生重复条目（锚定扫描跳过已投影段）；
  * - A4：resume 后新消息仍走增量投影（无重复无丢失）。
  *
  * 红测语义：旧实现（JOIN_HISTORY_LIMIT=10）下 12 条历史仅投影 10 条 →
- * 本测试在 #155 实现前为红。
+ * 本测试在  实现前为红。
  */
 
-describe("acceptance: #42/#155 resume history projection (RH1-RH4 + A3-1/A4)", () => {
+describe("acceptance: resume history projection (RH1-RH4 + A3-1/A4)", () => {
 	let pairIndex = 0;
 	const roots: string[] = [];
 	const processes: PiProcess[] = [];
@@ -153,8 +153,7 @@ describe("acceptance: #42/#155 resume history projection (RH1-RH4 + A3-1/A4)", (
 		expect(projected.map((e) => e.sequence)).toEqual(expected);
 		expect(projected.map((e) => e.content)).toEqual(expected.map((s) => `R${s} message ${s}`));
 		// RH3（公开部分）：投影条目存在且非空（事件标识完整）；创建者私信
-		// 正文投影已由 rh3-whisper-projection.test.ts 剧本补验（#152 落地，
-		// 2026-08-09——真实进程 + WS 双连接 + 重启恢复，同兑 WH8 + T3）。
+		// 正文投影已由 rh3-whisper-projection.test.ts 剧本补验（真实进程 + WS 双连接 + 重启恢复，同兑 WH8 + T3）。
 		expect(projected.length).toBeGreaterThan(0);
 		expect(projected.every((e) => e.event_id.length > 0)).toBe(true);
 	});
@@ -189,7 +188,7 @@ describe("acceptance: #42/#155 resume history projection (RH1-RH4 + A3-1/A4)", (
 
 		// 阶段三：fresh 会话再次 resume——重投影 [1..12]（方案 B 扫描语义：
 		// RPC 每次重启都是 fresh 会话，扫描锚定 = 0 → 全量重投影，保证
-		// TUI 历史可见——修复 #42 原症状的期望行为，非缺陷）。
+		// TUI 历史可见——修复  原症状的期望行为，非缺陷）。
 		await resumed.kill("SIGTERM");
 		const resumedAgain = await startCreator(agentDir, sessionDir, projectDir);
 		await resumedAgain.waitForTavernReady();

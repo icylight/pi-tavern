@@ -42,7 +42,7 @@ export function wireAgentLifecycle(pi: ExtensionAPI, ctrl: TavernController): vo
 			// 标记 run 活跃，使 group_chat_update 拉取排队
 			// 而不是打断当前轮次。
 			state.runtime.isAgentActive = true;
-			// 语义 = 「正在工作」（run 活跃即亮，）。
+			// 语义 = 「正在工作」（run 活跃即亮）。
 			// 任何 run（群聊触发/忙态 steer/救援/私有直聊）启动都点亮，
 			// 不区分触发源——「正在发言」指示改为 agent 活跃指示。
 			state.runtime.updateStreaming(true);

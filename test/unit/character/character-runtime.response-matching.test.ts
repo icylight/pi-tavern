@@ -8,7 +8,7 @@ import { JoinAttempt } from "../../../src/character/join-attempt.js";
 import { ERROR_UNEXPECTED_CLAIM_RESPONSE, ERROR_UNEXPECTED_SPEAK_RESPONSE } from "../../../src/shared/messages.js";
 
 /**
- * #119 阻断②回归（苍蓝星 2026-08-06）：响应按 id 关联后必须按预期 method
+ * 阻断②回归：响应按 id 关联后必须按预期 method
  * 校验 result 形状——同 id 的错 result（如 board_query result 冒充
  * get_group_chat_state）必须 fail-close，而非让调用方断言到 undefined/异常。
  */
@@ -90,7 +90,7 @@ describe("CharacterRuntime pending 响应按 method 校验（阻断②）", () =
 		const id = lastRequestId(socket);
 
 		// 注入 board_query 形状的 result（合法信封、错误 method 关联——冒充 speak 响应）。
-		// 二轮评审阻断①（苍蓝星）：错误 result 必须 fail-close 及时 reject，
+		// 二轮评审阻断①：错误 result 必须 fail-close 及时 reject，
 		// 不得静默丢弃悬挂到超时。
 		injectResponse(socket, id, { result: { boards: {} } });
 
@@ -99,7 +99,7 @@ describe("CharacterRuntime pending 响应按 method 校验（阻断②）", () =
 		expect(Date.now() - start).toBeLessThan(1_000);
 	});
 
-	it("chain: whisper 畸形三态 fail-close（#152 PR #163 阻断 4：gate 验必需字段，畸形帧不进 runtime）", async () => {
+	it("chain: whisper 畸形三态 fail-close（阻断 4：gate 验必需字段，畸形帧不进 runtime）", async () => {
 		const ROUND = { round_max_messages: 10, used_messages: 6, remaining_messages: 4 };
 		const malformed: Array<Record<string, unknown>> = [
 			// published 缺 round（schema 要求 sequence + round）
@@ -203,7 +203,7 @@ describe("CharacterRuntime pending 响应按 method 校验（阻断②）", () =
 		expect(response.result.published).toBe(true);
 	});
 
-	it("B4 发送路径 id 恒为数字且递增（#139 A 组转库行为验证——id 由库语义保证）", async () => {
+	it("B4 发送路径 id 恒为数字且递增（A 组转库行为验证——id 由库语义保证）", async () => {
 		const { runtime, socket } = createRuntime();
 		const request = (runtime as unknown as { request(m: { method: string; params: unknown }): Promise<unknown> })
 			.request;

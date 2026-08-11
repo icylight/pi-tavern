@@ -1,7 +1,7 @@
 /**
  * 公开消息的会话态类型（跨进程契约，shared 层）。
  *
- * 自 creator-runtime 迁出（#58 Phase 1 PR-1）：reload-handoff（跨进程交接）
+ * 自 creator-runtime 迁出（Phase 1 PR-1）：reload-handoff（跨进程交接）
  * 与 resume 投影均消费此类型，属共享契约，不归任一运行时私有。
  * 纯类型迁位，形状零变——不构成 wire schema 变更。
  */

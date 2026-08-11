@@ -11,10 +11,10 @@ import {
 import { DEFAULT_WELCOME_MESSAGE } from "../../../src/shared/constants.js";
 
 describe("PiTavern protocol codec", () => {
-	// #119 阻断①（苍蓝星 2026-08-06）：request/notification/response 三态 schema 区分。
+	//  阻断①：request/notification/response 三态 schema 区分。
 	// 红测先行：当前 RequestIdSchema = Optional，无 id 帧可通过 codec（红）；
 	// 拆分后 request/response 强制字符串 id，仅 update_character_state 为无 id notification。
-	describe("id 三态区分（#119 阻断①）", () => {
+	describe("id 三态区分（阻断①）", () => {
 		it("A1 无 id 的 request 被拒", () => {
 			expect(() =>
 				decodeClientMessage(
@@ -72,7 +72,7 @@ describe("PiTavern protocol codec", () => {
 		});
 
 		it("A5 JSON-RPC 标准错误码响应被接受（库自产帧不判协议破坏）", () => {
-			// 二轮评审阻断④（苍蓝星）：vscode-jsonrpc 会自产标准错误
+			// 二轮评审阻断④：vscode-jsonrpc 会自产标准错误
 			// （handler 抛普通 Error → -32603、无 handler → -32601、参数错 → -32602）——
 			// schema 必须接受，否则本端合法响应被 codec 拒 → 误断线。
 			for (const code of [-32700, -32600, -32601, -32602, -32603]) {
@@ -179,7 +179,7 @@ describe("PiTavern protocol codec", () => {
 						published: true,
 						event_id: "evt-1",
 						sequence: 1,
-						// ISSUE-013 B6：成功携带 latest_sequence，客户端可将
+						//  B6：成功携带 latest_sequence，客户端可将
 						// last-seen 推进到越过自己已发布的消息。
 						latest_sequence: 1,
 						round: { round_max_messages: 10, used_messages: 1, remaining_messages: 9 },
@@ -290,11 +290,11 @@ describe("PiTavern protocol codec", () => {
 		expect(decodeServerMessage(Buffer.from(JSON.stringify(response)))).toEqual(response);
 	});
 
-	// #97 来源显式化（S1）：public_message 显式 source 字段，缺省=group，未知取值 fail-close。
+	//  来源显式化（S1）：public_message 显式 source 字段，缺省=group，未知取值 fail-close。
 	// 红测先行：当前 schema 无 source 字段（additionalProperties:false）——①④ 显式 source
 	// 帧被拒（红），② 旧格式无 source 通过（兼容锚），③ 未知取值被拒（当前即红，Green 后
 	// 由 Literal 判别拒绝，语义不变）。
-	describe("source 来源字段（#97 S1）", () => {
+	describe("source 来源字段（S1）", () => {
 		const publicMessage = (params: Record<string, unknown>) => ({
 			jsonrpc: "2.0",
 			method: "public_message",
@@ -357,7 +357,7 @@ describe("PiTavern protocol codec", () => {
 		});
 	});
 
-	describe("ready 响应携带 latest_sequence（#144 P1-4 方案 a，红钉）", () => {
+	describe("ready 响应携带 latest_sequence（P1-4 方案 a，红钉）", () => {
 		it("ready 响应 result 含 latest_sequence（进入时刻水位）可解码", () => {
 			const frame = Buffer.from(
 				JSON.stringify({
@@ -378,7 +378,7 @@ describe("PiTavern protocol codec", () => {
 		});
 	});
 
-	describe("system_message（#123 WL1/WL6，红钉）", () => {
+	describe("system_message（WL1/WL6，红钉）", () => {
 		const WELCOME = DEFAULT_WELCOME_MESSAGE;
 		const systemMessage = (params: Record<string, unknown>) => ({
 			jsonrpc: "2.0",
@@ -408,7 +408,7 @@ describe("PiTavern protocol codec", () => {
 		});
 	});
 
-	describe("历史/增量容器接受 whisper 帧（#152 PR #161 评审阻断 1，Arch 编写 codec 契约钉测）", () => {
+	describe("历史/增量容器接受 whisper 帧（评审阻断 1，Arch 编写 codec 契约钉测）", () => {
 		const SENDER = { type: "character", character_id: "alice", name: "Alice" };
 		const RECIPIENT = { type: "character", character_id: "carol", name: "Carol" };
 		const ROUND = { round_max_messages: 10, used_messages: 6, remaining_messages: 4 };

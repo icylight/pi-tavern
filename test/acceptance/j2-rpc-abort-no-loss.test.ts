@@ -7,19 +7,19 @@ import { afterAll, describe, expect, it } from "vitest";
 import { PiProcess, waitForDescriptor } from "./pi-process.js";
 
 /**
- * #85 J2 降级钉测（QA，2026-08-03）：RPC abort 不清空已入队 steer。
+ *  J2 降级钉测：RPC abort 不清空已入队 steer。
  *
  * 背景：J2 双版本对比（0.82.1 vs 0.83.0）三路实证——① RPC 实测 abort 后
  * pendingMessageCount 保留；② clearQueue 清空仅存在于 interactive 模式
  * （用户 Esc/abort 恢复编辑器路径），两版本同构；③ 0.82.1→0.83.0 共 176
  * commits 无 abort/queue/steer 相关变更。结论：版本差异实锤不成立（双绿），
- * 升级 pi 上游 issue 路径关闭（PM 分叉判定 2026-08-03）。
+ * 升级 pi 上游 issue 路径关闭。
  *
  * 本钉 = 把实证①固化为回归钉：真实 pi（默认锚定 references/pi 0.82.1）RPC
  * 模式下 steer 入队 → abort → 队列保留（消息不丢）。防未来 pi 升级引入
  * 「abort 清队列」行为回归（届时本钉即红，触发重新评估）。
  *
- * 实现注记（QA 实测 2026-08-03）：
+ * 实现注记：
  * - /tavern-new 群聊创建流程与 abort 的 waitForIdle 有时序耦合（创建未完成
  *   时 abort 可挂起）——本钉先等 descriptor 落盘再执行命令序列。
  * - abort 后偶发第二个连续 RPC 命令无响应（pi 0.82.1 RPC 侧疑点，非本钉
@@ -28,7 +28,7 @@ import { PiProcess, waitForDescriptor } from "./pi-process.js";
  *
  * 绿 = 现有行为；红基线 = abort 后 pending 归零（消息被清）。
  */
-describe("acceptance: #85 J2 降级——RPC abort 不清已入队 steer", () => {
+describe("acceptance: J2 降级——RPC abort 不清已入队 steer", () => {
 	let index = 0;
 	const roots: string[] = [];
 	const processes: PiProcess[] = [];

@@ -367,7 +367,7 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 						isError: true,
 					};
 				}
-				// P1-4：AI 自主拉取——消息列表 + 游标/分页元数据（has_more 决定续页）。
+				// AI 自主拉取——消息列表 + 游标/分页元数据（has_more 决定续页）。
 				// 统一文案模板渲染（默认模板 `{sender}:\n{content}`，双行化按
 				// ；自定义模板逐字生效）。
 				const templates = state.runtime.messageTemplates ?? DEFAULT_TEMPLATES;

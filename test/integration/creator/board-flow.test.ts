@@ -1,10 +1,10 @@
 /**
- * B3 白板管线集成测试（#114 §3；挂靠 issue 09:26 版 B3 节 + QA 清单 1-5）。
+ * B3 白板管线集成测试（挂靠 B3 节 09:26 版 + QA 清单 1-5）。
  *
  * 断言口径（09:26 版定案）：wire 层 N 次 applied → N 条 board_update 即时广播
  * （无网络层合并）；changed:false（告知/拒绝）不广播（群聊静默）。
  * 字符侧窗口合并（N 条 → 1 次上下文注入）属 B4 两步断言，本文件不覆盖。
- * #119 M1/M2：信封迁移——请求 {jsonrpc,id,method,params}、响应 result/error、
+ * 信封迁移——请求 {jsonrpc,id,method,params}、响应 result/error、
  * 通知 method+params；响应按 id 关联（method 不再出现在响应帧）。
  */
 import { mkdtemp, readdir, rm } from "node:fs/promises";
@@ -193,7 +193,7 @@ const isBoardUpdate = (m: Record<string, unknown>): boolean => m.method === "boa
 /** 响应帧判别（result/error 信封；具体请求种类由调用处的 id 关联）。 */
 const isBoardWriteResponse = (m: Record<string, unknown>): boolean => "result" in m || "error" in m;
 
-describe("B3 白板管线（#114，integration）", () => {
+describe("B3 白板管线（integration）", () => {
 	it("贴条：响应四态 applied 带 note（id 回带）+ 广播 board_update add", async () => {
 		const runtime = await startRuntime();
 		const peer = await joinAndReady(runtime, "s1", characters[0].characterId);

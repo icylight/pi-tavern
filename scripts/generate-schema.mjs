@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * #145 docs-first 迁移：从协议定义文件（src/protocol/schema/*.jsonc，唯一
+ * docs-first 迁移：从协议定义文件（src/protocol/schema/*.jsonc，唯一
  * 手写源头）生成程序用的 TypeBox schema 代码（客户端属主）。
  *
  * 流水线：tsc 编译 src/protocol 模块图到临时缓存（NodeNext 语义一致，零新增
@@ -10,7 +10,7 @@
  * 翻译器：JSON Schema 对象 → TypeBox 表达式文本（拓扑排序保证被引用者先
  * 声明）→ 覆盖写 src/protocol/generated/schema.ts。
  *
- * 消费链（#147 P2 评审对齐）：JSONC（权威）→ schema-merge（生成期）→
+ * 消费链：JSONC（权威）→ schema-merge（生成期）→
  * generated/schema.ts → messages.ts re-export → codec 运行时 Compile。
  *
  * 产物约定（与后端衔接）：全量 *Schema const（与 jsonc $defs 键名同名同构，
@@ -20,7 +20,7 @@
  * 覆盖类型构造：object / string / integer / number / boolean / null /
  * array / anyOf(union) / enum / const(literal) / $ref 局部引用 /
  * patternProperties(Record) / description / required(Optional)。
- * 约束键仅支持 minimum（#147 P1-B 评审收窄：其余 8 键 0 处使用，User 拍板不实现）。
+ * 约束键仅支持 minimum（其余 8 键 0 处使用，不实现）。
  */
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -31,18 +31,18 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(SCRIPT_DIR, "..");
 
 const OUT_FILE = resolve(ROOT, "src/protocol/generated/schema.ts");
-const HEADER = `// 由 scripts/generate-schema.mjs 生成（docs-first：#145）——请勿手改。
+const HEADER = `// 由 scripts/generate-schema.mjs 生成（docs-first）——请勿手改。
 // 权威源 = src/protocol/schema/*.jsonc（4 个协议定义文件，唯一手写处）。
 import { Type } from "typebox";
 `;
 
 /** 只读检查模式（--check）：内存生成 + biome 格式化后与已提交产物逐字比较，
  * 不一致 exit 1（不写文件、不破坏工作区）。接入 npm run check 尾部，防
- * “改定义忘生成 → 产物静默过期”的漂移（评审 #147 P1）。 */
+ * “改定义忘生成 → 产物静默过期”的漂移。 */
 const CHECK_MODE = process.argv.includes("--check");
 
 /** JSON Schema 约束键 → TypeBox 选项（保真必需）。
- * #147 P1-B 评审处置（User 拍板）：仅保留实际使用的 minimum；
+ * 仅保留实际使用的 minimum；
  * maximum/exclusiveMinimum/exclusiveMaximum/minLength/maxLength/
  * minItems/maxItems/pattern 均 0 处使用，承诺收窄、不实现。 */
 const CONSTRAINT_KEYS = ["minimum"];

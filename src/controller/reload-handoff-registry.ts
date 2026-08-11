@@ -22,7 +22,7 @@ export interface BufferedFrame {
 }
 
 /**
- * #119 connection 延续三件套（评审阻断②）：JSON-RPC 连接实例跨 owner 移交
+ *  connection 延续三件套：JSON-RPC 连接实例跨 owner 移交
  * （JoinAttempt → CharacterRuntime → reload 后新 runtime）——连接不重建 =
  * 库内序列单调，代际 id 不撞车（旧代际迟到响应不可能命中新请求）。
  */
@@ -49,20 +49,20 @@ export interface CreatorReloadHandoff {
 	webSocketServer: WebSocketServer;
 	groupSessionManager: SessionManager;
 	groupChatState: GroupChatState;
-	/** 白板模型（#114）：store 实例随 handoff 传递（reload 进程内，缓存存活）。 */
+	/** 白板模型：store 实例随 handoff 传递（reload 进程内，缓存存活）。 */
 	boardStore: BoardStore;
 	connections: Map<string, WebSocket>;
 	heartbeatStates: Map<string, HeartbeatStateSnapshot>;
 	activeDescriptor: ActiveGroupChatDescriptor;
 	activeDescriptorPath: string;
 	configMaxMessages: number;
-	/** #123：欢迎文案（配置快照随 handoff 传递，reload 后 ready 行为一致）。 */
+	/** ：欢迎文案（配置快照随 handoff 传递，reload 后 ready 行为一致）。 */
 	welcomeMessage: string;
-	/** #154：群聊文案模板集（配置快照随 handoff 传递，reload 后渲染一致）。 */
+	/** ：群聊文案模板集（配置快照随 handoff 传递，reload 后渲染一致）。 */
 	messageTemplates: Record<MessageTemplateKey, string>;
 	characters: CharacterCard[];
 	publicMessages: PublicMessageState[];
-	/** #152：私信消息流快照（reload handoff 传递，与 publicMessages 同源）。 */
+	/** ：私信消息流快照（reload handoff 传递，与 publicMessages 同源）。 */
 	whisperMessages: WhisperMessageState[];
 	persistedCount: number;
 
@@ -82,13 +82,13 @@ export interface CharacterReloadHandoff {
 	groupChatId: string;
 	socket: WebSocket;
 	character: CharacterCard;
-	/** M7 (ISSUE-012/#24)：跨 reload 携带的游标文件路径。 */
+	/**  (/)：跨 reload 携带的游标文件路径。 */
 	cursorStorePath?: string;
-	/** #138：增量拉取上下文窗口 getter（reload 移交后与 join 路径行为一致）。 */
+	/** ：增量拉取上下文窗口 getter（reload 移交后与 join 路径行为一致）。 */
 	getFetchContextWindow?: () => number;
-	/** #154 T5：群聊文案模板集快照（reload 移交后渲染一致，苍蓝星阻断 2 修复）。 */
+	/**  T5：群聊文案模板集快照（reload 移交后渲染一致）。 */
 	messageTemplates?: Record<MessageTemplateKey, string>;
-	/** #154 复评：reload 时重新加载磁盘配置所需路径（有则 takeHandoff 重载，失败保留快照）。 */
+	/**  复评：reload 时重新加载磁盘配置所需路径（有则 takeHandoff 重载，失败保留快照）。 */
 	agentDir?: string;
 	cwd?: string;
 	pendingEvents: ServerMessage[];
@@ -99,7 +99,7 @@ export interface CharacterReloadHandoff {
 	incrementPending?: boolean | undefined;
 	lastPingAt: number;
 
-	/** #119 connection 延续：旧 runtime 的 JSON-RPC 连接实例（可选：兼容旧态 handoff）。 */
+	/**  connection 延续：旧 runtime 的 JSON-RPC 连接实例（可选：兼容旧态 handoff）。 */
 	jsonrpc?: CharacterJsonRpcTransfer;
 
 	bufferedFrames: BufferedFrame[];

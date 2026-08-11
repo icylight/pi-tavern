@@ -6,7 +6,7 @@ import WebSocket from "ws";
 import { CharacterRuntime } from "../../../src/character/character-runtime.js";
 
 /**
- * #138 拉取附加上下文窗口（方案 A，零协议变更）：fetchMessagesSince 第二参
+ *  拉取附加上下文窗口（方案 A，零协议变更）：fetchMessagesSince 第二参
  * contextWindow（默认 0 行为不变）——拉取起点前移 max(0, since - window)，
  * 游标存储值不动、pageOlderHistory 不叠加。unit 层窗口边界钉（Arch 主）：
  * since=0/1 不越界、默认 0 不变、空洞退化不越界（按 sequence 号前移，
@@ -57,7 +57,7 @@ const CHARACTER = {
 	prompt: "Test prompt",
 };
 
-describe("CharacterRuntime.fetchMessagesSince 上下文窗口（#138）", () => {
+describe("CharacterRuntime.fetchMessagesSince 上下文窗口", () => {
 	const sockets: MockSocket[] = [];
 	const runtimes: CharacterRuntime[] = [];
 

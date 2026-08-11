@@ -10,9 +10,9 @@ import { PiProcess } from "./pi-process.js";
 import { BufferedWsClient } from "./ws-helper.js";
 
 /**
- * ISSUE-003 验收：身份一致性。
+ *  验收：身份一致性。
  *
- * Covers docs/acceptance.md「身份一致性（ISSUE-003 修复验收）」:
+ * Covers docs/acceptance.md「身份一致性（修复验收）」:
  *   2. 注册/注入一致：端到端断言注入 persona == creator 在线注册名，错配不得静默；
  *   3. speaker 一致：sender 与消息来源 session 的注入 persona 一致；
  *   4. 并发不串：同时 join 的 session 身份互不串扰。
@@ -20,10 +20,10 @@ import { BufferedWsClient } from "./ws-helper.js";
  * 无 LLM 的可观测层：真实 pi 会话经 setStatus 渲染自己的 persona
  *（"Tavern Character · <名称>"），creator 经 setWidget 渲染成员
  * 列表，且 WebSocket 协议拒绝非法认领。
- * 注入的身份行（判据 1）依赖 ISSUE-003 修复，且由
+ * 注入的身份行（判据 1）依赖  修复，且由
  * 文件末尾被跳过的契约测试覆盖。
  */
-describe("acceptance: identity consistency (ISSUE-003)", () => {
+describe("acceptance: identity consistency", () => {
 	let root: string;
 	let agentDir: string;
 	let projectDir: string;
@@ -63,8 +63,7 @@ describe("acceptance: identity consistency (ISSUE-003)", () => {
 		creator = creatorProcess;
 		descriptor = await creator.startGroupChat(projectDir, agentDir);
 
-		// 两个真实 pi 会话以不同 persona 并发加入——
-		// 即 ecd7e6a 并发加入场景，现在带身份断言。
+		// 两个真实 pi 会话以不同 persona 并发加入——// 即 ecd7e6a 并发加入场景，现在带身份断言。
 		const architectProcess = PiProcess.spawn({
 			label: "architect",
 			agentDir,
@@ -164,7 +163,7 @@ describe("acceptance: identity consistency (ISSUE-003)", () => {
 	});
 
 	/**
-	 * 契约（ISSUE-003 修复，属主：Dev，src/character/group-chat-input.ts；
+	 * 契约（修复，src/character/group-chat-input.ts；
 	 * 验收依据 docs/acceptance.md cab1fd7 三字段最终格式）：
 	 *
 	 * 1. buildContent() 必须在「新消息：」段之后追加身份行；
@@ -182,8 +181,8 @@ describe("acceptance: identity consistency (ISSUE-003)", () => {
 	 *    将 notify 呈现为 extension_ui_request 事件）。
 	 *
 	 * 跳过理由：notify 观察通道尚未实现；
-	 * 依约定纪律（PM 2026-08-01）在实现落地前不引入红灯测试；
-	 * Dev 交付该通道后取消跳过。
+	 * 依约定纪律：实现落地前不引入红灯测试；
+	 * 通道交付后取消跳过。
 	 */
 	it("injected group-chat input carries the identity line (persona, character_id, registered name)", async () => {
 		await creator.runCommand("/tavern-test-message Hello identity check");
@@ -201,20 +200,20 @@ describe("acceptance: identity consistency (ISSUE-003)", () => {
 		expect(match?.[2]).toBe("characters/architect.md");
 		expect(match?.[3]).toBe("Architect");
 
-		// #97 来源显式化（S2，acceptance 钉测）：观察通道同批携带显式来源
+		//  来源显式化（S2，acceptance 钉测）：观察通道同批携带显式来源
 		// 声明，与身份行同一 notify（同批）；身份行保持可解析（回归不破）。
 		// 契约文案「来源：群聊」（全角冒号，与身份行风格一致，S2 落文同源）。
-		// 红钉：#97 实现前此断言失败（通道仅重发身份行，无来源声明）。
+		// 红钉： 实现前此断言失败（通道仅重发身份行，无来源声明）。
 		expect(line).toContain("来源：群聊");
 	});
 
 	/**
-	 * ISSUE-007 观察通道：RPC 模式下 LLM 无法调用
+	 *  观察通道：RPC 模式下 LLM 无法调用
 	 * 扩展工具，因此 tavern-test-whoami 经
 	 * pi.ui.notify 重新发出 runtime.character（呈现为 extension_ui_request）。
 	 * 上报的身份必须与 creator 侧注册完全一致。
 	 */
-	it("tavern-test-whoami reports the registered character identity (ISSUE-007)", async () => {
+	it("tavern-test-whoami reports the registered character identity", async () => {
 		await architect.runCommand("/tavern-test-whoami");
 		const whoami = await architect.waitFor(
 			(e) =>

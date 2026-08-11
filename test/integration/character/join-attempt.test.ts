@@ -186,7 +186,7 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		const { creator, character } = await startCreator({ heartbeatIntervalMs: 30, heartbeatTimeoutMs: 120 });
 		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-1");
 		const runtime = await attempt.claimCharacter(character.characterId);
-		// 基线取点前先等 claim 链路的 system_message 欢迎单播到达（#123 替代 message_history）：
+		// 基线取点前先等 claim 链路的 system_message 欢迎单播到达（替代 message_history）：
 		// connection 重构后 reply 异步化（ready result → welcome → cj 宏任务投递），
 		// 取点早于通知会误判。
 		await vi.waitFor(() => {
@@ -273,7 +273,7 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		await taken.close();
 	});
 
-	it("reload reloads the character card from disk and falls back on failure (ISSUE-005)", async () => {
+	it("reload reloads the character card from disk and falls back on failure", async () => {
 		const { creator, character } = await startCreator({});
 		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-1");
 		const runtime = await attempt.claimCharacter(character.characterId);

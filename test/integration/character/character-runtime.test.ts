@@ -56,7 +56,7 @@ afterEach(async () => {
 	await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-describe("M7 message fetch (ISSUE-012)", () => {
+describe("message fetch", () => {
 	it("pulls the increment since a cursor and heals gaps (A3/A4)", async () => {
 		const { creator, character } = await startCreator();
 		await creator.submitUserPersonaMessage("hello 1");
@@ -184,7 +184,7 @@ describe("M7 message fetch (ISSUE-012)", () => {
 
 		const root = await createTemporaryDirectory();
 		const cursorDir = join(root, "cursors", "group-iso");
-		// #100：解构 + 一次守卫（fixture 契约：startCreator(2) 恒 2 成员）——
+		// 解构 + 一次守卫（fixture 契约：startCreator(2) 恒 2 成员）——
 		// 替代 `!` 断言（noNonNullAssertion 警告消除，风格同 src 契约守卫）。
 		const [characterA, characterB] = characters;
 		if (!characterA || !characterB) {
@@ -251,7 +251,7 @@ describe("M7 message fetch (ISSUE-012)", () => {
 		const { creator, characters } = await startCreator(2);
 		const root = await createTemporaryDirectory();
 		const cursorDir = join(root, "cursors", "group-conc");
-		// #100：解构 + 守卫（同 group-iso，fixture 契约）。
+		// 解构 + 守卫（同 group-iso，fixture 契约）。
 		const [characterA, characterB] = characters;
 		if (!characterA || !characterB) {
 			throw new Error("startCreator(2) 应返回 2 个角色（fixture 契约）");
@@ -301,7 +301,7 @@ describe("M7 message fetch (ISSUE-012)", () => {
 	});
 });
 
-describe("ISSUE-013 B: speak staleness client side", () => {
+describe("B: speak staleness client side", () => {
 	it("B1: a stale speak is rejected with the missing range; quota untouched", async () => {
 		const { creator, character } = await startCreator();
 		// 最新序号为 2；角色尚未看到任何消息。

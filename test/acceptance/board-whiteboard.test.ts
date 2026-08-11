@@ -10,14 +10,14 @@ import type { BufferedWsClient } from "./ws-helper.js";
 import { joinCharacterWs } from "./ws-helper.js";
 
 /**
- * #114 B6 acceptance：白板模型端到端（QA 属主，2026-08-04）。
+ *  B6 acceptance：白板模型端到端。
  *
- * 契约源：issue #114（09:50 版）B6 节 + 验收锚点 1-4。
+ * 契约源：issue （09:50 版）B6 节 + 验收锚点 1-4。
  *
  * 验收锚点挂靠：
  *   锚点 ①（README 位置议题 ≤1 轮摇摆，方向性指标）——测试 3 以协议级
  *   定向模拟重放该议题的立场翻转序列，机制断言硬校验、摇摆计数软记录
- *   （acceptance 车道零 LLM 确定性运行——#52 白名单闸门，真实 AI 方差
+ *   （acceptance 车道零 LLM 确定性运行——白名单闸门，真实 AI 方差
  *   不可复现；「接受模型方差」按 issue 语义落地为：机制断言不依赖模型、
  *   翻转 trace 留痕供人工比照）。
  *   锚点 ②（白板即事实源，无需转述）——board_query//tavern-status 即事实
@@ -31,7 +31,7 @@ import { joinCharacterWs } from "./ws-helper.js";
  *   [tavern-inject] board_updates=N（无头 notify 走 stderr）——门闸放行 +
  *   白板桶渲染可达；latest_seq 注入缺席 = 不触发消息流拉取（负例）。
  */
-describe("acceptance: #114 whiteboard board flow e2e", () => {
+describe("acceptance: whiteboard board flow e2e", () => {
 	let root: string;
 	let agentDir: string;
 	let projectDir: string;
@@ -105,7 +105,7 @@ describe("acceptance: #114 whiteboard board flow e2e", () => {
 	async function waitNoBoardUpdate(client: BufferedWsClient, fromIndex: number, timeoutMs = 4000): Promise<void> {
 		// 群聊静默断言：changed:false 不广播 board_update——窗口内不得出现新通知。
 		// 注：不用 client.waitFor——其超时仅在帧到达时检查，真「无帧等待」永不
-		// 超时（测试基建 quirk，QA 2026-08-04 实测）；缺席断言用轮询。
+		// 超时（测试基建 quirk）；缺席断言用轮询。
 		const deadline = Date.now() + timeoutMs;
 		while (Date.now() < deadline) {
 			if (
@@ -263,7 +263,7 @@ describe("acceptance: #114 whiteboard board flow e2e", () => {
 				statusCp,
 				(e) => e.type === "extension_ui_request" && e.method === "notify" && typeof e.message === "string",
 			);
-			// 空板（clear 后）：Boards 段渲染为 (empty)——板存在但无条（B5 实测语义）
+			// 空板（clear 后）：Boards 段渲染为 (empty)——板存在但无条（B5 语义）
 			expect(status.message).toContain("Boards:");
 			expect(status.message).toContain("Architect: (empty)");
 		} finally {
@@ -294,7 +294,7 @@ describe("acceptance: #114 whiteboard board flow e2e", () => {
 		const client = await joinCharacterWs(descriptor, "sess-b", "characters/architect.md");
 		try {
 			// 观察通道 = RPC 事件流（extension_ui_request notify）：session_start
-			// 在 RPC 模式同样触发（headless.test.ts 注释过时，QA B6 实证）。
+			// 在 RPC 模式同样触发（headless.test.ts 注释过时）。
 			const injectNotify = (needle: string) => (e: { type: string; method?: string; message?: unknown }) =>
 				e.type === "extension_ui_request" &&
 				e.method === "notify" &&
@@ -306,8 +306,8 @@ describe("acceptance: #114 whiteboard board flow e2e", () => {
 			//（board_updates=1 注入）。
 			// 注：speak 对照（两套消费语义）由 integration board-input.test.ts
 			// 覆盖；acceptance 层不做——headless 零 LLM 环境的 public_message
-			// 投递时序不稳定（QA B6 实证：15-20s 延迟、run 后 60s+ 停滞，
-			// 平台级现象，待 Dev/Arch 三查，非白板缺陷）。
+			// 投递时序不稳定（实测：15-20s 延迟、run 后 60s+ 停滞，
+			// 平台级现象，非白板缺陷）。
 			const injectCheckpoint = headless.checkpoint();
 			client.send({
 				jsonrpc: "2.0",
@@ -342,7 +342,7 @@ describe("acceptance: #114 whiteboard board flow e2e", () => {
 		const rev = await joinCharacterWs(descriptor, "sess-c2", "characters/reviewer.md");
 		const sway: string[] = [];
 		try {
-			// 模拟 README 位置议题（#105：8+ 轮摇摆）：architect 立场两次翻转。
+			// 模拟 README 位置议题（8+ 轮摇摆）：architect 立场两次翻转。
 			// 每轮 = 撕掉旧立场条 + 贴新立场条（贴条即更新、撕条即撤销）。
 			async function postStance(client: BufferedWsClient, id: string, content: string, note?: { id: string }) {
 				client.send({

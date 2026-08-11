@@ -401,7 +401,7 @@ export function registerCommands(
 					return;
 				}
 				try {
-					// P1-4：工具等价路径观察通道——RPC 模式 LLM 无法调工具，
+					// 工具等价路径观察通道——RPC 模式 LLM 无法调工具，
 					// 经 notify 重发拉取结果摘要供 acceptance 断言（QA 要求）。
 					const page = await state.runtime.fetchMessageHistoryPage(args.trim() || null);
 					if (page === null) {

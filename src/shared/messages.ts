@@ -1,11 +1,11 @@
 /**
- * PiTavern 字符串常量域（#109：字符串常量集中管理）。
+ * PiTavern 字符串常量域字符串常量集中管理）。
  * 与 constants.ts（数值常量）分离，单一职责。
  * 分组导出：
  * - ERROR_*：协议错误 / 业务拒绝消息（A 类）
  * - UI_* / TOOL_*：用户可见文案——工具 label/description、命令 description/提示、UI 文本（B 类）
  * 红线：不进协议 schema 字面量（E 类）、环境注入模板格式串（C 类，留消费端）、测试断言串、用户消息 content。
- * F 类（协议判别常量）挂 #119 M1 后抽取（type→method 重写后同源引用）。
+ * F 类（协议判别常量）挂   后抽取（type→method 重写后同源引用）。
  */
 
 // ─── A 类：错误 / 业务消息 ────────────────────────────────────────────────
@@ -177,11 +177,11 @@ export const ERROR_READ_CHARACTER_MD_PREFIX = "Failed to read Character Markdown
 export const ERROR_READ_CHARACTER_DIR_PREFIX = "Failed to read Character directory: ";
 /** 配置解析失败前缀。 */
 export const ERROR_PARSE_CONFIG_PREFIX = "Failed to parse PiTavern config: ";
-/** #154：message_templates 文件读取/解析失败前缀（warning，回退内置不阻断）。 */
+/** ：message_templates 文件读取/解析失败前缀（warning，回退内置不阻断）。 */
 export const WARNING_MESSAGE_TEMPLATE_FILE_PREFIX = "[tavern] message template file ";
-/** #154：message_templates 未知/非法 key 前缀（warning，逐项回退）。 */
+/** ：message_templates 未知/非法 key 前缀（warning，逐项回退）。 */
 export const WARNING_MESSAGE_TEMPLATE_KEY_PREFIX = "[tavern] message template key ";
-/** #154：message_templates 单项无效回退前缀（warning，逐项回退低层）。 */
+/** ：message_templates 单项无效回退前缀（warning，逐项回退低层）。 */
 export const WARNING_MESSAGE_TEMPLATE_LAYER_PREFIX = "[tavern] message template ";
 /** 角色 Markdown 解析失败前缀。 */
 export const ERROR_PARSE_CHARACTER_MD_PREFIX = "Failed to parse Character Markdown: ";
@@ -208,10 +208,10 @@ export const ERROR_IMPORT_NOT_FILE_OR_DIR_PREFIX = "Character import is not a fi
 /** 角色文件必须使用 .md 扩展名。 */
 export const ERROR_MD_EXTENSION_PREFIX = "Character file must use the .md extension: ";
 
-// ─── A 类：协议业务错误码（#119 M1，JSON-RPC error.code 10 码枚举）──────
+// ─── A 类：协议业务错误码（JSON-RPC error.code 10 码枚举）──────
 // 取值 = -32100 起，避开 JSON-RPC 标准码（-32700~-32000）与 vscode-jsonrpc 已用码
 // （-32001/-32002/-32098/-32099/-32800 系列）；code→message 映射表 = 单一数据源。
-// 未知 code 由 codec schema 收窄 fail-close（#119 M1 定案：code 必须 ∈ 10 码枚举）。
+// 未知 code 由 codec schema 收窄 fail-close（定案：code 必须 ∈ 10 码枚举）。
 
 /** 成员资格校验失败（query/leave/speak/board 业务拒绝）。 */
 export const ERROR_CODE_NOT_IN_GROUP = -32100;
@@ -233,9 +233,9 @@ export const ERROR_CODE_INVALID_NOTE_ID = -32107;
 export const ERROR_CODE_INTERNAL_ERROR = -32108;
 /** 消息持久化失败。 */
 export const ERROR_CODE_PERSIST_FAILED = -32109;
-/** #152：whisper 目标不在线（WS 连接不活跃）。 */
+/** ：whisper 目标不在线（WS 连接不活跃）。 */
 export const ERROR_CODE_WHISPER_TARGET_OFFLINE = -32110;
-/** #152：whisper 自发自收拒绝。 */
+/** ：whisper 自发自收拒绝。 */
 export const ERROR_CODE_WHISPER_SELF = -32111;
 
 /** 12 码业务枚举（codec schema 收窄用：未知 code fail-close）。 */
@@ -258,7 +258,7 @@ export const PROTOCOL_ERROR_CODES = [
 export type ProtocolErrorCode = (typeof PROTOCOL_ERROR_CODES)[number];
 
 /** code→message 映射表（单一数据源；文案复用 A 类常量，message 原样保留 = 现有
- * failure 断言零语义漂移，#119 comment 5180067418 口径）。 */
+ * failure 断言零语义漂移， comment 5180067418 口径）。 */
 export const PROTOCOL_ERROR_CODE_MESSAGES: Readonly<Record<number, string>> = {
 	[ERROR_CODE_NOT_IN_GROUP]: ERROR_NOT_IN_GROUP_CHAT,
 	[ERROR_CODE_ALREADY_IN_GROUP]: ERROR_ALREADY_IN_GROUP_CHAT,
@@ -270,13 +270,13 @@ export const PROTOCOL_ERROR_CODE_MESSAGES: Readonly<Record<number, string>> = {
 	[ERROR_CODE_INVALID_NOTE_ID]: ERROR_NOTE_ID_EMPTY,
 	[ERROR_CODE_INTERNAL_ERROR]: ERROR_UNKNOWN,
 	[ERROR_CODE_PERSIST_FAILED]: ERROR_PERSIST_FAILED_PREFIX,
-	// #152：私信目标离线 / 自发自收。
+	// 私信目标离线 / 自发自收。
 	[ERROR_CODE_WHISPER_TARGET_OFFLINE]: "Whisper target character is not online",
 	[ERROR_CODE_WHISPER_SELF]: "Cannot whisper to yourself",
 };
 
-// ─── F 类：协议判别常量（#109 欠账消解，M2 同批抽取：method 判别值同源引用）──
-// 红线：wire method 判别一律引用本组常量；消费方剩余字面量引用随 M3 接线同步替换。
+// ─── F 类：协议判别常量（欠账消解， 同批抽取：method 判别值同源引用）──
+// 红线：wire method 判别一律引用本组常量；消费方剩余字面量引用随  接线同步替换。
 
 // 请求/通知 method（客户端→服务端）
 /** 加入群聊（三阶段握手第一段）。 */
@@ -303,7 +303,7 @@ export const METHOD_BOARD_WRITE = "board_write";
 export const METHOD_BOARD_QUERY = "board_query";
 /** 公开发言。 */
 export const METHOD_SPEAK = "speak";
-/** #152：Character 间私信（发送请求）。 */
+/** ：Character 间私信（发送请求）。 */
 export const METHOD_WHISPER = "whisper";
 
 // 服务端通知 method（服务端→客户端）
@@ -315,13 +315,13 @@ export const METHOD_CHARACTER_LEFT = "character_left";
 export const METHOD_GROUP_CHAT_CLOSED = "group_chat_closed";
 /** 公开消息（历史/拉取/广播消息形态）。 */
 export const METHOD_PUBLIC_MESSAGE = "public_message";
-/** #152：私信单播（接收者含正文，服务端投影）。 */
+/** ：私信单播（接收者含正文，服务端投影）。 */
 export const METHOD_WHISPER_MESSAGE = "whisper_message";
-/** #152：私信占位广播（非接收者 Character 无正文，属未读序列）。 */
+/** ：私信占位广播（非接收者 Character 无正文，属未读序列）。 */
 export const METHOD_WHISPER_PLACEHOLDER = "whisper_placeholder";
 /** 消息历史（加入推送形态）。 */
 export const METHOD_MESSAGE_HISTORY = "message_history";
-/** #123：系统消息（ready 后欢迎语，单播；非公共消息、不落消息流）。 */
+/** ：系统消息（ready 后欢迎语，单播；非公共消息、不落消息流）。 */
 export const METHOD_SYSTEM_MESSAGE = "system_message";
 /** 群聊更新广播（增量拉取唤醒）。 */
 export const METHOD_GROUP_CHAT_UPDATE = "group_chat_update";
@@ -392,12 +392,12 @@ export const CMD_DESC_TEST_MESSAGE = "[test] Publish a User Persona message as t
 /** tavern-test-reload 命令描述（测试）。 */
 export const CMD_DESC_TEST_RELOAD = "[test] Trigger a real pi reload to exercise the handoff";
 /** tavern-test-whoami 命令描述（测试）。 */
-export const CMD_DESC_TEST_WHOAMI = "[test] Report the registered character identity (ISSUE-007 observation channel)";
+export const CMD_DESC_TEST_WHOAMI = "[test] Report the registered character identity";
 /** tavern-test-busy 命令描述（测试，v0.5 abort-interrupt-delivery）。 */
 export const CMD_DESC_TEST_BUSY = "[test] Hold the agent busy state for N ms (simulate busy run without LLM)";
 /** tavern-test-busy 用法提示（测试）。 */
 export const NOTIFY_USAGE_TEST_BUSY = "Usage: /tavern-test-busy <ms>";
-/** tavern-test-history 命令描述（测试，P1-4 观察通道）。 */
+/** tavern-test-history 命令描述（测试， 观察通道）。 */
 export const CMD_DESC_TEST_HISTORY =
 	"[test] Fetch one history page via the character runtime (observation channel for acceptance)";
 /** tavern-leave 命令描述。 */
@@ -407,7 +407,7 @@ export const CMD_DESC_LEAVE = "Close or leave the current PiTavern group chat";
 
 /** tavern_speak 工具 label。 */
 export const TOOL_SPEAK_LABEL = "Tavern Speak";
-/** #152：tavern_whisper 工具 label。 */
+/** ：tavern_whisper 工具 label。 */
 export const TOOL_WHISPER_LABEL = "Tavern Whisper";
 /** tavern_board 工具 label。 */
 export const TOOL_BOARD_LABEL = "Tavern Board";
@@ -422,7 +422,7 @@ export const TOOL_WHOAMI_ID_PREFIX = "character_id：";
 export const TOOL_WHOAMI_DESC_PREFIX = "描述：";
 /** tavern_history 工具 label。 */
 export const TOOL_HISTORY_LABEL = "Tavern History";
-/** tavern_history 工具描述（P1-4：AI 主动拉取群聊历史，分页 10/页最新在前）。 */
+/** tavern_history 工具描述AI 主动拉取群聊历史，分页 10/页最新在前）。 */
 export const TOOL_HISTORY_DESCRIPTION =
 	"获取群聊历史消息（分页，每页 10 条，最新在前）。cursor 参数 = 向更早消息续页（用上次返回的 cursor）；不传 = 最近一页。返回含 cursor/has_more/total，可据 has_more 自主决定是否继续。";
 /** tavern_history 输出：cursor 行前缀。 */
@@ -435,12 +435,12 @@ export const TOOL_HISTORY_TOTAL_PREFIX = "total=";
 export const TOOL_HISTORY_EMPTY = "群聊暂无历史消息。";
 /** tavern_history 输出：拉取不可用（连接已断开）。 */
 export const TOOL_HISTORY_UNAVAILABLE = "Error: 群聊历史暂不可用（连接可能已断开），请稍后重试。";
-/** #154 T7：tavern_template_defaults 工具 label（LLM-only，不注册 slash command）。 */
+/**  T7：tavern_template_defaults 工具 label（LLM-only，不注册 slash command）。 */
 export const TOOL_TEMPLATE_DEFAULTS_LABEL = "Tavern Template Defaults";
-/** #154 T7：tavern_template_defaults 工具描述。 */
+/**  T7：tavern_template_defaults 工具描述。 */
 export const TOOL_TEMPLATE_DEFAULTS_DESCRIPTION =
 	"返回群聊文案模板的内置中文默认值、合法 key、各 key 占位符规则与 JSON 骨架（只读，供编辑 message_templates 配置文件参考）。";
-/** #154 T7：tavern_template_defaults 门禁拒绝（creator/joining 状态不可用，统一文案）。 */
+/**  T7：tavern_template_defaults 门禁拒绝（creator/joining 状态不可用，统一文案）。 */
 export const TOOL_TEMPLATE_DEFAULTS_STATE_REJECTED =
 	"Error: tavern_template_defaults is only available when idle or joined as a Character.";
 /** 未以 Character 身份加入群聊（工具错误提示）。 */
@@ -508,7 +508,7 @@ export const TOOL_SPEAK_DESCRIPTION =
 	"Keep messages concise (under 2000 characters). " +
 	"Long analysis should stay in the private session.";
 /** tavern_board 工具描述。 */
-/** #152：tavern_whisper 工具描述（Character 间私信；目标须为在线 Character，拒绝自发自收/离线）。 */
+/** ：tavern_whisper 工具描述（Character 间私信；目标须为在线 Character，拒绝自发自收/离线）。 */
 export const TOOL_WHISPER_DESCRIPTION =
 	"向指定的其他 Character 发送私信（仅对目标与创建者可见全文，其他成员只见占位提示）。" +
 	"目标必须是当前在线的 Character；拒绝发送给 User Persona、自己或离线目标。" +

@@ -83,7 +83,7 @@ describe("cursor-store", () => {
 			expect(countPersistedEntries([{ type: "label" }])).toBe(0);
 		});
 
-		it("countEntriesByType breaks down per type without a total (#152 苍蓝星指示)", () => {
+		it("countEntriesByType breaks down per type without a total", () => {
 			const entries = [
 				{ type: "session_info" },
 				{ type: "custom_message", customType: "pi-tavern.public-message" },

@@ -1,5 +1,5 @@
 {
-	// RH3 首部剧本（#152 私信投影验收断言，剧本驱动 e2e MVP v0）
+	// RH3 首部剧本（私信投影验收断言，剧本驱动 e2e MVP v0）
 	// 场景：Alice 私信 Carol → 创建者完整正文 / 接收者实时正文 / 旁观者占位
 	// 恢复：重启 resume 后创建者仍见完整正文（WH8 恢复投影）
 	"scenario": "RH3-whisper-projection",

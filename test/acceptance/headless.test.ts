@@ -8,7 +8,7 @@ import { pollSessionCursor } from "./cursor-helper.js";
 import { PiProcess } from "./pi-process.js";
 
 /**
- * ISSUE-014 acceptance: headless RPC character mode (CPU 根治).
+ *  acceptance: headless RPC character mode (CPU 根治).
  *
  * 以 PITAVERN_AUTO_JOIN=1 启动的角色 pi 以编程方式加入活动群聊
  *（无对话框、无 TUI）。验收断言全链路：
@@ -17,7 +17,7 @@ import { PiProcess } from "./pi-process.js";
  * session_start 故 PITAVERTEST 通知通道不可用），且
  * 进程空闲时 CPU 可忽略（RPC 模式无 TUI 渲染管线）。
  */
-describe("acceptance: headless RPC character auto-join (ISSUE-014)", () => {
+describe("acceptance: headless RPC character auto-join", () => {
 	let root: string;
 	let agentDir: string;
 	let projectDir: string;
@@ -70,7 +70,7 @@ describe("acceptance: headless RPC character auto-join (ISSUE-014)", () => {
 				PITAVERN_AUTO_JOIN: "1",
 				PITAVERN_CHARACTER: "architect",
 				PITAVERN_GROUP_CHAT: descriptor.groupChatId,
-				// #115 验证：短 auto-join 延迟（默认 3000，测试用短值 ≥50ms）。
+				//  验证：短 auto-join 延迟（默认 3000，测试用短值 ≥50ms）。
 				PITAVERN_AUTO_JOIN_DELAY_MS: "100",
 			},
 		});
@@ -96,7 +96,7 @@ describe("acceptance: headless RPC character auto-join (ISSUE-014)", () => {
 		//（RPC 无 session_start，故 PITAVERTEST
 		// [tavern-inject] 通知未接线；游标文件是
 		// 消息已被拉取并投递的确定性证据）。
-		// PR #71 后游标 = cursors/<groupId>/<sessionId>.json（sessionId 进程生成不可预知）：
+		// PR  后游标 = cursors/<groupId>/<sessionId>.json（sessionId 进程生成不可预知）：
 		// 轮询目录内全部游标文件（会话无关）。
 		const cursorDir = getGroupChatCursorDirectory(agentDir, projectDir);
 		const groupChatId = descriptor.groupChatId;
@@ -105,13 +105,13 @@ describe("acceptance: headless RPC character auto-join (ISSUE-014)", () => {
 			(e) =>
 				e.type === "extension_ui_request" && e.method === "notify" && e.message === "User Persona message published",
 		);
-		// #115 实测打点：发布确认 → 游标推进（拉取+投递耗时），与症状基线
+		//  实测打点：发布确认 → 游标推进（拉取+投递耗时），与症状基线
 		//（15-20s / 60s+）对比；断言 30s 上界仅防 flake，不替代延迟证据。
 		const publishAt = Date.now();
 		await pollSessionCursor(cursorDir, groupChatId, 2, 30_000, "cursor file");
 		console.log(`[headless] publish→cursor 实测 ${Date.now() - publishAt}ms`);
 
-		// ── ISSUE-014 核心：空闲 CPU 可忽略（无 TUI 管线）──
+		// ──  核心：空闲 CPU 可忽略（无 TUI 管线）──
 		const cpu = await headless.sampleCpuPercent(3_000);
 		expect(cpu).toBeLessThanOrEqual(2);
 	});

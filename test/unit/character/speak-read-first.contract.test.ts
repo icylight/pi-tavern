@@ -5,7 +5,7 @@ import { GroupChatInput } from "../../../src/character/group-chat-input.js";
 import type { PublicMessage, ServerMessage } from "../../../src/protocol/messages.js";
 
 /**
- * #128 契约测试（Arch 属主，与 Dev 实现侧测试互补）。
+ *  契约测试（Arch 属主，与 Dev 实现侧测试互补）。
  * 覆盖评审确认的边界：截断窗口全自身 → 数量未知但保守阻止；混合窗口只数
  * 明确可见的他人消息；旧帧水位知识不残留（新帧覆盖旧帧）。
  */
@@ -75,13 +75,13 @@ function aGroupChatUpdate(overrides: {
 	} as ServerMessage;
 }
 
-describe("契约：#128 unreadOthersProven 边界（Arch 属主）", () => {
+describe("契约： unreadOthersProven 边界（Arch 属主）", () => {
 	it("截断窗口全自身 → count=0 + exact:false，但按定稿保守阻止", () => {
 		const runtime = createMockRuntime({ loadCursor: () => 1, characterId: "arch" });
 		const input = new GroupChatInput(runtime, createMockPi());
 		input.start();
 		// 水位 5，游标 1，但 preview（最近 3 条）全为自身回显——截断导致
-		// 更早窗口是否有他人消息不可知 → 按 #128 定稿保守阻止，拉全后再决策。
+		// 更早窗口是否有他人消息不可知 → 按  定稿保守阻止，拉全后再决策。
 		runtime.onEnvironmentMessage?.(
 			aGroupChatUpdate({
 				latestSequence: 5,

@@ -1,5 +1,5 @@
 /**
- * B4 字符侧接线集成测试（#114；挂靠 issue 09:26 版 B4 节 + QA 清单 6）。
+ * B4 字符侧接线集成测试（挂靠 B4 节 09:26 版 + QA 清单 6）。
  *
  * 覆盖（四处接线）：
  * ① 路由天然可达（character-runtime handleServerMessage → onEnvironmentMessage）
@@ -118,7 +118,7 @@ afterEach(async () => {
 	await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-describe("B4 字符侧四处接线（#114，integration）", () => {
+describe("B4 字符侧四处接线（integration）", () => {
 	it(
 		"门闸放行 + 白板桶渲染 + 自回显过滤 + 不产生消息流拉取（board_update 两套消费语义）",
 		{ timeout: 20_000 },
@@ -154,7 +154,7 @@ describe("B4 字符侧四处接线（#114，integration）", () => {
 			expect(obsInjected).toContain("白板更新：");
 			expect(obsInjected).toContain("贴条：「共识一」");
 
-			// 写者无自回显（User 拍板 2026-08-04）：响应已含结果，不注入自己
+			// 写者无自回显：响应已含结果，不注入自己
 			await new Promise((resolve) => setTimeout(resolve, 1_600));
 			const writerInjected = sendMessage.mock.calls
 				.map((call) => String((call[0] as { content?: string }).content ?? ""))

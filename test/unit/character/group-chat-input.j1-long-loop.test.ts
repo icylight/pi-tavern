@@ -4,7 +4,7 @@ import type { CharacterRuntime } from "../../../src/character/character-runtime.
 import { GroupChatInput } from "../../../src/character/group-chat-input.js";
 import type { PublicMessage, ServerMessage } from "../../../src/protocol/messages.js";
 
-// #85 J1 长工具循环回归：密集通知只排一个隐藏令牌；安全边界 abort 后，
+//  J1 长工具循环回归：密集通知只排一个隐藏令牌；安全边界 abort 后，
 // settled 一次拉全并通过 followUp 重开，最终无重复无遗漏。
 
 function createMockRuntime(
@@ -57,7 +57,7 @@ function aPublicMessage(sequence: number): PublicMessage {
 	} as PublicMessage;
 }
 
-describe("GroupChatInput #85 J1 长工具循环忙态投递回归", () => {
+describe("GroupChatInput  J1 长工具循环忙态投递回归", () => {
 	afterEach(() => {
 		vi.useRealTimers();
 	});

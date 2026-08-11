@@ -8,15 +8,15 @@ import {
 } from "../shared/messages.js";
 
 /**
- * #154：可配置群聊消息文案——共享纯函数模块（config 域）。
+ * ：可配置群聊消息文案——共享纯函数模块（config 域）。
  *
- * 契约（docs/development/acceptance.md T1-T4，2026-08-09 五方确认 + Arch 盖章）：
+ * 契约（docs/development/acceptance.md T1-T4）：
  * - 五类 key：public_message / whisper_full / whisper_placeholder / seconds_ago / minutes_ago。
  * - 占位符规则：必留占位缺失、禁止占位出现（whisper_placeholder 禁 content）、
  *   未知占位出现 → 单项无效，逐项回退低层并 warning，不阻断群聊启动。
  * - 合并优先级：项目配置 > 全局配置 > 内置中文（逐 key）。
  * - 渲染期不二次校验（校验在合并期完成）。
- * - whisper 两 key 随 #152（Character 间私信）重新引入（WH9；#154 时按苍蓝星裁决
+ * - whisper 两 key 随 （Character 间私信）重新引入（WH9；
  *   「未实现功能不暴露文案」暂移除，本模块契约注释保留了定稿规则表）。
  */
 
@@ -31,14 +31,14 @@ export const MESSAGE_TEMPLATE_KEYS = [
 export type MessageTemplateKey = (typeof MESSAGE_TEMPLATE_KEYS)[number];
 
 /**
- * #154：内置中文默认值（合并链最底档）。
- * public_message 含换行（Arch 裁决 2026-08-09）：实时注入面
+ * ：内置中文默认值（合并链最底档）。
+ * public_message 含换行：实时注入面
  * `sender（when）:\ncontent` 与现状逐字一致（双测试锚绿）；history/TUI
  * 面双行化可接受（无格式钉死，留痕 T3）。
  */
 export const DEFAULT_TEMPLATES: Record<MessageTemplateKey, string> = {
 	public_message: "{sender}:\n{content}",
-	// #152 WH9：私信投影文案（需求基线原文：「A 向 B 悄悄说：正文」/「A 向 B 悄悄说了一句话」）。
+	//  WH9：私信投影文案（需求基线原文：「A 向 B 悄悄说：正文」/「A 向 B 悄悄说了一句话」）。
 	whisper_full: "{sender} 向 {receiver} 悄悄说：{content}",
 	whisper_placeholder: "{sender} 向 {receiver} 悄悄说了一句话",
 	seconds_ago: "{count} 秒前",
@@ -54,7 +54,7 @@ interface TemplateRule {
 
 const TEMPLATE_RULES: Record<MessageTemplateKey, TemplateRule> = {
 	public_message: { required: ["sender", "content"], allowed: ["sender", "content"] },
-	// #152 WH9：定稿规则表（#154 契约注释留痕）——full 必留三占位；placeholder 禁 content。
+	//  WH9：定稿规则表（契约注释留痕）——full 必留三占位；placeholder 禁 content。
 	whisper_full: { required: ["sender", "receiver", "content"], allowed: ["sender", "receiver", "content"] },
 	whisper_placeholder: { required: ["sender", "receiver"], allowed: ["sender", "receiver"] },
 	seconds_ago: { required: ["count"], allowed: ["count"] },
@@ -66,7 +66,7 @@ const PLACEHOLDER_PATTERN = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
 export type TemplateValidation = { ok: true } | { ok: false; reason: string };
 
 /**
- * #154 T4：单项校验——必留缺失 / 禁止与未知占位出现 / 空串均判无效。
+ *  T4：单项校验——必留缺失 / 禁止与未知占位出现 / 空串均判无效。
  * 渲染期不做二次校验（合并期已过滤，契约定稿）。
  */
 export function validateTemplate(key: MessageTemplateKey, template: string): TemplateValidation {
@@ -90,7 +90,7 @@ export function validateTemplate(key: MessageTemplateKey, template: string): Tem
 }
 
 /**
- * #154：模板渲染——仅替换 {placeholder}；缺失值替换为空串；
+ * ：模板渲染——仅替换 {placeholder}；缺失值替换为空串；
  * 值不做递归展开。校验在合并期完成，渲染期零校验（契约定稿）。
  */
 export function renderTemplate(template: string, vars: Record<string, string>): string {
@@ -98,7 +98,7 @@ export function renderTemplate(template: string, vars: Record<string, string>): 
 }
 
 /**
- * #154 T1：三层逐 key 合并（项目 > 全局 > 内置）。
+ *  T1：三层逐 key 合并（项目 > 全局 > 内置）。
  * 层内未知 key / 无效单项 → 该 key 回退低层并记 warning；层为 null/空 = 无贡献。
  * 纯函数（fs 分离在 loadMessageTemplateFile），可独立测试。
  */
@@ -136,7 +136,7 @@ export function mergeMessageTemplates(
 }
 
 /**
- * #154 T2：读取模板文件（路径相对声明它的配置文件目录解析）。
+ *  T2：读取模板文件（路径相对声明它的配置文件目录解析）。
  * 未声明 → null 无 warning；文件缺失 / 解析失败 / 顶层非对象 → warning + null
  * （该层整体回退）；顶层对象内非 string 值 → 该 key 丢弃 + warning（逐项回退精神）。
  */

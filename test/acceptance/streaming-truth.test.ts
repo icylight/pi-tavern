@@ -9,10 +9,10 @@ import { PiProcess } from "./pi-process.js";
 import { BufferedWsClient } from "./ws-helper.js";
 
 /**
- * A1/A2/A4（验收清单 #14-A1/#14-A2/#14-A4）：is_streaming 点亮语义收敛与
+ * A1/A2/A4（验收清单 -A1/-A2/-A4）：is_streaming 点亮语义收敛与
  * 多连接一致性——进程级。
  *
- * #77：任何 run（群聊触发/私有直聊）点亮 is_streaming（creator widget「正在工作」出现），
+ * ：任何 run（群聊触发/私有直聊）点亮 is_streaming（creator widget「正在工作」出现），
  *     agent_settled 后熄灭。
  * A2：用户直聊（非群聊输入）触发的 turn 不点亮——语义收敛核心用例，
  *     旧行为误报（agent_start 全量点亮）在此被钉死。
@@ -20,10 +20,10 @@ import { BufferedWsClient } from "./ws-helper.js";
  *     同一真值（翻转广播到达 + 终态快照一致）。
  *
  * 观察通道：creator 侧 widget（extension_ui_request setWidget：成员数 +
- * 「正在工作」行），#77 保证 streaming 翻转即时广播。
+ * 「正在工作」行）， 保证 streaming 翻转即时广播。
  */
 
-describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
+describe("acceptance: A1/A2/A4 is_streaming semantic convergence", () => {
 	let pairIndex = 0;
 	const roots: string[] = [];
 	const processes: PiProcess[] = [];
@@ -133,11 +133,11 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 	});
 
 	it.concurrent(
-		"A2 (#77): user-direct RPC turn has no agent_start — no lighting trigger (mechanism, not semantic)",
+		"A2: user-direct RPC turn has no agent_start — no lighting trigger (mechanism, not semantic)",
 		async () => {
 			const { creator, headless } = await startPair();
 
-			// #52（白名单毫秒级 run 暴露的时序缺陷修复）：先确认 join 完成
+			// （白名单毫秒级 run 暴露的时序缺陷修复）：先确认 join 完成
 			// （2 人在线广播）再取 baseline——原实现依赖窗口内出现 2 人在线事件，
 			// 而 join 广播时刻与 baseline 的相对顺序不确定（旧模式被慢 run 掩盖）。
 			await creator.waitFor(
@@ -147,8 +147,8 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 					(e.widgetLines as string[])?.[0]?.startsWith("2 人在线") === true,
 				60_000,
 			);
-			// #123 适配（QA 属主，Arch 裁决）：join 注入批次（system_message +
-			// character_joined）触发一次群聊 turn（#77 正常机制——欢迎语可见性必需，
+			//  适配：join 注入批次（system_message +
+			// character_joined）触发一次群聊 turn（正常机制——欢迎语可见性必需，
 			// 与有历史 join/白板更新同路径）——等该 turn 点亮「正在工作」并熄灭
 			// （settled 收敛）后再取 baseline，使窗口只覆盖后续 RPC 直聊回合。
 			// 断言意图不变：RPC turn 无 agent_start 不点亮（机制，非语义拒绝）。
@@ -160,7 +160,7 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence (#14)", () => {
 			const baseline = creator.countEvents();
 
 			// 直接 RPC 提示 = 用户直聊回合，而非群聊输入。
-			// #77：点亮由 agent_start 驱动（run 活跃即亮）——但 headless RPC 模式
+			// 点亮由 agent_start 驱动（run 活跃即亮）——但 headless RPC 模式
 			// 不触发 agent_start 生命周期事件（index.ts：RPC 不触发
 			// session_start/resources_discover；agent_start 同理），扩展无点亮时机，
 			// 故窗口内不应出现「正在工作」widget——这是机制结果，非语义拒绝。

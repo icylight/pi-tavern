@@ -7,16 +7,16 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 import { PiProcess, waitForDescriptor } from "./pi-process.js";
 
 /**
- * A' abort 打断投递 v0.5——红钉先行（QA 属主，2026-08-04）。
+ * A' abort 打断投递 v0.5——红钉先行。
  *
- * 契约源：口径 v0.5（docs/abort-delivery.md，2026-08-05 评审修正）：
+ * 契约源：口径 v0.5：
  *   「忙态消息到达 → 隐藏 steer 令牌 → 安全边界 abort → settle → followUp 重开拉全量未读」；
  *   忙态 + 消息到达 → 当前工具未结束时 abort=0 → 下一模型调用前 abort=1 →
  *   agent 转空闲 → followUp 重开带全部未读 → 模型从头生成即见新消息；
- *   无 N/C 保护参数（苍蓝星拍板：不要保护，密集打断）；
+ *   无 N/C 保护参数（不要保护，密集打断）；
  *   livelock 风险已告知，本钉锚定「连续消息下仍能完成作答」。
  *
- * 观察通道：M7 A6——RPC 模式 notify 呈现为 extension_ui_request 事件
+ * 观察通道：A6——RPC 模式 notify 呈现为 extension_ui_request 事件
  *   （group-chat-input.ts:444-459 的 [tavern-inject] 通知；pi-process 头注），
  *   事件字段 e.message 含 latest_seq/count（投递增量）、abort=0（令牌排队）与
  *   abort=1 boundary=steer（安全边界打断）。
@@ -26,7 +26,7 @@ import { PiProcess, waitForDescriptor } from "./pi-process.js";
  *   使「令牌排队 → context abort → settled 后拉取」的进程链路可确定性构造。
  *   真实工具仍执行时 abort=0、工具批完成后才消费令牌的上游时序，由
  *   integration/extension/abort-steer-tool-boundary.test.ts 使用真实 agent-loop 钉住；
- *   上游真实 RPC abort/队列保持由 J2 钉覆盖（零 LLM 白名单，#52）。
+ *   上游真实 RPC abort/队列保持由 J2 钉覆盖（零 LLM 白名单）。
  *
  * T1 锚定精确时序；T2/T3 锚定连续消息收敛与游标语义。
  */

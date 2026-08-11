@@ -9,9 +9,9 @@ import { type CharacterCard, loadCharacterCard } from "../../../src/config/chara
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 
 /**
- * #104 环境文本时间要素钉测（QA 属主，integration 层）：
+ *  环境文本时间要素钉测（QA 属主，integration 层）：
  *
- * 契约（#104 定案，A1-A3）：buildContent 生成的环境更新文本必须包含
+ * 契约（定案，A1-A3）：buildContent 生成的环境更新文本必须包含
  * ① 头部「当前时间：YYYY-MM-DD HH:MM:SS」（注入时点）；② 每条 public_message
  * 行带发言时间（YYYY-MM-DD HH:MM）+ 距当前间隔（「x 分钟前」/「x 秒前」）。
  * 协议/持久化零改动（timestamp 已存在于 wire，纯消费端渲染）。
@@ -83,7 +83,7 @@ afterEach(async () => {
 	await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-describe("#104 env time", () => {
+describe("env time", () => {
 	it("T1: 头部含当前时间（格式 + 与注入时点同一分钟级窗口）", { timeout: 15_000 }, async () => {
 		const { creator, character } = await startCreator();
 		await creator.submitUserPersonaMessage("hello 1");
@@ -106,7 +106,7 @@ describe("#104 env time", () => {
 		// T3：身份行不回归
 		expect(content).toContain("你的当前角色：QA（character_id=characters/qa.md，注册名=QA）");
 
-		// #97 S2 红测先行：注入含显式来源声明「来源：群聊」，与身份行同批（当前实现
+		//  S2 红测先行：注入含显式来源声明「来源：群聊」，与身份行同批（当前实现
 		// 无此声明行 → 红；Green 后 buildContent 头部与身份行同批注入）。
 		expect(content).toContain("来源：群聊");
 	});
@@ -114,7 +114,7 @@ describe("#104 env time", () => {
 	it("T2: 消息行含发言时间 + 距当前间隔", { timeout: 15_000 }, async () => {
 		const { creator, character } = await startCreator();
 		const { pi } = await joinCharacter(creator, character, "env-time-t2");
-		// #123：ready 不再推 message_history——存量历史不自动注入；submit 新消息触发
+		// ready 不再推 message_history——存量历史不自动注入；submit 新消息触发
 		// group_chat_update 水位 → fetchMessagesSince 拉取路径，消息行进入注入。
 		await creator.submitUserPersonaMessage("hello 1");
 		const sendMessage = pi.sendMessage as ReturnType<typeof vi.fn>;

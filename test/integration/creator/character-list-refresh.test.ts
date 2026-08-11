@@ -10,12 +10,12 @@ import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 import { decodeServerMessage, encodeMessage } from "../../../src/protocol/codec.js";
 
 /**
- * #25：宿主角色清单懒刷新（feat/character-list-refresh）。
- * 验收锚点（对应 #25 六条中的核心三条）：
+ * ：宿主角色清单懒刷新（feat/character-list-refresh）。
+ * 验收锚点（对应  六条中的核心三条）：
  *  ① 新增角色卡 join 可见（loadCharacters 返回扩展清单 → available_characters 含新卡）
  *  ② name/description 变更 leave→join 成功（claim 响应返回新摘要，不抛旧快照校验错）
  *  ③ 重扫失败优雅降级（loadCharacters reject / 空结果 → 回退旧快照，join 仍可用）
- * #119 M1/M2：信封迁移（请求 {jsonrpc,id,method,params}、响应 result）。
+ * 信封迁移（请求 {jsonrpc,id,method,params}、响应 result）。
  */
 
 const temporaryDirectories: string[] = [];
@@ -134,7 +134,7 @@ function toSummaryMessage(character: CharacterCard) {
 	};
 }
 
-describe("#25 CreatorRuntime character list lazy refresh", () => {
+describe("CreatorRuntime character list lazy refresh", () => {
 	it("① makes a newly added character visible on join (no restart)", async () => {
 		const runtime = await startRuntime({
 			characters: [architect, developer],

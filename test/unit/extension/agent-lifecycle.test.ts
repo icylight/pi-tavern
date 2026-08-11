@@ -4,16 +4,16 @@ import { ABORT_CONTROL_CUSTOM_TYPE } from "../../../src/character/group-chat-inp
 import { wireAgentLifecycle } from "../../../src/extension/agent-lifecycle.js";
 
 /**
- * #90 W1-a 接线钉（QA，2026-08-03）：agent_start 续命——
+ * W1-a 接线钉：agent_start 续命——
  * 清除 streaming reset watchdog，防 5s 误灭活跃 run 的灯。
  *
  * 红基线（当前实现）：agent-lifecycle.ts agent_start 处理器只做
  * isAgentActive=true + updateStreaming(true) + armRunWedgedWatchdog，
  * 不清 streamingResetWatchdog——agent_end→continue 后 5s 定时器到点
- * 强制 updateStreaming(false) 误灭灯（User 观察：群聊面板 run 中不亮）。
+ * 强制 updateStreaming(false) 误灭灯（群聊面板 run 中不亮）。
  * 绿：agent_start 处理器调用 clearStreamingResetWatchdog（续命）。
  */
-describe("wireAgentLifecycle #90 W1-a agent_start 续命", () => {
+describe("wireAgentLifecycle  W1-a agent_start 续命", () => {
 	it("agent_start 时清除 streaming reset watchdog（长 run 灯不灭）", () => {
 		const handlers = new Map<string, (event?: unknown) => void>();
 		const pi = {

@@ -109,7 +109,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	registerTavernTools(pi, ctrl);
 	wireAgentLifecycle(pi, ctrl);
 
-	// ：headless RPC 角色模式——启动时自动 join。RPC 模式不触发
+	// headless RPC 角色模式——启动时自动 join。RPC 模式不触发
 	// session_start/resources_discover 事件，因此 join 从扩展加载时调度（会话
 	// 在扩展运行时已绑定；延迟只是让 runner 完成会话引导）。reload 不属于
 	// headless 操作（无 TUI 命令）；身份与连接由进程生命周期持有。
@@ -231,7 +231,7 @@ function wireCreatorDisplay(pi: ExtensionAPI, ctrl: TavernController): void {
 		appendCreatorDisplayEntry(pi, state.runtime, msg);
 	};
 
-	// ：私信提交后投影完整正文（创建者恒参与者视角）。
+	// 私信提交后投影完整正文（创建者恒参与者视角）。
 	state.runtime.onWhisperMessage = (whisper) => {
 		appendCreatorWhisperEntry(pi, state.runtime, whisper);
 	};
@@ -262,7 +262,7 @@ function wireCreatorDisplay(pi: ExtensionAPI, ctrl: TavernController): void {
 		}
 	};
 
-	// ：resume 后把持久化历史窗口投影到当前会话。
+	// resume 后把持久化历史窗口投影到当前会话。
 	// 幂等（会话扫描锚定防重复），creator-runtime 零改动、零协议变更。
 	projectResumeHistory(pi, state.runtime);
 }
@@ -394,7 +394,7 @@ function projectResumeHistory(pi: ExtensionAPI, runtime: CreatorRuntime): void {
 	// 等价全量窗口）。
 	const windowSize = runtime.publicMessageList.length + runtime.whisperMessageList.length;
 	const publicMessages = computeResumeProjection(runtime.publicMessageList, anchor, windowSize);
-	// ：私信按同 anchor/窗口过滤（共享递增器，锚定一致），
+	// 私信按同 anchor/窗口过滤（共享递增器，锚定一致），
 	// 与公开消息按 sequence 归并后统一投影（创建者恒参与者视角，完整正文）。
 	const whisperMessages = runtime.whisperMessageList
 		.filter((message) => message.sequence > anchor)

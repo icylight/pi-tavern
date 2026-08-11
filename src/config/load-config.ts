@@ -16,15 +16,15 @@ export interface TavernConfig {
 	configMaxMessages: number;
 	characters: CharacterCard[];
 	/**
-	 * 白板模型（#114）：白板额度（可选——缺省 = store 默认 5/140，PR #116 F4
+	 * 白板模型：白板额度（可选——缺省 = store 默认 5/140，
 	 * 兑现「可配置」承诺）。装配透传：commands → startNew/resume → creator-factory
 	 * → createBoardStore；未配置时 undefined 走 store 默认。
 	 */
 	boardMaxNotes?: number;
 	boardMaxNoteLength?: number;
-	/** #123：欢迎文案（可选——缺省 = DEFAULT_WELCOME_MESSAGE 代码默认值）。 */
+	/** ：欢迎文案（可选——缺省 = DEFAULT_WELCOME_MESSAGE 代码默认值）。 */
 	welcomeMessage?: string;
-	/** #154：合并后的消息文案模板集（项目 > 全局 > 内置；缺省 = 内置中文全量）。 */
+	/** ：合并后的消息文案模板集（项目 > 全局 > 内置；缺省 = 内置中文全量）。 */
 	messageTemplates?: Record<MessageTemplateKey, string>;
 }
 
@@ -37,12 +37,12 @@ const TavernConfigFileSchema = Type.Object(
 	{
 		config_max_messages: Type.Optional(Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
 		characters: Type.Optional(Type.Array(Type.String())),
-		// 白板模型（#114）：白板额度（可选；最小 1——额度 0 无业务意义）。
+		// 白板模型：白板额度（可选；最小 1——额度 0 无业务意义）。
 		board_max_notes: Type.Optional(Type.Integer({ minimum: 1 })),
 		board_max_note_length: Type.Optional(Type.Integer({ minimum: 1 })),
-		// #123：欢迎文案（可选——缺省 = 代码默认；旧配置兼容，缺省键不报错）。
+		// 欢迎文案（可选——缺省 = 代码默认；旧配置兼容，缺省键不报错）。
 		welcome_message: Type.Optional(Type.String()),
-		// #154：消息文案模板文件（可选——相对声明它的 tavern.json 解析；缺省 = 内置中文）。
+		// 消息文案模板文件（可选——相对声明它的 tavern.json 解析；缺省 = 内置中文）。
 		message_templates: Type.Optional(Type.String()),
 	},
 	{ additionalProperties: false },
@@ -52,7 +52,7 @@ type TavernConfigFile = Static<typeof TavernConfigFileSchema>;
 
 const checkTavernConfigFile = Compile(TavernConfigFileSchema);
 /**
- * #37 (2026-08-02)：新建群聊的默认消息配额。唯一事实源——
+ * 新建群聊的默认消息配额。唯一事实源——
  * creator-runtime.ts 与 commands.ts import 本常量而非重复声明
  * （三个相同的常量曾是 10→100 配额漏改的根因）。
  */
@@ -68,7 +68,7 @@ export async function loadTavernConfig(options: LoadTavernConfigOptions): Promis
 		...toCharacterImports(projectConfig, projectConfigPath),
 	];
 
-	// #154：消息文案模板三层合并（项目 > 全局 > 内置），容错回退不阻断启动。
+	// 消息文案模板三层合并（项目 > 全局 > 内置），容错回退不阻断启动。
 	// 两层均未声明 message_templates → 不带字段（消费面回落 DEFAULT_TEMPLATES）。
 	const [projectTemplates, globalTemplates] = await Promise.all([
 		loadMessageTemplateFile(dirname(projectConfigPath), projectConfig?.message_templates),
@@ -84,9 +84,9 @@ export async function loadTavernConfig(options: LoadTavernConfigOptions): Promis
 
 	const boardMaxNotes = projectConfig?.board_max_notes ?? globalConfig?.board_max_notes;
 	const boardMaxNoteLength = projectConfig?.board_max_note_length ?? globalConfig?.board_max_note_length;
-	// #123：欢迎文案三档合并（项目 > 全局 > 代码默认），沿用 board 先例；
+	// 欢迎文案三档合并（项目 > 全局 > 代码默认），沿用 board 先例；
 	// 未配置 = undefined（管线侧回落 DEFAULT_WELCOME_MESSAGE）。
-	// PR #144 P1-3（User 评论）：空白归一化必须在合并**之前**分别进行——否则
+	// 空白归一化必须在合并**之前**分别进行——否则
 	// `??` 先选中项目空串（空串非 null/undefined），再归一化 undefined 后直接回落
 	// 代码默认，截断三档回退链（反例：全局有效 + 项目空串 → 应回全局，实际默认）。
 	// 归一化语义：空白串视为未配置（PM 口径，与「欢迎语必非空 → join 后必有首次

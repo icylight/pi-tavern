@@ -2,7 +2,7 @@ import type { PublicMessageState } from "../../protocol/public-message-state.js"
 import type { WhisperMessageState } from "../../protocol/whisper-message-state.js";
 
 /**
- * #152：统一时间序消息流（WH3）——公开消息与私信共用 sequence 递增器
+ * ：统一时间序消息流（WH3）——公开消息与私信共用 sequence 递增器
  * （无空洞保证，submit-message-pipeline/whisper-message-pipeline 同源），
  * 读取时按 sequence 归并排序。stale 检查（B2/B6）与历史查询/增量拉取
  * 投影共用本函数，保证序列语义单一来源。
@@ -47,9 +47,9 @@ export function mergeMessageStreams(
 }
 
 /**
- * #170 服务端投影半场：按请求者投影视角计算 stale 判定的 latestOtherSequence。
+ *  服务端投影半场：按请求者投影视角计算 stale 判定的 latestOtherSequence。
  * 旁观者视角的 whisper（sender≠请求者 且 recipient≠请求者，只可见占位、零信息
- * 增量）不计入——与客户端 unread_first 占位豁免（#170 本地半场）同源语义；
+ * 增量）不计入——与客户端 unread_first 占位豁免（本地半场）同源语义；
  * 接收者全文（recipient=请求者）恒计入（全文已实时投递，旧游标发言确应 stale）；
  * 请求者自己发送的消息排除（发送者零事件，游标不越自己的私信）；公开消息恒计入
  * （防内容风暴防线不破）。
@@ -69,7 +69,7 @@ export function computeLatestOtherSequence(
 		if (candidate.sender.type === "character" && candidate.sender.character_id === requesterCharacterId) {
 			continue;
 		}
-		// #170 服务端投影半场：旁观者视角的 whisper（只见占位）不计入。
+		//  服务端投影半场：旁观者视角的 whisper（只见占位）不计入。
 		// 判别：whisper 恒含 recipient（public 无此字段）。
 		if ("recipient" in candidate && candidate.recipient.character_id !== requesterCharacterId) {
 			continue;

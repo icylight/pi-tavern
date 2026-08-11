@@ -27,13 +27,13 @@ afterEach(async () => {
 });
 
 /**
- * #139 错误帧 fail-close 钉（QA 属主，假服务器 = 真实 WS 发送路径）：
+ *  错误帧 fail-close 钉（QA 属主，假服务器 = 真实 WS 发送路径）：
  * character runtime 收到非法帧 → failConnection 断线（不静默吞、不悬挂 pending）。
  *
  * 锚定现有行为（handleIncomingData：二进制帧 / codec 拒帧 → failConnection；
- * L230-237 路径不经 response-gate）——#139 方案 B 清理后同批回归锚，行为零变化。
+ * L230-237 路径不经 response-gate）—— 方案 B 清理后同批回归锚，行为零变化。
  */
-describe("#139 错误帧 fail-close（character runtime 侧，假服务器注入）", () => {
+describe("错误帧 fail-close（character runtime 侧，假服务器注入）", () => {
 	/**
 	 * 假 creator：按 method 回合法 result（id echo，join/claim/ready 协议帧），
 	 * 并暴露对 runtime socket 的注入通道。

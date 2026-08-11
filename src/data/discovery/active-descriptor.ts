@@ -52,7 +52,7 @@ export function getGroupChatSessionDirectory(agentDir: string, cwd: string): str
 }
 
 /**
- * M7 (ISSUE-012/#24)：角色侧的群聊级游标存储目录
+ *  (/)：角色侧的群聊级游标存储目录
  * （“最后一条成功投递的消息序号”）。跨重启持久化；按项目隔离，
  * 不同项目中的不同群聊永不冲突。
  */
@@ -61,7 +61,7 @@ export function getGroupChatCursorDirectory(agentDir: string, cwd: string): stri
 }
 
 /**
- * 白板模型（#114 契约④）：boards 目录（boards/<groupId>.json）。
+ * 白板模型（契约④）：boards 目录（boards/<groupId>.json）。
  * 与 cursors 同项目隔离约定——不同项目中的不同群聊永不冲突。
  */
 export function getGroupChatBoardDirectory(agentDir: string, cwd: string): string {

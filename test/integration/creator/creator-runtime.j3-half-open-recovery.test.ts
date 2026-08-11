@@ -7,7 +7,7 @@ import WebSocket from "ws";
 
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 
-// #85 J3 钉测（QA，2026-08-03）：WS 半开 60s+（延迟/恢复一致性）回归。
+// J3 钉测：WS 半开 60s+（延迟/恢复一致性）回归。
 // 场景：连接不响应心跳 → 统一 disconnected 清理（其他成员见 character_left）
 // → 同 session 重连 → 历史无遗漏恢复（含半开期间消息）+ 重连后投递恢复 + 无重复。
 // 定位：半开恢复一致性回归钉（现有心跳用例只钉「清理」，本钉补「恢复」面）。
@@ -67,7 +67,7 @@ async function joinCharacter(
 	);
 	await waitForMessage(client, "response");
 	client.send(JSON.stringify({ jsonrpc: "2.0", id: "3", method: "character_ready" }));
-	// #123：ready 后不再自动推 message_history，改等 system_message 欢迎单播。
+	// ready 后不再自动推 message_history，改等 system_message 欢迎单播。
 	const welcomePromise = waitForMessage(client, "system_message");
 	await waitForMessage(client, "response");
 	await welcomePromise;
@@ -83,7 +83,7 @@ async function historySequences(client: WebSocket, nextId: number): Promise<numb
 	return messages.map((m) => m.params?.sequence ?? -1);
 }
 
-describe("CreatorRuntime #85 J3 半开断连恢复一致性", () => {
+describe("CreatorRuntime  J3 半开断连恢复一致性", () => {
 	it("J3: 半开清理后同 session 重连——历史无遗漏（含半开期间消息）+ 投递恢复 + 无重复", async () => {
 		const root = await createTemporaryDirectory();
 		const runtime = await CreatorRuntime.startNew(
@@ -122,7 +122,7 @@ describe("CreatorRuntime #85 J3 半开断连恢复一致性", () => {
 
 		// ⑤ 重连后投递恢复：新消息正常广播到达（sequence 3 在预览中）。
 		// 注：preview = 最近 3 条（含历史），重投控制属 character 侧游标拉取语义
-		// （M7 A3/A4 已钉），creator 侧只验证广播恢复。
+		// （A3/A4 已钉），creator 侧只验证广播恢复。
 		runtime.submitUserPersonaMessage("after-reconnect");
 		const update = await waitForMessage(revived, "group_chat_update", 5000);
 		const preview =

@@ -2,7 +2,7 @@
 /**
  * 测试执行门卫（Phase 4 提速机制，User 指示：默认不跑用例，必须显式指定）。
  *
- * 语义（Arch 裁定）：
+ * 语义：
  *   - 无 pattern 调用 → 拒绝（exit 1，提示语明示「这是拒绝不是失败」）——防假绿
  *   - 带 pattern → 透传 vitest（原生位置参数过滤，只跑改动到的）
  *   - 层内全量 = --all（日常复核）；三层收口全量 = npm run test:full（验收证据）
@@ -34,7 +34,7 @@ if (!spec) {
 
 const args = process.argv.slice(3);
 if (args.length === 0) {
-	// 拒绝而非失败：机制目的 = 强制显式指定（Arch 裁定 exit 1）。
+	// 拒绝而非失败：机制目的 = 强制显式指定（exit 1）。
 	console.error("");
 	console.error(`[run-tests] 拒绝执行：${layer} 层未指定用例（这是拒绝不是失败）。`);
 	console.error(`[run-tests] ${spec.desc}；全量 ${layer} = ${args.length} 用例（文件粒度）。`);

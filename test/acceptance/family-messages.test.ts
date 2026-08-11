@@ -11,7 +11,7 @@ import { leaveAndReset, spawnCreator, spawnStats, startFreshGroup } from "./proc
 import { joinCharacterWs } from "./ws-helper.js";
 
 /**
- * 测试架构改造 v2 试点（User 拍板 2026-08-02）：message-sync + message-fetch +
+ * 测试架构改造 v2 试点：message-sync + message-fetch +
  * history-paging 串行 family——非破坏性 creator/WS 场景共享一个 creator 进程
  * （原三文件各 spawn 一次，共 3 次 → 1 次）。
  *
@@ -103,7 +103,7 @@ describe("acceptance family: message sync + fetch + history paging (shared creat
 	it("A2/A6: cursor persistence and injection are unit-covered (RPC limitation)", () => {
 		// RPC 模式 pi 在加入回合完成后立即退出会话，
 		// 因此真实角色进程无法观察到加入之后
-		// 到达的消息（已实证验证；identity-consistency 依赖
+		// 到达的消息（identity-consistency 依赖
 		// 加入批次刷出，原因相同）。A2（游标文件写入/
 		// 读取/重启存活）与 A6（注入 == 通知来源）
 		// 因此在单元层覆盖：
@@ -112,12 +112,12 @@ describe("acceptance family: message sync + fetch + history paging (shared creat
 		//   传播（test/character/join-attempt.test.ts）
 		// - GroupChatInput pullIncrement：立即拉取（A1）、缺口补拉
 		//  （A4）、单飞行（A7）、收敛排队（A5）、注入通知
-		//  （A6）——test/character/group-chat-input.test.ts M7 用例
+		//  （A6）——test/character/group-chat-input.test.ts 用例
 		expect(true).toBe(true);
 	});
 
 	it("smoke: real-pi WS delivery chain — speak publish + pull + broadcast consistency", async () => {
-		// tier-2 精简（User 拍板）：sync/fetch/paging/speak-order 的细粒度断言已下沉
+		// tier-2 精简：sync/fetch/paging/speak-order 的细粒度断言已下沉
 		// integration（paging-and-speak-order.test.ts + character-runtime B 系列），
 		// 本用例 = 真进程 WS 全链路代表性冒烟（新群聊 → 消息 → 双成员 join → speak
 		// 发布 → 拉取同源 → 双接收者广播一致）。
@@ -134,7 +134,7 @@ describe("acceptance family: message sync + fetch + history paging (shared creat
 			sockets.push(memberA.socket);
 			const memberB = await joinCharacterWs(descriptor, "ws-smoke-b", "characters/reviewer.md");
 			sockets.push(memberB.socket);
-			// #123（WL1/WL2）：ready 后只推 system_message（内容=生效欢迎文案），
+			// （WL1/WL2）：ready 后只推 system_message（内容=生效欢迎文案），
 			// 零 message_history 自动推送（旧 100 条行为取消）。
 			const welcomeA = await memberA.waitFor((m) => m.method === "system_message");
 			expect(welcomeA.params).toMatchObject({ content: expect.any(String) });

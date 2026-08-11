@@ -1,5 +1,5 @@
 /**
- * 白板模型（#114）：每角色一块本人白板的存储实现。
+ * 白板模型：每角色一块本人白板的存储实现。
  *
  * 内存态 + 文件持久化（boards/<groupId>.json，目录由 boardDir 决定）：
  * - 懒加载恢复：首次 read/write 时读取文件；不存在 = 空板；损坏 = 降级空板 + warn
@@ -19,9 +19,9 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { unlink } from "node:fs/promises";
 import { join } from "node:path";
 
-/** 每角色白板默认条数上限（issue #114：默认 5 条，可配置）。 */
+/** 每角色白板默认条数上限（issue ：默认 5 条，可配置）。 */
 const DEFAULT_MAX_NOTES_PER_BOARD = 5;
-/** 单条默认长度上限（码点，issue #114：默认 140，可配置）。 */
+/** 单条默认长度上限（码点，issue ：默认 140，可配置）。 */
 const DEFAULT_MAX_NOTE_LENGTH = 140;
 
 export interface BoardNote {
@@ -68,7 +68,7 @@ export interface BoardStoreDependencies {
 	maxNotesPerBoard?: number;
 	/** 单条长度上限（码点，默认 140）。 */
 	maxNoteLength?: number;
-	/** 原子写原语（缺省 node:fs 同步实现；测试注入失败路径——PR #116 F2）。 */
+	/** 原子写原语（缺省 node:fs 同步实现；测试注入失败路径）。 */
 	writeFile?: (path: string, data: string) => void;
 	renameFile?: (from: string, to: string) => void;
 }
@@ -167,7 +167,7 @@ export function createBoardStore(deps: BoardStoreDependencies): BoardStore {
 	}
 
 	/**
-	 * copy-on-write 提交（PR #116 review F2：缓存修改不得先于持久化）：
+	 * copy-on-write 提交（缓存修改不得先于持久化）：
 	 * 构造下一状态（不触碰缓存数组）→ 原子写成功 → 才替换缓存。
 	 * persist 抛错时缓存保持旧态，与磁盘一致（客户端收不到成功、board_query
 	 * 也看不到新态——消除内存/磁盘分叉）。
@@ -206,7 +206,7 @@ export function createBoardStore(deps: BoardStoreDependencies): BoardStore {
 					return { status: "rejected", code: "note_length_exceeded" };
 				}
 				// F5 边缘（文档明示，行为不改）：edit 传空串 content = 落空条
-				// （与「update 不带 content = note_unchanged」不同构——按 PM 裁决
+				// （与「update 不带 content = note_unchanged」不同构——
 				// 仅注释留痕，如后续收紧在此改 note_unchanged 即可）。
 				commit(
 					groupId,

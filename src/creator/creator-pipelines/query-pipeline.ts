@@ -26,7 +26,7 @@ type QueryConnectionLike = {
 interface QueryPipelineDependencies {
 	state: GroupChatState;
 	publicMessages: PublicMessageState[];
-	/** #152：私信消息流（查询投影与公开合并为统一时间序流，WH3/WH4）。 */
+	/** ：私信消息流（查询投影与公开合并为统一时间序流，WH3/WH4）。 */
 	whisperMessages: WhisperMessageState[];
 	sessionStore: SessionStore;
 	getPersistedCount: () => number;
@@ -36,7 +36,7 @@ interface QueryPipelineDependencies {
 }
 
 /**
- * #152 WH4：统一消息流投影——服务端按查询者身份区分（客户端零投影逻辑）：
+ *  WH4：统一消息流投影——服务端按查询者身份区分（客户端零投影逻辑）：
  * 公开消息恒为 public_message 帧；私信对参与者（发送者/接收者）投影完整
  * whisper_message 帧（含正文），对其他 Character 投影 whisper_placeholder
  * 占位帧（无正文、无 round）。
@@ -171,7 +171,7 @@ export class QueryPipeline {
 		// 游标是绝对 sequence 边界：返回 sequence < cursorSeq 的最近 10 条。
 		// 新消息不会使其移位。
 		// 注：分页大小保持 10（增量分页粒度），独立于 resume 投影——
-		// #155 起 resume 投影完整历史，不再与 JOIN_HISTORY_LIMIT 共用。
+		//  起 resume 投影完整历史，不再与 JOIN_HISTORY_LIMIT 共用。
 		const merged = mergeMessageStreams(this.deps.publicMessages, this.deps.whisperMessages);
 		const requesterId =
 			connection.sessionId !== null ? requesterCharacterId(this.deps.state, connection.sessionId) : null;
@@ -205,7 +205,7 @@ export class QueryPipeline {
 			throw new ResponseError(ERROR_CODE_NOT_IN_GROUP, ERROR_NOT_IN_GROUP_CHAT);
 		}
 
-		// 增量拉取（M7/ISSUE-012）：返回客户端游标之后的全部消息。sequence
+		// 增量拉取：返回客户端游标之后的全部消息。sequence
 		// 过滤天然补洞——漏掉的通知由下一次拉取自愈。
 		const since = message.params.since_sequence;
 		const merged = mergeMessageStreams(this.deps.publicMessages, this.deps.whisperMessages);

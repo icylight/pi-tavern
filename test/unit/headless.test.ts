@@ -5,7 +5,7 @@ import type { ActiveGroupChatDescriptor } from "../../src/data/discovery/active-
 import { type AutoJoinContext, autoJoinCharacter } from "../../src/headless.js";
 
 /**
- * #154 阻断 3 红测：headless auto-join 与 /tavern-join 同生命周期——
+ *  阻断 3 红测：headless auto-join 与 /tavern-join 同生命周期——
  * 本地加载配置，自定义 message_templates 随 claim 达 CharacterRuntime。
  */
 
@@ -28,7 +28,7 @@ function stubContext(): AutoJoinContext {
 	} as unknown as AutoJoinContext;
 }
 
-describe("autoJoinCharacter (#154 阻断 3: 模板集加载)", () => {
+describe("autoJoinCharacter ( 阻断 3: 模板集加载)", () => {
 	it("auto-join 加载 message_templates 并随 startJoining 透传", async () => {
 		const customTemplates = {
 			public_message: "[{sender}]→{content}",

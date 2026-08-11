@@ -7,10 +7,10 @@ import WebSocket from "ws";
 
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 
-// #83 复现测试 ①（PM 领办）：#79 懒重扫 = join/claim/query 热路径唯一新增阻塞点
+//  复现测试 ①（PM 领办）： 懒重扫 = join/claim/query 热路径唯一新增阻塞点
 // （await 磁盘重扫、无超时保护）。本测试注入「永不 resolve 的 loadCharacters」，
-// 断言 join_group_chat 仍应在时限内响应——f2ac85f（含 #79）预期红（join 被挂起
-// 的重扫无限阻塞 = 缺陷证实）；d5aa913（无 #79）预期绿（无阻塞点）。
+// 断言 join_group_chat 仍应在时限内响应——f2ac85f（含 ）预期红（join 被挂起
+// 的重扫无限阻塞 = 缺陷证实）；d5aa913（无 ）预期绿（无阻塞点）。
 const temporaryDirectories: string[] = [];
 
 async function createTemporaryDirectory(): Promise<string> {
@@ -45,8 +45,8 @@ function waitForMessage(socket: WebSocket, expectedType: string, timeoutMs = 500
 	});
 }
 
-describe("CreatorRuntime #83 join 阻塞复现（#79 懒重扫无超时）", () => {
-	it("loadCharacters 挂起时 join_group_chat 仍应在 2s 内响应（#79 结构性缺陷钉死）", async () => {
+describe("CreatorRuntime  join 阻塞复现（懒重扫无超时）", () => {
+	it("loadCharacters 挂起时 join_group_chat 仍应在 2s 内响应（结构性缺陷钉死）", async () => {
 		const root = await createTemporaryDirectory();
 		// 可控挂起的 loadCharacters（deferred，永不自行 resolve）
 		let release: (() => void) | undefined;
@@ -57,7 +57,7 @@ describe("CreatorRuntime #83 join 阻塞复现（#79 懒重扫无超时）", () 
 
 		const runtime = await CreatorRuntime.startNew(
 			{ cwd: join(root, "project"), agentDir: join(root, "agent") },
-			// #25 懒重扫注入面：挂起的重扫 = 磁盘重扫 hang 的极端形态
+			//  懒重扫注入面：挂起的重扫 = 磁盘重扫 hang 的极端形态
 			{ loadCharacters: () => blocked.then(() => []) },
 		);
 

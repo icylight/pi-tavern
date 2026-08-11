@@ -37,7 +37,7 @@ interface PersistedCountAccess {
 interface SubmitMessagePipelineDependencies {
 	state: GroupChatState;
 	publicMessages: PublicMessageState[];
-	/** #152：私信消息流（speak 陈旧性检查与 whisper 共用合并流，B6 排除自身）。 */
+	/** ：私信消息流（speak 陈旧性检查与 whisper 共用合并流，B6 排除自身）。 */
 	whisperMessages: WhisperMessageState[];
 	persistedCount: PersistedCountAccess;
 	sessionStore: SessionStore;
@@ -108,9 +108,9 @@ export class SubmitMessagePipeline {
 			throw new ResponseError(ERROR_CODE_NO_ACTIVE_ROUND, ERROR_NO_ACTIVE_ROUND);
 		}
 
-		// 阶段 2：陈旧性检查（ISSUE-013 B2/B6）——业务性拒绝：不发布、不耗配额、不举手
-		// #152：基于合并流（公开+私信），排除请求者自己发送的消息（含自己的私信）；
-		// #170 服务端投影半场：旁观者视角的 whisper（只可见占位）不计入 stale 判定。
+		// 阶段 2：陈旧性检查（B2/B6）——业务性拒绝：不发布、不耗配额、不举手
+		// 基于合并流（公开+私信），排除请求者自己发送的消息（含自己的私信）；
+		//  服务端投影半场：旁观者视角的 whisper（只可见占位）不计入 stale 判定。
 		const merged = mergeMessageStreams(this.deps.publicMessages, this.deps.whisperMessages);
 		const latestOtherSequence = computeLatestOtherSequence(merged, onlineCharacter.character.characterId);
 		const latest = merged[merged.length - 1];
@@ -220,7 +220,7 @@ export class SubmitMessagePipeline {
 			published: true,
 			event_id: this.entryId,
 			sequence: this.sequence,
-			// ISSUE-013 B6：让客户端把 last-seen sequence 越过自己发布的
+			//  B6：让客户端把 last-seen sequence 越过自己发布的
 			// 消息（echo 在客户端侧过滤，因此拉取游标不会自行推进）。
 			latest_sequence: this.sequence,
 			round: msg.round,

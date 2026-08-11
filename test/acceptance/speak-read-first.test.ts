@@ -8,19 +8,19 @@ import { pollSessionCursor } from "./cursor-helper.js";
 import { PiProcess } from "./pi-process.js";
 
 /**
- * #128 acceptance 验收：真实进程内「未读先读」机制的链路前提。
+ *  acceptance 验收：真实进程内「未读先读」机制的链路前提。
  *
- * 分层说明（QA 验收口径）：unread_first 是角色侧本地判定（character-runtime.speak
- * 前置门，不发 wire 请求），判定逻辑全边界由 unit 覆盖（Dev 实现侧 10 用例 +
- * Arch 契约侧 4 用例，14/14）。真实进程 acceptance 无法直接驱动模型调用 speak
+ * 分层说明（验收口径）：unread_first 是角色侧本地判定（character-runtime.speak
+ * 前置门，不发 wire 请求），判定逻辑全边界由 unit 覆盖（实现侧 10 用例 +
+ * 契约侧 4 用例，14/14）。真实进程 acceptance 无法直接驱动模型调用 speak
  *（零 LLM 环境无工具调用），故本文件验证两段式的进程级前提：
  *   ① 注入他人未读 → 角色进程水位记录生效（latest_sequence 可观测）
  *   ② 拉取链路健康：游标在限期内追平水位（不重不漏，saveCursor on delivery）
- *   ③ 重复注入多轮 → 每轮均追平，无停滞（#115 症状不回归）
+ *   ③ 重复注入多轮 → 每轮均追平，无停滞（症状不回归）
  * speak 门与拉取链路联动的完整两段式（告知 → 拉取 → 追平 → 放行）由
- * unit/integration 层承担（Arch 契约测试范围）。
+ * unit/integration 层承担（契约测试范围）。
  */
-describe("acceptance: #128 speak-read-first 链路前提（水位记录 + 拉取追平）", () => {
+describe("acceptance: speak-read-first 链路前提（水位记录 + 拉取追平）", () => {
 	let root: string;
 	let agentDir: string;
 	let projectDir: string;
@@ -56,7 +56,7 @@ describe("acceptance: #128 speak-read-first 链路前提（水位记录 + 拉取
 		processes.push(creator);
 		const descriptor = await creator.startGroupChat(projectDir, agentDir);
 
-		// 无头角色：RPC 模式 + auto-join（零 LLM，与 #115 同环境）。
+		// 无头角色：RPC 模式 + auto-join（零 LLM，与  同环境）。
 		const headless = PiProcess.spawn({
 			label: "hl",
 			agentDir,
@@ -83,7 +83,7 @@ describe("acceptance: #128 speak-read-first 链路前提（水位记录 + 拉取
 		);
 		await pollSessionCursor(cursorDir, groupChatId, 1, 30_000, "cursor seq 1");
 
-		// 轮 2-4：连续注入他人未读，每轮断言游标在 5s 内追平（#115 判据同款）。
+		// 轮 2-4：连续注入他人未读，每轮断言游标在 5s 内追平（判据同款）。
 		// poll 的 30s 只负责在严重故障时给出明确超时；下面的断言才是验收界限。
 		for (let seq = 2; seq <= 4; seq += 1) {
 			const publishAt = Date.now();

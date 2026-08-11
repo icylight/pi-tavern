@@ -8,7 +8,7 @@
 
 - 注释的目的、理由、约束、时序、边界等说明性内容一律中文；
 - 技术术语、API 标识符、协议字段名、函数/变量名保留英文原文（如 `steer`、`followUp`、`triggerTurn`、`isAgentActive`、`cursor`、`settle`、`debounce`、`is_streaming` 等）——翻译后难以对应代码，易产生歧义；
-- 编号引用保留原文（验收条目 `T1-T4`/`A1-A6`、里程碑 `M7 A5`、commit hash 等）；GitHub issue 编号与本地 `ISSUE-0xx` 不保留（追溯交 Git/GitHub）；
+- 编号引用保留原文（验收条目 `T1-T4`/`A1-A6`、commit hash 等）；GitHub issue 编号与本地 `ISSUE-xxx` 不保留（追溯交 Git/GitHub）；
 - 注释中的代码示例、伪代码结构保持原样；
 - 翻译不得改变注释语义（对照原英文含义，防错译——尤其关键语义注释如竞态、边界、契约）。
 

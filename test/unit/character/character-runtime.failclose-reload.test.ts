@@ -11,7 +11,7 @@ import type { MessageTemplateKey } from "../../../src/config/message-templates.j
 import { ERROR_UNEXPECTED_SPEAK_RESPONSE } from "../../../src/shared/messages.js";
 
 /**
- * #139 方案 B 回归钉（Arch 属主，对抗模式⑪实证）：response-gate feed 前拦截
+ *  方案 B 回归钉（Arch 属主，对抗模式⑪实证）：response-gate feed 前拦截
  * 移位到 request() 解析时校验后，**reload 延续连接上 fail-close 仍须生效**——
  * adoptJsonRpc 路径不得绕过形状校验（reload 重放帧 id 已随 detach 显式取消，
  * 重放不命中 pending；本钉锚 = 新 runtime 接管后发出的请求收到错形状响应 →
@@ -73,7 +73,7 @@ function speakResult(sequence: number): Record<string, unknown> {
 	};
 }
 
-describe("CharacterRuntime reload 延续后 fail-close（#139 方案 B 回归）", () => {
+describe("CharacterRuntime reload 延续后 fail-close（方案 B 回归）", () => {
 	const sockets: MockSocket[] = [];
 	const runtimes: CharacterRuntime[] = [];
 
@@ -130,7 +130,7 @@ describe("CharacterRuntime reload 延续后 fail-close（#139 方案 B 回归）
 		await expect(promise).rejects.toThrow(ERROR_UNEXPECTED_SPEAK_RESPONSE);
 	});
 
-	it("R3 (#154 阻断 2): reload 后 messageTemplates 快照保持（不回落默认）", async () => {
+	it("R3 ( 阻断 2): reload 后 messageTemplates 快照保持（不回落默认）", async () => {
 		const customTemplates = {
 			public_message: "[{sender}]→{content}",
 			whisper_full: "{sender}→{receiver}: {content}",
@@ -150,7 +150,7 @@ describe("CharacterRuntime reload 延续后 fail-close（#139 方案 B 回归）
 		expect(plainTaken.messageTemplates).toBeUndefined();
 	});
 
-	it("R4 (#154 复评): reload 重新加载磁盘配置——A→磁盘 B→reload 后 B 生效", async () => {
+	it("R4 ( 复评): reload 重新加载磁盘配置——A→磁盘 B→reload 后 B 生效", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "pi-tavern-reload-"));
 		const agentDir = join(dir, "agent");
 		const cwd = join(dir, "project");
@@ -209,7 +209,7 @@ describe("CharacterRuntime reload 延续后 fail-close（#139 方案 B 回归）
 		rmSync(dir, { recursive: true, force: true });
 	});
 
-	it("R5 (#154 复评): 磁盘重载失败 → warning + 保留旧快照，reload 继续", async () => {
+	it("R5 ( 复评): 磁盘重载失败 → warning + 保留旧快照，reload 继续", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "pi-tavern-reload-fail-"));
 		const agentDir = join(dir, "agent");
 		const cwd = join(dir, "project");
@@ -261,7 +261,7 @@ describe("CharacterRuntime reload 延续后 fail-close（#139 方案 B 回归）
 		expect(taken2.messageTemplates?.public_message).toBe("A: {sender}: {content}");
 
 		// ① 模板文件坏 JSON → 后端 warning 回退（loadTavernConfig 不抛）→
-		// 重载成功但缺省 → 清除旧快照（消费面回落内置默认；R5a 苍蓝星第三轮复评）。
+		// 重载成功但缺省 → 清除旧快照（消费面回落内置默认；R5a 第三轮复评）。
 		// 先恢复 tavern.json 合法（② 已写坏），只保留 templates.json 坏。
 		writeFileSync(join(agentDir, "tavern.json"), JSON.stringify({ message_templates: "./templates.json" }));
 		writeFileSync(join(agentDir, "templates.json"), "{broken json");

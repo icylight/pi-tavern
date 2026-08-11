@@ -8,14 +8,14 @@ import type { PublicMessageState } from "../../../../src/protocol/public-message
 import type { WhisperMessageState } from "../../../../src/protocol/whisper-message-state.js";
 
 /**
- * WH7（#152，QA 分层报告评审补测——后端发现降层断言缺失，Arch 认领）：
+ * WH7（分层报告评审补测——后端发现降层断言缺失，Arch 认领）：
  * 「校验后掉线不回滚」窄窗口——integration 无法确定性复现（校验与投递同
  * await 链），unit 级注入 deps.send 抛错模拟投递瞬间失败，断言已提交状态
  * 不回滚 + 不占二次额度。真实环境 send 由 BroadcastHub 容错（失败静默），
  * 本用例注入抛错模拟注入方不兜底的极端投递失败。
  */
 describe("WH7: whisper 校验后投递失败不回滚（窄窗口竞态）", () => {
-	// #152 评审（P2 修复）：在线校验 = connections 存在 + readyState === OPEN。
+	//  评审（P2 修复）：在线校验 = connections 存在 + readyState === OPEN。
 	// 连接表默认 socket 为 OPEN（校验通过）；投递断场景由用例回调内置 CLOSED 模拟。
 	const fakeSocket = { readyState: WebSocket.OPEN } as unknown as WebSocket;
 

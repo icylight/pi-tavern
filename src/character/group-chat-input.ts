@@ -22,7 +22,7 @@ import {
 } from "./injection-text.js";
 
 /**
- * 仅供验收套件使用的观察通道（ISSUE-003 身份行契约，cab1fd7）。RPC 模式
+ * 仅供验收套件使用的观察通道（身份行契约）。RPC 模式
  * 没有输入通道、也无法调用扩展工具，因此身份行通过 pi.ui.notify() 重发
  * （以 extension_ui_request 形式呈现）。notify 函数从 session_start 处理器
  * 注入（唯一有 UI 访问权的位置）；每次会话启动（含 reload）都会重新绑定。
@@ -43,14 +43,14 @@ interface GroupChatInputReloadSnapshot {
 }
 
 /**
- * M7（ISSUE-012/#24）修订（#64 pull 模型）：非 update 事件（join 历史、成员
+ * （修订（pull 模型）：非 update 事件（join 历史、成员
  * 变化）后提交环境批次前的等待时长。旧的 1s 后沿 debounce 已从 group_chat_update
  * 移除——update 仅置标记——但成员/历史批次仍短暂合并，避免一次 join 拆成多次输入。
  */
 const JOIN_BATCH_DEBOUNCE_MS = 1000;
 
 /**
- * #64：闲态触发窗口（固定窗口，有界延迟）。广播 = 纯标记；无 run 时首条标记
+ * ：闲态触发窗口（固定窗口，有界延迟）。广播 = 纯标记；无 run 时首条标记
  * 启动 1s 固定窗口，窗口内 N 条并入（不重置）→ 到期 1 次触发拉全（N 条 = 1 次
  * 消费）。忙态（run 活跃期）不走窗口——settle 后立即触发（对话连续性优先）。
  */
@@ -66,17 +66,17 @@ export const ABORT_CONTROL_CUSTOM_TYPE = "pi-tavern.abort-control";
 export class GroupChatInput {
 	private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 	private debounceDueAt: number | null = null;
-	/** #64：闲态触发窗口定时器（fixed 1s，窗口内并入不重置；reload 本地交接）。 */
+	/** ：闲态触发窗口定时器（fixed 1s，窗口内并入不重置；reload 本地交接）。 */
 	private idleWindowTimer: ReturnType<typeof setTimeout> | null = null;
 	private idleWindowDueAt: number | null = null;
 	/** 闲态窗口内是否已有通知可确认包含他人公共消息。 */
 	private idleWindowAbortEligible = false;
 	/**
-	 * ISSUE-013 A1/A2：待投递窗口。持有加入时的公共历史与白板更新（经
+	 *  A1/A2：待投递窗口。持有加入时的公共历史与白板更新（经
 	 * debounce 合并），以及因 Agent turn 运行中而等待的非群消息流输入。
 	 */
 	private pendingEvents: ServerMessage[] = [];
-	/** #173（#138 窗口语义回归修复）：本批拉取窗口帧 seq（seq ≤ 拉取时游标的已读上下文，
+	/** （窗口语义回归修复）：本批拉取窗口帧 seq（seq ≤ 拉取时游标的已读上下文，
 	 * 含游标自身）。flush 投递前过滤据此豁免窗口帧——仅本批拉取帧，帧级判定；
 	 * 实时帧 / retryBatch 帧不在集合内，不受豁免。投递完成后清空。 */
 	private pullWindowSeqs = new Set<number>();
@@ -89,8 +89,8 @@ export class GroupChatInput {
 	/** 拉取在途时有新触发 → 之后补拉一次。 */
 	private refetchRequested = false;
 	/**
-	 * 忙态标记（#64）：Agent 运行中有 update 到达时置位；settle = 忙态触发点，
-	 * 立即消费拉全（游标单调，消费即拉全，无尾部补拉）。ISSUE-013 B3 的
+	 * 忙态标记：Agent 运行中有 update 到达时置位；settle = 忙态触发点，
+	 * 立即消费拉全（游标单调，消费即拉全，无尾部补拉）。 B3 的
 	 * stale 拒绝恢复也走同一标记。
 	 */
 	private incrementPending = false;
@@ -99,22 +99,22 @@ export class GroupChatInput {
 	/** 当前 run 是否已经在安全边界请求过 abort。 */
 	private abortRequested = false;
 	/**
-	 * #128：最近一帧 group_chat_update 的完整水位知识（latest_sequence +
+	 * ：最近一帧 group_chat_update 的完整水位知识（latest_sequence +
 	 * preview）。speak 前置「未读先读」判定以此推导——单一事实源 = 投递游标 +
 	 * 最新水位，不引入独立计数器（reload 不携带水位，未知即不阻塞，服务端
 	 * stale 兜底）。只存最新一帧：update 是累积水位，新帧包含旧帧信息。
 	 */
 	private latestGroupChatUpdate: Extract<ServerMessage, { method: "group_chat_update" }> | null = null;
-	/** #152（阻断 2 修复）：非参与者占位帧最新水位（未读判定与 group_chat_update 水位合并）。 */
+	/** （阻断 2 修复）：非参与者占位帧最新水位（未读判定与 group_chat_update 水位合并）。 */
 	private latestWhisperPlaceholderSequence = 0;
 	/**
-	 * #152（PR #163 复评阻断 2 修复）：接收者实时 full 帧「已注入未投递」连续
+	 * ：接收者实时 full 帧「已注入未投递」连续
 	 * 范围顶（去重依据 = 已投递游标 + 连续 pending 范围，非「最高收到帧」——
 	 * 收到即推进会误杀：reload 旧帧重放 / gap 帧重试 / 同步拒绝后重发）。
 	 */
 	private injectedWhisperSequence = 0;
 	/**
-	 * #152（PR #163 复评阻断修复）：requeue 批原子槽——{events, latestSequence}
+	 * ：requeue 批原子槽——{events, latestSequence}
 	 * 绑定所有权（水位与批同生共死，杜绝全局槽位被其他 flush 借用：A 批重试中
 	 * B 批成功不得提前 saveCursor(A 水位) → 游标越过未投递帧 → 崩溃/退出后恢复
 	 * 永久跳过，违反「重复可接受、跳过不可接受」）。
@@ -144,7 +144,7 @@ export class GroupChatInput {
 	private readonly onSettled: () => void;
 
 	start(): void {
-		// P1-4（Arch 定案 + 四方收敛，零 wire 变化）：进入时刻游标预置——
+		// （Arch 定案 + 四方收敛，零 wire 变化）：进入时刻游标预置——
 		// 新 Session 无游标时调一次 get_message_history 取水位（totalMessages，
 		// 丢弃消息内容）作游标基线，消除「无游标未知态」：
 		//   1. 进入前历史 = tavern_history 主动分页拉取（欢迎语指引，AI 自主）；
@@ -157,8 +157,8 @@ export class GroupChatInput {
 		this.handler = (message: ServerMessage) => {
 			if ("method" in message && message.method === METHOD_MESSAGE_HISTORY && Array.isArray(message.params.messages)) {
 				// join 时快照：展开为单个 public_message 事件。
-				// ISSUE-008：has_more 时通过 cursor 分页剩余历史，避免丢失更早消息。
-				// M7：持久化光标优先——回归的 character 从上次投递位置差量同步，
+				// has_more 时通过 cursor 分页剩余历史，避免丢失更早消息。
+				// 持久化光标优先——回归的 character 从上次投递位置差量同步，
 				// 而不是重读历史。
 				const before = this.pendingEvents.length;
 				for (const m of message.params.messages) {
@@ -177,14 +177,14 @@ export class GroupChatInput {
 				return;
 			}
 			if ("method" in message && message.method === METHOD_GROUP_CHAT_UPDATE) {
-				// #64（pull 模型）：广播 = 纯标记（水位），消费 = run 边界拉全未读。
+				// （pull 模型）：广播 = 纯标记（水位），消费 = run 边界拉全未读。
 				// 闲态：首条标记启动 1s 固定窗口（窗口内并入不重置），到期 1 次触发
 				// 拉全；忙态：置忙态标记，settle 后立即触发（零中间注入红线）。
 				// preview 仅供 TUI（同一数据源，内容不会分叉）。
 				// v0.5 收窄：group_chat_update 只表示公共消息水位；白板使用独立
 				// board_update，成员/流式状态不再触发本通知。发送者仍会收到广播，
 				// 但完整 preview 足以证明新增窗口全是自身消息时不得 abort/拉取。
-				// #128：先记录水位知识（即使早退也要刷新——后续 speak 判定据此推导）。
+				// 先记录水位知识（即使早退也要刷新——后续 speak 判定据此推导）。
 				this.latestGroupChatUpdate = message;
 				const cursor = this.runtime.loadCursor() ?? 0;
 				const selfPreview = this.classifySelfPreview(message, cursor);
@@ -207,13 +207,13 @@ export class GroupChatInput {
 				void this.runtime.refreshGroupChatState();
 				return;
 			}
-			// #152（阻断 2 修复）：非参与者占位帧——仅记占位水位（未读判定可见），
+			// （阻断 2 修复）：非参与者占位帧——仅记占位水位（未读判定可见），
 			// 不注入不唤醒不进 debounce（WH6）。
 			if ("method" in message && message.method === METHOD_WHISPER_PLACEHOLDER) {
 				this.noteWhisperPlaceholderWatermark(message);
 				return;
 			}
-			// #152（PR #163 复评阻断修复）：接收者实时 whisper_message——
+			// 接收者实时 whisper_message——
 			// 去重依据 = 已投递游标 + 连续 pending 范围（非「最高收到帧」）；
 			// 连续性守卫：seq 必须是「游标/已注入顶 + 1」才注入，gap 不注入
 			// 并安排有序补拉（busy 等 settle / idle 主动拉取，防私信无限期不投递）。
@@ -248,16 +248,16 @@ export class GroupChatInput {
 	}
 
 	/**
-	 * #64：消费原语——拉取持久化光标之后的所有未读并立即投递（一次拉全，
+	 * ：消费原语——拉取持久化光标之后的所有未读并立即投递（一次拉全，
 	 * 保序不重不漏）。由两个触发点调用：闲态窗口到期 / settle（忙态标记）。
 	 *
 	 * 单飞行：并发的消费只标记 refetchRequested，合并为一次后续拉取。
-	 * ISSUE-038 的 settle 竞态修复保留：拉取期间 run 可能 settle/启动，投递
+	 *  的 settle 竞态修复保留：拉取期间 run 可能 settle/启动，投递
 	 * 前重查 isAgentActive 决定通道（空闲 → followUp 触发新 run；活跃 → steer
 	 * 兜底，绝不打断 run）。
 	 */
 	/**
-	 * P1-4 游标预置（方案 a 定案版）：新 Session 无游标时预置 = 进入时刻水位。
+	 *  游标预置（方案 a 定案版）：新 Session 无游标时预置 = 进入时刻水位。
 	 * 优先路径：ready 响应携带 latest_sequence（新帧）→ 直接写（零 RPC）；
 	 * 回退路径：旧帧缺字段 → fetchMessageHistoryPage(null) 取水位 CAS 写。
 	 * 失败静默：游标保持 null，既有「无游标完整历史兜底」语义不变。
@@ -304,7 +304,7 @@ export class GroupChatInput {
 					return;
 				}
 				const messages: ServerMessage[] = [];
-				// #173（#138 窗口语义回归修复）：本批窗口帧 seq 收集——
+				// （窗口语义回归修复）：本批窗口帧 seq 收集——
 				// seq ≤ 拉取时 since 的已读上下文（含游标自身），组装后数组被
 				// isEnvironmentEvent 压缩，不能直接用 contextCount 原始 index，
 				// 用 seq 边界判定。
@@ -313,7 +313,7 @@ export class GroupChatInput {
 					const sequence = "params" in m ? (m.params as { sequence?: unknown }).sequence : undefined;
 					return typeof sequence === "number" && sequence <= since;
 				};
-				// #146 P1（Copilot）：上下文窗口（seq ≤ since，前导 contextCount 条已读）
+				// 上下文窗口（seq ≤ since，前导 contextCount 条已读）
 				// 不得单独触发投递——仅在未读区间（seq > since）存在可投递事件时才
 				// 携带上下文投递；未读仅自身回显/为空 → 不生成 Agent 输入，只消费
 				// 水位（"只有自身回显不生成输入"语义不被窗口破坏——WL-F）。
@@ -330,7 +330,7 @@ export class GroupChatInput {
 							hasDeliverableUnread = true;
 						}
 					}
-					// #152（PR #160 AI 评审阻断 2 修复）：补拉路径接纳私信两类帧——
+					// 补拉路径接纳私信两类帧——
 					// 接收者全文（唤醒注入，同 public 语义）/ 非参与者占位（机械消费：
 					// 发言被未读/stale 阻止后的补拉注入，AI 看到占位即完成消费）。
 					// 两类帧都推进游标（拉取窗口 = 已送达），防反复 stale。
@@ -381,7 +381,7 @@ export class GroupChatInput {
 	}
 
 	/**
-	 * ISSUE-013 A1/A2 + ISSUE-038：统一投递窗口。将增量与待处理的加入公共
+	 *  A1/A2 + ：统一投递窗口。将增量与待处理的加入公共
 	 * 历史/白板事件合并并保证顺序。公共消息增量在 settled 后走 followUp；
 	 * 白板等独立事件在活跃 run 中仍可走其既有 steer 通道。
 	 */
@@ -389,7 +389,7 @@ export class GroupChatInput {
 		if (this.stopped) {
 			return;
 		}
-		// #173（#138 窗口语义回归修复）：登记本批拉取窗口帧（seq ≤ 拉取时游标
+		// （窗口语义回归修复）：登记本批拉取窗口帧（seq ≤ 拉取时游标
 		// 的已读上下文，含游标自身）——flush 投递前过滤据此豁免；投递完成后清空。
 		if (windowSeqs !== undefined && windowSeqs.size > 0) {
 			this.pullWindowSeqs = windowSeqs;
@@ -410,7 +410,7 @@ export class GroupChatInput {
 
 	/**
 	 * 逐页遍历剩余群聊历史（最旧页在最后），将每条公开消息追加到待投递窗口。
-	 * 任何失败都会中止遍历：第一页已在队列中，重连会重新同步历史。ISSUE-008。
+	 * 任何失败都会中止遍历：第一页已在队列中，重连会重新同步历史。。
 	 */
 	private async pageOlderHistory(cursor: string | null): Promise<void> {
 		try {
@@ -548,7 +548,7 @@ export class GroupChatInput {
 	}
 
 	/**
-	 * #64：闲态触发窗口（固定 1s，窗口内并入不重置）。窗口到期派生判定：
+	 * ：闲态触发窗口（固定 1s，窗口内并入不重置）。窗口到期派生判定：
 	 * run 已活跃（窗口开启期间他源启动的 run）→ 交忙态；已确认含他人消息时
 	 * 排隐藏令牌，否则自然等待 settle。正文均不提前拉取；仍空闲 → 消费拉全。
 	 */
@@ -603,7 +603,7 @@ export class GroupChatInput {
 	}
 
 	/**
-	 * #152（PR #163 评审阻断 2 修复）：统一「可投递消息投影」判定——首屏
+	 * ：统一「可投递消息投影」判定——首屏
 	 * （join 快照）/ 旧页（分页）/ 增量（pullIncrement）三路径复用，防三处
 	 * 漂移。接纳：public_message（经环境事件/自回显过滤）| whisper_message
 	 * （参与者全文）| whisper_placeholder（旁观者占位）。两类 whisper 帧由
@@ -625,7 +625,7 @@ export class GroupChatInput {
 		switch (message.method) {
 			case METHOD_PUBLIC_MESSAGE:
 				return !this.isOwnEcho(message);
-			// #152（PR #160 AI 评审阻断 2 修复）：私信单播（接收者）是环境事件
+			// 私信单播（接收者）是环境事件
 			// （实时唤醒注入，同 public 语义——WH6「接收者实时投递」）；占位广播
 			// （非参与者）**不是**环境事件——不注入、不唤醒、不进 debounce，仅记
 			// 占位水位（WH6「不被主动唤醒」，发言前经未读判定机械消费，见
@@ -634,14 +634,14 @@ export class GroupChatInput {
 				return true;
 			case METHOD_MESSAGE_HISTORY:
 				return true;
-			// 白板模型（#114）：board_update = 环境事件（通知渲染），
+			// 白板模型：board_update = 环境事件（通知渲染），
 			// 与 group_chat_update（拉取触发）是两套消费语义——进 pendingEvents 批处理，
 			// 绝不挂 incrementPending（board 不在消息流，拉取只会空转）。
-			// 自回显过滤（09:27 版 User 拍板）：写者本人不收自己写的回显（响应已含
+			// 自回显过滤：写者本人不收自己写的回显（响应已含
 			// 结果、actor 限定本人板——自回显 100% 冗余）；他人更新不受影响。
 			case METHOD_BOARD_UPDATE:
 				return message.params.actor !== this.runtime.character.characterId;
-			// #123：system_message = 入群欢迎等系统通知（Arch 裁决消费端 2 处小改之一）。
+			// system_message = 入群欢迎等系统通知（消费端小改之一）。
 			// 与 board_update 同族「通知渲染」语义：进 pendingEvents 批处理（ready 后
 			// 帧序 system_message 先于 character_joined，同批注入顺序自然）；无
 			// sequence/round，绝不挂 incrementPending、不进拉取流程。
@@ -660,21 +660,21 @@ export class GroupChatInput {
 	}
 
 	/**
-	 * #128：speak 前置「未读先读」判定——推导式计数（Arch 评审 ①：单一事实源
+	 * ：speak 前置「未读先读」判定——推导式计数（单一事实源
 	 * = 投递游标 + 最新水位，不维护独立计数器，reload/重连无状态同步风险）。
 	 * 语义与服务端 stale 判定同源：自身回显排除在未读之外。
 	 *
 	 * 返回 undefined = 水位未知（reload 后、join 早期）→ 不阻塞（服务端 stale
 	 * 兜底，Arch ①/③ 口径）；count = 已证明的他人未读条数（preview 截断时给出
 	 * 下界），exact = preview 是否完整覆盖 cursor 后窗口。阻塞条件除 count > 0
-	 * 外，还包括「截断窗口含自身回显」这一发送者未知场景（#128 定稿要求保守阻止）。
+	 * 外，还包括「截断窗口含自身回显」这一发送者未知场景（定稿要求保守阻止）。
 	 *
-	 * #170（占位不阻塞）：whisper 占位事件无正文、零信息增量——计入未读水位
+	 * （占位不阻塞）：whisper 占位事件无正文、零信息增量——计入未读水位
 	 * 与计数（消费语义保留）但不触发阻塞（shouldBlock 剔除占位项）；公开消息
 	 * 与 whisper 全文仍触发未读先读阻塞（防内容风暴意图不动）。
 	 */
 	/**
-	 * #152（阻断 2 修复）：记录非参与者占位帧水位。占位不注入（不唤醒），
+	 * （阻断 2 修复）：记录非参与者占位帧水位。占位不注入（不唤醒），
 	 * 但属未读序列——unreadOthersProven 合并该水位，发言前机械消费（AI 评审
 	 * 阻断 2 的「仅记水位、发言前消费占位」语义落实）。
 	 */
@@ -687,13 +687,13 @@ export class GroupChatInput {
 	unreadOthersProven(): { shouldBlock: boolean; count: number; exact: boolean } | undefined {
 		const update = this.latestGroupChatUpdate;
 		if (update === null) {
-			// #152（PR #163 评审 B 修复）：占位水位独立成立——join 后首条公开
-			// 消息之前收到占位即记入未读序列（水位/计数成立）；#170：占位不触发
+			// 占位水位独立成立——join 后首条公开
+			// 消息之前收到占位即记入未读序列（水位/计数成立）；：占位不触发
 			// 阻塞（shouldBlock=false），缺口存在时计数不声称精确。
 			const cursor = this.runtime.loadCursor() ?? 0;
 			if (this.latestWhisperPlaceholderSequence > cursor) {
-				// #152（PR #163 复评 B 修复）：仅知占位 seq 时计数精确性只成立
-				// 于「占位 = 游标+1」（缺口存在则不可称 exact）。#170：占位不阻塞。
+				// 仅知占位 seq 时计数精确性只成立
+				// 于「占位 = 游标+1」（缺口存在则不可称 exact）。：占位不阻塞。
 				return {
 					shouldBlock: false,
 					count: 1,
@@ -703,8 +703,8 @@ export class GroupChatInput {
 			return undefined;
 		}
 		const cursor = this.runtime.loadCursor() ?? 0;
-		// #152（阻断 2 修复）：水位合并占位帧（占位属未读序列供机械消费；
-		// #170：占位不触发阻塞，仅计入水位/计数）。
+		// （阻断 2 修复）：水位合并占位帧（占位属未读序列供机械消费；
+		// 占位不触发阻塞，仅计入水位/计数）。
 		const latestSequence = Math.max(update.params.latest_sequence, this.latestWhisperPlaceholderSequence);
 		if (latestSequence <= cursor) {
 			return { shouldBlock: false, count: 0, exact: true };
@@ -712,7 +712,7 @@ export class GroupChatInput {
 		const unseen = update.params.preview_messages.filter((preview) => preview.params.sequence > cursor);
 		const expected = latestSequence - cursor;
 		// 占位帧不进 preview（服务端广播不含正文帧）——按已知水位计入计数：
-		// 占位未消费（seq > cursor）计入 count/exact；#170：不参与 shouldBlock
+		// 占位未消费（seq > cursor）计入 count/exact；：不参与 shouldBlock
 		// 阻塞判定（占位无正文零信息增量，协议性回复不被拦——防线仅公开/全文保留）。
 		const placeholderUnseen = this.latestWhisperPlaceholderSequence > cursor;
 		const exact = unseen.length + (placeholderUnseen ? 1 : 0) === expected;
@@ -726,10 +726,10 @@ export class GroupChatInput {
 				preview.params.sender.type === "character" &&
 				preview.params.sender.character_id === this.runtime.character.characterId,
 		);
-		// #170：占位不阻塞——shouldBlock 仅由他人未读（公开/全文）与自身回显
+		// 占位不阻塞——shouldBlock 仅由他人未读（公开/全文）与自身回显
 		// 截断保守阻止构成；占位仍计入 count/exact（水位/计数语义保留）。
 		return {
-			// preview 被截断且含自身回显时，缺口中的发送者未知。按 #128 定稿
+			// preview 被截断且含自身回显时，缺口中的发送者未知。按  定稿
 			// 保守阻止，由 settle 拉全后再决策；此时 count 只表示已明确看到的
 			// 他人消息数，可能为 0，调用方不得把 0 表述为精确数量。
 			shouldBlock: otherUnseen.length > 0 || (!exact && containsSelf),
@@ -771,7 +771,7 @@ export class GroupChatInput {
 	}
 
 	/**
-	 * #152（PR #163 阻断 3 修复）：实时 flush 的游标候选——只取已实际注入帧
+	 * ：实时 flush 的游标候选——只取已实际注入帧
 	 * （public/whisper_message）的最大 sequence。连续性由 handler 侧守卫保证
 	 * （seq <= 游标+1 才注入）；placeholder 不注入故不推进。
 	 */
@@ -808,7 +808,7 @@ export class GroupChatInput {
 	}
 
 	/**
-	 * ISSUE-013 B3：从外部标记增量标记（A2）——stale 被拒的 speak 希望错过的
+	 *  B3：从外部标记增量标记（A2）——stale 被拒的 speak 希望错过的
 	 * 增量在当前 run settle 后经统一管线投递。无新机制：settle 钩子拉取一次，
 	 * 覆盖光标之后的所有内容。
 	 */
@@ -820,10 +820,10 @@ export class GroupChatInput {
 	}
 
 	/**
-	 * 向 agent 上下文投递一批事件。无参数时投递待处理窗口。ISSUE-038（口径
+	 * 向 agent 上下文投递一批事件。无参数时投递待处理窗口。（口径
 	 * A）：通道在状态拉取之后与发送同微任务原子决定——Agent 运行中事件经
 	 * steer 通道（下一个工具调用间隙可见，秒级而非分钟级；绝不打断 run，
-	 * M7 A5 保持）；若拉取期间 run 已 settle，则走 idle 路径
+	 *  A5 保持）；若拉取期间 run 已 settle，则走 idle 路径
 	 * （followUp + triggerTurn + 群聊标记），批次仍能唤醒 agent
 	 * （Arch settle 竞态修复）。
 	 */
@@ -842,7 +842,7 @@ export class GroupChatInput {
 	}
 
 	private async flushOnce(events?: ServerMessage[], latestSequence?: number): Promise<void> {
-		// #152（PR #163 复评阻断修复）：无参 flush 优先原子重投 retryBatch——
+		// 无参 flush 优先原子重投 retryBatch——
 		// 领取即清槽（水位随批绑定，其他 flush 无从借用）；重投失败由
 		// sendWithDeliveryAck catch 重新入槽（水位不丢）。
 		let toDeliver = events ?? this.pendingEvents;
@@ -878,7 +878,7 @@ export class GroupChatInput {
 			) {
 				return true;
 			}
-			// #173（#138 窗口语义回归修复）：本批拉取窗口帧（seq ≤ 拉取时游标，
+			// （窗口语义回归修复）：本批拉取窗口帧（seq ≤ 拉取时游标，
 			// 含游标自身最近已读）豁免游标过滤——窗口语义 = 已读上下文重复注入
 			// 属预期设计，不更新游标。实时帧 / retryBatch 帧不在 pullWindowSeqs，
 			// 仍按 b8b259f 既有语义过滤（防旧实时帧重复注入 / 游标回写）。
@@ -893,7 +893,7 @@ export class GroupChatInput {
 		});
 		if (toDeliver.length === 0) return;
 
-		// #152（PR #163 阻断 3 修复）：实时路径（无参 flush）无 latestSequence——
+		// 实时路径（无参 flush）无 latestSequence——
 		// 游标候选只取已实际注入帧的最大 sequence。不得用 group_chat_update
 		// 水位（水位含未注入帧，提前 saveCursor 会抢在拉取路径前把消息标记
 		// 已读 → 拉取跳过、消息永不注入——env-time T2 全量失败实证）。
@@ -913,20 +913,20 @@ export class GroupChatInput {
 		// Arch settle 竞态修复：在 await 之后、与发送同一微任务内重查
 		// isAgentActive。若拉取状态期间 run 已 settle，pi 不再 streaming——
 		// steer 只会 append 而不唤醒（idle 时 triggerTurn 被忽略）。回退到
-		// idle 路径，批次开启群聊触发的 turn（marker 按 #14 正确点亮
+		// idle 路径，批次开启群聊触发的 turn（marker 按  正确点亮
 		// is_streaming）。
 		if (this.runtime.isAgentActive) {
 			await this.deliverSteer(toDeliver, groupChatState, effectiveLatestSequence);
 			return;
 		}
 
-		// 向 agent 上下文投递一批事件（#77：run 活跃即亮，投递不再设置
+		// 向 agent 上下文投递一批事件run 活跃即亮，投递不再设置
 		// 群聊触发标记——语义 = 「正在工作」，agent_start 无条件点亮）。
 
 		const content = this.buildContent(toDeliver, groupChatState);
 
 		if (process.env.PITAVERN_TEST === "1") {
-			// M7 A6 观察通道：经 notify 重发已投递增量，验收套件可断言到达
+			//  A6 观察通道：经 notify 重发已投递增量，验收套件可断言到达
 			// agent 上下文的内容与通知源一致（同一数据）。
 			const sequences = toDeliver
 				.filter((e) => "method" in e && e.method === METHOD_PUBLIC_MESSAGE)
@@ -937,13 +937,13 @@ export class GroupChatInput {
 					`${INJECTION_TEST_NOTIFY_PREFIX} group=${this.runtime.groupChatId} latest_seq=${sequences[sequences.length - 1]} count=${sequences.length}`,
 				);
 			}
-			// 白板模型（#114）：白板更新事件计数（无 sequence——不在消息流）。
+			// 白板模型：白板更新事件计数（无 sequence——不在消息流）。
 			// 断言：门闸放行（进批处理）→ 白板桶渲染可达。
 			const boardUpdates = toDeliver.filter((e) => "method" in e && e.method === METHOD_BOARD_UPDATE).length;
 			if (boardUpdates > 0) {
 				testNotify?.(`${INJECTION_TEST_NOTIFY_PREFIX} group=${this.runtime.groupChatId} board_updates=${boardUpdates}`);
 			}
-			// #123：system_message 通知（无 sequence——不在消息流、非公共消息）。
+			// system_message 通知（无 sequence——不在消息流、非公共消息）。
 			// 携带文案原文非仅计数（QA WL1 验收：断言注入批次含欢迎文案内容）。
 			const systemContents = toDeliver
 				.filter((e) => "method" in e && e.method === METHOD_SYSTEM_MESSAGE)
@@ -963,7 +963,7 @@ export class GroupChatInput {
 	}
 
 	/**
-	 * 统一投递 + 游标双通道判定（Arch 契约 2026-08-02）：sendMessage 挂
+	 * 统一投递 + 游标双通道判定：sendMessage 挂
 	 * preflightResult 回调——入队接受（true）即推进游标并 resolve 短承诺；
 	 * 拒绝/抛错不推进（settle 兜底重投）且同样 resolve（防飞行锁挂死）。
 	 * 不 await sendMessage 全量完成（pi SDK：run 结束后才 resolve）。
@@ -976,12 +976,12 @@ export class GroupChatInput {
 		deliverAs: "followUp" | "steer",
 	): Promise<void> {
 		try {
-			// 方案 A（Arch 裁决 2026-08-02）：乐观推进——sendMessage 调用后
+			// 方案 A（乐观推进）：sendMessage 调用后
 			// 同步 saveCursor，不 await（await 会持有单飞行锁整个 run 时长，
 			// 忙态秒级可见在连续对话主场景退化回 run 边界——PM 矛盾实证）。
 			// 忙态 steer/followUp = agent.steer/followUp 同步入队无失败返回
 			// （QA 实证）；idle triggerTurn 的异步 run 启动失败 = pi 环境
-			// 不可用例外（与改造前语义一致、与 wedged 同类，QA 钉注明）。
+			// 不可用例外（与改造前语义一致、与 wedged 同类）。
 			// T2 竞态由调用方 await deliver 闭合（同步推进后 do-while 复查
 			// 读新游标）。
 			this.pi.sendMessage(
@@ -1006,7 +1006,7 @@ export class GroupChatInput {
 			}
 		} catch {
 			// 同步抛错（入队拒绝/steer 失败）：不推进。
-			// #152（PR #163 复评阻断修复）：统一 requeue（followUp + steer）——
+			// 统一 requeue（followUp + steer）——
 			// steer 同步失败同样不得静默丢事件（busy 实时私信无 group_chat_update
 			// 保证再拉，重复可接受、跳过不可接受）；保留原始连续水位（pull 窗口
 			// 含占位时重投须推进到 page.latestSequence 而非仅已注入帧水位，
@@ -1021,22 +1021,22 @@ export class GroupChatInput {
 	}
 
 	/**
-	 * ISSUE-038 口径 A：run 活跃时经 pi 的 steer 通道向 agent 上下文投递事件。
+	 *  口径 A：run 活跃时经 pi 的 steer 通道向 agent 上下文投递事件。
 	 * steer 语义（pi agent-session）：当前 assistant turn 完成其工具调用后、
 	 * 下一次 LLM 调用前投递——即工具调用间隙，长工具循环下秒级而非分钟级，
 	 * 且绝不打断 run。
 	 *
 	 * triggerTurn:true —— Arch 滞留救援：pi 在 streaming 时忽略 triggerTurn
 	 * （steer 照常入队），但若 isAgentActive 陈旧（agent_settled 永不到达的
-	 * wedged run，#14 watchdog 场景），投递仍能唤醒 agent，而非被静默 append。
-	 * #77：run 活跃即亮（agent_start 无条件点亮），steer 投递不再涉及点亮判定
-	 * ——投递内容（群聊/救援）不区分触发源（User 2026-08-03 拍板）。
+	 * wedged run， watchdog 场景），投递仍能唤醒 agent，而非被静默 append。
+	 * ：run 活跃即亮（agent_start 无条件点亮），steer 投递不再涉及点亮判定
+	 * ——投递内容（群聊/救援）不区分触发源。
 	 */
 	private async deliverSteer(events: ServerMessage[], groupChatState: unknown, latestSequence?: number): Promise<void> {
 		const content = this.buildContent(events, groupChatState);
 
 		if (process.env.PITAVERN_TEST === "1") {
-			// M7 A6 观察通道（与 idle flush 相同）：验收中断言 steer 投递的
+			//  A6 观察通道（与 idle flush 相同）：验收中断言 steer 投递的
 			// 增量已到达 agent 上下文。
 			const sequences = events
 				.filter((e) => "method" in e && e.method === METHOD_PUBLIC_MESSAGE)
@@ -1047,7 +1047,7 @@ export class GroupChatInput {
 					`${INJECTION_TEST_NOTIFY_PREFIX} group=${this.runtime.groupChatId} latest_seq=${sequences[sequences.length - 1]} count=${sequences.length}`,
 				);
 			}
-			// 白板模型（#114）：白板更新事件计数（与 idle flush 同通道）。
+			// 白板模型：白板更新事件计数（与 idle flush 同通道）。
 			const boardUpdates = events.filter((e) => "method" in e && e.method === METHOD_BOARD_UPDATE).length;
 			if (boardUpdates > 0) {
 				testNotify?.(`${INJECTION_TEST_NOTIFY_PREFIX} group=${this.runtime.groupChatId} board_updates=${boardUpdates}`);
@@ -1060,12 +1060,12 @@ export class GroupChatInput {
 	private buildContent(events: ServerMessage[], state: unknown): string {
 		const parts: string[] = [INJECTION_HEADER_TITLE];
 
-		// #104：注入时点统一基准（Arch 评审 B 级观察）——头部当前时间与
+		// 注入时点统一基准——头部当前时间与
 		// 每条消息间隔共用同一 now，避免毫秒级基准漂移。
 		const now = new Date();
 		parts.push(`\n当前时间：${formatDateTime(now)}`);
 
-		// 身份锚（ISSUE-003 三字段契约，cab1fd7）：始终声明本会话是哪个
+		// 身份锚（三字段契约）：始终声明本会话是哪个
 		// Character，模型无需从上下文或可用技能猜测自己的身份。格式：
 		// 你的当前角色：<persona 名>（character_id=<characterId>，注册名=<name>）
 		const identity =
@@ -1073,7 +1073,7 @@ export class GroupChatInput {
 			`（character_id=${this.runtime.character.characterId}，注册名=${this.runtime.character.name}）`;
 		parts.push(`\n${identity}`);
 
-		// #97 来源显式化（S2）：本注入来自群聊通道，显式声明来源（契约文案，
+		//  来源显式化（S2）：本注入来自群聊通道，显式声明来源（契约文案，
 		// 全角冒号）。与身份行同批注入；私聊不经此函数，天然无此声明（S3）。
 		const sourceLine = INJECTION_SOURCE_GROUP;
 		parts.push(`\n${sourceLine}`);
@@ -1081,7 +1081,7 @@ export class GroupChatInput {
 		if (process.env.PITAVERN_TEST === "1") {
 			// 验收套件的观察通道（RPC 模式把 notify 呈现为 extension_ui_request；
 			// 参见 identity-consistency.test.ts）——与身份行同一 notify 同批携带
-			// 来源声明（QA 钉测：identity-consistency.test.ts:208 断言同批含「来源：群聊」）。
+			// 来源声明（identity-consistency.test.ts:208 断言同批含「来源：群聊」）。
 			testNotify?.(`${INJECTION_TEST_IDENTITY_NOTIFY_PREFIX} ${identity}\n${sourceLine}`);
 		}
 
@@ -1096,7 +1096,7 @@ export class GroupChatInput {
 			parts.push(`\n群聊：${name}`);
 		}
 
-		// #123：system_message = 入群欢迎等系统通知（Arch 裁决消费端 2 处小改之二）。
+		// system_message = 入群欢迎等系统通知（消费端小改之二）。
 		// 独立小节渲染 content 原文，无 sender/时间戳——不混入「新消息」（非公共
 		// 消息、无 sequence）；不挂 incrementPending、不进拉取流程。
 		const systemMessages = events.filter((e) => "method" in e && e.method === METHOD_SYSTEM_MESSAGE);
@@ -1124,10 +1124,10 @@ export class GroupChatInput {
 			for (const message of messages) {
 				if ("method" in message && message.method === METHOD_PUBLIC_MESSAGE) {
 					const sender = message.params.sender.type === "user_persona" ? "User Persona" : message.params.sender.name;
-					// #104：每条消息带发言时间 + 距当前注入时点的间隔（相对时间）。
+					// 每条消息带发言时间 + 距当前注入时点的间隔（相对时间）。
 					// timestamp 为 ISO 字符串（creator 侧 toISOString 填充），
 					// 解析失败时静默降级为不带时间渲染，不阻塞消息展示。
-					// #154：统一文案模板渲染——时间并入 vars.sender（契约方案 a：
+					// 统一文案模板渲染——时间并入 vars.sender（契约方案 a：
 					// 默认模板 `{sender}:\n{content}` 产出与现状逐字一致，双测试锚）。
 					const when = formatMessageTime(
 						message.params.timestamp,
@@ -1142,7 +1142,7 @@ export class GroupChatInput {
 						}),
 					);
 				} else if ("method" in message && message.method === METHOD_WHISPER_MESSAGE) {
-					// #152：私信单播（接收者含正文）——whisper_full 模板渲染。
+					// 私信单播（接收者含正文）——whisper_full 模板渲染。
 					// sender/recipient 为 Character（schema：WhisperSender type const character）。
 					const templates = this.runtime.messageTemplates ?? DEFAULT_TEMPLATES;
 					const senderName = message.params.sender.name ?? message.params.sender.character_id;
@@ -1155,7 +1155,7 @@ export class GroupChatInput {
 						}),
 					);
 				} else if ("method" in message && message.method === METHOD_WHISPER_PLACEHOLDER) {
-					// #152：占位广播（无正文，隐私不泄露）——whisper_placeholder 模板。
+					// 占位广播（无正文，隐私不泄露）——whisper_placeholder 模板。
 					// 无 round 帧：不触碰轮次状态（Arch 确认 17:05）。
 					const templates = this.runtime.messageTemplates ?? DEFAULT_TEMPLATES;
 					const senderName = message.params.sender.name ?? message.params.sender.character_id;
@@ -1185,7 +1185,7 @@ export class GroupChatInput {
 			}
 		}
 
-		// 白板更新（#114）：增量摘要——谁/动作/内容摘要。与
+		// 白板更新：增量摘要——谁/动作/内容摘要。与
 		// group_chat_update 是两套消费语义（通知渲染 vs 拉取触发）：board_update
 		// 只渲染不进消息流拉取（无 sequence、不挂 incrementPending）。
 		const boardUpdates = events.filter((e) => "method" in e && e.method === METHOD_BOARD_UPDATE);
@@ -1236,7 +1236,7 @@ export class GroupChatInput {
 }
 
 /**
- * #104：格式化注入时点，用于环境文本头部「当前时间」行。
+ * ：格式化注入时点，用于环境文本头部「当前时间」行。
  * 本地时区 `YYYY-MM-DD HH:MM:SS`（与消息发言时间的 HH:MM 粒度区分，
  * 秒级让 agent 感知更精确的“现在”）。
  */
@@ -1249,10 +1249,10 @@ function formatDateTime(date: Date): string {
 }
 
 /**
- * #104：格式化消息发言时间 + 距当前注入时点的间隔（相对时间）。
+ * ：格式化消息发言时间 + 距当前注入时点的间隔（相对时间）。
  * 返回 `YYYY-MM-DD HH:MM（x 分钟前 / x 秒前）`；timestamp 缺失或非法时
  * 返回 null（调用方降级为不带时间渲染）。<60s 显示秒级，否则分钟级。
- * #154：相对时间段走 seconds_ago/minutes_ago 模板渲染（自定义生效）；
+ * ：相对时间段走 seconds_ago/minutes_ago 模板渲染（自定义生效）；
  * 绝对时间戳与括号包裹留消费面（契约：本期只模板化相对时间）。
  */
 function formatMessageTime(

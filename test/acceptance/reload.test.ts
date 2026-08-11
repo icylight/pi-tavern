@@ -103,8 +103,8 @@ describe("acceptance: reload keeps confirmed connections and identity", () => {
 				e.type === "extension_ui_request" && e.method === "notify" && e.message === "User Persona message published",
 		);
 		// 裸成员在其原始连接上收到 reload 后的广播：
-		// reload 后的 creator 服务同一批 socket。M7
-		//（ISSUE-012）：广播即 group_chat_update 通知；
+		// reload 后的 creator 服务同一批 socket。
+		// 广播即 group_chat_update 通知；
 		// 预览携带新消息。
 		const delivered = await member.waitFor(
 			(m) =>
@@ -134,7 +134,7 @@ describe("acceptance: reload keeps confirmed connections and identity", () => {
 		await creator.runCommand("/tavern-leave");
 	}, 180_000);
 
-	it("character reload re-reads an edited card (ISSUE-005)", async () => {
+	it("character reload re-reads an edited card", async () => {
 		const creator = PiProcess.spawn({
 			label: "creator-issue5",
 			agentDir,

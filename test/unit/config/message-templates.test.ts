@@ -26,7 +26,7 @@ afterEach(async () => {
 });
 
 describe("DEFAULT_TEMPLATES", () => {
-	it("covers exactly the five message template keys (#152 WH9 re-introduces whisper keys)", () => {
+	it("covers exactly the five message template keys (WH9 re-introduces whisper keys)", () => {
 		expect(MESSAGE_TEMPLATE_KEYS).toEqual([
 			"public_message",
 			"whisper_full",
@@ -37,7 +37,7 @@ describe("DEFAULT_TEMPLATES", () => {
 		expect(Object.keys(DEFAULT_TEMPLATES).sort()).toEqual([...MESSAGE_TEMPLATE_KEYS].sort());
 	});
 
-	it("keeps the Arch-adjudicated default shapes (#154: public_message contains newline)", () => {
+	it("keeps the Arch-adjudicated default shapes (public_message contains newline)", () => {
 		expect(DEFAULT_TEMPLATES.public_message).toBe("{sender}:\n{content}");
 		expect(DEFAULT_TEMPLATES.whisper_full).toBe("{sender} 向 {receiver} 悄悄说：{content}");
 		expect(DEFAULT_TEMPLATES.whisper_placeholder).toBe("{sender} 向 {receiver} 悄悄说了一句话");
@@ -45,7 +45,7 @@ describe("DEFAULT_TEMPLATES", () => {
 		expect(DEFAULT_TEMPLATES.minutes_ago).toBe("{count} 分钟前");
 	});
 
-	it("whisper_placeholder default never references content (privacy, #152)", () => {
+	it("whisper_placeholder default never references content (privacy)", () => {
 		expect(DEFAULT_TEMPLATES.whisper_placeholder).not.toContain("content");
 	});
 });
@@ -65,7 +65,7 @@ describe("validateTemplate", () => {
 		expect(validateTemplate("seconds_ago", "秒前")).toMatchObject({ ok: false });
 	});
 
-	it("rejects whisper_placeholder referencing content (privacy, #152)", () => {
+	it("rejects whisper_placeholder referencing content (privacy)", () => {
 		expect(validateTemplate("whisper_placeholder", "{sender} 向 {receiver} 说：{content}")).toMatchObject({
 			ok: false,
 		});

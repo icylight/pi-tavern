@@ -48,7 +48,7 @@ afterEach(async () => {
 	await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-describe("#138 context window: 拉取附加上下文窗口（方案 A，零协议变更）", () => {
+describe("context window: 拉取附加上下文窗口（方案 A，零协议变更）", () => {
 	it("窗口=1：多带最近已投递 1 条（sequence=C）+ 未读全量，升序无重复", async () => {
 		const { creator, character } = await startCreator();
 		await creator.submitUserPersonaMessage("seed 1");

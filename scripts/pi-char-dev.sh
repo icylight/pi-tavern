@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PiTavern headless character launcher (ISSUE-014, CPU 根治).
+# PiTavern headless character launcher (CPU 根治).
 #
 # Runs a Character pi in RPC mode (no TUI — autonomous Characters do not need
 # a terminal UI rendering pipeline). The character

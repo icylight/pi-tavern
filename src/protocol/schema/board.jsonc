@@ -1,5 +1,5 @@
 // ===== 协议 schema 定义：board.jsonc =====
-// #114 白板模型：board_write / board_query / board_update。
+//  白板模型：board_write / board_query / board_update。
 // 纯 docs-first：本文件为唯一手写源头，程序用的 schema 对象由它自动生成，
 // 生成产物不得手改；改消息格式 = 改这里 → 重新生成 → 同步提交。
 {

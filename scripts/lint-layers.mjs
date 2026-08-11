@@ -4,7 +4,7 @@
  *
  * 背景：biome noRestrictedImports patterns 无「源文件」维度（实测证伪，
  * refactor-plan 留痕），故用零依赖 node 脚本按「源文件路径前缀 × import
- * specifier」检查。规则矩阵（Arch 2026-08-02 裁决）：
+ * specifier」检查。规则矩阵：
  *   1. adapter（index/commands/headless/extension/ui）不得触 skills 行为面
  *      （data/ 纯函数与类型导入豁免；行为默认实现由组合根 index.ts 装配注入）
  *   2. application（controller/）不得直接碰文件 IO（node:fs）
@@ -27,15 +27,15 @@ const SRC = join(ROOT, "src");
  */
 const LAYER_RULES = [
 	{
-		// index.ts = 组合根（装配职责，可消费 skills 行为面——Arch 裁决 ①）
+		// index.ts = 组合根（装配职责，可消费 skills 行为面）
 		name: "adapter 不得触 skills 行为面（data/ 除纯函数/类型；组合根豁免）",
 		sources: ["commands.ts", "headless.ts", "extension/", "ui/"],
 		forbid: [
 			/(\.\.\/)*data\/(discovery\/discover-group-chats|cursor-store|group-chat-sessions|session-store|resume-projection)\.js/,
 		],
 			// 纯路径函数/类型导入豁免：active-descriptor 的 getGroupChatCursorDirectory
-		// 等路径原语允许 adapter 消费（Arch 裁决 ①）；行为面默认实现已上移组合根。
-		// 行为导出（publish/update/remove/read）禁止（Arch 加固 ③）——见 ACTIVE_DESCRIPTOR_BEHAVIORS。
+		// 等路径原语允许 adapter 消费；行为面默认实现已上移组合根。
+		// 行为导出（publish/update/remove/read）禁止——见 ACTIVE_DESCRIPTOR_BEHAVIORS。
 		allowFiles: [],
 	},
 	{
@@ -43,11 +43,11 @@ const LAYER_RULES = [
 		sources: ["controller/", "creator/creator-pipelines/"],
 		forbid: [/node:fs/],
 		// dispatch.ts = runtime 域桥接文件（creator-pipelines/ 目录内、runtime 域管辖，
-		// Arch 已知项：目录归属与域不一致，现行为无害，迁移挂起——桥接地位声明于此）。
+		// 目录归属与域不一致，现行为无害，迁移挂起——桥接地位声明于此）。
 		allowFiles: ["creator/creator-pipelines/dispatch.ts"],
 	},
 	{
-		// Phase 3 拆出的 10 模块全集（文件集已稳定，枚举补全防漂移——Arch 加固 ②）
+		// Phase 3 拆出的 10 模块全集（文件集已稳定，枚举补全防漂移）
 		name: "runtime 域不得直连 node:fs（经 deps 注入；factory/组合根豁免）",
 		sources: [
 			"creator/creator-runtime.ts",
@@ -86,7 +86,7 @@ function matchesAny(sourcePath, prefixes) {
 	return prefixes.some((prefix) => sourcePath === prefix || sourcePath.startsWith(prefix));
 }
 
-// active-descriptor 行为导出（纯路径函数豁免的边界，Arch 加固 ③）。
+// active-descriptor 行为导出（纯路径函数豁免的边界）。
 const ACTIVE_DESCRIPTOR_BEHAVIORS = /(publishActiveDescriptor|updateActiveDescriptorName|removeOwnedActiveDescriptor|readActiveDescriptor)/;
 
 let violations = 0;

@@ -63,7 +63,7 @@ export async function createNewRuntime(
 	options: StartNewCreatorRuntimeOptions,
 	dependencies: CreatorRuntimeDependencies,
 ): Promise<CreatorRuntime> {
-	// #25：懒刷新默认装配——优先 options 注入，其次 dependencies 覆盖，
+	// 懒刷新默认装配——优先 options 注入，其次 dependencies 覆盖，
 	// 兜底真实磁盘重扫（组合根语义）。失败/空结果由
 	// CreatorRuntime.refreshCharacters 内部回退旧快照。
 	const runtimeDeps: CreatorRuntimeDependencies = {
@@ -78,16 +78,16 @@ export async function createNewRuntime(
 	const createdAt = runtimeDeps.now().toISOString();
 	const cwd = resolve(options.cwd);
 	const configMaxMessages = options.configMaxMessages ?? DEFAULT_CONFIG_MAX_MESSAGES;
-	// #123：欢迎文案（缺省 = 代码默认值；与 board 先例一致，值传快照）。
+	// 欢迎文案（缺省 = 代码默认值；与 board 先例一致，值传快照）。
 	const welcomeMessage = options.welcomeMessage ?? DEFAULT_WELCOME_MESSAGE;
-	// #154：群聊文案模板集（缺省 = 内置中文；与 welcomeMessage 同款值传快照）。
+	// 群聊文案模板集（缺省 = 内置中文；与 welcomeMessage 同款值传快照）。
 	const messageTemplates = options.messageTemplates ?? DEFAULT_TEMPLATES;
 	const state = createGroupChatState({
 		groupChatId,
 		createdAt,
 		groupMaxMessages: configMaxMessages,
 	});
-	// 白板模型（#114 契约④）：按项目装配 store（boards/<groupId>.json）。
+	// 白板模型（契约④）：按项目装配 store（boards/<groupId>.json）。
 	// F4：白板额度透传（未配置 = undefined → store 默认 5/140）。
 	const boardStore = createBoardStore({
 		boardDir: getGroupChatBoardDirectory(options.agentDir, cwd),
@@ -150,7 +150,7 @@ export async function resumeRuntime(
 	options: ResumeCreatorRuntimeOptions,
 	dependencies: CreatorRuntimeDependencies,
 ): Promise<CreatorRuntime> {
-	// #25：同 createNewRuntime——懒刷新默认装配（options 注入优先，兜底磁盘重扫）。
+	// 同 createNewRuntime——懒刷新默认装配（options 注入优先，兜底磁盘重扫）。
 	const runtimeDeps: CreatorRuntimeDependencies = {
 		...dependencies,
 		loadCharacters:
@@ -160,9 +160,9 @@ export async function resumeRuntime(
 	};
 	const cwd = resolve(options.cwd);
 	const configMaxMessages = options.configMaxMessages ?? DEFAULT_CONFIG_MAX_MESSAGES;
-	// #123：欢迎文案（缺省 = 代码默认值；与 board 先例一致，值传快照）。
+	// 欢迎文案（缺省 = 代码默认值；与 board 先例一致，值传快照）。
 	const welcomeMessage = options.welcomeMessage ?? DEFAULT_WELCOME_MESSAGE;
-	// #154：群聊文案模板集（缺省 = 内置中文；与 welcomeMessage 同款值传快照）。
+	// 群聊文案模板集（缺省 = 内置中文；与 welcomeMessage 同款值传快照）。
 	const messageTemplates = options.messageTemplates ?? DEFAULT_TEMPLATES;
 	// 前置拒绝缺失/空文件：SessionManager.open() 在文件不存在或为空时静默
 	// 创建全新随机会话，会导致为幽灵群聊发布 active descriptor。
@@ -236,7 +236,7 @@ export async function resumeRuntime(
 				usedMessages: details.round.used_messages,
 			};
 		} else if (entry.type === "custom_message" && entry.customType === "pi-tavern.whisper-message") {
-			// #152：私信恢复——与公开消息同 JSONL，共用递增器；nextSequence 取
+			// 私信恢复——与公开消息同 JSONL，共用递增器；nextSequence 取
 			// 最后一条消息（公开或私信）的 sequence（无空洞保证，WH3）。
 			const details = entry.details as
 				| {
@@ -296,7 +296,7 @@ export async function resumeRuntime(
 		port: address.port,
 		startedAt,
 	};
-	// 白板模型（#114）：resume 同样按项目装配 store（恢复读取 = 懒加载读 boards 文件）。
+	// 白板模型：resume 同样按项目装配 store（恢复读取 = 懒加载读 boards 文件）。
 	// F4：白板额度透传（未配置 = undefined → store 默认 5/140）。
 	const boardStore = createBoardStore({
 		boardDir: getGroupChatBoardDirectory(options.agentDir, cwd),

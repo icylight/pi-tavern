@@ -36,7 +36,7 @@ interface DispatchDependencies {
 	readyDeps: ConstructorParameters<typeof ReadyPipeline>[0];
 	queryDeps: ConstructorParameters<typeof QueryPipeline>[0];
 	boardDeps: ConstructorParameters<typeof BoardPipeline>[0];
-	/** #152：whisper 管线依赖（装配注入，与 submitMessageDeps 同构）。 */
+	/** ：whisper 管线依赖（装配注入，与 submitMessageDeps 同构）。 */
 	whisperDeps: ConstructorParameters<typeof WhisperPipeline>[0];
 	/** 帧处理串行链（creator runtimeTail 注入）：connection 接线后 deliver()
 	 * 不 await handler promise，并发执行会破坏帧序（claim 未完成预留、
@@ -46,8 +46,8 @@ interface DispatchDependencies {
 }
 
 /**
- * 12 条请求/通知管线的 RequestType 注册（M2：#119 dispatch 注册表化，消手写 case
- * 分发）。method = F 类判别常量同源（#109 欠账消解）；缺 handler fail-close 由
+ * 12 条请求/通知管线的 RequestType 注册 dispatch 注册表化，消手写 case
+ * 分发）。method = F 类判别常量同源（欠账消解）；缺 handler fail-close 由
  * dispatchClientMessage 查表兜底（codec schema 已拒未知 method，此层为防御不静默）。
  * update_character_state 为通知（NotificationType，无响应语义）。
  */
@@ -138,7 +138,7 @@ const DISPATCH_TABLE: Readonly<Record<string, DispatchHandler>> = {
 		// 请求级管线实例（五层架构：一次协议消息 = 一个管线实例；依赖面由 runtime 装配注入）
 		return new SubmitMessagePipeline(deps.submitMessageDeps).runSpeak(socket, connection, message);
 	},
-	// #152：whisper 请求（请求级管线实例，与 speak 同构）。
+	// whisper 请求（请求级管线实例，与 speak 同构）。
 	[WhisperRequest.method]: (deps, socket, connection, message) => {
 		if (message.method !== METHOD_WHISPER) {
 			throw new Error(`dispatch table key mismatch: ${message.method}`);
@@ -149,7 +149,7 @@ const DISPATCH_TABLE: Readonly<Record<string, DispatchHandler>> = {
 		if (message.method !== METHOD_BOARD_WRITE) {
 			throw new Error(`dispatch table key mismatch: ${message.method}`);
 		}
-		// 白板模型（#114）：请求级管线实例（outcome → 响应四态 + applied 广播 board_update）
+		// 白板模型：请求级管线实例（outcome → 响应四态 + applied 广播 board_update）
 		return new BoardPipeline(deps.boardDeps).runBoardWrite(socket, connection, message);
 	},
 	[BoardQueryRequest.method]: (deps, socket, connection, message) => {
@@ -160,7 +160,7 @@ const DISPATCH_TABLE: Readonly<Record<string, DispatchHandler>> = {
 	},
 };
 
-/** 客户端消息分发（PR-B 拆自 CreatorRuntime；管线门面装配；M2 注册表化）。
+/** 客户端消息分发（PR-B 拆自 CreatorRuntime；管线门面装配； 注册表化）。
  * 返回管线 result（connection 接线后由库发响应；错误 = ResponseError 传播）。 */
 export async function dispatchClientMessage(
 	deps: DispatchDependencies,
@@ -177,7 +177,7 @@ export async function dispatchClientMessage(
 }
 
 /**
- * #119 connection 接线：把 dispatch 注册表挂到 per-socket MessageConnection。
+ *  connection 接线：把 dispatch 注册表挂到 per-socket MessageConnection。
  * onRequest/onNotification 按 RequestType.method 分发（库内建关联），handler
  * 仍走 dispatchClientMessage（key-mismatch 双保险 + refreshCharacters 前置由
  * 调用方包装）。params 原样透传（管线按 message.params 访问）。

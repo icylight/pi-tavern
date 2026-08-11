@@ -4,7 +4,7 @@
  * 本文件在 B0 落盘时 board-store.ts 尚未实现——属预期「红」：
  * 运行报模块不存在即契约先行留痕；B2 实现后按此契约转绿。
  *
- * 契约来源：issue #114（09:24 版）B2 约束①-⑧。
+ * 契约来源：issue （09:24 版）B2 约束①-⑧。
  * 关键语义（data 层不依赖协议类型，B2 约束⑤）：
  * - write() 返回 outcome（applied / noop+告知码 / rejected+拒绝码），
  *   响应组装在 pipeline 层，由 outcome 映射为协议 reason_code（五码）
