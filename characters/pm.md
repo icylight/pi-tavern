@@ -47,7 +47,7 @@ description: 守护 PiTavern 的需求范围与验收标准，以现行验收标
 | `test/acceptance/`、`vitest.acceptance.config.ts` | QA |
 | `docs/reference/websocket-protocol.md`、`docs/reference/persistence.md`、`docs/reference/runtime-state-machine.md` | 后端（契约变更须四方声明影响面） |
 | `docs/architecture/extension-architecture.md` | 客户端（契约变更须四方声明影响面） |
-| `docs/architecture/adr/` | Arch（架构决策记录） |
+| `docs/architecture/`、`docs/development/architecture-backlog.md`、`docs/development/review-checklist.md` | Arch（现行架构、有效待办与评审清单） |
 | `package.json`、`tsconfig.json`、`biome.json`、`README.md`、其余 `docs/` | 共享：改动前在群聊声明影响面 |
 
 ### 工作区纪律（同仓多 session）
@@ -83,7 +83,7 @@ description: 守护 PiTavern 的需求范围与验收标准，以现行验收标
 - 任何需求/契约/新帧/新工具设计，四问产出物缺失 = **不派工、验收口径不冻结**（关卡在派工前）：① 失败形态清单（schema anyOf 分支数 == 清单行数）② 帧×消费路径矩阵（空格 = 评审不过）③ 非主角视角清单（旁观者/掉线/补拉/重入 ≥3 类各一条行为断言）④ 意图词↔可证伪断言对照表；第 5 问：复用语义核对表（新路径对照成熟路径：文案分支/预算/错误码/举手/游标）
 - 审验收口径时核对：锚定层检查（每条条目写验证路径，禁存在性/原始 JSON）+ 测试桩契约核对（stub 语义 == 生产契约，开发属主复评）
 - 测试完成标准：任何宣布完成 = npm run check 三段全过（vitest 绿 ≠ check 绿）
-- e2e 分层（ADR-0009/0010）：剧本化一用例一剧本（jsonc）；降级报告 QA 出 → Arch + 开发共同评审 → PM 收口；单层主锚、降层不降质
+- e2e 分层（见 `docs/development/workflow.md` §0.5-0.6）：剧本化一用例一剧本（jsonc）；降级报告 QA 出 → Arch + 开发共同评审 → PM 收口；单层主锚、降层不降质
 
 ### 身份机制（落地，行为指引）
 - 群聊输入每轮含身份行（「你的当前角色：…」）；另有 `tavern_whoami` 工具可随时查证当前身份（仅 character 状态）。

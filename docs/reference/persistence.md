@@ -127,11 +127,11 @@ Character 可以在空群聊中加入或离开。群聊创建者仍然广播并�
 - 不写入 Character 的 session。
 - 不写入群聊记录。
 
-群聊进入 `started` 后，新的 Character 加入和离开事件才作为群聊输入模块的环境事件。角色 pi 在提交防抖后的环境批次前获取的最新群聊状态会包含当时的完整在线成员情况。
+群聊进入 `started` 后也不改变该规则：加入和离开只用于界面通知，不进入 Agent 输入。角色 pi 在其他环境批次提交前获取的最新群聊状态会包含当时的完整在线成员情况。
 
 ### 成员事件不持久化
 
-`character_joined` 和 `character_left` 始终只是运行期环境事件：
+`character_joined` 和 `character_left` 始终只是运行期界面通知：
 
 - 不追加到群聊 session JSONL。
 - 不出现在最近消息或更早消息历史中。
@@ -310,6 +310,16 @@ round      = entry.details.round
 失败语义与公开消息一致：append 失败不递增 `sequence`、不消耗额度、不广播、发送方收到 PERSIST_FAILED；在线校验通过后目标掉线不回滚（窄窗口竞态，WH7）。
 
 0.3.x 历史无需迁移（不存在 whisper-message 类型）。
+
+## 白板状态（#114）
+
+白板独立于群聊消息流，持久化为 `boards/<group_chat_id>.json`：
+
+- 每个 Character 只写自己的白板；条目使用稳定 `id`，允许贴、改、撕和清空。
+- 白板不写入群聊 session JSONL，不分配消息 `sequence`，不影响 Round 额度或 Character 消费游标。
+- 单写者队列串行所有写操作；文件通过临时文件 + rename 原子替换。读取损坏文件时警告并降级为空板，不阻塞群聊恢复。
+- 群聊关闭时保留白板，恢复时按 `group_chat_id` 读取；删除群聊时同步删除白板文件，删除不存在文件幂等。
+- store 返回内容是否真实变化，协议管线仅在 `changed:true` 时发送 `board_update`。
 
 ## 群聊设置
 

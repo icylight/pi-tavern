@@ -61,7 +61,7 @@ export function getGroupChatCursorDirectory(agentDir: string, cwd: string): stri
 }
 
 /**
- * 白板模型（#114，ADR-0007 契约④）：boards 目录（boards/<groupId>.json）。
+ * 白板模型（#114 契约④）：boards 目录（boards/<groupId>.json）。
  * 与 cursors 同项目隔离约定——不同项目中的不同群聊永不冲突。
  */
 export function getGroupChatBoardDirectory(agentDir: string, cwd: string): string {

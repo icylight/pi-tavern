@@ -1,6 +1,6 @@
 # 进程级验收
 
-> 本文档只收录**当前可验证行为**与测试锚，是功能"完成"的判据。已完成需求的详细过程记录（派工/分支/验收批次/发布定型）已随 2026-08-11 文档清理退役，历史见 Git 提交、CHANGELOG 与 ADR。
+> 本文档只收录**当前可验证行为**与测试锚，是功能"完成"的判据。已完成需求的详细过程记录（派工/分支/验收批次/发布定型）已随 2026-08-11 文档清理退役，历史见 Git 提交与 CHANGELOG。
 >
 > 基础验收方式（各条目只列特殊要求）：`npm run test:acceptance -- --all` 全绿 + 断言存在且非空 + 单测/check 全绿 + 协议文档无语义分歧。
 
@@ -74,7 +74,7 @@ TUI widget（`src/ui/tavern-ui-presenter.ts`）在活跃讨论轮次存在时，
 2. **A2 游标持久化**：收消息 → 游标落盘 → 重启角色进程 → 游标保留、增量从游标后开始（reload.test.ts 先例复用）；投递失败游标不动；
 3. **A3 不重不漏/顺序一致**：固定序列场景断言拉取内容 = 游标后全部、无重复、严格递增；
 4. **A4 缺口天然补齐**：消费点拉全未读（sequence > 游标 全量），控制广播（跳过序号/丢帧模拟）→ 拉取天然补齐，不永久丢失；
-5. **A5 run 状态信号（可测性契约，按 ADR-0008 收敛）**：**单测层（主验证）**：注入 run 状态信号——`isAgentActive` 活跃时收到通知 → 零拉取（只置未读标记/排隐藏令牌，ADR-0008）；`onAgentSettled` → 立即拉全未读并投递（≤5s）；**验收层**：RPC 无真实 run（已知边界）→ 降级为「收到通知后投递发生 + 进程稳定」烟雾；**isAgentActive 无 run 时视为空闲（false）→ 立即投递**（否则 RPC 模式永远排队）；
+5. **A5 run 状态信号（可测性契约，按现行忙态语义收敛，见 websocket-protocol.md「公开消息广播与增量拉取」）**：**单测层（主验证）**：注入 run 状态信号——`isAgentActive` 活跃时收到通知 → 零拉取（只置未读标记/排隐藏令牌）；`onAgentSettled` → 立即拉全未读并投递（≤5s）；**验收层**：RPC 无真实 run（已知边界）→ 降级为「收到通知后投递发生 + 进程稳定」烟雾；**isAgentActive 无 run 时视为空闲（false）→ 立即投递**（否则 RPC 模式永远排队）；
 6. **A6 统一逻辑（可测性契约）**：投递时经 `PITAVERN_TEST=1` testNotify 注入 `latest_sequence` + 投递消息数，验收断言与 TUI 预览同源（同一消息数据）；
 7. **A7 边界**：join 游标预置 = 进入时刻水位（WL7 三分路径：①已有游标直接返回；②新帧 `latest_sequence` 预置 = 进入时刻水位；③旧帧回退查询水位 CAS 写）；仅预置失败时游标保持 null 回退全量分页兜底（残余无游标态唯一来源）；单飞行锁防并发竞态；自己的 echo 仍过滤；`message_history`/`get_message_history` 回归不破坏。
 8. **A8 游标 Session 隔离**：同群聊多 Session 游标文件互异（`cursors/<groupId>/<sessionId>.json`）；A 推进游标不影响 B；**旧群聊级共享游标不采用（不读不写不删、物理遗留）**——v1 文件无 Session 身份、可能由其他角色推进，回退采用其值会跳过本 Session 从未看过的消息（User 2026-08-02 裁决：新 Session 无独立游标 = 从完整历史重新拉取，最多重复、绝不跳过）；本 Session 游标文件不存在仅出现于预置失败时（正常 join 先预置并创建 Session 游标，#144 方案 a）——游标保持 null → 完整历史分页兜底（2026-08-02 旧裁决只覆盖「不采用共享游标、失败时最多重复不跳过」，不覆盖 #144 主路径）；save 只写新路径；reload 后同 session 游标接续（integration 钉测：does not adopt the v1 group-chat cursor / 隔离 / 并发写 / 重启恢复）。
@@ -167,7 +167,7 @@ docs-first 定稿：TypeDoc + 协议定义文件双轨。
 
 `/tavern-character-edit`（#153）与 `/tavern-template-edit`（#154）两个 prompt command 已改造为 PiTavern 扩展自带的两个 skill，随包分发，他人 `pi install` 后零配置直接可用（pi package-manager「all enabled by default」，仅显式排除才禁用；已有 pi.extensions manifest 须显式声明 `"skills": ["./skills"]`，不能只靠约定目录自动发现）。
 
-> ⚠️ **裁决反转留痕**：#76（2026-08-03）曾拍板「skill 应在本地（~/.pi/skills/）、不从项目仓库分发」；本次反转该裁决，角色卡/模板编辑 skill 随 pi-tavern 包分发。ADR-0011 记录。
+> ⚠️ **裁决反转留痕**：#76（2026-08-03）曾拍板「skill 应在本地（~/.pi/skills/）、不从项目仓库分发」；2026-08-10 User 拍板反转——角色卡/模板编辑 skill 随 pi-tavern 包分发（决策依据存档于 Git 历史）。
 
 1. **SK1 包结构**：包内 `skills/tavern-character-edit/SKILL.md` + `skills/tavern-template-edit/SKILL.md`；命名沿用命令名，与全局 create-character-card / define-persona 不同名（无同名遮蔽）；frontmatter 合法、description 写清触发条件与边界（如「角色卡创建/编辑请用本 skill，测试 Persona 用 define-persona」——描述面触发重叠风险接受）；
 2. **SK2 分发声明**：package.json `pi` 清单加 `"skills": ["./skills"]`；npm 发布 files 白名单补 `skills/`（git 钉 hash 安装 clone 即得）；

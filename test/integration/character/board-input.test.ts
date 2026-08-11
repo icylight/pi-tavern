@@ -1,5 +1,5 @@
 /**
- * B4 字符侧接线集成测试（#114，ADR-0007；挂靠 issue 09:26 版 B4 节 + QA 清单 6）。
+ * B4 字符侧接线集成测试（#114；挂靠 issue 09:26 版 B4 节 + QA 清单 6）。
  *
  * 覆盖（四处接线）：
  * ① 路由天然可达（character-runtime handleServerMessage → onEnvironmentMessage）

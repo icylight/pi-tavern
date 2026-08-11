@@ -80,7 +80,7 @@ interface RegisterCommandsOptions {
 	listGroupChatSessions?: (agentDir: string, cwd: string) => Promise<GroupChatSessionSummary[]>;
 	deleteGroupChatSession?: (path: string) => Promise<DeleteGroupChatSessionResult>;
 	/**
-	 * 白板模型（#114，ADR-0007 契约④）：删除群聊时同步清理白板文件
+	 * 白板模型（#114）：删除群聊时同步清理白板文件
 	 * （boards/<groupId>.json）。best-effort：失败仅 warning，不阻塞会话删除主流程。
 	 * boardDir 由调用方按项目传入（index.ts 注册时无 cwd，闭包无法静态绑定）。
 	 * 每调用新建 store 实例 = 无共享缓存；删除仅发生在非活跃群聊（resumable
@@ -98,10 +98,10 @@ export function registerCommands(
 ): void {
 	const agentDir = options.agentDir ?? getAgentDir();
 	const loadConfig = options.loadConfig ?? loadTavernConfig;
-	// 行为默认实现由组合根（index.ts）装配注入（ADR-0005 层方向，Phase 4）；
+	// 行为默认实现由组合根（index.ts）装配注入（五层依赖方向，architecture.md §5）；
 	// 未注入时调用点为装配错误，显式报错。
 	const discoverGroupChats = options.discoverGroupChats;
-	// 行为默认实现由组合根（index.ts）装配注入（ADR-0005 层方向，Phase 4）。
+	// 行为默认实现由组合根（index.ts）装配注入（五层依赖方向，architecture.md §5）。
 	const listGroupChatSessions = options.listGroupChatSessions;
 	const deleteGroupChatSession = options.deleteGroupChatSession;
 	const deleteBoard = options.deleteBoard;
@@ -142,7 +142,7 @@ export function registerCommands(
 					throw new Error(ERROR_RESUME_REQUIRES_UI);
 				}
 				const config = await loadConfig({ agentDir, cwd: ctx.cwd });
-				// 组合根契约：index.ts 装配注入行为默认实现（ADR-0005 层方向）。
+				// 组合根契约：index.ts 装配注入行为默认实现（五层依赖方向，architecture.md §5）。
 				if (!listGroupChatSessions) {
 					throw new Error(ERROR_INJECTION_LIST_SESSIONS);
 				}
@@ -159,7 +159,7 @@ export function registerCommands(
 					return;
 				}
 				if (choice === deleteLabel) {
-					// 组合根契约：index.ts 装配注入行为默认实现（ADR-0005 层方向）——
+					// 组合根契约：index.ts 装配注入行为默认实现（五层依赖方向，architecture.md §5）——
 					// 契约违反时显式报错（fail fast），替代非空断言（#89 check 清零）。
 					if (!deleteGroupChatSession) {
 						throw new Error(ERROR_INJECTION_DELETE_SESSION);
@@ -532,7 +532,7 @@ async function runDeleteGroupChatFlow(
 	const result = await deleteSession(session.path);
 	if (result.ok) {
 		notify(`${NOTIFY_DELETED_PREFIX}${result.method}${NOTIFY_DELETED_SUFFIX}`, "info");
-		// 白板模型（#114，ADR-0007 契约④）：best-effort 同步清理白板——
+		// 白板模型（#114）：best-effort 同步清理白板——
 		// 失败仅 warning，不阻塞会话删除主流程。
 		if (deleteBoard && boardDir) {
 			try {
@@ -594,7 +594,7 @@ function formatCreatorStatus(runtime: CreatorRuntime): string {
 		`Round: ${roundStatus}`,
 	];
 
-	// 白板模型（#114，ADR-0007）：白板快照小节（纯展示，不扩协议面）——
+	// 白板模型（#114）：白板快照小节（纯展示，不扩协议面）——
 	// store 随 runtime 装配（B3），按在线/全员角色名展示条列表。
 	const boards = runtime.boardStore.read(groupChat.groupChatId);
 	const boardCharacters = Object.keys(boards);

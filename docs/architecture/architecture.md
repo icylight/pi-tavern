@@ -1,8 +1,8 @@
 # PiTavern 架构（五层依赖图）
 
 > 状态：**活文档**（living document，随实现演进持续更新）
-> 属主：Arch（docs/architecture/adr/ 属主体系；本文件变更须群聊声明影响面）
-> 关联：ADR-0005（五层架构决策，本文件为其配套依赖图与实施核注）；`npm run lint:layers`（依赖方向强制门禁）
+> 属主：Arch（docs/architecture/architecture.md + docs/development/architecture-backlog.md 属主体系；本文件变更须群聊声明影响面）
+> 本文件承载五层架构的定稿结论、依赖图与实施核注；`npm run lint:layers` 是依赖方向强制门禁。
 > 更新纪律：新增/移动 src 文件、改变跨层依赖时同步更新本文件；本文件与 `lint:layers` 规则矩阵互为对照——规则矩阵是机器强制面，本文件是人读依赖图。
 
 ## 1. 五层总览
@@ -141,24 +141,24 @@ src/
 
 grep 歧义排除（复核引用）：`grep writeFile` 额外命中 `creator-runtime.ts:88` / `reload-flow.ts:39` 的 `writeFile` 字样为**依赖注入接口类型签名**（import 无 node:fs），非直连 IO 调用点。
 
-## 6. 实施核注（Phase 1–4 落地 vs ADR-0005 目标结构）
+## 6. 实施核注（Phase 1–4 落地 vs 五层架构决策目标结构）
 
-### 6.1 已落地（与 ADR-0005 目标结构一致）
+### 6.1 已落地（与五层架构决策目标结构一致）
 
 - creator-runtime：1881 → **427 行骨架**（≈400 目标达成；QA 收口核对③）
 - creator-pipelines：6 管线 + dispatch 桥齐备（收口核对②）
 - skills：data/ 8 文件全迁入，无 pi 依赖可单测（收口核对①以 §5 豁免面口径成立）
-- 组合根 index.ts 成立（ADR 决策 4）
+- 组合根 `index.ts` 成立（见 §2 五层定稿结论）
 - 依赖方向可由 lint 强制（Phase 4 产物，规则矩阵见 §3）
 
 ### 6.2 挂起项（如实标注，不写为已完成——契约零漂移）
 
-| 项 | ADR-0005 目标 | 现状 | 状态 |
+| 项 | 五层决策目标 | 现状 | 状态 |
 | --- | --- | --- | --- |
 | character-pipelines/ | application 层：发言策略 + steer 策略，自 group-chat-input.ts 拆出（#38 契约面） | 无该目录；group-chat-input.ts 612 行，steer 实现在内 | **挂起后续项**（本期范围 = creator 侧） |
 | character-runtime 瘦身 | 768 行同理拆分 | 852 行未拆 | **挂起后续项** |
 
-位置收敛差异（归属一致，仅落位不同）：ADR 目标结构 skills 行写 `creator/group-chat-sessions.ts` + `creator/group-chat-state.ts`，实际统一收敛于 `data/` 目录（`data/group-chat-sessions.ts` / `data/group-chat-state.ts`）——skills 层归属不变。
+位置收敛差异（归属一致，仅落位不同）：早期目标结构将 `group-chat-sessions.ts` 与 `group-chat-state.ts` 放在 `creator/`，实际统一收敛于 `data/` 目录——skills 层归属不变。
 
 ## 7. 变更指引
 

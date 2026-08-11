@@ -242,7 +242,7 @@ Character 已经被预留或已经在线等失败情况使用 pi-coding-agent �
 Character 完成 `character_ready` 并正式成为群成员后，群聊创建者向此时的全部在线 Character 广播 `character_joined`（字段形状：[`server.jsonc` 的 `ServerMessage`](../../src/protocol/schema/server.jsonc) `character_joined` 通知分支，`params.character` = 公开摘要）。
 - 广播遵循协议的统一广播语义。
 - 消息只携带公开 Character 摘要，不携带 `is_streaming` 或 `hand_raised`。
-- `character_joined` **不是环境事件**（`isEnvironmentEvent` 不含 joined/left），不进入环境聚合批次，也不触发 Agent run（ADR-0008/A9：成员变化不产生 Agent 输入），只用于界面通知。
+- `character_joined` **不是环境事件**（`isEnvironmentEvent` 不含 joined/left），不进入环境聚合批次，也不触发 Agent run（成员变化不产生 Agent 输入），只用于界面通知。
 - 新加入的 Character 先处理 `system_message`（欢迎语），再处理自己的 `character_joined` 广播（缓冲按接收顺序转交，欢迎语是环境事件、计入首次环境批次）。
 - 首次环境批次 = `system_message` 欢迎语（#123：环境事件）；**进入前历史不自动注入**，经 `tavern_history` 工具按需分页拉取（tool result 直回上下文）；进入时刻之后到达的新消息经增量拉取（`fetch_messages_since`，严格区间 = 游标预置完成后，#144 方案 a）进入批次；`character_joined` 不在其中。
 - 群聊尚无公开消息时，`system_message` 和 `character_joined` 不会因空历史额外触发拉取；欢迎语本身是注入内容，计入首次环境批次（#123：欢迎语必非空 → join 后必有首次可见注入）。
@@ -283,7 +283,7 @@ WebSocket 意外断开时没有离开请求和响应。群聊创建者立即执�
 `character_left`：
 
 - 遵循协议的统一广播语义，接收范围基于成员移除后的在线 Character 集合。
-- `character_left` **不是环境事件**（`isEnvironmentEvent` 不含 joined/left），不进入环境聚合批次，也不触发 Agent run（ADR-0008/A9：成员变化不产生 Agent 输入），只用于界面通知。
+- `character_left` **不是环境事件**（`isEnvironmentEvent` 不含 joined/left），不进入环境聚合批次，也不触发 Agent run（成员变化不产生 Agent 输入），只用于界面通知。
 - 不写入群聊记录文件，也不使用 `event_id` 或 `sequence`。
 - 群聊整体关闭使用单独的关闭消息，不将其表示为所有 Character 逐个离开。
 
@@ -411,7 +411,7 @@ Character 使用固定 1 秒聚合窗口（闲态）合并连续到达的公共�
 
 - 当前 pi Agent 空闲：将环境批次和状态快照合并为一次输入并立即提交（触发新 run）。
 - 当前 pi Agent 正在运行：公共群消息正文不进入 steer；白板等非消息流输入仍按其独立语义在 run 边界投递。
-- **安全边界 abort（ADR-0008）**：忙态 `group_chat_update` 到达只置未读标记并排隐藏空令牌，群消息正文不进入 steer。令牌在工具批完成后的 `context` 钩子中被过滤，且仅当前 runtime 仍有待打断状态时调用 `ctx.abort()`。主链等待 `agent_settled` 后拉全未读，经 followUp + triggerTurn 唤醒新 run。观察通道依次为 `[tavern-inject] abort=0 token=queued` 与 `abort=1 boundary=steer`。
+- **安全边界 abort**：忙态 `group_chat_update` 到达只置未读标记并排隐藏空令牌，群消息正文不进入 steer。令牌在工具批完成后的 `context` 钩子中被过滤，且仅当前 runtime 仍有待打断状态时调用 `ctx.abort()`。主链等待 `agent_settled` 后拉全未读，经 followUp + triggerTurn 唤醒新 run。观察通道依次为 `[tavern-inject] abort=0 token=queued` 与 `abort=1 boundary=steer`。
 
 WebSocket 环境消息不会逐条直接追加到 pi session。Agent 输入只包含公共群消息（增量拉取结果）、白板更新及 `system_message` 系统通知；`character_joined`、`character_left` 与流式状态变化不进入 Agent 输入。进入前历史不自动注入，经 `tavern_history` 工具按需分页拉取（tool result 直回上下文）；join 游标预置只取水位、不注入历史（#123/#144）。隐藏打断令牌作为内部 custom message 记录在 session JSONL，但始终从模型上下文过滤。
 
@@ -574,7 +574,31 @@ Character 的 `tavern_whisper` Agent tool 通过 WebSocket 发送 `whisper` 请�
 - 原始 JSONL 明文保存私信；隐私边界仅限交互层，不提供文件系统安全保证。
 - 0.3.x 历史无需迁移（无 whisper-message 类型）。
 
-## 附录：帧 × 消费路径矩阵（ADR-0009）
+## 白板协议（#114）
+
+白板是独立于消息流的当前状态表达渠道：每个 Character 只操作自己的白板，全群可查询；User Persona 只读。字段形状以 [`board.jsonc`](../../src/protocol/schema/board.jsonc) 为准。
+
+### `board_write`
+
+请求 action 为 `set` / `remove` / `clear`：`set` 无 id 时创建稳定条目 id，带 id 时编辑；`remove` 必须带 id；`clear` 无 note。发送者身份由 WebSocket session 推导，不能指定 actor；其他 Character 的条目 id 在本人板上视为不存在。
+
+响应 `result` 使用两种 wire 形态、三种业务语义：
+
+- 已改变：`{ changed:true, note? }`；
+- 幂等 no-op：`{ changed:false, code }`，告知码为 `note_not_found` / `board_empty` / `note_unchanged`；
+- 资源拒绝：`{ changed:false, code }`，拒绝码为 `max_notes_exceeded` / `note_length_exceeded`。
+
+协议级失败使用 JSON-RPC `error` 信封。
+
+默认限制为每角色 5 条、每条 140 个 Unicode 码点（可配置）；编辑不增加条数但仍受长度限制。白板操作不消耗 Round 额度，只有内容真实改变才广播。
+
+### `board_query` 与 `board_update`
+
+`board_query` 无参数，返回当前群聊所有 Character 的白板快照。`board_update` 仅在真实改变时发送，包含 actor、action（`add` / `update` / `remove` / `clear`）及适用时的 note；remove 携带被移除条目的内容，clear 不带 note。
+
+`board_update` 没有消息 sequence，不进入公开消息增量拉取或游标推进。写者本人通过请求响应获知结果，其自回显不进入 Agent 输入；其他在线 Character 收到增量摘要并可按需 `board_query`。白板持久化与删除语义见 [`persistence.md`](persistence.md#白板状态114)。
+
+## 附录：帧 × 消费路径矩阵
 
 每格填 `✓复用`（走既有机制）/ `差异化点` / `不适用`；新增服务端帧类型必须逐格核对（空格 = 评审不过）。
 
@@ -584,5 +608,6 @@ Character 的 `tavern_whisper` Agent tool 通过 WebSocket 发送 `whisper` 请�
 | `whisper_message` | ✓复用 | ✓复用（环境事件，唤醒——**仅接收者**） | ✓接纳（含正文） | ✓复用 | ✓复用 | whisper_full 模板（sender/receiver/content） | ✓完整正文（恒参与者视角） |
 | `whisper_placeholder` | ✓复用 | **差异化：不注入、不唤醒、不进 debounce（仅水位推进）** | ✓接纳（占位帧，推进游标防反复 stale） | ✓复用 | ✓复用（占位入未读序列供消费，不触发未读先读阻塞/服务端 stale——#170） | whisper_placeholder 模板（sender/receiver，无 content） | **不适用**（创建者恒见完整正文） |
 | `group_chat_update` | ✓复用 | ✓复用 | — | — | — | ✓复用 | ✓复用 |
+| `board_update` | ✓复用 | ✓复用（他人更新；自回显过滤） | 不适用 | 不适用 | 不适用 | 白板更新桶 | ✓变更提示 |
 
-维护：新增帧类型时逐格核对并更新本表（属主=后端，ADR-0009 实施分工）。
+维护：新增帧类型时逐格核对并更新本表（属主=后端）。

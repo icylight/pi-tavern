@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 层间依赖方向 lint（Phase 4，ADR-0005 五层矩阵）。
+ * 层间依赖方向 lint（Phase 4：五层依赖矩阵）。
  *
  * 背景：biome noRestrictedImports patterns 无「源文件」维度（实测证伪，
  * refactor-plan 留痕），故用零依赖 node 脚本按「源文件路径前缀 × import

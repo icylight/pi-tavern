@@ -748,7 +748,7 @@ CharacterRuntime 的永久关闭顺序：
 
 `user_leave`、`session_change` 和 `quit` 尽力发送 `leave_group_chat`。`socket_closed`、`heartbeat_timeout`、`group_chat_closed` 和 `reload_timeout` 不等待离开响应，直接执行本地清理。离开流程本身不 abort 当前 Agent run，已经提交给 pi session 或 follow-up queue 的内容继续由 pi 管理。
 
-公共群消息的忙态投递遵循 ADR-0008：`GroupChatInput` 只维护未读与令牌单飞行状态，群消息正文不进入 steer；`agent-lifecycle` 的 context 钩子过滤 `pi-tavern.abort-control`，并仅在当前输入实例仍待打断时调用 `ctx.abort()`。settled 后由 `GroupChatInput` 按 Session 游标拉全，通过 followUp 重开。该依赖保持窄接口：生命周期接线只调用输入实例的令牌消费方法，不持有消息拉取或游标实现。
+公共群消息的忙态投递遵循安全边界 abort 语义：`GroupChatInput` 只维护未读与令牌单飞行状态，群消息正文不进入 steer；`agent-lifecycle` 的 context 钩子过滤 `pi-tavern.abort-control`，并仅在当前输入实例仍待打断时调用 `ctx.abort()`。settled 后由 `GroupChatInput` 按 Session 游标拉全，通过 followUp 重开。该依赖保持窄接口：生命周期接线只调用输入实例的令牌消费方法，不持有消息拉取或游标实现。
 
 CreatorRuntime 的永久关闭顺序：
 
@@ -938,6 +938,8 @@ Factory 只订阅首版确实需要的 pi 事件：
 创建者 `input` handler 不处理已经被 pi 识别的 Extension 命令，因为 pi 会先执行命令并跳过 `input` 事件。`event.source === "extension"` 的输入也不作为 User Persona 消息，避免 PiTavern 自己注入的消息再次进入群聊。
 
 生成状态的结束点使用 `agent_settled`，不使用 `agent_end`。按照 pi 的语义，`agent_end` 后仍可能自动重试、自动 compact 后重试或继续处理 follow-up；只有 `agent_settled` 表示当前 Agent 不会自动继续运行。
+
+`is_streaming` 悬挂兜底（watchdog）：`agent_end` 时布防 5s 定时器，`agent_settled` 清除；后续 `agent_start` 也会清除旧 timer，回调再以 `isAgentActive` 守卫，避免自动 continue 的活跃 run 被误灭灯。超时且 run 已不活跃时强制补发 `is_streaming: false`——pi 的 `agent_end` 在错误/中止路径（stopReason=aborted/error）也保证发射；仅进程级 kill/事件循环硬卡死不可救，由既有断连清理兜底。reload 时旧 runtime 的 timer 随 Extension Runtime 销毁丢失，`activateFromHandoff` 显式补发一次 `update_character_state(false)`；`close()` 清理 timer，幂等。
 
 首版不订阅 `message_update` 或 `turn_*` 来推导生成状态，也不轮询 Agent。`is_streaming` 只在布尔值实际变化时上报；断线或 Runtime 清理不再尝试上报。
 

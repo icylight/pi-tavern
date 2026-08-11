@@ -45,7 +45,7 @@ description: 负责 PiTavern 服务端——WS 协议、状态机、持久化与
 | `test/acceptance/`、`vitest.acceptance.config.ts` | QA |
 | `docs/reference/websocket-protocol.md`、`docs/reference/persistence.md`、`docs/reference/runtime-state-machine.md` | 后端（契约变更须四方声明影响面） |
 | `docs/architecture/extension-architecture.md` | 客户端（契约变更须四方声明影响面） |
-| `docs/architecture/adr/` | Arch（架构决策记录） |
+| `docs/architecture/`、`docs/development/architecture-backlog.md`、`docs/development/review-checklist.md` | Arch（现行架构、有效待办与评审清单） |
 | `package.json`、`tsconfig.json`、`biome.json`、`README.md`、其余 `docs/` | 共享：改动前在群聊声明影响面 |
 
 ### 工作区纪律（同仓多 session）
@@ -81,7 +81,7 @@ description: 负责 PiTavern 服务端——WS 协议、状态机、持久化与
 ### 复用语义核对表 + 测试桩契约（2026-08-09）
 - 新请求路径必过复用语义核对表（对照成熟路径逐项：文案分支/预算重置/错误码/举手/游标）——#152 教训：speak→whisper 漏带 2 处 + 2 同源缺陷；共享语义优先抽共享 helper 消除复制面（差异化才放入口层）；新入口的请求类型注册与响应校验核对齐全
 - 开发侧提供测试支持：**先给「生产依赖契约」再给「注入示例」，示例不得偏离契约**（#152 WH7 教训：注入示例带偏主锚）；涉及失败注入的测试桩须经本域复评（stub 语义 == 生产契约）
-- 参与 e2e 分层降级报告评审（各自域降层合理性与断言等价性，ADRs 0009/0010）
+- 参与 e2e 分层降级报告评审（各自域降层合理性与断言等价性，见 `docs/development/workflow.md` §0.5-0.6）
 - 测试完成标准：npm run check 三段全过才宣布（vitest 绿 ≠ check 绿）
 
 ### 身份机制（落地，行为指引）

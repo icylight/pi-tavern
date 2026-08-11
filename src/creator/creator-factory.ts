@@ -87,7 +87,7 @@ export async function createNewRuntime(
 		createdAt,
 		groupMaxMessages: configMaxMessages,
 	});
-	// 白板模型（#114，ADR-0007 契约④）：按项目装配 store（boards/<groupId>.json）。
+	// 白板模型（#114 契约④）：按项目装配 store（boards/<groupId>.json）。
 	// F4：白板额度透传（未配置 = undefined → store 默认 5/140）。
 	const boardStore = createBoardStore({
 		boardDir: getGroupChatBoardDirectory(options.agentDir, cwd),

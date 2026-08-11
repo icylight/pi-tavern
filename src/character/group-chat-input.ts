@@ -634,7 +634,7 @@ export class GroupChatInput {
 				return true;
 			case METHOD_MESSAGE_HISTORY:
 				return true;
-			// 白板模型（#114，ADR-0007）：board_update = 环境事件（通知渲染），
+			// 白板模型（#114）：board_update = 环境事件（通知渲染），
 			// 与 group_chat_update（拉取触发）是两套消费语义——进 pendingEvents 批处理，
 			// 绝不挂 incrementPending（board 不在消息流，拉取只会空转）。
 			// 自回显过滤（09:27 版 User 拍板）：写者本人不收自己写的回显（响应已含
@@ -1185,7 +1185,7 @@ export class GroupChatInput {
 			}
 		}
 
-		// 白板更新（#114，ADR-0007）：增量摘要——谁/动作/内容摘要。与
+		// 白板更新（#114）：增量摘要——谁/动作/内容摘要。与
 		// group_chat_update 是两套消费语义（通知渲染 vs 拉取触发）：board_update
 		// 只渲染不进消息流拉取（无 sequence、不挂 incrementPending）。
 		const boardUpdates = events.filter((e) => "method" in e && e.method === METHOD_BOARD_UPDATE);

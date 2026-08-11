@@ -35,7 +35,7 @@ interface AutoJoinOptions {
 	agentDir?: string;
 	character?: string;
 	groupChat?: string;
-	/** 行为默认实现由组合根装配注入（ADR-0005 层方向，Phase 4）。 */
+	/** 行为默认实现由组合根装配注入（五层依赖方向，architecture.md §5）。 */
 	discoverGroupChats?: (options: DiscoverGroupChatsOptions) => Promise<ActiveGroupChatDescriptor[]>;
 	/** #154 T5：配置加载注入（默认 loadTavernConfig）——headless auto-join 与 /tavern-join 同生命周期。 */
 	loadConfig?: (options: { agentDir: string; cwd: string }) => Promise<TavernConfig>;

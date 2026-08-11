@@ -80,7 +80,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 			}),
 		);
 	const presenter = new TavernUiPresenter();
-	// 组合根装配（ADR-0005 层方向，Phase 4）：adapter 行为默认实现在此注入——
+	// 组合根装配（五层依赖方向，architecture.md §5）：adapter 行为默认实现在此注入——
 	// commands/headless 只留注入面与类型/纯函数导入。
 	const piSessionManager = {
 		list: (cwd: string, sessionDir: string) => SessionManager.list(cwd, sessionDir),
@@ -95,8 +95,8 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 				sessionManager: piSessionManager,
 			}),
 		deleteGroupChatSession: (path) => deleteGroupChatSessionFile(path),
-		// 白板模型（#114，ADR-0007 契约④）：删除群聊同步清理白板（boards/<groupId>.json）。
-		// 组合根装配行为默认实现（ADR-0005 层方向）；每调用新建 store 实例——删除仅发生在
+		// 白板模型（#114）：删除群聊同步清理白板（boards/<groupId>.json）。
+		// 组合根装配行为默认实现（五层依赖方向）；每调用新建 store 实例——删除仅发生在
 		// 非活跃群聊（resumable 语义），无并发写者；B3 活动实例复用同一 store 时另行显式摘除。
 		deleteBoard: (groupId, boardDir) => createBoardStore({ boardDir }).deleteBoard(groupId),
 	});
@@ -129,7 +129,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 		setTestNotify(ctx.ui.notify);
 		const run = () => {
 			void autoJoinCharacter(pi, ctrl, ctx, {
-				// 组合根装配（ADR-0005 层方向，Phase 4）。
+				// 组合根装配（五层依赖方向，architecture.md §5）。
 				...(injectTriggerDebounce !== undefined ? { triggerDebounceMs: injectTriggerDebounce } : {}),
 				discoverGroupChats: (options) => discoverActiveGroupChats(options),
 				...(process.env.PITAVERN_CHARACTER !== undefined && process.env.PITAVERN_CHARACTER !== ""

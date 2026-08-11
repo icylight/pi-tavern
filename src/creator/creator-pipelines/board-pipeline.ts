@@ -34,7 +34,7 @@ export interface BoardPipelineDependencies {
 }
 
 /**
- * 白板管线（#114，ADR-0007 §3）：board_write 请求-响应四态 + applied 后广播
+ * 白板管线（#114 §3）：board_write 请求-响应四态 + applied 后广播
  * board_update 增量摘要；board_query 全量查询。outcome → wire 响应映射在本层
  * （data 层不依赖协议类型，B2 约束⑤）。
  *

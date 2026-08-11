@@ -8,7 +8,7 @@ import { PiProcess, waitForDescriptor } from "./pi-process.js";
 import { type BufferedWsClient, connectCharacter } from "./ws-helper.js";
 
 /**
- * RH3-whisper 首部剧本（ADR-0010 剧本驱动 e2e MVP v0，一用例一剧本）。
+ * RH3-whisper 首部剧本（剧本驱动 e2e MVP v0，一用例一剧本）。
  * 剧本：test/acceptance/scripts/rh3-whisper-projection.jsonc
  *
  * 场景：Alice 公开消息打底 → whisper Carol「悄悄话R1」→ 创建者完整正文 /

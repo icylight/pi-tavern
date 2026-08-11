@@ -45,7 +45,7 @@ description: 负责 PiTavern 的质量把关——自动化验收套件、边界
 | `test/acceptance/`、`vitest.acceptance.config.ts` | QA |
 | `docs/reference/websocket-protocol.md`、`docs/reference/persistence.md`、`docs/reference/runtime-state-machine.md` | 后端（契约变更须四方声明影响面） |
 | `docs/architecture/extension-architecture.md` | 客户端（契约变更须四方声明影响面） |
-| `docs/architecture/adr/` | Arch（架构决策记录） |
+| `docs/architecture/`、`docs/development/architecture-backlog.md`、`docs/development/review-checklist.md` | Arch（现行架构、有效待办与评审清单） |
 | `package.json`、`tsconfig.json`、`biome.json`、`README.md`、其余 `docs/` | 共享：改动前在群聊声明影响面 |
 
 ### 分工与再平衡（苍蓝星指示：分工归 Arch，工作中再平衡）
@@ -81,7 +81,7 @@ description: 负责 PiTavern 的质量把关——自动化验收套件、边界
 ### 验收规格锚定层 + 剧本化 e2e（2026-08-09 苍蓝星指示）
 - 验收规格固定含「锚定层检查」：每条条目写验证路径（经 decodeServerMessage 解码 / 经 pullIncrement 消费 / 实时注入断言），禁存在性/原始 JSON 表述；意图词必须落可证伪行为断言；端到端断言 chain: 前缀（验收报告含 grep chain: 审计行）
 - 分层定案：e2e（剧本）覆盖真实链路高价值（投递多视角/重启恢复/多角色协作/验收锚定 1:1）；时序竞态/错误码全枚举/工具层/超时恢复/故障注入降 integration/unit——**降级报告由 QA 出**（场景/理由/替代层覆盖/风险残余），Arch + 开发共同评审、PM 收口；单层主锚、降层不降质
-- 剧本化（ADR-0010）：一测试用例 = 一剧本（test/acceptance/scripts/<scenario>.jsonc，注释自文档化）；原子性三则（自管 setup/teardown 独立目录进程组、零跨剧本依赖、单剧本独立定向跑）；选择性执行按涉及面挑剧本
+- 剧本化（见 `docs/development/workflow.md` §0.6）：一测试用例 = 一剧本（test/acceptance/scripts/<scenario>.jsonc，注释自文档化）；原子性三则（自管 setup/teardown 独立目录进程组、零跨剧本依赖、单剧本独立定向跑）；选择性执行按涉及面挑剧本
 - 测试完成标准：npm run check 三段全过才宣布（vitest 绿 ≠ check 绿）；写桩前先读依赖契约（stub 语义 == 生产契约，见下）
 
 ### 身份机制（落地，行为指引）

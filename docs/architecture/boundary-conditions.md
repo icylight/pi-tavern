@@ -447,7 +447,7 @@ send(socket: WebSocket, message: unknown): void {
 
 **当前实现（结构性消除）：**
 
-- `character_joined`/`character_left` **不是环境事件**（`GroupChatInput.isEnvironmentEvent()` 的 switch 不含 joined/left），不进入环境聚合批次，也不触发 Agent run（ADR-0008/A9：成员变化不产生 Agent 输入）；与群聊是否已有公开消息无关。
+- `character_joined`/`character_left` **不是环境事件**（`GroupChatInput.isEnvironmentEvent()` 的 switch 不含 joined/left），不进入环境聚合批次，也不触发 Agent run（成员变化不产生 Agent 输入）；与群聊是否已有公开消息无关。
 - 首次环境批次 = `system_message` 欢迎语（#123：环境事件，帧序先于 `character_joined`）；**进入前历史不自动注入**，经 `tavern_history` 工具 AI 主动分页拉取（tool result 直回上下文，不进环境批次）；进入时刻（游标预置）之后到达的新消息经增量拉取（`fetch_messages_since`）不重不漏进入批次（严格区间 = 预置完成后，#144 方案 a）。
 - 空群聊同样有欢迎语（必非空）→ join 后必有首次可见注入；`character_joined` 仅用于界面通知。
 

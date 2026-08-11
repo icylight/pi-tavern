@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 /**
- * JSONL fixture 生成器（ADR-0010 剧本驱动 e2e，Arch 优化方案 3）。
+ * JSONL fixture 生成器（剧本驱动 e2e，Arch 优化方案 3）。
  * pi session JSONL 格式（session-manager.js 实证）：
  * - 第 1 行 header = {type:"session", version, id, timestamp, cwd, parentSession}
  * - 后续每行 = {type, id, parentId, timestamp, ...payload}

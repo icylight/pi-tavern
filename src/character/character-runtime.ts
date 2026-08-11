@@ -720,7 +720,7 @@ export class CharacterRuntime {
 	}
 
 	/**
-	 * 白板模型（#114，ADR-0007）：board_write——贴/改/撕/清本人板。
+	 * 白板模型（#114）：board_write——贴/改/撕/清本人板。
 	 * 返回响应 data（四态：changed:true 带/不带 note；changed:false 带告知/拒绝码）。
 	 * 群聊静默：changed:false 不广播 board_update（接口层告知）。
 	 */

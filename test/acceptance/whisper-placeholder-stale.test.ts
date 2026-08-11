@@ -27,7 +27,7 @@ import { joinCharacterWs } from "./ws-helper.js";
  * - 防线回归：全文接收者（recipient=我）游标落后时 speak 仍 stale；公开消息
  *   游标落后时 speak 仍 stale。
  *
- * WS 直驱（ADR-0010 方案 1）：基于真实 pi 进程 + 协议帧，显式携带
+ * WS 直驱（剧本驱动 e2e 方案 1）：基于真实 pi 进程 + 协议帧，显式携带
  * based_on_sequence 模拟「占位未消费直接发言」的首请求（绕开客户端本地门，
  * 与服务端投影判定形成红/绿判别——修复前 stale，修复后 published）。
  */

@@ -167,11 +167,11 @@ sequenceDiagram
 - 已被预留或已经在线的角色卡不会出现在其他 pi 的可领取列表中。
 - `claim_character` 成功后预留 Character 并返回 Character Markdown 的本机绝对路径；加入方直接读取角色卡并准备本地运行组件，再通过 `character_ready` 正式加入群聊。ready 成功后单播 `system_message` 欢迎语（#123：替代历史自动推送）；进入前历史不自动注入，经 `tavern_history` 工具 AI 主动分页拉取（tool result 直回上下文）；进入时刻之后的消息一条不漏（增量拉取严格区间 = 游标预置 = 进入时刻水位完成后，见 reference/websocket-protocol.md「加入」节）。
 - Character 预留只等待 5 秒；超时后创建者释放预留并关闭 WebSocket，加入方直接回到 `idle`，不增加中间状态。
-- 群聊输入模块将环境事件合并为环境批次：`group_chat_update` 通知只置未读标记不走防抖；非 update 环境事件（`system_message` 欢迎语、`board_update`、whisper 单播）批次 1s 合并——成员变化（`character_joined`/`character_left`）不是环境事件，不进入 Agent 输入（ADR-0008/A9）；闲态固定 1s 聚合窗口（窗口内多次变化并入单次消费 N→1，不重置计时）；忙态 `group_chat_update` 只置未读标记并排隐藏打断令牌，`agent_settled` 后拉取未读并重开（#60/#62/#64）；忙态非 update 环境事件（`system_message`/`board_update`/whisper 单播）正文经 steer 通道在工具间隙直接投递，不打断 run。批次窗口结束后主动获取最新群聊状态，再把环境批次和状态快照作为一次输入提交给当前 pi Agent。
+- 群聊输入模块将环境事件合并为环境批次：`group_chat_update` 通知只置未读标记不走防抖；非 update 环境事件（`system_message` 欢迎语、`board_update`、whisper 单播）批次 1s 合并——成员变化（`character_joined`/`character_left`）不是环境事件，不进入 Agent 输入；闲态固定 1s 聚合窗口（窗口内多次变化并入单次消费 N→1，不重置计时）；忙态 `group_chat_update` 只置未读标记并排隐藏打断令牌，`agent_settled` 后拉取未读并重开（#60/#62/#64）；忙态非 update 环境事件（`system_message`/`board_update`/whisper 单播）正文经 steer 通道在工具间隙直接投递，不打断 run。批次窗口结束后主动获取最新群聊状态，再把环境批次和状态快照作为一次输入提交给当前 pi Agent。
 - 首次环境处理没有特殊的禁言规则；`tavern_speak` 是否被接受只由当前 Round 的剩余发言次数判断。
 - `character_ready` 成功后没有额外的等待或激活状态；公开发送是否被接受只由当前 `roundMaxMessages` 判断。
 - 群聊创建者和加入方 pi 都显示连接成功通知。
-- Character 完成 `character_ready` 后，加入事件向包括新成员在内的全部在线 Character 广播。`character_joined`/`character_left` 只用于界面通知，不进入 Agent 输入（ADR-0008/A9：成员变化不产生 Agent 输入），与是否已有公开消息无关。
+- Character 完成 `character_ready` 后，加入事件向包括新成员在内的全部在线 Character 广播。`character_joined`/`character_left` 只用于界面通知，不进入 Agent 输入（成员变化不产生 Agent 输入），与是否已有公开消息无关。
 - 加入方保持普通 pi-coding-agent 界面，显示群聊、角色、生成状态和连接通知。
 - 群聊创建者只接收角色 pi 当前 Agent 的原生 `isStreaming` 布尔状态，不接收触发来源、用户终端输入内容或其他 session 细节。
 - 加入方仍可在自己的 pi 终端中正常交互。
@@ -340,7 +340,7 @@ Project: <repo>/.pi/tavern.json
 
 首版不采用 SillyTavern 的 Natural、List、Manual 或 Pooled 候选选择策略。PiTavern 将每条公共消息和最新发言次数广播给所有已连接的角色 pi，由各个 pi 独立决定是否发言。
 
-- 增量拉取的公开消息（`fetch_messages_since` 结果）是群聊输入模块的环境事件；`group_chat_update` 只是未读触发标记（水位 + 预览不注入），不进入 Agent 输入；进入前历史经 `tavern_history` 工具按需分页拉取（tool result 直回上下文，不经本模块）；`system_message` 欢迎语与白板更新同为环境事件；成员加入和离开不是环境事件，不进入 Agent 输入（ADR-0008/A9）。
+- 增量拉取的公开消息（`fetch_messages_since` 结果）是群聊输入模块的环境事件；`group_chat_update` 只是未读触发标记（水位 + 预览不注入），不进入 Agent 输入；进入前历史经 `tavern_history` 工具按需分页拉取（tool result 直回上下文，不经本模块）；`system_message` 欢迎语与白板更新同为环境事件；成员加入和离开不是环境事件，不进入 Agent 输入。
 - 群聊状态由 Character 在提交环境批次前主动获取，作为当前 pi Agent 使用的最新环境快照；群聊状态响应本身不触发 Agent。
 - Character 使用固定 1 秒聚合窗口（闲态）合并连续到达的公共消息通知：窗口内多次变化并入**单次消费**（N→1），不重置计时（#60/#62）；忙态 `group_chat_update` 只置未读标记并排隐藏打断令牌（正文不进 steer），`agent_settled` 后拉取全部未读并以 follow-up 重开；忙态非 update 环境事件（`system_message`/`board_update`/whisper 单播）正文经 steer 通道在工具间隙直接投递，不打断 run。
 - 聚合窗口结束时，Character 先请求最新群聊状态，再把环境批次和状态快照合并为一次群聊输入；当前 pi Agent 空闲时立即提交，正在运行时经 steer 通道在工具间隙投递（非 update 正文直接 steer；`group_chat_update` 通知只置标记、settle 后拉全重开），不打断 run。

@@ -1,7 +1,7 @@
 /**
  * B1 codec 契约测试：白板模型（#114）board_write / board_query / board_update 编解码。
  *
- * 契约来源：issue #114（09:24 版）B1 节 + ADR-0007 §3；#119 M1 信封迁移
+ * 契约来源：issue #114（09:24 版）B1 节；#119 M1 信封迁移
  * （type → method + jsonrpc"2.0" + params 嵌套 + result/error 响应）。
  * 覆盖：客户端消息往返（三 action / query）；board_write 响应四态
  * （applied 带/不带 note、告知码、拒绝码）；board_query 响应；board_update 通知

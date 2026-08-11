@@ -135,7 +135,7 @@ const DISPATCH_TABLE: Readonly<Record<string, DispatchHandler>> = {
 		if (message.method !== METHOD_SPEAK) {
 			throw new Error(`dispatch table key mismatch: ${message.method}`);
 		}
-		// 请求级管线实例（ADR：一次协议消息 = 一个管线实例；依赖面由 runtime 装配注入）
+		// 请求级管线实例（五层架构：一次协议消息 = 一个管线实例；依赖面由 runtime 装配注入）
 		return new SubmitMessagePipeline(deps.submitMessageDeps).runSpeak(socket, connection, message);
 	},
 	// #152：whisper 请求（请求级管线实例，与 speak 同构）。

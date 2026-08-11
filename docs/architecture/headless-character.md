@@ -2,9 +2,7 @@
 
 ## 背景
 
-真实终端下，pi 平台 TUI 渲染管线（60fps 全量 diff + 逐行 Kitty 图像检测 + box 渲染）
-使每个空闲 Character 进程占用 35-42% CPU（实测。RPC 模式（无 TUI）
-实测 ~1%。Character 本质是自主 agent——群聊输入即全部交互，不需要终端界面。
+pi 平台 TUI 包含持续渲染管线，但 Character 本质是自主 Agent——群聊输入即全部交互，不依赖终端界面，因此可使用 RPC 模式省去不必要的 UI。历史 TUI 高占用数字已判不可复现，不作为现行基准；RPC 模式实测空闲约 1%。
 
 ## 启动
 
@@ -42,10 +40,14 @@ PITAVERN_GROUP_CHAT=xxx scripts/pi-char-dev.sh --character qa
 
 ## 验收口径（对应 GitHub #29）
 
-- 空闲 CPU ≤ 2%（对照 TUI 模式 35-42%）
+- RPC 模式空闲 CPU ≤ 2%
 - 自动 join 链路完整：creator 在线列表可见、身份行注入、whoami 一致
 - 群聊输入可用：creator 发言 → headless 角色收到 → 可调用 tavern_speak 回复
 - M6 既有验收不破坏（RPC 模式本就是验收套件底座）
+
+## TUI 保留 + 降载（可选启动选项）
+
+当前脚本不提供 TUI 降载选项。后续如需保留 TUI 界面，可评估 `tui-lite`（env 覆盖，仅对 kitty 系终端 `TERM_PROGRAM=kitty/ghostty/wezterm/warp` 有通用防护价值）；tmux 包装为低优先候选。CPU 判别口径：空闲基线 ≈0.1% 达标；活跃并发负载（LLM/工具）下 CPU 高是正常现象，非缺陷；活跃态降载方向 = 并发 run 节流（扩展侧策略），与渲染无关。
 
 ## 已知边界
 

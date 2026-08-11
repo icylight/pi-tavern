@@ -56,7 +56,7 @@ pi.sendMessage(
 - 空闲/补拉投递使用 `deliverAs: "followUp"` 和 `triggerTurn: true`；忙态非 update 环境事件（`system_message` / `board_update` / whisper 单播）正文经 `deliverAs: "steer"` 通道直接投递（下一个工具调用间隙可见，不打断 run）。
 - 不 `await` `sendMessage` 全量完成：pi SDK 的 `sendMessage` 在当前 run 结束后才 resolve，await 会锁死单飞行锁整个 run 时长——统一投递在 `sendMessage` 调用后同步乐观推进游标，不等待 run 结束。
 - 当前 pi Agent 空闲时立即触发 Agent run。
-- 当前 pi Agent 正在 streaming 时：非 update 环境事件正文走 steer 直接投递（见上）；公共消息通知（`group_chat_update`）则零正文——忙态只置未读标记并排一个隐藏打断令牌，在 steer 安全边界（当前工具批结束、下一次模型调用前）触发一次 abort，`agent_settled` 后按游标拉取全部未读并以 followUp 重开（#64/ADR-0008）。
+- 当前 pi Agent 正在 streaming 时：非 update 环境事件正文走 steer 直接投递（见上）；公共消息通知（`group_chat_update`）则零正文——忙态只置未读标记并排一个隐藏打断令牌，在 steer 安全边界（当前工具批结束、下一次模型调用前）触发一次 abort，`agent_settled` 后按游标拉取全部未读并以 followUp 重开（#64，安全边界 abort）。
 
 该 `custom_message` 及随后产生的 assistant 回复、工具调用和工具结果按照 pi 原生逻辑写入角色当前的 pi session。它不写入群聊记录；只有成功的 `tavern_speak` 内容才进入群聊记录。
 
@@ -112,7 +112,7 @@ Developer:
 
 - 事件保持接收顺序。
 - 每条公开消息保留发送者和完整正文。
-- 消息正文、状态快照和 PiTavern 控制说明使用明确分段；成员变化与流式状态变化不进入 Agent 输入（ADR-0008），因此不在 `content` 中投影。
+- 消息正文、状态快照和 PiTavern 控制说明使用明确分段；成员变化与流式状态变化不进入 Agent 输入，因此不在 `content` 中投影。
 - `content` 不直接 dump WebSocket JSON。
 - Character Markdown 不进入 `content`；它在领取时加载一次，并作为加入期间稳定的 system prompt 扩展。
 - Character 自己公开消息的广播回显不进入防抖批次：preview 完整覆盖的纯自身窗口在拉取前过滤；preview 不完整且含自身消息时不排打断令牌，只在自然 settle 后拉取；拉取结果继续过滤 `isOwnEcho`，纯自身窗口只推进水位、不生成输入。
