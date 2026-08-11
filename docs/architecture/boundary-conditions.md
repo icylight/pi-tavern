@@ -188,7 +188,6 @@ SessionManager._appendEntry() 的内部顺序是：
 
 - `interaction-model.md` → 退出、异常和恢复
 - `extension-architecture.md` → Runtime 统一清理接口
-- `implementation-plan.md` → M5：pi 生命周期完整对齐
 
 **文档要求：**
 
@@ -227,7 +226,6 @@ SessionManager._appendEntry() 的内部顺序是：
 **关联设计文档：**
 
 - `websocket-protocol.md` → 广播
-- `implementation-plan.md` → M5 的全部异常清理
 
 **文档要求：**
 
@@ -279,7 +277,6 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 **关联设计文档：**
 
 - `extension-architecture.md` → Runtime 任务串行化、Runtime 统一清理接口
-- `implementation-plan.md` → M5：pi 生命周期完整对齐
 
 **发生条件：**
 
@@ -324,7 +321,6 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 - `interaction-model.md` → reload 与 session 生命周期
 - `extension-architecture.md` → reload handoff
-- `implementation-plan.md` → M5：pi 生命周期完整对齐
 
 **文档要求：**
 
@@ -463,29 +459,28 @@ catch 块为空——不触发断开清理、不移除 `onlineCharacters`、不�
 
 **原问题：**
 
-协议原先要求 Creator 先广播 `character_joined`，再向新 Character 发送 `message_history`。加入者处理 `character_joined` 时尚不知道群聊已有公开消息，`hasPublicMessages` 为 false，导致自己的加入事件被过滤。
+协议原先要求 Creator 先广播 `character_joined`，再向新 Character 自动发送历史。加入者处理 `character_joined` 时尚不知道群聊已有公开消息，`hasPublicMessages` 为 false，导致自己的加入事件被过滤。
 
 **当前实现：**
 
-- Creator 改为先向加入者发送 `message_history`，再向全部连接广播 `character_joined`。
-- 非空历史会先让 `hasPublicMessages` 变为 true，因此随后到达的加入事件能够进入同一个防抖批次。
-- 空历史不会启动批次，随后加入事件仍被过滤，符合 empty 群聊不触发 Agent run 的要求。
-- `websocket-protocol.md` 已正式采用 history → joined 顺序：历史是加入前的上下文，加入事件是其后的实时环境变化。
+- ready 成功后 Creator 只单播 `system_message` 欢迎语（#123：替代历史自动推送），不再自动发送 `message_history`；历史由加入方经 `get_message_history` / `fetch_messages_since` 主动拉取（游标预置 = 进入时刻水位，#144 方案 a）。
+- 拉到非空历史后 `hasPublicMessages` 变为 true，因此随后到达的加入事件能够进入同一个首次环境批次；历史 `public_message` 按历史顺序排在 `character_joined` 之前（websocket-protocol.md「加入」节）。
+- 空群聊没有历史可拉，随后加入事件仍被过滤，符合 empty 群聊不触发 Agent run 的要求。
 
 **测试要求：**
 
-- started 群聊中，新 Character 的首次 `sendMessage()` 同时包含最近历史和自己的加入事件。
+- started 群聊中，新 Character 的首次 `sendMessage()` 同时包含主动拉取的历史和自己的加入事件。
 - `details.events` 中历史 `public_message` 保持历史顺序，并排在 `character_joined` 之前。
 - empty 群聊中，空历史和自己的加入事件不触发 `sendMessage()`。
 - 其他在线 Character 仍只收到一次 `character_joined`。
 
 **涉及组件：**
 
-- `CreatorRuntime`——`character_ready` 消息发送顺序
-- `GroupChatInput.isEnvironmentEvent()`——`hasPublicMessages` 守卫
-- `CharacterRuntime.hasPublicMessages`——通过 `message_history` 设置
+- `CreatorRuntime`——`character_ready` 响应（`latest_sequence`）与欢迎语单播
+- `GroupChatInput`——游标预置（进入时刻水位）与历史主动拉取
+- `CharacterRuntime.hasPublicMessages`——经主动拉取的历史设置
 
-**当前检测：** Creator lifecycle 测试已断言 history → joined；尚缺非空历史下首次 GroupChatInput 批次的集成测试。
+**当前检测：** welcome-message 锚点测试断言 ready 后单播欢迎语而非历史自动推送；Creator lifecycle 测试断言 history → joined 的首次批次顺序。
 
 ---
 
@@ -564,7 +559,6 @@ sendMessage: (message, options) => {
 
 - `websocket-protocol.md` → 连接心跳
 - `development-conventions.md` → 超时与时间常量
-- `implementation-plan.md` → M5：pi 生命周期完整对齐
 
 **文档要求：**
 
@@ -593,7 +587,7 @@ sendMessage: (message, options) => {
 - `CreatorRuntime`（ping 定时器、pong 超时检测）
 - `CharacterRuntime`（Creator ping 时间记录和 120 秒超时检测）
 
-**当前检测：** 无测试。本项由 `implementation-plan.md` 明确归入 M5，不阻塞 M3；M5 需要分别验证 Creator 未收到 pong 和 Character 未收到 ping 的清理路径。
+**当前检测：** 无测试。M5 需要分别验证 Creator 未收到 pong 和 Character 未收到 ping 的清理路径。
 
 ---
 

@@ -165,4 +165,4 @@ grep 歧义排除（复核引用）：`grep writeFile` 额外命中 `creator-run
 1. 新增/移动 src 文件：按本图落层；改完跑 `npm run lint:layers`（层方向） + `npm run check`（biome + tsc）
 2. 改变跨层依赖：先群聊声明影响面（契约零漂移），同步更新本图 §2/§4
 3. 新增豁免：必须带裁决依据（参考 §5 表格），lint-layers 白名单同步更新
-4. 挂起项开工（character-pipelines 拆分 / character-runtime 瘦身）：以本图 §6.2 为起点，遵循 refactor-plan 行为等价基准（先钉后迁）
+4. 挂起项开工（character-pipelines 拆分 / character-runtime 瘦身）：以本图 §6.2 为起点，遵循行为等价基准（先钉后迁：迁移 PR 内先写行为钉测 → 迁移 → 断言零改动仍绿）

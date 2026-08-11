@@ -172,7 +172,7 @@ ACK 执行方 → 验收方：确认 → 交付关闭
 
 | 争议类型 | 仲裁者 | 依据 |
 | --- | --- | --- |
-| 范围之争 | PM | docs/development/acceptance.md、docs/development/implementation-plan.md |
+| 范围之争 | PM | docs/development/acceptance.md、当前版本需求基线与对应 GitHub Issue |
 | 契约之争 | Arch | docs/ 契约文档 + docs/architecture/adr/ |
 | 质量之争 | QA | 可复现证据（最小步骤 + 期望/实际差异） |
 | 执行落点之争 | User | User 优先（默认分支、main 不动） |

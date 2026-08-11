@@ -82,7 +82,7 @@ character/
 
 - `character-runtime.ts` 实现 Character WebSocket、状态上报、心跳、发言请求和关闭；
 - `join-attempt.ts` 实现三阶段加入和 WebSocket 所有权转交；
-- `group-chat-input.ts` 实现 1 秒环境防抖、拉取最新群聊状态，以及生成并提交 `pi-tavern.group-chat-input`；
+- `group-chat-input.ts` 实现群聊环境事件聚合（#64 pull 模型：`group_chat_update` 纯标记、非 update 批次 1s 合并、闲态固定 1s 窗口并入不重置、忙态 settle 触发）、拉取最新群聊状态，以及生成并提交 `pi-tavern.group-chat-input`；
 - `character-reload-handoff.ts` 定义 Character reload 载荷及资源接管辅助。
 
 群聊输入已经是边界明确的另一种 pi Agent 输入来源，因此独立成文件，但不建立子目录。Character prompt 注入逻辑首版保留在 `character-runtime.ts`，不为少量接线预先拆出文件。
@@ -533,7 +533,7 @@ interface LoadedCharacter {
 
 - `socket` 在 `character_ready` 成功后从 `JoinAttempt` 接收所有权；
 - `character` 是领取后读取一次并缓存在内存中的 Character Markdown 结果；
-- `pendingEvents` 和 `debounceTimer` 管理 1 秒群聊环境防抖；
+- `pendingEvents` 和 `debounceTimer` 管理群聊环境事件聚合（#64：闲态固定 1s 窗口并入不重置，忙态排隐藏令牌 settle 后触发；非 update 批次 1s 合并）；
 - `heartbeatTimer` 检测群聊创建者心跳超时；
 - `disposed` 供异步回调确认当前 Runtime 是否已经失效。
 

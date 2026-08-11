@@ -3,6 +3,7 @@
 - 状态：**Accepted**（2026-08-02，User 批准 #38 四项：口径 A/秒级延迟/分支名/复用 #38；落 feat/issue-38-live-delivery 分支）
 - 决策者：架构师（契约定稿/评审）、开发工程师（实现）、产品经理（口径裁决/Task Brief）、测试工程师（验收 T1-T4）
 - 关联：GitHub #38（角色发言同步延迟）、M7 A5（投递时机）、new-message-fetch §3 采访决策 #3/#4（原文档 docs/archive/new-message-fetch.md 已随 0.3.0 死文档清理删除，2026-08-08，分支 refactor/cleanup-dead-code；本 ADR 决策内容不受影响）、ADR-0003（不受本修订影响，见「与 ADR-0003 的关系」）
+- 修订注记（2026-08-11）：决策 1「run 活跃期收到 group_chat_update 照常拉取 + steer 间隙投递」的**拉取动作**已被 ADR-0008 修订——现行忙态语义 = 零正文拉取（只置未读标记 + 隐藏令牌最多一个经 steer 队列），settled 后拉全未读并投递；本 ADR 其余决策（idle followUp / 忙态 steer 通道 / settle 收尾补投）不受影响，以 ADR-0008 为现行依据。
 
 ## 背景
 

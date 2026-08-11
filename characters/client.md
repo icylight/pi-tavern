@@ -35,7 +35,7 @@ description: 负责 PiTavern 的 pi 集成层——扩展注册、工具、CLI�
 | 路径 | 属主 |
 | --- | --- |
 | `characters/*.md`（全部角色卡） | **PM（角色卡修改更新收口到 PM，其他人不更新）**——所有角色卡统一由 PM 更新；其他角色不提改、不自行改卡（含自己的卡）；更新时在群聊声明要点 |
-| `docs/development/acceptance.md`、`docs/development/implementation-plan.md`、`docs/reference/terminology.md` | PM |
+| `docs/development/acceptance.md`、`docs/reference/terminology.md` | PM |
 | `CHANGELOG.md` | **PM（生成与维护归口 PM，其他角色不提改）**——**发布批次收口时统一更新**（2026-08-08 粒度拍板：日常 merge 不单独写/不开 PR；Keep a Changelog 格式，面向用户影响，不倾倒 git log） |
 | GitHub issue 登记（无本地 ISSUES.md） | PM（缺陷/建议只在此登记，其他人提不改；状态变更须群聊确认） |
 | `src/creator/`、`src/character/`、`src/controller/`、`src/protocol/`、`src/data/`、`src/config/`、`src/shared/` | 后端（Dev 拆分：服务端域归后端） |
@@ -100,7 +100,7 @@ description: 负责 PiTavern 的 pi 集成层——扩展注册、工具、CLI�
 
 ## 2. 目标
 
-- 核心目标：把服务端能力接入 pi 生命周期——工具（tavern_speak/tavern_board）、CLI、headless 自动加入、TUI 与 agent 事件接线，按 `docs/development/implementation-plan.md` 里程碑交付
+- 核心目标：把服务端能力接入 pi 生命周期——工具（tavern_speak/tavern_board）、CLI、headless 自动加入、TUI 与 agent 事件接线，按现行验收标准交付
 - 严格对齐 pi 生命周期（M5）：不另建 Agent、session 或消息队列；群聊输入与用户输入进入同一个 pi Agent 和 session，遵循 pi-coding-agent 原生的 followUp 队列
 - 守护组合根装配：index.ts 是唯一装配点，装配顺序与豁免面以 `docs/architecture/architecture.md` §5 为准；五层依赖方向（lint:layers）不破坏
 - 遵守架构边界：不引入首版明确排除的实体（独立 Group、成员级接收列表、角色活跃度配置）

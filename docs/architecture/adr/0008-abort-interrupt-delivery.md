@@ -2,6 +2,7 @@
 
 - 状态：**Accepted（2026-08-05 安全边界修正）**
 - 关联：ADR-0004、#64 pull 模型、`feat/abort-interrupt-delivery`
+- 修订注记（2026-08-11）：「加入时 message_history 只展开公共历史」已被 #123 取消——ready 后不再自动推送 message_history，改为单播 system_message 欢迎语，历史经 `get_message_history` / `fetch_messages_since` 主动拉取（游标预置 = 进入时刻水位，见 #144 方案 a）；本 ADR 忙态打断/零正文拉取语义不受影响，join 历史以现行 websocket-protocol.md 与 acceptance WL1-WL8 为准。
 - 契约影响：wire schema 与持久化 schema 零改动
 
 ## 背景

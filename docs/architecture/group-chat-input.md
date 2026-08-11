@@ -21,8 +21,8 @@ fetch_messages_since(本 Session 持久化游标)（扩展机械拉取，sequenc
 ```
 
 - 公开消息走「通知 + 增量拉取」：广播只携带最新序号与最近 3 条预览，完整增量由角色主动拉取；忙态只把隐藏令牌放入 steer 队列，正文不入队。令牌在当前工具批结束、下一次模型调用前触发 abort；settle 后拉全并通过 followUp 重开。
-- `group_chat_update` 只由公开消息触发；白板走独立 `board_update`；成员与流式状态变化不再唤醒 Agent，也不进入 Agent 输入。加入时的 `message_history` 只展开公共历史消息。
-- 游标（上次成功投递的最后一条 message sequence）本地持久化（`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>/<session_id>.json`，**游标跟随 Session**），投递成功后更新，重启不丢；同群聊多角色互不共用游标文件。**旧版群聊级单文件（`cursors/<group_chat_id>.json`）废弃不读**（值无 Session 身份，回退采用会跳过消息）；新 Session 无独立游标时从完整历史分页重新拉取。
+- `group_chat_update` 只由公开消息触发；白板走独立 `board_update`；成员与流式状态变化不再唤醒 Agent，也不进入 Agent 输入。加入时的历史不自动注入，经 `get_message_history` / `fetch_messages_since` 主动拉取（#123：ready 后仅单播 `system_message` 欢迎语）。
+- 游标（上次成功投递的最后一条 message sequence）本地持久化（`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>/<session_id>.json`，**游标跟随 Session**），投递成功后更新，重启不丢；同群聊多角色互不共用游标文件。**旧版群聊级单文件（`cursors/<group_chat_id>.json`）废弃不读**（值无 Session 身份，回退采用会跳过消息）；新 Session 无独立游标时预置游标 = 进入时刻水位（#144 方案 a：ready 响应 `latest_sequence`；旧服务端缺省回退预置查询路径——join 后一次 `fetchMessageHistoryPage(null)` 取水位 CAS 写），进入后增量拉取不重不漏（严格区间 = 预置完成后）。
 - 一个防抖批次只生成一条输入。单个 WebSocket 消息不直接追加到 pi session。
 
 ## pi custom message

@@ -2,7 +2,7 @@
 
 - 状态：**Accepted**（2026-08-04 User 三项拍板后转正）
 - 决策者：User（产品模型采访定稿）、Arch（架构定案）、Dev（实现核实）、QA（验收锚点）
-- 关联：issue #114（白板模型立项）；问题源头 #105（README 位置议题 8+ 轮摇摆）；错误实践 #107（B 方案，实现 #110 已被 #111 revert）；理解文档 docs/archive/brainstorm-convergence.md
+- 关联：issue #114（白板模型立项）；问题源头 #105（README 位置议题 8+ 轮摇摆）；错误实践 #107（B 方案，实现 #110 已被 #111 revert）；理解文档 docs/archive/brainstorm-convergence.md 已随历史文档清理删除，2026-08-11，分支 docs/cleanup-historical-docs；本 ADR 决策内容不受影响
 
 ## 背景
 

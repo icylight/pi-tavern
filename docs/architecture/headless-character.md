@@ -37,7 +37,7 @@ PITAVERN_GROUP_CHAT=xxx scripts/pi-char-dev.sh --character qa
    程序化选择（环境变量匹配 → 唯一候选 → 第一个）→ 走既有三阶段 join
    （discover → claim → ready），无任何对话框；
 3. join 后与交互式角色完全一致：身份行注入、`tavern_speak` / `tavern_whoami`
-   可用、群聊输入（推送+拉取混合、游标持久化）正常；
+   可用、群聊输入（通知广播 + 增量拉取、Session 级游标持久化）正常；
 4. 群聊输入触发 LLM run 并发言——角色完全通过群聊交互。
 
 ## 验收口径（对应 GitHub #29）

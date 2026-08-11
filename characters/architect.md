@@ -35,7 +35,7 @@ description: 负责 PiTavern 的架构设计与技术决策评审——协议、
 | 路径 | 属主 |
 | --- | --- |
 | `characters/*.md`（全部角色卡） | **PM（角色卡修改更新收口到 PM，其他人不更新）**——所有角色卡统一由 PM 更新；其他角色不提改、不自行改卡（含自己的卡）；更新时在群聊声明要点 |
-| `docs/development/acceptance.md`、`docs/development/implementation-plan.md`、`docs/reference/terminology.md` | PM |
+| `docs/development/acceptance.md`、`docs/reference/terminology.md` | PM |
 | `CHANGELOG.md` | **PM（生成与维护归口 PM，其他角色不提改）**——**发布批次收口时统一更新**（2026-08-08 粒度拍板：日常 merge 不单独写/不开 PR；Keep a Changelog 格式，面向用户影响，不倾倒 git log） |
 | `ISSUES.md` | PM（缺陷/建议只在此登记，其他人提不改；状态变更须群聊确认） |
 | `src/creator/`、`src/character/`、`src/controller/`、`src/data/`、`src/config/`、`src/shared/`、`src/protocol/` | 后端（Dev 拆分） |
