@@ -69,6 +69,7 @@ src/
 │       └── query-pipeline.ts  application
 ├── character/
 │   ├── character-runtime.ts   runtime·852 行（未瘦身，挂起项 §6.2）
+│   ├── model-transition-queue.ts runtime·模型临时覆盖单飞队列（#180，纯逻辑）
 │   ├── group-chat-input.ts    runtime 域发言输入（612 行；发言/steer 策略管线挂起 §6.2）
 │   └── join-attempt.ts        runtime·WS 客户端传输
 ├── data/                      skills·能力单元
@@ -122,6 +123,7 @@ src/
 
 - `creator-runtime.ts`（427 行骨架）：import 面 = config（load-config 常量 / character-card 类型）+ data（session-store / cursor-store）+ protocol（codec / messages / public-message-state）+ shared（runtime-close）+ 域内模块（broadcast-hub / connection-manager / creator-factory / creator-pipelines）；**零直连 node:fs**（规则 3 绿，IO 经依赖注入）
 - `character-runtime.ts`：config / data(cursor-store) / protocol / shared + 域内（group-chat-input）；直连 `data/cursor-store` 读写（读豁免：adapter 可直查 skills 纯读；写属 skills 层原语调用，合规）
+- `model-transition-queue.ts`（#180 角色模型/思考强度临时覆盖）：纯逻辑单飞队列，零 pi SDK import（setModel/setThinking 执行器回调注入）、零 node:fs；详见 [character-model-hook](character-model-hook.md)
 - `join-attempt.ts`：config / data(active-descriptor 类型) / protocol / shared
 
 ### 4.4 adapter
