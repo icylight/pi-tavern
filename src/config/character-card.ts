@@ -1,7 +1,6 @@
 import type { Dirent, Stats } from "node:fs";
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
-
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import {
 	ERROR_ACCESS_CHARACTER_IMPORT_PREFIX,
@@ -26,9 +25,41 @@ export interface CharacterSummary {
 	description: string;
 }
 
+/** 模型标识二元组：Model 类型无全局唯一单字段，同名 model 可跨 provider。 */
+export interface ModelId {
+	provider: string;
+	id: string;
+}
+
+/**
+ * 角色卡可选 model 字段的三态解析结果（#180）。
+ * 仅基础存在性/类型检查（User 定案：不做格式/目录/枚举校验，解析/切换
+ * 职责归 pi 执行器）：absent = 字段缺席（仅 undefined）；非 string/空串
+ * = invalid；其余任意字符串（含无斜杠、自定义名）= ok 原样携带。
+ * 解析失败不得导致角色卡加载/加入失败。
+ */
+export type ModelFieldStatus =
+	| { status: "absent" }
+	| { status: "ok"; model: string }
+	| { status: "invalid"; raw: unknown };
+
+/**
+ * 角色卡可选 thinking 字段的三态解析结果（#180）。
+ * 与 model 同规最小化：不做 7 值/大小写校验（pi 对非法值静默钳制，
+ * 视为 pi 的正常处理）；仅基础存在性/类型检查。
+ */
+export type ThinkingFieldStatus =
+	| { status: "absent" }
+	| { status: "ok"; level: string }
+	| { status: "invalid"; raw: unknown };
+
 export interface CharacterCard extends CharacterSummary {
 	path: string;
 	prompt: string;
+	/** 可选 model 字段（推荐 provider/id，任意非空字符串）三态；未配置 = absent。 */
+	model?: ModelFieldStatus;
+	/** 可选 thinking 字段（任意非空字符串，由 pi 应用时钳制）三态；未配置 = absent。 */
+	thinking?: ThinkingFieldStatus;
 }
 
 export interface CharacterImport {
@@ -68,7 +99,41 @@ export async function loadCharacterCard(path: string, configPath: string): Promi
 		description,
 		path: resolvedPath,
 		prompt: parsed.body,
+		model: parseModelField(parsed.frontmatter.model),
+		thinking: parseThinkingField(parsed.frontmatter.thinking),
 	};
+}
+
+/**
+ * 解析角色卡可选 model 字段（#180，最小三态）。
+ *
+ * - undefined（字段缺席）→ absent；
+ * - 非 string / 空串（含纯空白）→ invalid，raw 原样携带；
+ * - 其余任意字符串 → ok，原样携带（不做 provider/id 拆解校验，
+ *   格式解析/模型解析归执行期）。
+ */
+export function parseModelField(raw: unknown): ModelFieldStatus {
+	if (raw === undefined) {
+		return { status: "absent" };
+	}
+	if (typeof raw !== "string" || raw.trim() === "") {
+		return { status: "invalid", raw };
+	}
+	return { status: "ok", model: raw };
+}
+
+/**
+ * 解析角色卡可选 thinking 字段（#180，最小三态）。
+ * 与 model 同规：仅基础存在性/类型检查；非法值由 pi 在应用时钳制处理。
+ */
+export function parseThinkingField(raw: unknown): ThinkingFieldStatus {
+	if (raw === undefined) {
+		return { status: "absent" };
+	}
+	if (typeof raw !== "string" || raw.trim() === "") {
+		return { status: "invalid", raw };
+	}
+	return { status: "ok", level: raw };
 }
 
 export async function loadCharacterCards(imports: CharacterImport[]): Promise<CharacterCard[]> {

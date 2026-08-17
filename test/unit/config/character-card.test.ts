@@ -35,6 +35,8 @@ describe("Character Markdown", () => {
 			description: "负责系统设计",
 			path: characterPath,
 			prompt: "你是一名软件架构师。",
+			model: { status: "absent" },
+			thinking: { status: "absent" },
 		});
 	});
 
@@ -103,6 +105,8 @@ describe("Character Markdown", () => {
 			description: "Reviews code",
 			path: characterPath,
 			prompt: "Review prompt",
+			model: { status: "absent" },
+			thinking: { status: "absent" },
 		});
 
 		await expect(

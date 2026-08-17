@@ -6,10 +6,10 @@
 
 ## 1. 需求边界（定稿）
 
-- 角色卡 frontmatter 新增两个独立可选字段：`model: "provider/id"` 与 `thinking: <level>`；未配置行为完全不变。
-- thinking 合法 7 值：`off|minimal|low|medium|high|xhigh|max`（与 pi 配置面 `ModelThinkingLevel` 一致，runtime 层 ThinkingLevel 不含 off）；off = 显式关闭思考，两类模型下语义自洽（reasoning 默认支持 off；非 reasoning 仅 off）。
+- 角色卡 frontmatter 新增两个独立可选字段：`model` 与 `thinking`；未配置行为完全不变。
+- **不校验语义**（PM 最终口径）：不做 model 目录/provider-id 格式校验，不做 thinking 枚举/大小写校验；仅基础存在性——undefined = absent、非 string/空串 = invalid（提示不尝试）、其余任意字符串 = ok 原样传递。provider/id 拆解与模型查找归执行器；thinking 任意非空字符串 cast 直传 pi setter，**pi clamp 视为 pi 正常处理**（非法值由 pi 钳制为实际支持值，无失败提示），仅 setter throw/异常才 warning。
 - 加入后 best-effort 切换到角色卡 profile；正常离开 best-effort 恢复加入前基线；失败只提示、不阻塞主流程。
-- 加入期间允许手动换模型/强度；离开仅恢复「本轮配置过且合法」的维度（restore mask），未配置维度不额外回滚中途手动值。
+- 加入期间允许手动换模型/强度；离开仅恢复「本轮基础检查通过」的维度（restore mask），未配置维度不额外回滚中途手动值。
 - 强杀不保证恢复，作为已知限制。
 - 明确不做：自动降级、候选列表、动态路由、运行中热改角色卡、wire/persistence 变更、事件总线/插件框架。
 
@@ -44,8 +44,8 @@ model/thinking 是 pi 会话的**运行时状态**——扩展 API 可读写（`
   - **switch** {kind, epoch, target: {model?, thinking?}}：至少一维；执行序 model → thinking；
   - **restore** {kind, epoch}：执行时读槽位，按槽位 mask 逐维恢复（显式双维 mask，不用「属性是否存在」隐式代替——getter 不可用与未配置不是一回事）；
 - **profile 执行语义**：
-  - model 维：getter 校正后 lastModel 已 == target.model → 达标短路；否则 setModel，settle 后按实际 getter 校正（回执仅决定告警）；
-  - thinking 维（switch）：model 维达标后才 setThinking(target.thinking)；model 缺席（thinking-only）直接 setThinking；model 已提供但 invalid/不可用/未到目标 → 跳过 thinking + warning；thinking throw → 不回滚 model，getter 校正 + warning；
+  - model 维：达标判定按**规范键** `${provider}/${id}` 比较——lastModel（生效二元组）转规范键后与 target.model（原始字符串）相等即达标短路；不相等则 setModel（执行器收原始字符串，自行拆解/find/set），settle 后按实际 getter 校正（回执仅决定告警）；restore 时槽位 values.model（生效二元组）同样转规范键字符串交执行器；
+  - thinking 维（switch）：model 维达标后才 setThinking(target.thinking)；model 缺席（thinking-only）直接 setThinking；model 已提供但 invalid/不可用/未到目标 → 跳过 thinking + warning；thinking 为任意非空字符串（不校验枚举），cast 直传 pi setter，pi clamp 为正常处理（非法值由 pi 钳制、无失败提示），仅 throw 才 warning 且不回滚 model；
   - restore：槽位 model 维存在 → 恢复 model（undefined = 无模型环境跳过）；槽位 thinking 维存在 → model 恢复达标后 setThinking(槽位.thinking)，model 未达标则跳过 thinking + warning（避免套到错误模型）；model-only mask 不显式回滚 thinking，thinking-only mask 不触碰 model；顺序 model → thinking。
 
 ## 5. 三条规则
@@ -67,7 +67,7 @@ model/thinking 是 pi 会话的**运行时状态**——扩展 API 可读写（`
 
 ## 7. 基线生命周期（槽位方案）
 
-基线以**槽位**承载：epoch → `{mask: {model, thinking}, values: {model?, thinking?}}`——mask 显式保存合法配置维度（不用「槽位是否有该属性」隐式代替 mask：getter 暂不可用/值 undefined 与未配置不是一回事）。
+基线以**槽位**承载：epoch → `{mask: {model, thinking}, values: {model?, thinking?}}`——mask 显式保存基础检查通过维度（不用「槽位是否有该属性」隐式代替 mask：getter 暂不可用/值 undefined 与未配置不是一回事）。
 
 - capture 任务携带双维 mask；执行时按 mask 拍 values（mask 开启但 getter 无值 → 保留 mask + 观测告警）；restore 执行时读槽位——不拷贝值、不依赖提交时值已存在（快速 join→立即 leave 时 capture 尚未执行，restore 执行时 FIFO 保证 capture 已完成）；
 - restore 按 mask 逐维恢复：mask.model → 恢复 values.model（undefined = 无模型环境 → no-op）；mask.thinking → model 达标后恢复 values.thinking（undefined → no-op + 观测告警）；mask 未开启维度不触碰（不额外回滚中途手动值）；
@@ -99,7 +99,7 @@ pi `setModel` 内部会 `setDefaultModelAndProvider` 把新模型持久化为用
 1. `modelRegistry.find(provider, id)` 解析失败/不可用 → 失败；
 2. `hasConfiguredAuth` 预检不过 → 失败（setModel 返回 false 层）；
 3. setModel 调用后 try/catch 全包 + 返回值判断（内部二次 checkAuth 可能 throw）→ 失败；
-4. setThinkingLevel 同步 void、仅 throw 层——try/catch + warning（含目标值 + 动作），不回滚 model。
+4. setThinkingLevel 同步 void、仅 throw 层——任意非空字符串 cast 直传；pi 对非法值由 pi 钳制（`includes ? level : _clampThinkingLevel`），视为正常处理不另判失败；仅 throw/执行异常才 try/catch + warning（含目标值 + 动作），不回滚 model。
 
 分层分工：角色卡 `model`/`thinking` 字段解析失败在 runtime 层检测并统一流入失败路径（「未提交 switch + 队列无任务」行为面断言归 runtime 层）；提示（notify）由 adapter 层发出（notify 面断言归 adapter 层）——提示逻辑不落 runtime 层，避免断言错位。
 
@@ -112,13 +112,13 @@ pi `setModel` 内部会 `setDefaultModelAndProvider` 把新模型持久化为用
 | model-transition-queue | runtime 域 | `src/character/` | 纯逻辑；执行器以回调注入（setModel + setThinking），不 import pi SDK |
 | 基线持有 + 挂点（claim / leave / handleConnectionClosed / takeReloadHandoff / detachForReload） | application | `src/controller/` | 状态权威点触发，与状态迁移同步 |
 | setModel/setThinking 执行器 + 装配 | adapter | `src/extension/` + `src/index.ts` 组合根 | 错误归一 + 单一 notify 回调 |
-| handoff 基线字段 | application/controller 域 | `src/controller/reload-handoff-registry.ts`（`CharacterReloadHandoff`）携带队列快照（pending + lastModel + lastThinking + 槽位表 + 至多一个 inFlight{task, completionPromise}），`CharacterRuntime.takeHandoff` 重建 | 与 pendingEvents 交接同构 |
-| 角色卡 model/thinking 字段解析 | shared | `src/config/character-card.ts` | 可选字段独立三态；非法格式不导致加载失败 |
+| handoff 基线字段 | application/controller 域 | `src/controller/reload-handoff-registry.ts`（`CharacterReloadHandoff`）携带队列快照（pending + lastModel + lastThinking + 槽位表 + 至多一个 inFlight{task, completionPromise, phase, remaining}），`CharacterRuntime.takeHandoff` 重建 | 与 pendingEvents 交接同构 |
+| 角色卡 model/thinking 字段解析 | shared | `src/config/character-card.ts` | 可选字段最小三态（仅存在性/类型）；基础检查失败不导致加载失败；格式/值域不校验 |
 
 依赖方向：adapter → application → runtime → shared，无上行；队列与执行器解耦（窄接口回调注入），无循环依赖。wire schema（protocol/）与 persistence 零改动。
 
 ## 12. 验证锚点分层
 
-- acceptance（真实 RPC，`get_state`（model/thinkingLevel）/`set_model`/`get_available_models` 原语可断言）：核心序列 A→B→leave/join C→leave（model+thinking 双断言）；reload 后离开回基线；不可用模型 false 层；手动换模型恢复基线；settings 双断言；无字段回归；强杀只验收敛不验恢复。thinking 断言锚 get_state.thinkingLevel 生效值（非配置原值），settings 只断离开最终基线；clamp 超能力场景下沉 unit/integration。
+- acceptance（真实 RPC，`get_state`（model/thinkingLevel）/`set_model`/`get_available_models` 原语可断言）：核心序列 A→B→leave/join C→leave（model+thinking 双断言）；reload 后离开回基线；不可用模型失败层；裸字符串 model 运行时失败 warning + 不阻塞；任意 thinking 由 pi 钳制且以 getter 实际值断言；手动换模型恢复基线；settings 双断言；无字段回归；强杀只验收敛不验恢复。thinking 断言锚 get_state.thinkingLevel 生效值（非配置原值），settings 只断离开最终基线；clamp 超能力场景下沉 unit/integration。
 - integration（可控时序/注入）：WS 瞬断重连（handleConnectionClosed 注入）；队列竞态全场景（switch 在途 leave、epoch 过期、幂等短路、capture 屏障、thinking 随 model 达标后设置、restore mask）。
 - unit（mock）：throw 层注入、notify no-op 兜底、队列规则全枚举、parseModelField/parseThinkingField 三态、clamp 语义（生效值锚定）。
