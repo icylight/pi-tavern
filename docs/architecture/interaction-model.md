@@ -73,7 +73,7 @@ Repository
 - pi 正常退出（`session_shutdown`）：先退出或关闭群聊再允许 pi 继续退出，清理最多等待 5 秒、超时后强制完成本地 WebSocket 清理。
 - `/new`/`/resume`/`/fork`/`/clone` 切换 `sessionId` 前先取得用户确认；session 切换不继承群成员关系、提示词、输入模块或工具。退出一旦完成不撤销；同 session 操作不退出群聊。
 - `/reload` 不属于退出流程：Creator 或 Character 通过一次性运行资源交接保持原群聊身份和 WebSocket（5 秒接管超时后释放）；`joining` 不参与交接。
-- 角色卡配置 `model` 时：进入 Character 后 best-effort 切换到该模型；正常离开（含断线回 `idle`）best-effort 恢复加入前基线；两者失败只提示、不阻塞主流程。加入期间手动换模型允许，离开仍恢复基线。详见 [character-model-hook](character-model-hook.md)。
+- 角色卡配置 `model` 或 `thinking` 时：进入 Character 后 best-effort 应用角色 profile（model 达标后设 thinking）；正常离开（含断线回 `idle`）best-effort 按 restore mask 恢复加入前基线；失败只提示、不阻塞。详见 [character-model-hook](character-model-hook.md)。
 
 ## 群聊输入与投递
 
@@ -131,7 +131,7 @@ project.configMaxMessages ?? global.configMaxMessages ?? 10
 - 两层配置：Global `~/.pi/agent/tavern.json`、Project `<repo>/.pi/tavern.json`；合并加载（列表合并、标量项目覆盖全局）。
 - `characters` 导入单个角色卡或目录（路径相对声明它的配置解析；文件=一张卡，目录=递归发现）。
 - `/tavern-join` 同时展示全局与项目角色卡；任意来源重复 `name` 配置无效；首版不支持排除全局角色。
-- 配置错误：无法解析/不符合 schema/角色卡读取失败或 frontmatter 非法（必填字段 `name`/`description` 缺失）→ 相关命令失败并列出具体文件，不静默跳过、不使用猜测默认值；已启动的 Runtime 继续用启动时配置，不监听文件变化。例外：可选 `model` 字段格式非法不导致命令失败——加载产出可传递失败状态，加入时只提示、不阻塞（见 [character-model-hook](character-model-hook.md)）。
+- 配置错误：无法解析/不符合 schema/角色卡读取失败或 frontmatter 非法（必填字段 `name`/`description` 缺失）→ 相关命令失败并列出具体文件，不静默跳过、不使用猜测默认值；已启动的 Runtime 继续用启动时配置，不监听文件变化。例外：可选 `model`/`thinking` 字段格式非法不导致命令失败——加载产出可传递失败状态，加入时只提示、不阻塞（见 [character-model-hook](character-model-hook.md)）。
 
 ## Tavern 对话
 
