@@ -69,10 +69,11 @@ Repository
 - `character_joined`/`character_left` 只用于界面通知，不进入 Agent 输入（成员变化不产生 Agent 输入），与是否已有公开消息无关。
 - `tavern_speak` 是否被接受由当前 Round 剩余发言次数判断；`character_ready` 成功后无额外激活或等待状态，发言走正常校验（连接状态、正文大小、stale 等）。
 - 群成员身份绑定加入时的 `sessionId`；PiTavern 不创建另一个 Agent session ID。
-- 断线（含 Creator 断开）：角色 pi 立即退出群聊，停用 `tavern_speak` 与群聊输入模块、移除 Character system prompt；不打断进行中的 run，已提交输入不撤销。首版无自动重连/重连窗口/成员恢复；用户手动重新 join 后启用提示词和工具。
+- 断线（含 Creator 断开）：角色 pi 立即退出群聊，停用 `tavern_speak` 与群聊输入模块、移除 Character system prompt；不打断进行中的 run，已提交输入不撤销。首版无自动重连/重连窗口/成员恢复；用户手动重新 join 后启用提示词和工具。断线回 `idle` 视为离开：触发模型恢复 hook 同主动离开（见 [character-model-hook](character-model-hook.md)）。
 - pi 正常退出（`session_shutdown`）：先退出或关闭群聊再允许 pi 继续退出，清理最多等待 5 秒、超时后强制完成本地 WebSocket 清理。
 - `/new`/`/resume`/`/fork`/`/clone` 切换 `sessionId` 前先取得用户确认；session 切换不继承群成员关系、提示词、输入模块或工具。退出一旦完成不撤销；同 session 操作不退出群聊。
 - `/reload` 不属于退出流程：Creator 或 Character 通过一次性运行资源交接保持原群聊身份和 WebSocket（5 秒接管超时后释放）；`joining` 不参与交接。
+- 角色卡配置 `model` 时：进入 Character 后 best-effort 切换到该模型；正常离开（含断线回 `idle`）best-effort 恢复加入前基线；两者失败只提示、不阻塞主流程。加入期间手动换模型允许，离开仍恢复基线。详见 [character-model-hook](character-model-hook.md)。
 
 ## 群聊输入与投递
 
@@ -102,12 +103,17 @@ Repository
 ---
 name: Arch
 description: 负责系统设计、技术决策和架构风险分析
+model: anthropic/claude-sonnet-4-5
+thinking: high
 ---
 
 你是一名软件架构师……
 ```
 
 - `name` 用于界面展示；`description` 用于角色选择器、在线列表和状态界面。
+- `model`（可选）声明本角色的运行模型，格式 `provider/id`；加入群聊时自动切换、离开时恢复加入前模型；未配置或解析失败沿用默认模型（失败只提示、不阻塞加入）。
+- `thinking`（可选）声明本角色的思考强度，合法 7 值 `off|minimal|low|medium|high|xhigh|max`；加入时在模型切换达标后设置（实际生效值按模型能力钳制）、离开时仅恢复「本轮配置过」的基线强度；未配置或非法只提示、不阻塞加入。
+- 行为与恢复语义见 [character-model-hook](character-model-hook.md)。
 - `claim_character` 预留时加载一次并缓存；`character_ready` 后在加入期间经 `before_agent_start` 对每次 run 应用同一份缓存，不随文件变化自动替换；`/reload` 会重读角色卡，读取失败时保留旧卡。
 - 提示词不重复拼接到群聊输入，也不作为聊天消息写入 pi session；离开群聊时移除。
 - Character 列表只发送 `name`/`description` 公开摘要，不发送正文。
@@ -125,7 +131,7 @@ project.configMaxMessages ?? global.configMaxMessages ?? 10
 - 两层配置：Global `~/.pi/agent/tavern.json`、Project `<repo>/.pi/tavern.json`；合并加载（列表合并、标量项目覆盖全局）。
 - `characters` 导入单个角色卡或目录（路径相对声明它的配置解析；文件=一张卡，目录=递归发现）。
 - `/tavern-join` 同时展示全局与项目角色卡；任意来源重复 `name` 配置无效；首版不支持排除全局角色。
-- 配置错误：无法解析/不符合 schema/角色卡读取失败或 frontmatter 非法 → 相关命令失败并列出具体文件，不静默跳过、不使用猜测默认值；已启动的 Runtime 继续用启动时配置，不监听文件变化。
+- 配置错误：无法解析/不符合 schema/角色卡读取失败或 frontmatter 非法（必填字段 `name`/`description` 缺失）→ 相关命令失败并列出具体文件，不静默跳过、不使用猜测默认值；已启动的 Runtime 继续用启动时配置，不监听文件变化。例外：可选 `model` 字段格式非法不导致命令失败——加载产出可传递失败状态，加入时只提示、不阻塞（见 [character-model-hook](character-model-hook.md)）。
 
 ## Tavern 对话
 
