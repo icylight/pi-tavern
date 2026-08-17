@@ -26,9 +26,50 @@ export interface CharacterSummary {
 	description: string;
 }
 
+/** 模型标识二元组：Model 类型无全局唯一单字段，同名 model 可跨 provider。 */
+export interface ModelId {
+	provider: string;
+	id: string;
+}
+
+/**
+ * 角色卡可选 model 字段的三态解析结果（#180）。
+ * absent = 字段缺席（仅 undefined）；任何已提供但非法值（空串/空白/空段/
+ * 无斜杠/非 string）都产出 invalid 且原样携带 raw——解析失败不得导致
+ * 角色卡加载/加入失败（PM 修正 4）。
+ */
+export type ModelFieldStatus =
+	| { status: "absent" }
+	| { status: "ok"; model: ModelId }
+	| { status: "invalid"; raw: unknown };
+
+/** 思考强度合法值（与 pi 配置面 ModelThinkingLevel 一致，7 值含 off）。 */
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+/**
+ * 思考强度 7 值类型（含 off）。命名对齐 pi 配置面 ModelThinkingLevel，
+ * 避免与不含 off 的 pi ThinkingLevel 类型混淆。
+ */
+export type ModelThinkingLevel = (typeof THINKING_LEVELS)[number];
+
+/**
+ * 角色卡可选 thinking 字段的三态解析结果（#180）。
+ * absent = 字段缺席（仅 undefined）；严格小写 7 值；任何已提供但非法的
+ * 值（非 7 值字符串/非 string/大小写不符）都产出 invalid 且原样携带 raw——
+ * 解析失败不得导致角色卡加载/加入失败。
+ */
+export type ThinkingFieldStatus =
+	| { status: "absent" }
+	| { status: "ok"; level: ModelThinkingLevel }
+	| { status: "invalid"; raw: unknown };
+
 export interface CharacterCard extends CharacterSummary {
 	path: string;
 	prompt: string;
+	/** 可选 model 字段（provider/id）三态；未配置 = absent。 */
+	model?: ModelFieldStatus;
+	/** 可选 thinking 字段（7 值）三态；未配置 = absent。 */
+	thinking?: ThinkingFieldStatus;
 }
 
 export interface CharacterImport {
@@ -68,7 +109,54 @@ export async function loadCharacterCard(path: string, configPath: string): Promi
 		description,
 		path: resolvedPath,
 		prompt: parsed.body,
+		model: parseModelField(parsed.frontmatter.model),
+		thinking: parseThinkingField(parsed.frontmatter.thinking),
 	};
+}
+
+/**
+ * 解析角色卡可选 model 字段（#180）。
+ *
+ * - undefined（字段缺席）→ absent；
+ * - 非 string（number/null/object）→ invalid，raw 原样携带；
+ * - string 按首个斜杠切分 provider/id，两段均非空白 → ok；
+ *   空串/纯空白/无斜杠/空段 → invalid。
+ */
+export function parseModelField(raw: unknown): ModelFieldStatus {
+	if (raw === undefined) {
+		return { status: "absent" };
+	}
+	if (typeof raw !== "string") {
+		return { status: "invalid", raw };
+	}
+	const slashIndex = raw.indexOf("/");
+	if (slashIndex === -1) {
+		return { status: "invalid", raw };
+	}
+	const provider = raw.slice(0, slashIndex);
+	const id = raw.slice(slashIndex + 1);
+	if (provider.trim() === "" || id.trim() === "") {
+		return { status: "invalid", raw };
+	}
+	return { status: "ok", model: { provider, id } };
+}
+
+/**
+ * 解析角色卡可选 thinking 字段（#180）。
+ *
+ * - undefined（字段缺席）→ absent；
+ * - 非 string → invalid，raw 原样携带；
+ * - string 必须严格匹配小写 7 值之一（off/minimal/low/medium/high/xhigh/max），
+ *   否则 invalid（大小写敏感）。
+ */
+export function parseThinkingField(raw: unknown): ThinkingFieldStatus {
+	if (raw === undefined) {
+		return { status: "absent" };
+	}
+	if (typeof raw !== "string" || !(THINKING_LEVELS as readonly string[]).includes(raw)) {
+		return { status: "invalid", raw };
+	}
+	return { status: "ok", level: raw as ModelThinkingLevel };
 }
 
 export async function loadCharacterCards(imports: CharacterImport[]): Promise<CharacterCard[]> {
