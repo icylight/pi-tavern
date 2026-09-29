@@ -235,6 +235,8 @@ export class ModelTransitionQueue {
 	 * 用快照重建队列（reload 后新 runtime）。in-flight 存在时先过 barrier：
 	 * 等旧 setModel settle → getter 校正记录 → 按需执行剩余 thinking
 	 * （不制造第二个并发写），然后继续 pending。
+	 * B1：在途引用随快照接力（下一队列 barrier 完成时按 frozen 分支决定
+	 * 应用或继续传递），否则二次 handoff 时快照 inFlight 恒 null、串行保证丢失。
 	 */
 	static rehydrate(
 		snapshot: ModelTransitionSnapshot,
@@ -248,6 +250,8 @@ export class ModelTransitionQueue {
 		queue.activeEpoch = snapshot.activeEpoch;
 		queue.slots = snapshot.slots;
 		if (snapshot.inFlight !== null) {
+			// B1：登记在途引用——barrier 未完成时再次快照仍携带（接力可无限延续）。
+			queue.inFlight = snapshot.inFlight;
 			queue.barrier = queue.runBarrier(snapshot.inFlight);
 		}
 		if (queue.tasks.length > 0 || queue.barrier !== null) {
@@ -502,6 +506,12 @@ export class ModelTransitionQueue {
 		} finally {
 			clearTimeout(timer);
 		}
+		// B1：已冻队列不应用 remaining、也不清在途引用——剩余部分归接力者
+		// （下一个非冻队列看到同一个 completionPromise 已 settle 时直接应用）；
+		// 否则冻队列会抢先写，且清掉引用后接力链断裂（remaining 永久丢失）。
+		if (this.frozen) {
+			return;
+		}
 		this.refreshModel(true);
 		this.refreshThinking(true);
 		const level = inFlight.remaining.thinking;
@@ -511,6 +521,8 @@ export class ModelTransitionQueue {
 		if (inFlight.task.kind === "restore") {
 			this.slots.delete(inFlight.task.epoch);
 		}
+		// 恰好一次：应用后清引用，后续快照不再携带（断链时剩余部分丢弃）。
+		this.inFlight = null;
 	}
 
 	/**

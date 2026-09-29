@@ -81,6 +81,7 @@ reload 是独立于 claim/leave 的第三条状态通路（takeReloadHandoff 绕
 - **任务纯数据化**：handoff 携带 pending 纯任务 + lastModel + lastThinking + 槽位表 + 至多一个 inFlight{task, completionPromise, phase, remaining}，与 pendingEvents 交接同构；
 - **detach freeze**：交接前 freeze 旧队列——in-flight 完成后不再取 pending；旧调用不可重放（超时不取消旧 in-flight setModel，其副作用可能晚于 handoff 写入）；
 - **in-flight barrier（含分阶段恢复）**：takeHandoff 立即恢复 Character 主流程（不阻塞），但新队列停在 barrier 后：await inFlight.completion settle → 经 getter 读实际 model/thinking 校正记录 → **执行 inFlight 的 remaining 部分**（单飞保证 in-flight 至多一个：setModel 在途时 thinking 未执行，remaining = {thinking?}；新队列 barrier 后若 model 达标 → setThinking(remaining.thinking) 恰一次，未达标 → 跳过 + warning；旧队列 freeze 后不再执行 task 剩余部分）→ 继续执行 pending。snapshot.inFlight 携带 {task, completion, phase, remaining}。**校正规则（统一，不仅 barrier）**：回执不可靠——setModel 先改运行时 model 与 session 记录再 await emit，后置 listener 抛错时 promise rejected 但副作用已发生；故任何任务完成后（无论 fulfilled/rejected），getter 可用则以实际值为准，否则保留记录并提示观测失败；rejected 照常 warning；
+- **接力（多跳 handoff）与断链语义**：barrier 未完成时再次 reload，快照继续携带同一个 inFlight（rehydrate 登记引用）；settle 后由接力链上**第一个非冻队列**执行 remaining（恰好一次）——已冻队列不执行、不清引用，非冻队列执行后清引用；无接力者（交接链断）时 remaining 丢弃，与既有 handoff 丢弃语义一致（不重放、不补偿），仅可经 barrier 超时 warning 与模型记录观测到停滞。
 - **超时与失败**：barrierTimeoutMs 默认 500ms（可注入），超时只发 warning、不得越障；永不 settle = hook 失败提示，不制造第二个并发写——model hook 可停滞，join/leave/reload 主流程不阻塞；
 - takeHandoff 不重跑已执行任务——已执行的 switch 不随 handoff 携带；模型「已在位」由 setModel 改会话内 model 与 `appendModelChange` session 记录保证（reload 只重建 extension runner 与资源、不触碰二者；重启 resume 同一 session 时从 session 记录恢复）。
 
