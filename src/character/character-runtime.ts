@@ -839,8 +839,11 @@ export class CharacterRuntime {
 			round: { round_max_messages: number; used_messages: number; remaining_messages: number };
 		};
 		if (result.published) {
-			this.saveCursor(result.sequence ?? 0);
-			//  二轮（共享化裁定）：成功发布（游标推进）即归零预算——与 speak 同 helper。
+			// #201：发布不再推进游标——游标 = 消费确认水位，入队/发布都不是消费
+			// 依据。发布侧推进会在 (游标, 自产 seq) 区间留下未读洞并前移 stale
+			// basis；自产 whisper 的 seq 由后续拉取的覆盖证明消费（服务端全量
+			// 增量无截断，自产回帧不注入）。
+			//  二轮（共享化裁定）：成功发布即归零预算——与 speak 同 helper。
 			this.resetStaleRecoveryBudget();
 			return { published: true, ...(result.sequence !== undefined ? { sequence: result.sequence } : {}) };
 		}

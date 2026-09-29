@@ -406,7 +406,7 @@ Character 使用固定 1 秒聚合窗口（闲态）合并连续到达的公共�
 3. 忙态：先标记未读挂起，最多排一个 `pi-tavern.abort-control` 隐藏 steer 令牌；当前工具批结束、下一次模型调用前由 `context` 钩子过滤令牌并调用一次 abort。`agent_settled` 后按本 Session 持久化游标 `fetch_messages_since` 拉取全部未读；密集 update 合并为一个令牌、一次 abort、一次拉全。
 4. 拉取完成后请求最新群聊状态，将批次与状态快照合并提交。
 
-**游标推进 = 投递通道判定**：idle followUp 与非 update 环境事件的忙态 steer 在 sendMessage 调用无同步异常后同步乐观推进；忙态 `group_chat_update` 的 abort 与 settle 之间不投递、不推进，settle 后 followUp 入队才推进。同步抛错不推进 → 后续 update/settle 重投；异步 run 启动失败的既有例外不变。
+**游标推进 = 消费确认（#201）**：批次入队（`sendMessage` 无同步异常）不再推进游标；pi 把批推入 agent 上下文时 emit `message_start`（载荷含批 `details`），本侧按批覆盖元数据（`coverage_from` / `latest_sequence`）判定连续性——覆盖下界 ≤ 当前游标才推进。同步抛错不推进并整批重投；异步 run 启动失败 / 队列静默清空（interactive abort → `clearAllQueues`）均属未确认——区间保持未读，后续投递机会重拉重投（重复可接受、跳过不可接受）。
 
 提交环境批次时：
 

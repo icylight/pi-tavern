@@ -367,7 +367,8 @@ roundMaxMessages
 
 - 路径：**游标跟随 Session**——`<agent-dir>/tavern/<project-key>/cursors/<group_chat_id>/<session_id>.json`（同群聊多角色各持独立游标文件，互不推进）；**旧版群聊级单文件（`cursors/<group_chat_id>.json`）废弃不采用**——其值无 Session 身份、可能由其他角色推进，回退采用会跳过本 Session 从未看过的消息；新 Session 无独立游标时**预置游标 = 进入时刻水位**（方案 a：ready 响应 `latest_sequence` 直接写；旧帧缺字段回退预置查询 `fetchMessageHistoryPage(null)` 取水位 CAS 写）；仅预置失败静默时游标保持 null → 完整历史分页兜底（最多重复、绝不跳过），旧文件物理遗留不写不删
 - 内容：`{ "last_sequence": 42, "updated_at": "..." }`（一次性写入：tmp 文件 + rename，同步原语）
-- 更新时机：**每次成功投递后**更新（投递失败游标不动 → 下次重拉同一窗口，按 sequence 幂等）。成功判定为双通道同规则：闲态 followUp / 忙态 steer 在 sendMessage 调用无同步异常后**同步乐观推进**；同步抛错不推进 → settle 兜底重投；异步 run 启动失败（pi 环境不可用）面与改造前一致。游标单调（只前进、不后退）保证双通道不重不漏
+- 更新时机：**游标 = 消费确认水位（#201）**——只有 pi 把注入批推入 agent 上下文（`message_start`，载荷含批次 `details`）才推进；批次入队（`sendMessage` 返回）与 whisper 发布均**不推进**。推进判据 = 批次覆盖元数据 `coverage_from` / `latest_sequence`：`coverage_from ≤ 当前游标`（区间 `(coverage_from, latest_sequence]` 已被本批完整消费——pull 批 = 服务端无截断全量返回，未注入帧只有自身回帧；实时批 = 连续帧段）才写入。覆盖下界大于当前游标（缺口未补）、批次无覆盖元数据（旧格式 / 扩展 API 无 `on` 降级面）一律不推进——未确认区间保持未读，后续投递机会重拉（重复可接受、跳过不可接受）。同步抛错（入队拒绝）不推进并整批重投；异步 run 启动失败不可观测，同属未确认（重拉重投）。游标单调（只前进、不后退）保证双通道不重不漏。放弃入队乐观推进的原因是 pi 队列可被静默清空（interactive abort → `clearAllQueues`，扩展 custom message 无返还、无事件）——入队即推进会在该区间留下永久跳过洞
+- 语义变更（#201，**格式不变、无迁移**）：`last_sequence` 由「入队乐观水位」改为「已消费水位」；旧值不追溯历史洞（无法回溯）；读取方语义同旧（pull 起点 / 门闸 / stale basis 的唯一水位）。
 - join/重连差分同步：有游标 → `fetch_messages_since(游标)`；预置失败无游标（残余无游标态唯一来源）→ `message_history` 全量分页兜底（正常 join 已预置进入时刻水位）
 - 随 reload handoff 传递（`cursorStorePath` 字段），reload 后继续（sessionId 稳定 → 同路径读回）
 - 不提供服务端 per-character 已读游标（游标在角色侧本地，按 session 维度隔离）
