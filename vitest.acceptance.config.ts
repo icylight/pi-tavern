@@ -12,11 +12,13 @@ export default defineConfig({
 		hookTimeout: 120_000,
 		// Acceptance tests spawn real pi processes per worker (process-level
 		// assertions), isolated per file (own agentDir/port/processes) — file-level
-		// parallelism is safe. 13 files / 8 workers = 2 batches
-		// (~50-60s on idle 8-core); the 90s/120s margins stay as flake-proof
-		// upper bounds, speed comes from parallelism + 25ms dense polling, not
-		// from cutting margins. Load-related flake watch: if -era timeouts
-		// reappear, step down to 4. QA owns this file.
-		maxWorkers: 8,
+		// parallelism is safe. 19 files / 4 workers = 5 批；the 90s/120s margins stay
+		// as flake-proof upper bounds, speed comes from parallelism + 25ms dense
+		// polling, not from cutting margins. 2026-09-29 降档 8 → 4（实测：8 并发
+		// 全量 2/2 红、单跑 3/3 绿、4 并发全量 39/39 绿；失败形态 = join/收件
+		// 30s 超时在文件间轮换）。跨 run 互杀（globalSetup pkill 作用域，见 #191）
+		// 另行防护：错峰约定——跑 acceptance 前群聊报备，不并行起同类运行。
+		// QA owns this file.
+		maxWorkers: 4,
 	},
 });
