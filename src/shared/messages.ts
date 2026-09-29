@@ -331,9 +331,9 @@ export const METHOD_BOARD_UPDATE = "board_update";
 // ─── B 类：用户可见文案 ──────────────────────────────────────────────────
 
 /** 白板 reason_code 文案：已达条数上限。 */
-export const TOOL_BOARD_REASON_MAX_NOTES = "已达白板条数上限（默认 5 条）——先撕一条再贴";
+export const TOOL_BOARD_REASON_MAX_NOTES = "已达白板条数上限——先撕一条再贴";
 /** 白板 reason_code 文案：超过单条长度上限。 */
-export const TOOL_BOARD_REASON_LENGTH_EXCEEDED = "超过单条长度上限（默认 140 码点）";
+export const TOOL_BOARD_REASON_LENGTH_EXCEEDED = "超过单条长度上限";
 /** 白板 reason_code 文案：条不存在。 */
 export const TOOL_BOARD_REASON_NOTE_NOT_FOUND = "条不存在（已被撕、非本人条或 id 无效）";
 /** 白板 reason_code 文案：白板为空。 */
