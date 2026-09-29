@@ -12,6 +12,7 @@ function createMockRuntime(
 		hasPublicMessages?: boolean;
 		getGroupChatState?: () => Promise<unknown>;
 		messageTemplates?: Record<MessageTemplateKey, string>;
+		speakSoftLimitChars?: number;
 	} = {},
 ): CharacterRuntime {
 	return {
@@ -26,6 +27,7 @@ function createMockRuntime(
 		getGroupChatState: overrides.getGroupChatState ?? (async () => ({})),
 		hasPublicMessages: overrides.hasPublicMessages ?? false,
 		messageTemplates: overrides.messageTemplates,
+		speakSoftLimitChars: overrides.speakSoftLimitChars,
 		onEnvironmentMessage: undefined,
 		onAgentSettled: undefined,
 		isAgentActive: false,
@@ -227,6 +229,43 @@ describe("GroupChatInput", () => {
 
 		expect(options.triggerTurn).toBe(true);
 		expect(options.deliverAs).toBe("steer");
+
+		input.stop();
+	});
+
+	it("#187：注入文本呈现配置的软上限（3500）", async () => {
+		vi.useFakeTimers();
+		const runtime = createMockRuntime({ speakSoftLimitChars: 3500 });
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+		handler(aPublicMessage("user_persona"));
+		await vi.advanceTimersByTimeAsync(1000);
+
+		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
+		const message = call[0] as { content: string };
+		expect(message.content).toContain("通常不超过 3500 个字符");
+		expect(message.content).not.toContain("2000");
+
+		input.stop();
+	});
+
+	it("#187：未配置 → 注入文本回落代码默认 4000", async () => {
+		vi.useFakeTimers();
+		const runtime = createMockRuntime();
+		const pi = createMockPi();
+		const input = new GroupChatInput(runtime, pi);
+
+		input.start();
+		const handler = runtime.onEnvironmentMessage ?? (() => {});
+		handler(aPublicMessage("user_persona"));
+		await vi.advanceTimersByTimeAsync(1000);
+
+		const call = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0] as [unknown, unknown];
+		const message = call[0] as { content: string };
+		expect(message.content).toContain("通常不超过 4000 个字符");
 
 		input.stop();
 	});

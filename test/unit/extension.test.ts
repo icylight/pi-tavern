@@ -43,6 +43,7 @@ type SessionHandler = (event: Record<string, unknown>, ctx: ExtensionContext) =>
 
 type CapturedTool = {
 	name: string;
+	description?: string;
 	parameters: { type?: unknown };
 	execute: (
 		id: string,
@@ -241,6 +242,9 @@ describe("PiTavern extension", () => {
 
 		expect(tools).toHaveLength(6);
 		expect(tools[0]?.name).toBe("tavern_speak");
+		// #187 路径 b：工具描述不含具体上限数字（数值只在每轮注入面呈现）。
+		expect(tools[0]?.description).not.toMatch(/\d{3,}/);
+		expect(tools[1]?.description).not.toMatch(/\d{3,}/);
 		expect(tools[1]?.name).toBe("tavern_board");
 		expect(tools[2]?.name).toBe("tavern_whoami");
 		expect(tools[3]?.name).toBe("tavern_history");

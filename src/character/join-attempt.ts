@@ -49,6 +49,8 @@ export interface JoinAttemptOptions {
 	getFetchContextWindow?: () => number;
 	/** ：群聊文案模板集（claim 时本地配置加载，转发给 CharacterRuntime）。 */
 	messageTemplates?: Record<MessageTemplateKey, string>;
+	/** ：公开回复软上限字符数（claim 时本地配置加载，转发给 CharacterRuntime）。 */
+	speakSoftLimitChars?: number;
 	/**
 	 *  复评：reload 时重新加载磁盘配置所需路径（join 时透传，
 	 * runtime 持有；无则 reload 不重载、沿用快照——兼容旧 handoff）。
@@ -84,6 +86,7 @@ export class JoinAttempt {
 	private readonly deliveryWindowMs: number | undefined;
 	private readonly getFetchContextWindow: (() => number) | undefined;
 	private readonly messageTemplates: Record<MessageTemplateKey, string> | undefined;
+	private readonly speakSoftLimitChars: number | undefined;
 	private readonly agentDir: string | undefined;
 	private readonly cwd: string | undefined;
 	private transferred = false;
@@ -138,6 +141,7 @@ export class JoinAttempt {
 		this.deliveryWindowMs = options.deliveryWindowMs;
 		this.getFetchContextWindow = options.getFetchContextWindow;
 		this.messageTemplates = options.messageTemplates;
+		this.speakSoftLimitChars = options.speakSoftLimitChars;
 		this.agentDir = options.agentDir;
 		this.cwd = options.cwd;
 		this.socket.on("message", this.onMessage);
@@ -224,6 +228,7 @@ export class JoinAttempt {
 				...(this.deliveryWindowMs !== undefined ? { deliveryWindowMs: this.deliveryWindowMs } : {}),
 				...(this.getFetchContextWindow !== undefined ? { getFetchContextWindow: this.getFetchContextWindow } : {}),
 				...(this.messageTemplates !== undefined ? { messageTemplates: this.messageTemplates } : {}),
+				...(this.speakSoftLimitChars !== undefined ? { speakSoftLimitChars: this.speakSoftLimitChars } : {}),
 				...(this.agentDir !== undefined ? { agentDir: this.agentDir } : {}),
 				...(this.cwd !== undefined ? { cwd: this.cwd } : {}),
 			});

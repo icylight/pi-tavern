@@ -106,6 +106,8 @@ interface PrepareCharacterRuntimeOptions {
 	getFetchContextWindow?: () => number;
 	/** ：群聊文案模板集（缺省 undefined → 消费面回落 DEFAULT_TEMPLATES）。 */
 	messageTemplates?: Record<MessageTemplateKey, string>;
+	/** ：公开回复软上限字符数（缺省 undefined → 注入面回落代码默认）。 */
+	speakSoftLimitChars?: number;
 	/**  复评：reload 时重新加载磁盘配置所需路径（可选；无则 reload 沿用快照）。 */
 	agentDir?: string;
 	cwd?: string;
@@ -153,6 +155,8 @@ export class CharacterRuntime {
 	/** ：增量拉取上下文窗口 getter（undefined → 窗口 0，行为不变）。 */
 	private readonly getFetchContextWindow: (() => number) | undefined;
 	readonly messageTemplates: Record<MessageTemplateKey, string> | undefined;
+	/** ：公开回复软上限字符数（注入面读取；缺省 → 代码默认）。 */
+	readonly speakSoftLimitChars: number | undefined;
 	/**  复评：reload 重载磁盘配置所需路径（join 时透传；undefined = 不重载）。 */
 	private readonly agentDir: string | undefined;
 	private readonly cwd: string | undefined;
@@ -275,6 +279,7 @@ export class CharacterRuntime {
 		this.deliveryWindowMs = options.deliveryWindowMs;
 		this.getFetchContextWindow = options.getFetchContextWindow;
 		this.messageTemplates = options.messageTemplates;
+		this.speakSoftLimitChars = options.speakSoftLimitChars;
 		this.agentDir = options.agentDir;
 		this.cwd = options.cwd;
 	}
@@ -924,6 +929,8 @@ export class CharacterRuntime {
 			...(this.getFetchContextWindow !== undefined ? { getFetchContextWindow: this.getFetchContextWindow } : {}),
 			//  T5：模板集快照跨 reload 携带（reload 后渲染一致，不回落默认）。
 			...(this.messageTemplates !== undefined ? { messageTemplates: this.messageTemplates } : {}),
+			// ：软上限快照跨 reload 携带（reload 后注入面一致）。
+			...(this.speakSoftLimitChars !== undefined ? { speakSoftLimitChars: this.speakSoftLimitChars } : {}),
 			//  复评：路径随 handoff 携带，takeHandoff 据此重新加载磁盘配置。
 			...(this.agentDir !== undefined ? { agentDir: this.agentDir } : {}),
 			...(this.cwd !== undefined ? { cwd: this.cwd } : {}),
@@ -1013,12 +1020,14 @@ export class CharacterRuntime {
 		// 经编辑落盘后，reload 使新配置生效（同角色卡重读模式）。
 		// 失败：warning + 保留旧快照，reload 继续，绝不使会话崩溃。
 		let messageTemplates = handoff.messageTemplates;
+		let speakSoftLimitChars = handoff.speakSoftLimitChars;
 		if (handoff.agentDir !== undefined && handoff.cwd !== undefined) {
 			try {
 				const reloaded = await loadConfig({ agentDir: handoff.agentDir, cwd: handoff.cwd });
-				// 复评：reload 成功即采用磁盘配置——messageTemplates
-				// 缺省时清除旧快照（消费面回落内置默认）；仅加载抛错才保留旧快照。
+				// 复评：reload 成功即采用磁盘配置——messageTemplates/
+				// speakSoftLimitChars 缺省时清除旧快照（消费面回落代码默认）；仅加载抛错才保留旧快照。
 				messageTemplates = reloaded.messageTemplates;
+				speakSoftLimitChars = reloaded.speakSoftLimitChars;
 			} catch (error) {
 				notify?.(
 					`reload: failed to reload tavern.json, keeping the previous message templates: ${error instanceof Error ? error.message : String(error)}`,
@@ -1034,6 +1043,7 @@ export class CharacterRuntime {
 			...(handoff.getFetchContextWindow !== undefined ? { getFetchContextWindow: handoff.getFetchContextWindow } : {}),
 			//  T5：模板集跨 reload 延续——先磁盘重载、失败回落快照。
 			...(messageTemplates !== undefined ? { messageTemplates } : {}),
+			...(speakSoftLimitChars !== undefined ? { speakSoftLimitChars } : {}),
 			//  复评：路径随 runtime 延续（后续再次 reload 仍可重载磁盘配置）。
 			...(handoff.agentDir !== undefined ? { agentDir: handoff.agentDir } : {}),
 			...(handoff.cwd !== undefined ? { cwd: handoff.cwd } : {}),

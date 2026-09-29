@@ -82,6 +82,7 @@ export class TavernController {
 			const attempt = await this.startJoin(descriptor, sessionId, {
 				...(options.cursorStorePath !== undefined ? { cursorStorePath: options.cursorStorePath } : {}),
 				...(options.messageTemplates !== undefined ? { messageTemplates: options.messageTemplates } : {}),
+				...(options.speakSoftLimitChars !== undefined ? { speakSoftLimitChars: options.speakSoftLimitChars } : {}),
 				onDisconnected: () => {
 					void this.handleConnectionClosed(token);
 				},

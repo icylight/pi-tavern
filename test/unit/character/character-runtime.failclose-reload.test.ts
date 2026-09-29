@@ -85,7 +85,10 @@ describe("CharacterRuntime reload 延续后 fail-close（方案 B 回归）", ()
 		sockets.length = 0;
 	});
 
-	function createRuntime(messageTemplates?: Record<MessageTemplateKey, string>): {
+	function createRuntime(
+		messageTemplates?: Record<MessageTemplateKey, string>,
+		speakSoftLimitChars?: number,
+	): {
 		runtime: CharacterRuntime;
 		socket: MockSocket;
 	} {
@@ -99,6 +102,7 @@ describe("CharacterRuntime reload 延续后 fail-close（方案 B 回归）", ()
 			heartbeatTimeoutMs: 60_000,
 			requestTimeoutMs: 5_000,
 			...(messageTemplates !== undefined ? { messageTemplates } : {}),
+			...(speakSoftLimitChars !== undefined ? { speakSoftLimitChars } : {}),
 		});
 		runtime.activate({ socket: socket as unknown as WebSocket, bufferedMessages: [] });
 		runtimes.push(runtime);
@@ -269,6 +273,45 @@ describe("CharacterRuntime reload 延续后 fail-close（方案 B 回归）", ()
 		const taken1 = await CharacterRuntime.takeHandoff(handoff1);
 		runtimes.push(taken1);
 		expect(taken1.messageTemplates).toBeUndefined();
+
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("R6（#187）：speakSoftLimitChars 跨 handoff 快照 + reload 重读磁盘", async () => {
+		// 快照路径：无 agentDir/cwd → handoff 携带配置值（磁盘不可重读时保快照）。
+		const { runtime } = createRuntime(undefined, 3000);
+		expect(runtime.speakSoftLimitChars).toBe(3000);
+		const takenSnapshot = await reloadRuntime(runtime, undefined as never);
+		expect(takenSnapshot.speakSoftLimitChars).toBe(3000);
+
+		// 磁盘重读路径：agentDir/cwd 在 → reload 采用磁盘值（改盘后生效）。
+		const dir = mkdtempSync(join(tmpdir(), "pi-tavern-reload-soft-"));
+		const agentDir = join(dir, "agent");
+		const cwd = join(dir, "project");
+		mkdirSync(agentDir, { recursive: true });
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(join(agentDir, "tavern.json"), JSON.stringify({ speak_soft_limit_chars: 3000 }));
+		writeFileSync(join(cwd, ".pi", "tavern.json"), JSON.stringify({}));
+
+		const socket = createMockSocket();
+		sockets.push(socket);
+		const diskRuntime = CharacterRuntime.prepare({
+			groupChatId: "group-1",
+			sessionId: "session-1",
+			character: CHARACTER,
+			heartbeatIntervalMs: 60_000,
+			heartbeatTimeoutMs: 60_000,
+			requestTimeoutMs: 5_000,
+			agentDir,
+			cwd,
+		});
+		diskRuntime.activate({ socket: socket as unknown as WebSocket, bufferedMessages: [] });
+		runtimes.push(diskRuntime);
+		expect((await loadTavernConfig({ agentDir, cwd })).speakSoftLimitChars).toBe(3000);
+
+		writeFileSync(join(agentDir, "tavern.json"), JSON.stringify({ speak_soft_limit_chars: 3500 }));
+		const takenDisk = await reloadRuntime(diskRuntime, socket);
+		expect(takenDisk.speakSoftLimitChars).toBe(3500);
 
 		rmSync(dir, { recursive: true, force: true });
 	});

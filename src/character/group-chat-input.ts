@@ -65,6 +65,12 @@ const TRIGGER_DEBOUNCE_MS = 1000;
 const DELIVERY_WINDOW_MS = 5_000;
 
 /**
+ * 公开回复软上限的代码默认值（#187）：tavern.json 未配置时注入面使用。
+ * 软上限语义：仅提示文本，不校验不截断（64 KiB 协议上限独立）。
+ */
+const DEFAULT_SPEAK_SOFT_LIMIT_CHARS = 4000;
+
+/**
  * 忙态安全边界打断令牌。令牌作为隐藏 custom message 经 steer 排队，在下一次
  * provider 请求前由 context 钩子消费；session JSONL 保留记录，但模型上下文
  * 始终过滤该类型。
@@ -1277,7 +1283,7 @@ export class GroupChatInput {
 			"\n请根据这些群聊变化继续当前工作。",
 			"如果需要公开回复，请调用 tavern_speak；",
 			"普通回复不会自动进入群聊。",
-			"公开回复应简洁，通常不超过 2000 个字符；",
+			`公开回复应简洁，通常不超过 ${this.runtime.speakSoftLimitChars ?? DEFAULT_SPEAK_SOFT_LIMIT_CHARS} 个字符；`,
 			"较长的完整分析应保留在当前私有 pi session，",
 			"只向群聊发布结论、关键理由和需要其他成员知道的信息。",
 		);

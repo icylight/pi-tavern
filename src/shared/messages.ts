@@ -505,7 +505,7 @@ export const HEADLESS_NO_CHARACTER_CANDIDATE = "Auto-join: no character candidat
 export const TOOL_SPEAK_DESCRIPTION =
 	"Publish a message to the PiTavern group chat. " +
 	"Only available when joined as a Character. " +
-	"Keep messages concise (under 2000 characters). " +
+	"Keep messages concise (the soft character limit is stated in the group chat prompt). " +
 	"Long analysis should stay in the private session.";
 /** tavern_board 工具描述。 */
 /** ：tavern_whisper 工具描述（Character 间私信；目标须为在线 Character，拒绝自发自收/离线）。 */
@@ -520,8 +520,8 @@ export const TOOL_BOARD_DESCRIPTION =
 	"Only available when joined as a Character. " +
 	"Actions: set (post a new note, or edit an existing one by id), remove (tear off a note by id), " +
 	"clear (empty your own board), query (read all boards). " +
-	"Each character has their own board (max 5 notes, 140 code points each by default); " +
-	"you can only modify your own board. Keep note content concise (under 140 characters).";
+	"Each character has their own board (note count and length limits are configurable); " +
+	"you can only modify your own board. Keep note content concise.";
 /** tavern_whoami 工具描述。 */
 export const TOOL_WHOAMI_DESCRIPTION =
 	"Report this session's registered Character identity in the PiTavern group chat. " +
