@@ -27,6 +27,9 @@ import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 const temporaryDirectories: string[] = [];
 const creatorRuntimes: CreatorRuntime[] = [];
 
+/** 注入短 idle 合并窗口（生产默认 1000ms）：断言面 = 窗口内批处理行为，与窗口长度无关。 */
+const TEST_TRIGGER_DEBOUNCE_MS = 100;
+
 async function createTemporaryDirectory(): Promise<string> {
 	const directory = await mkdtemp(join(tmpdir(), "pi-tavern-b4-"));
 	temporaryDirectories.push(directory);
@@ -76,7 +79,10 @@ async function joinCharacter(
 ): Promise<{ runtime: CharacterRuntime; pi: ExtensionAPI }> {
 	const root = await createTemporaryDirectory();
 	const cursorPath = join(root, "cursors", `${sessionId}.json`);
-	const attempt = await JoinAttempt.connect(creator.activeDescriptor, sessionId, { cursorStorePath: cursorPath });
+	const attempt = await JoinAttempt.connect(creator.activeDescriptor, sessionId, {
+		cursorStorePath: cursorPath,
+		triggerDebounceMs: TEST_TRIGGER_DEBOUNCE_MS,
+	});
 	const pi = createMockPi();
 	const runtime = await attempt.claimCharacter(character.characterId, pi);
 	return { runtime, pi };
@@ -88,8 +94,8 @@ async function settleJoin(runtime: CharacterRuntime, pi: ExtensionAPI): Promise<
 	while (sendMessage.mock.calls.length === 0 && Date.now() < deadline) {
 		await new Promise((resolve) => setTimeout(resolve, 25));
 	}
-	// join 后环境批次仍有 1s 合并窗口：等待稳定后再清计数。
-	await new Promise((resolve) => setTimeout(resolve, 1_500));
+	// join 后环境批次仍有合并窗口：等窗口 + 拉取余量后再清计数。
+	await new Promise((resolve) => setTimeout(resolve, 200));
 	runtime.saveCursor(1);
 	sendMessage.mockClear();
 }
@@ -144,7 +150,7 @@ describe("B4 字符侧四处接线（integration）", () => {
 			const result = await runtime.boardWrite("set", { content: "共识一" });
 			expect(result).toEqual({ changed: true, note: { id: expect.any(String), content: "共识一" } });
 
-			// 观察者：1s 合并窗口到期 → 1 次上下文注入（09:26 定案：字符侧窗口合并）
+			// 观察者：注入窗口（100ms）到期 → 1 次上下文注入（定案：字符侧窗口合并）
 			await waitFor(() => notifications.some((n) => n.includes("board_updates=1")));
 			const obsInjected = obsSendMessage.mock.calls
 				.map((call) => String((call[0] as { content?: string }).content ?? ""))
@@ -155,7 +161,7 @@ describe("B4 字符侧四处接线（integration）", () => {
 			expect(obsInjected).toContain("贴条：「共识一」");
 
 			// 写者无自回显：响应已含结果，不注入自己
-			await new Promise((resolve) => setTimeout(resolve, 1_600));
+			await new Promise((resolve) => setTimeout(resolve, 250));
 			const writerInjected = sendMessage.mock.calls
 				.map((call) => String((call[0] as { content?: string }).content ?? ""))
 				.join("\n");
@@ -168,7 +174,7 @@ describe("B4 字符侧四处接线（integration）", () => {
 			// 告知/拒绝静默：remove 不存在 → changed:false → 无人收到新通知
 			const noop = await runtime.boardWrite("remove", { id: "ghost" });
 			expect(noop).toEqual({ changed: false, code: "note_not_found" });
-			await new Promise((resolve) => setTimeout(resolve, 1_600));
+			await new Promise((resolve) => setTimeout(resolve, 250));
 			expect(notifications.filter((n) => n.includes("board_updates=")).length).toBe(1);
 		},
 	);
