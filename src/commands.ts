@@ -13,6 +13,7 @@ import {
 } from "./data/discovery/active-descriptor.js";
 import type { DiscoverGroupChatsOptions } from "./data/discovery/discover-group-chats.js";
 import type { DeleteGroupChatSessionResult, GroupChatSessionSummary } from "./data/group-chat-sessions.js";
+import { runMembersToolCore, runWhisperToolCore } from "./extension/whisper-tool-core.js";
 import {
 	CMD_DESC_JOIN,
 	CMD_DESC_LEAVE,
@@ -23,8 +24,10 @@ import {
 	CMD_DESC_STATUS,
 	CMD_DESC_TEST_BUSY,
 	CMD_DESC_TEST_HISTORY,
+	CMD_DESC_TEST_MEMBERS,
 	CMD_DESC_TEST_MESSAGE,
 	CMD_DESC_TEST_RELOAD,
+	CMD_DESC_TEST_WHISPER,
 	CMD_DESC_TEST_WHOAMI,
 	CONFIRM_DELETE_HISTORY_BODY_PREFIX,
 	CONFIRM_DELETE_HISTORY_TITLE,
@@ -426,6 +429,60 @@ export function registerCommands(
 				}
 			},
 		});
+		pi.registerCommand("tavern-test-members", {
+			description: CMD_DESC_TEST_MEMBERS,
+			handler: async (_args, ctx) => {
+				const state = controller.getState();
+				if (state.type !== "character") {
+					ctx.ui.notify(NOTIFY_NOT_IN_CHARACTER_STATE, "error");
+					return;
+				}
+				// #183：工具等价路径观察通道——调 tavern_members 同一执行核心，
+				// 单行出参供 acceptance 断言（RPC 模式 LLM 无法调工具）。
+				const result = await runMembersToolCore(state.runtime);
+				if (result.isError) {
+					ctx.ui.notify(`[tavern-test-members] error=${seamSingleLine(result.text)}`, "error");
+					return;
+				}
+				const members = (result.details as { members?: SeamMemberEntry[] } | undefined)?.members ?? [];
+				const entries = members
+					.map(
+						(member) =>
+							`${member.name}|${member.character_id}|self=${member.is_self ? "T" : "F"}` +
+							`|streaming=${member.is_streaming ? "T" : "F"}|hand=${member.hand_raised ? "T" : "F"}`,
+					)
+					.join("; ");
+				ctx.ui.notify(`[tavern-test-members] count=${members.length}${entries ? `; ${entries}` : ""}`, "info");
+			},
+		});
+		pi.registerCommand("tavern-test-whisper", {
+			description: CMD_DESC_TEST_WHISPER,
+			handler: async (args, ctx) => {
+				const state = controller.getState();
+				if (state.type !== "character") {
+					ctx.ui.notify(NOTIFY_NOT_IN_CHARACTER_STATE, "error");
+					return;
+				}
+				let target = "";
+				let content = "";
+				try {
+					const parsed = JSON.parse(args.trim()) as { target?: unknown; content?: unknown };
+					target = typeof parsed.target === "string" ? parsed.target : "";
+					content = typeof parsed.content === "string" ? parsed.content : "";
+				} catch {
+					ctx.ui.notify("[tavern-test-whisper] error=invalid JSON args", "error");
+					return;
+				}
+				// #183：与 tavern_whisper 工具同一执行核心（含目标解析），
+				// 单行出参供 acceptance 断言（工具面文案单行化）。
+				const result = await runWhisperToolCore(state.runtime, target, content);
+				const sequence = result.sequence !== undefined ? ` sequence=${result.sequence}` : "";
+				ctx.ui.notify(
+					`[tavern-test-whisper] ok=${result.ok ? "T" : "F"}${sequence} text=${seamSingleLine(result.text)}`,
+					result.ok ? "info" : "error",
+				);
+			},
+		});
 		pi.registerCommand("tavern-test-busy", {
 			description: CMD_DESC_TEST_BUSY,
 			handler: async (args, ctx) => {
@@ -496,6 +553,20 @@ async function selectGroupChat(
 	const selected = await select(SELECT_CHOOSE_GROUP_CHAT, labels);
 	const index = selected === undefined ? -1 : labels.indexOf(selected);
 	return index >= 0 ? (candidates[index] ?? null) : null;
+}
+
+/** #183：test 缝读取的成员条目形状（`tavern_members` 核心的 details）。 */
+interface SeamMemberEntry {
+	name: string;
+	character_id: string;
+	is_self: boolean;
+	is_streaming: boolean;
+	hand_raised: boolean;
+}
+
+/** #183：test 缝出参单行化（换行转义为字面 `\n`，保持 notify 单行）。 */
+function seamSingleLine(text: string): string {
+	return text.replace(/\n/g, "\\n");
 }
 
 function formatSessionLabel(session: GroupChatSessionSummary): string {

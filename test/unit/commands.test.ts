@@ -477,4 +477,116 @@ describe("PiTavern commands", () => {
 
 		expect(notify).toHaveBeenCalledWith(expect.stringContaining("already bound to a group chat"), "error");
 	});
+
+	it("registers #183 test seams only under PITAVERN_TEST and emits single-line notify output", async () => {
+		const saved = process.env.PITAVERN_TEST;
+		try {
+			// 反向锚：无 env 不注册（生产零影响——两缝只在 PITAVERN_TEST=1 存在）。
+			delete process.env.PITAVERN_TEST;
+			const bare = register(new TavernController());
+			expect(bare.has("tavern-test-members")).toBe(false);
+			expect(bare.has("tavern-test-whisper")).toBe(false);
+			process.env.PITAVERN_TEST = "1";
+			const getGroupChatState = vi.fn(async () => ({
+				online_characters: [
+					{
+						character_id: "../characters/dev.md",
+						name: "Dev",
+						description: "x".repeat(120),
+						is_self: true,
+						is_streaming: false,
+						hand_raised: false,
+					},
+					{
+						character_id: "../characters/qa.md",
+						name: "QA",
+						description: "QA",
+						is_self: false,
+						is_streaming: true,
+						hand_raised: false,
+					},
+				],
+			}));
+			const resolveWhisperTarget = vi.fn(
+				async (): Promise<{ kind: string; character_id?: string; name?: string; roster?: unknown[] }> => ({
+					kind: "resolved",
+					character_id: "../characters/qa.md",
+					name: "QA",
+				}),
+			);
+			const whisper = vi.fn(async () => ({ published: true, sequence: 42 }));
+			const runtime = {
+				character: { characterId: "../characters/dev.md", name: "Dev", description: "Dev" },
+				close: vi.fn(async () => undefined),
+				getGroupChatState,
+				resolveWhisperTarget,
+				whisper,
+			} as unknown as CharacterRuntime;
+			const attempt = {
+				availableCharacters: [{ character_id: "dev.md", name: "Dev", description: "Dev" }],
+				isActive: true,
+				claimCharacter: vi.fn(async () => runtime),
+				close: vi.fn(async () => undefined),
+			} as unknown as JoinAttempt;
+			const controller = new TavernController(undefined, async () => attempt);
+			await controller.startJoining(descriptor, "session-1");
+			await controller.claimCharacter("dev.md");
+			const commands = register(controller);
+			expect(commands.has("tavern-test-members")).toBe(true);
+			expect(commands.has("tavern-test-whisper")).toBe(true);
+			const { context, notify } = createContext();
+
+			await commands.get("tavern-test-members")?.handler("", context);
+			expect(notify).toHaveBeenLastCalledWith(
+				"[tavern-test-members] count=2; Dev|../characters/dev.md|self=T|streaming=F|hand=F; " +
+					"QA|../characters/qa.md|self=F|streaming=T|hand=F",
+				"info",
+			);
+
+			await commands.get("tavern-test-whisper")?.handler('{"target":"QA","content":"hello world"}', context);
+			expect(resolveWhisperTarget).toHaveBeenLastCalledWith("QA");
+			expect(whisper).toHaveBeenLastCalledWith("../characters/qa.md", "hello world");
+			expect(notify).toHaveBeenLastCalledWith(
+				"[tavern-test-whisper] ok=T sequence=42 text=Message sent (sequence 42).",
+				"info",
+			);
+
+			// 未命中（不存在/离线同态）：ok=F + 文案带在线清单，单行化（无裸换行）。
+			resolveWhisperTarget.mockResolvedValueOnce({
+				kind: "not-found",
+				roster: [
+					{
+						character_id: "../characters/admin.md",
+						name: "Admin",
+						description: "Admin",
+						is_self: false,
+						is_streaming: false,
+						hand_raised: false,
+					},
+				],
+			});
+			await commands.get("tavern-test-whisper")?.handler('{"target":"nobody","content":"x"}', context);
+			const notFoundLine = notify.mock.calls.at(-1)?.[0] as string;
+			expect(notFoundLine.startsWith("[tavern-test-whisper] ok=F")).toBe(true);
+			expect(notFoundLine).toContain("Admin（../characters/admin.md）");
+			expect(notFoundLine).not.toContain("\n");
+
+			// 非法 JSON：明确错误行，不抛。
+			await commands.get("tavern-test-whisper")?.handler("not json", context);
+			expect(notify).toHaveBeenLastCalledWith("[tavern-test-whisper] error=invalid JSON args", "error");
+
+			// 非 character 态：统一拒绝文案（两缝同源）。
+			const idleCommands = register(new TavernController());
+			const idle = createContext();
+			await idleCommands.get("tavern-test-members")?.handler("", idle.context);
+			expect(idle.notify).toHaveBeenLastCalledWith("Not in character state", "error");
+		} finally {
+			if (saved === undefined) {
+				// 注意：赋 undefined 会留下字符串 "undefined"（truthy），必须 delete。
+				delete process.env.PITAVERN_TEST;
+			} else {
+				process.env.PITAVERN_TEST = saved;
+			}
+		}
+	});
 });

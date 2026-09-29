@@ -236,11 +236,11 @@ describe("PiTavern extension", () => {
 		}
 	}, 30_000); // Loader 做了两遍真实发现；并发负载（acceptance 套件）下可能超出 vitest 默认 5s 超时。按测试扩展逐个说明：对负载敏感，非功能失败；（maxWorkers: 2）降低争用，保留此裕量。
 
-	it("registers the tavern_speak, tavern_board, tavern_whoami and tavern_history tools and reports error when not a character", async () => {
+	it("registers the tavern_speak/board/whoami/history/template_defaults/whisper/members tools and reports error when not a character", async () => {
 		const { tools, api } = captureTools();
 		piTavern(api as unknown as ExtensionAPI);
 
-		expect(tools).toHaveLength(6);
+		expect(tools).toHaveLength(7);
 		expect(tools[0]?.name).toBe("tavern_speak");
 		// #187 路径 b：工具描述不含具体上限数字（数值只在每轮注入面呈现）。
 		expect(tools[0]?.description).not.toMatch(/\d{3,}/);
@@ -250,6 +250,9 @@ describe("PiTavern extension", () => {
 		expect(tools[3]?.name).toBe("tavern_history");
 		//  T7：LLM-only 只读工具（不注册 slash command）。
 		expect(tools[4]?.name).toBe("tavern_template_defaults");
+		expect(tools[5]?.name).toBe("tavern_whisper");
+		// #183：在线成员列表（发现通道；私信目标解析的数据源同源）。
+		expect(tools[6]?.name).toBe("tavern_members");
 
 		const tool = tools[0];
 		if (!tool) throw new Error("no tool");
@@ -1293,6 +1296,11 @@ describe("PiTavern extension", () => {
 			character: { characterId: "dev", name: "Dev", description: "Dev" },
 			close: vi.fn(async () => undefined),
 			getGroupChatState: vi.fn(),
+			resolveWhisperTarget: vi.fn(async (input: string) => ({
+				kind: "resolved" as const,
+				character_id: input,
+				name: input,
+			})),
 			whisper: vi.fn(async () => ({ published: true, sequence: 42 })),
 		} as unknown as CharacterRuntime;
 		const controller = await createCharacterControllerWithRuntime(runtime);
@@ -1326,6 +1334,11 @@ describe("PiTavern extension", () => {
 			character: { characterId: "dev", name: "Dev", description: "Dev" },
 			close: vi.fn(async () => undefined),
 			getGroupChatState: vi.fn(),
+			resolveWhisperTarget: vi.fn(async (input: string) => ({
+				kind: "resolved" as const,
+				character_id: input,
+				name: input,
+			})),
 			whisper: vi.fn(async () => ({ published: false, reason: "round_limit_reached", handRaised: true })),
 			markIncrementPending: vi.fn(),
 		} as unknown as CharacterRuntime;
@@ -1347,6 +1360,11 @@ describe("PiTavern extension", () => {
 			character: { characterId: "dev", name: "Dev", description: "Dev" },
 			close: vi.fn(async () => undefined),
 			getGroupChatState: vi.fn(),
+			resolveWhisperTarget: vi.fn(async (input: string) => ({
+				kind: "resolved" as const,
+				character_id: input,
+				name: input,
+			})),
 			whisper: vi.fn(async () => ({
 				published: false,
 				reason: "stale",
@@ -1365,5 +1383,137 @@ describe("PiTavern extension", () => {
 		expect(staleResult.isError).toBeUndefined();
 		expect(staleResult.content[0]?.text).toContain("out of sync");
 		expect(staleRuntime.markIncrementPending).toHaveBeenCalled();
+	});
+
+	it("WH1b #183: 目标解析四态（resolved/self/ambiguous/not-found/roster-unavailable）+ tavern_members 输出面", async () => {
+		const rosterEntry = (
+			over: Partial<{ character_id: string; name: string; description: string; is_self: boolean }>,
+		): {
+			character_id: string;
+			name: string;
+			description: string;
+			is_self: boolean;
+			is_streaming: boolean;
+			hand_raised: boolean;
+		} => ({
+			character_id: "../characters/qa.md",
+			name: "QA",
+			description: "QA",
+			is_self: false,
+			is_streaming: false,
+			hand_raised: false,
+			...over,
+		});
+		const makeRuntime = (outcome: unknown, roster: Array<ReturnType<typeof rosterEntry>> = []): CharacterRuntime =>
+			({
+				character: { characterId: "dev", name: "Dev", description: "Dev" },
+				close: vi.fn(async () => undefined),
+				getGroupChatState: vi.fn(async () => ({ online_characters: roster })),
+				resolveWhisperTarget: vi.fn(async () => outcome),
+				whisper: vi.fn(async () => ({ published: true, sequence: 42 })),
+			}) as unknown as CharacterRuntime;
+		const runTool = async (
+			runtime: CharacterRuntime,
+			toolName: string,
+			params: Record<string, unknown> = {},
+		): Promise<{
+			isError?: boolean;
+			text: string;
+			details: unknown;
+		}> => {
+			const controller = await createCharacterControllerWithRuntime(runtime);
+			const { tools, api } = captureTools();
+			piTavern(api as unknown as ExtensionAPI, controller);
+			const tool = tools.find((t) => t.name === toolName);
+			if (!tool) throw new Error(`no ${toolName} tool`);
+			const result = (await tool.execute("call-1", params)) as {
+				isError?: boolean;
+				content: Array<{ text: string }>;
+				details: unknown;
+			};
+			return {
+				...(result.isError !== undefined ? { isError: result.isError } : {}),
+				text: result.content[0]?.text ?? "",
+				details: result.details,
+			};
+		};
+
+		// 解析成功（按注册名传参）：wire 侧仍收精确 character_id。
+		const resolvedRuntime = makeRuntime({ kind: "resolved", character_id: "../characters/qa.md", name: "QA" });
+		const resolved = await runTool(resolvedRuntime, "tavern_whisper", { character_id: "QA", content: "hi" });
+		expect(resolved.isError).toBeUndefined();
+		expect(resolved.text).toContain("sequence 42");
+		expect(resolvedRuntime.whisper).toHaveBeenCalledWith("../characters/qa.md", "hi");
+
+		// roster-unavailable：放行原串交服务端（保持既有 -32110 语义）。
+		const passthroughRuntime = makeRuntime({ kind: "roster-unavailable" });
+		const passthrough = await runTool(passthroughRuntime, "tavern_whisper", {
+			character_id: "../characters/qa.md",
+			content: "hi",
+		});
+		expect(passthrough.isError).toBeUndefined();
+		expect(passthroughRuntime.whisper).toHaveBeenCalledWith("../characters/qa.md", "hi");
+
+		// 自发自收：客户端直接拒——不发 wire。
+		const selfRuntime = makeRuntime({ kind: "self", character_id: "dev", name: "Dev" });
+		const self = await runTool(selfRuntime, "tavern_whisper", { character_id: "Dev", content: "hi" });
+		expect(self.isError).toBe(true);
+		expect(self.text).toContain("不能给自己发私信");
+		expect(selfRuntime.whisper).not.toHaveBeenCalled();
+
+		// 歧义：拒绝 + 候选（含 id 与名字）——不投递、不占额度。
+		const ambiguousRuntime = makeRuntime({
+			kind: "ambiguous",
+			candidates: [
+				{ name: "Dup", character_id: "../characters/d1.md" },
+				{ name: "Dup", character_id: "../characters/d2.md" },
+			],
+		});
+		const ambiguous = await runTool(ambiguousRuntime, "tavern_whisper", { character_id: "Dup", content: "hi" });
+		expect(ambiguous.isError).toBe(true);
+		expect(ambiguous.text).toContain("多个同名命中");
+		expect(ambiguous.text).toContain("Dup（../characters/d1.md）");
+		expect(ambiguous.text).toContain("Dup（../characters/d2.md）");
+		expect(ambiguousRuntime.whisper).not.toHaveBeenCalled();
+
+		// 未命中（不存在/离线同态）：错误文案附在线清单，不裸透 -32110。
+		const notFoundRuntime = makeRuntime({
+			kind: "not-found",
+			roster: [
+				rosterEntry({ character_id: "../characters/dev.md", name: "Dev", is_self: true }),
+				rosterEntry({ character_id: "../角色卡/admin.md", name: "Admin" }),
+			],
+		});
+		const notFound = await runTool(notFoundRuntime, "tavern_whisper", { character_id: "nobody", content: "hi" });
+		expect(notFound.isError).toBe(true);
+		expect(notFound.text).toContain("不在当前在线成员中");
+		expect(notFound.text).toContain("Dev（../characters/dev.md）");
+		expect(notFound.text).toContain("Admin（../角色卡/admin.md）");
+		expect(notFound.text).not.toContain("not online");
+		expect(notFoundRuntime.whisper).not.toHaveBeenCalled();
+
+		// tavern_members：在线 only，自己置首，简介截断 ≤80，details 结构化。
+		const longDescription = "x".repeat(120);
+		const membersRuntime = makeRuntime({ kind: "resolved", character_id: "dev", name: "Dev" }, [
+			rosterEntry({ character_id: "../characters/qa.md", name: "QA", description: longDescription }),
+			rosterEntry({ character_id: "../characters/dev.md", name: "Dev", description: "自述", is_self: true }),
+		]);
+		const members = await runTool(membersRuntime, "tavern_members");
+		expect(members.isError).toBeUndefined();
+		expect(members.text).toContain("在线成员 2 人");
+		expect(members.text.indexOf("Dev（character_id：../characters/dev.md")).toBeGreaterThan(-1);
+		expect(members.text.indexOf("Dev（character_id：../characters/dev.md")).toBeLessThan(
+			members.text.indexOf("QA（character_id：../characters/qa.md"),
+		);
+		expect(members.text).toContain("self=yes");
+		expect(members.text).toContain(`${longDescription.slice(0, 80)}…`);
+		expect(members.text).not.toContain(longDescription);
+		expect(members.details).toMatchObject({
+			count: 2,
+			members: [
+				{ name: "Dev", character_id: "../characters/dev.md", is_self: true },
+				{ name: "QA", character_id: "../characters/qa.md", is_self: false },
+			],
+		});
 	});
 });

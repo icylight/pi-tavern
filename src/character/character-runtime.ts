@@ -65,6 +65,7 @@ import { GroupChatInput } from "./group-chat-input.js";
 import type { ModelTransitionSnapshot } from "./model-transition-queue.js";
 import { CHARACTER_REQUEST_TYPES } from "./request-types.js";
 import { PENDING_RESPONSE_REJECTED_CODE, validateResult } from "./response-gate.js";
+import { resolveWhisperTargetFromRoster, type WhisperRoster, type WhisperTargetOutcome } from "./whisper-target.js";
 
 export interface CharacterConnectionTransfer {
 	socket: WebSocket;
@@ -820,6 +821,29 @@ export class CharacterRuntime {
 	private resetStaleRecoveryBudget(): void {
 		this.staleRecoveryKey = null;
 		this.staleRecoveryCount = 0;
+	}
+
+	/**
+	 * #183：私信目标解析（工具面用）——在线成员名册内做「精确 character_id
+	 * 优先 → 注册名唯一命中」两段解析。名册新鲜获取失败时回退快照缓存；
+	 * 两者皆无返回 roster-unavailable，调用方放行**原串**交服务端判
+	 * （不把客户端故障伪报为「目标不存在」）。
+	 *
+	 * 数据源 = 在线成员表：与 `-32110` 的判据同源（不含 User Persona、
+	 * 不含离线成员），因此不产生「先解析成合法目标、再被服务端拒」的多一跳。
+	 */
+	async resolveWhisperTarget(input: string): Promise<WhisperTargetOutcome> {
+		let roster: WhisperRoster | null = null;
+		try {
+			const state = await this.getGroupChatState("other");
+			roster = state.online_characters ?? [];
+		} catch {
+			roster = this.lastGroupChatState?.online_characters ?? null;
+		}
+		if (roster === null) {
+			return { kind: "roster-unavailable" };
+		}
+		return resolveWhisperTargetFromRoster(input, roster, this.character.characterId);
 	}
 
 	/**

@@ -19,8 +19,10 @@
 | writer.onRequestWritten 登记先于 OPEN 检查 | 低风险：改登记顺序或补注释；无数据面危害 | 待内嵌 |
 | handler 异常端到端故障注入测试（-32603 路径） | creator 侧故障注入普通 Error → 端到端验证 -32603 收敛（unit 已钉接受性） | 待内嵌 |
 | 欢迎语动态化（群名/在线成员/轮次状态入 system_message） | 增强候选：welcome 内容模板化，含群名/成员数/轮次摘要 | 待内嵌 |
+| whisper/members 欢迎语引导（#183 连带） | 欢迎语（`src/shared/constants.ts`）只提 speak / board / history，未引导 whisper 与 members；工具描述已可达（#183 已更新），属发现性打磨。改动含 `welcome-message` acceptance 内容断言同步 | 待内嵌 |
 | 协议文档生成化（typebox schema → JSON Schema → 文档渲染） | 结构化字段节改生成产物（schema 单一事实源），时序/语义/边界节保留手写 | 待内嵌 |
 | group-chat-state.round 字段半死数据 | 评估 ui 展示语义后移除 round 字段或补写入方；低优先 | 待内嵌 |
+| whisper 目标解析：服务端三态区分（不存在 / 离线） | #183 客户端解析只能判「在在线名册内 / 不在」——「卡存在但离线」与「无此角色」需服务端全卡清单（`characters` map）才能分。做需改 `-32110` 文案或新增错误码（wire 面：错误码表 + 测试断言）→ 单开 wire 批声明；当前收益有限（错误已附在线清单，两者处置相同） | 待内嵌 |
 | whisper 回执可选提示目标离线 | 窄窗口现实概率低，暂不实现；若实现走回执 result 加可选字段（需契约修订） | 待内嵌 |
 | docs/api/ 生成物 README.en.md「中文文档」链接指向缺失 README.md | 修 typedoc 生成源/模板，不在文档仓内修（gitignored 生成物） | 待内嵌 |
 | 历史注释/不可达分支清理（5 处） | 随下次 src 重构：删 group-chat-input.ts L1173-1185 不可达渲染段；修 commands.ts L234「兼容回退」旧注释、group-chat-input.ts L646「同批」误导注释、streaming-truth.test.ts L151 与 paging-and-speak-order.test.ts L245 join 历史旧注释 | 待内嵌 |
