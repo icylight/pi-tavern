@@ -118,6 +118,8 @@ const warningText = {
 		`Model hook: model "${target.provider}/${target.id}" was not applied; keeping current model`,
 	thinkingSkipped: (level: string, target: ModelIdentity) =>
 		`Model hook: skipping thinking level "${level}" because model "${target.provider}/${target.id}" was not applied`,
+	thinkingSkippedInvalidReference: (level: string) =>
+		`Model hook: skipping thinking level "${level}" (invalid model reference)`,
 	thinkingFailed: (level: string, detail: string) =>
 		`Model hook: failed to apply thinking level "${level}" (${detail})`,
 	observeFailed: () => "Model hook: unable to observe current model/thinking level; keeping last known values",
@@ -133,7 +135,7 @@ const warningText = {
 } as const;
 
 /** 模型应用结果：回执与失败原因（错误在队列内归一，不向调用方 reject）。 */
-interface ModelApplyOutcome {
+export interface ModelApplyOutcome {
 	accepted: boolean;
 	detail?: string;
 }
@@ -272,6 +274,14 @@ export class ModelTransitionQueue {
 		this.running = true;
 		void this.run().finally(() => {
 			this.running = false;
+			// 丢唤醒补 kick：run() 退出（tasks 取空 break）到本回调之间存在入队
+			// 窗口——彼时 running 仍为 true，enqueue 内的 kick 早退；漏检会把任务
+			// 永久搁置（controller 连续提交 restore 的实测形状）。有剩余任务时
+			// 不解锁 idle waiter（尚未空闲）。
+			if (this.tasks.length > 0 && !this.frozen) {
+				this.kick();
+				return;
+			}
 			const waiters = this.idleWaiters;
 			this.idleWaiters = [];
 			for (const resolve of waiters) {
@@ -348,7 +358,7 @@ export class ModelTransitionQueue {
 		if (raw !== undefined && parsed === undefined) {
 			this.warn(warningText.invalidReference(raw));
 			if (task.target.thinking !== undefined) {
-				this.warn(`Model hook: skipping thinking level "${task.target.thinking}" (invalid model reference)`);
+				this.warn(warningText.thinkingSkippedInvalidReference(task.target.thinking));
 			}
 			return;
 		}
@@ -376,6 +386,10 @@ export class ModelTransitionQueue {
 		this.refreshModel(false);
 		this.refreshThinking(false);
 		let finished = true;
+		// failed（执行失败）与 abandoned（freeze 中断）分道：失败的槽位无消费方，
+		// 删除即止（失败可追溯由 warning 承担）；冻中断的槽位归接力 barrier 读
+		// （保留，删了 barrierModelTarget 会静默丢失 remaining）。
+		let failed = false;
 		if (slot.mask.model) {
 			if (slot.values.model === undefined) {
 				this.warn(warningText.baselineMissing("model"));
@@ -393,6 +407,7 @@ export class ModelTransitionQueue {
 				);
 				if (outcome !== "reached") {
 					finished = false;
+					failed = outcome === "failed";
 				}
 			}
 			if (finished && slot.mask.thinking && !isSameIdentity(this.lastModel, slot.values.model)) {
@@ -408,7 +423,7 @@ export class ModelTransitionQueue {
 				this.applyThinkingDimension(slot.values.thinking);
 			}
 		}
-		if (finished) {
+		if (finished || failed) {
 			this.slots.delete(task.epoch);
 		}
 	}

@@ -294,4 +294,31 @@ describe("#203 睡眠清场 —— 挂起感知验收", () => {
 		expect(advancedMs).toBeGreaterThanOrEqual(500);
 		expect(advancedMs).toBeLessThanOrEqual(1_000);
 	});
+
+	it("c2（钉断言面扩展）：小迟到 < θ → 确未走宽限分支（lastPingAt 不被重置）", async () => {
+		const { creator, character } = await startCreator({ heartbeatIntervalMs: 600_000, heartbeatTimeoutMs: 600_000 });
+		const disconnected = vi.fn();
+		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-1", {
+			onDisconnected: disconnected,
+			heartbeatIntervalMs: 100,
+			heartbeatTimeoutMs: 5_000,
+		});
+		const runtime = await attempt.claimCharacter(character.characterId);
+		await sleep(250); // ≥2 个正常 tick
+
+		const priv = runtime as unknown as { lastPingAt: number; lastTickAt: number };
+		const baselinePingAt = priv.lastPingAt;
+		const baselineTickAt = priv.lastTickAt;
+
+		// 小迟到 50ms < θ=2×interval=200ms。
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(Date.now() + 50);
+		await sleep(250); // ≥1 个 tick 观测到该迟到
+
+		// tick 确实运行过（避免空测）。
+		expect(priv.lastTickAt).toBeGreaterThan(baselineTickAt);
+		// 未走宽限：lastPingAt 保持原值（误走宽限会把它重置为跳变后的 now）。
+		expect(priv.lastPingAt).toBe(baselinePingAt);
+		expect(disconnected).not.toHaveBeenCalled();
+	});
 });

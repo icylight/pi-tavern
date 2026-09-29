@@ -61,6 +61,7 @@ import {
 	METHOD_WHISPER,
 } from "../shared/messages.js";
 import { GroupChatInput } from "./group-chat-input.js";
+import type { ModelTransitionSnapshot } from "./model-transition-queue.js";
 import { CHARACTER_REQUEST_TYPES } from "./request-types.js";
 import { PENDING_RESPONSE_REJECTED_CODE, validateResult } from "./response-gate.js";
 
@@ -883,7 +884,10 @@ export class CharacterRuntime {
 	 * reload 窗口帧，并发布一次性交接。连接、Character 身份、未冲刷的
 	 * 环境事件、未读标记与各触发窗口截止时刻都保留给新 runtime。
 	 */
-	async detachForReload(piSessionId: string): Promise<CharacterReloadHandoff> {
+	async detachForReload(
+		piSessionId: string,
+		modelTransition?: ModelTransitionSnapshot,
+	): Promise<CharacterReloadHandoff> {
 		if (this.lifecycle !== "active" || !this.socket || this.disconnected) {
 			throw new Error(ERROR_CHARACTER_RUNTIME_NOT_ACTIVE);
 		}
@@ -935,6 +939,9 @@ export class CharacterRuntime {
 			//  复评：路径随 handoff 携带，takeHandoff 据此重新加载磁盘配置。
 			...(this.agentDir !== undefined ? { agentDir: this.agentDir } : {}),
 			...(this.cwd !== undefined ? { cwd: this.cwd } : {}),
+			// #180 model hook：调用方（controller）已 freeze + 快照恰一次，纯数据随
+			// handoff 交接；不重跑已执行任务（已在位模型由 session 记录保证）。
+			...(modelTransition !== undefined ? { modelTransition } : {}),
 			//  connection 延续：连接实例随 handoff 移交（新 runtime 不重建——
 			// 库内序列单调，旧代际响应撞不上新请求 id）。
 			...(this.jsonrpcConnection && this.jsonrpcReader && this.jsonrpcWriter

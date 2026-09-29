@@ -80,10 +80,12 @@ reload 是独立于 claim/leave 的第三条状态通路（takeReloadHandoff 绕
 
 - **任务纯数据化**：handoff 携带 pending 纯任务 + lastModel + lastThinking + 槽位表 + 至多一个 inFlight{task, completionPromise, phase, remaining}，与 pendingEvents 交接同构；
 - **detach freeze**：交接前 freeze 旧队列——in-flight 完成后不再取 pending；旧调用不可重放（超时不取消旧 in-flight setModel，其副作用可能晚于 handoff 写入）；
+- **单一快照来源（调用约定）**：每次 handoff 只从当前活跃队列 freeze + snapshot 一次；已冻结旧队列不得再次快照——其 inFlight.remaining 会被接力 barrier 重复应用。L3 接线由 controller.detachForReload 单点保证（该路径有注释锚点）。
 - **in-flight barrier（含分阶段恢复）**：takeHandoff 立即恢复 Character 主流程（不阻塞），但新队列停在 barrier 后：await inFlight.completion settle → 经 getter 读实际 model/thinking 校正记录 → **执行 inFlight 的 remaining 部分**（单飞保证 in-flight 至多一个：setModel 在途时 thinking 未执行，remaining = {thinking?}；新队列 barrier 后若 model 达标 → setThinking(remaining.thinking) 恰一次，未达标 → 跳过 + warning；旧队列 freeze 后不再执行 task 剩余部分）→ 继续执行 pending。snapshot.inFlight 携带 {task, completion, phase, remaining}。**校正规则（统一，不仅 barrier）**：回执不可靠——setModel 先改运行时 model 与 session 记录再 await emit，后置 listener 抛错时 promise rejected 但副作用已发生；故任何任务完成后（无论 fulfilled/rejected），getter 可用则以实际值为准，否则保留记录并提示观测失败；rejected 照常 warning；
 - **接力（多跳 handoff）与断链语义**：barrier 未完成时再次 reload，快照继续携带同一个 inFlight（rehydrate 登记引用）；settle 后由接力链上**第一个非冻队列**执行 remaining（恰好一次）——已冻队列不执行、不清引用，非冻队列执行后清引用；无接力者（交接链断）时 remaining 丢弃，与既有 handoff 丢弃语义一致（不重放、不补偿），仅可经 barrier 超时 warning 与模型记录观测到停滞。
 - **超时与失败**：barrierTimeoutMs 默认 500ms（可注入），超时只发 warning、不得越障；永不 settle = hook 失败提示，不制造第二个并发写——model hook 可停滞，join/leave/reload 主流程不阻塞；
 - takeHandoff 不重跑已执行任务——已执行的 switch 不随 handoff 携带；模型「已在位」由 setModel 改会话内 model 与 `appendModelChange` session 记录保证（reload 只重建 extension runner 与资源、不触碰二者；重启 resume 同一 session 时从 session 记录恢复）。
+- **槽位收尾三态**（applyModelDimension 返回值，restore 路径同一判据）：`reached`（达标，含回执失败但实际达标）→ 删槽；`failed`（未达标收尾，无消费方）→ 删槽——失败可追溯由 warning 承担，槽位不承担；`abandoned`（freeze 中断）→ 留槽（接力链 barrier 还要经 barrierModelTarget 读目标；删了会静默丢失 remaining）。契约约束配可证伪锚点：E1 边界钉（`test/unit/character/model-transition-queue.l3.test.ts`）——naive「无条件删」误实现下唯一红。
 
 ## 9. 会话作用域契约（pi #8356，v0.84.3 起）
 
@@ -112,10 +114,11 @@ pi v0.84.3（commit 2ff8ba622，#8356）起 `setModel` / `setThinkingLevel` 的 
 
 | 组件 | 层 | 落点 | 说明 |
 | --- | --- | --- | --- |
-| model-transition-queue | runtime 域 | `src/character/` | 纯逻辑；执行器以六方法注入接口装配（§10），不 import pi SDK |
-| 基线持有 + 挂点（claim / leave / handleConnectionClosed / takeReloadHandoff / detachForReload） | application | `src/controller/` | 状态权威点触发，与状态迁移同步 |
-| setModel/setThinking 执行器 + 装配 | adapter | `src/extension/` + `src/index.ts` 组合根 | 错误归一 + 单一 notify 回调 |
-| handoff 基线字段 | application/controller 域 | `src/controller/reload-handoff-registry.ts`（`CharacterReloadHandoff`）携带队列快照（pending + lastModel + lastThinking + 槽位表 + 至多一个 inFlight{task, completionPromise, phase, remaining}），`CharacterRuntime.takeHandoff` 重建 | 与 pendingEvents 交接同构 |
+| model-transition-queue | runtime 域 | `src/character/model-transition-queue.ts` | 纯逻辑；执行器以六方法注入接口装配（§10），不 import pi SDK |
+| 卡字段 → 队列输入派生 | runtime 域 | `src/character/model-profile.ts` | 纯函数：ok 进 mask/target，absent 沉默，invalid 只产提示（不提交）；§10 分层断言面 |
+| 队列持有 + 挂点（claim / leave / handleConnectionClosed / takeReloadHandoff / detachForReload） | application | `src/controller/` | 队列单实例归 controller（跨 join 轮次保 FIFO 屏障；懒创建，reload 后由快照 rehydrate）；epoch 由 controller 计数、reload 后取快照 max 续算；状态权威点触发，与状态迁移同步 |
+| setModel/setThinking 执行器 + 装配 | adapter | `src/extension/model-hook-executor.ts` + `src/index.ts` 组合根 | 错误归一（getter/解析不可用 → undefined）+ 单一 notify 回调；工厂随 controller 第 4 构造参数注入（缺省 = 功能关闭，测试行为零变化） |
+| handoff 基线字段 | application/controller 域 | `src/controller/reload-handoff-registry.ts`（`CharacterReloadHandoff`）携带队列快照（pending + lastModel + lastThinking + 槽位表 + 至多一个 inFlight{task, completionPromise, phase, remaining}） | detach 时 controller freeze + 快照恰一次经 runtime 写入；takeReloadHandoff 在 runtime 重建后由 controller rehydrate |
 | 角色卡 model/thinking 字段解析 | shared | `src/config/character-card.ts` | 可选字段最小三态（仅存在性/类型）；基础检查失败不导致加载失败；格式/值域不校验 |
 
 依赖方向：adapter → application → runtime → shared，无上行；队列与执行器解耦（窄接口回调注入），无循环依赖。wire schema（protocol/）与 persistence 零改动。
@@ -124,4 +127,4 @@ pi v0.84.3（commit 2ff8ba622，#8356）起 `setModel` / `setThinkingLevel` 的 
 
 - acceptance（真实 RPC，`get_state`（model/thinkingLevel）/`set_model`/`get_available_models` 原语可断言）：核心序列 A→B→leave/join C→leave（model+thinking 双断言）；reload 后离开回基线；不可用模型失败层；裸字符串 model 运行时失败 warning + 不阻塞；任意 thinking 由 pi 钳制且以 getter 实际值断言；手动换模型恢复基线；settings 三键字段级不变断言（join 前快照 → 序列执行 → leave 后重读 `defaultProvider` / `defaultModel` / `defaultThinkingLevel` 逐字段相等；不断文件级——同文件有启动期写入）；无字段回归；强杀只验收敛不验恢复。thinking 断言锚 get_state.thinkingLevel 生效值（非配置原值）；正面锚按场景分派——model 切换断 `model_change`（无条件写入，最可靠）、thinking-only 或含 thinking 变化断 `thinking_level_change`（目标值须 ≠ 基线），目标值恰等于基线的 no-op 场景无 session 记录、钩子执行不可正面证明 → 下沉 unit/integration 用注入回调钉调用次数；clamp 超能力场景下沉 unit/integration。
 - integration（可控时序/注入）：WS 瞬断重连（handleConnectionClosed 注入）；队列竞态全场景（switch 在途 leave、epoch 过期、幂等短路、capture 屏障、thinking 随 model 达标后设置、restore mask）。
-- unit（mock）：throw 层注入、notify no-op 兜底、队列规则全枚举、splitModelReference 全输入域（任意输入不抛 + 三态）、parseModelField/parseThinkingField 三态、clamp 语义（生效值锚定）；padded 与大小写两条钉 resolveModel 入参（队列出口），不进纯函数。
+- unit（mock）：throw 层注入、notify no-op 兜底、队列规则全枚举、splitModelReference 全输入域（任意输入不抛 + 三态）、parseModelField/parseThinkingField 三态、clamp 语义（生效值锚定）；卡字段派生 planModelProfile 三态×两维（`model-profile.test.ts`）、controller 五挂点接线含丢失唤醒回归钉（`model-hook-wiring.test.ts`）、槽位删/留三态边界钉（`model-transition-queue.l3.test.ts`）；padded 与大小写两条钉 resolveModel 入参（队列出口），不进纯函数。

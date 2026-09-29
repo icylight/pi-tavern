@@ -260,7 +260,10 @@ export function registerCommands(
 						return;
 					}
 					try {
-						const runtime = await controller.claimCharacter(selected.character_id, pi);
+						// #180：warning 通道随入口装配（模型 hook 的异步失败提示）。
+						const runtime = await controller.claimCharacter(selected.character_id, pi, (message) =>
+							ctx.ui.notify(message, "warning"),
+						);
 						ctx.ui.notify(
 							`${NOTIFY_JOINED_PREFIX}${descriptor.name ?? descriptor.groupChatId}${NOTIFY_JOINED_AS}${runtime.character.name}`,
 							"info",

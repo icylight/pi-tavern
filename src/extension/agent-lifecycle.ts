@@ -72,4 +72,13 @@ export function wireAgentLifecycle(pi: ExtensionAPI, ctrl: TavernController): vo
 			state.runtime.settleRun();
 		}
 	});
+
+	// #180：外部模型/强度变更（手动换模型、/model 选择器、重启恢复）校正
+	// model hook 记录——手动切换绕过队列，下轮 restore 以实际值为基准（不持续纠正）。
+	pi.on("model_select", (event) => {
+		ctrl.noteModelIdentity({ provider: event.model.provider, id: event.model.id });
+	});
+	pi.on("thinking_level_select", (event) => {
+		ctrl.noteThinkingLevel(event.level);
+	});
 }

@@ -1,10 +1,9 @@
 /**
  * ：headless RPC 角色模式——自动加入群聊。
  *
- * 以 PITAVERN_AUTO_JOIN=1 启动的 character pi 在 session_start 时无需任何
- * 交互 UI 即加入活跃群聊：群聊与角色以编程方式选定（env 覆盖，然后唯一/首个
- * 候选）。其余一切（claim → ready → identity → speak → 群聊输入）原样复用
- * 交互路径。
+ * 以 PITAVERN_AUTO_JOIN=1 启动的 character pi 在扩展加载后无需任何交互 UI
+ * 即加入活跃群聊：群聊与角色以编程方式选定（env 覆盖，然后唯一/首个候选）。
+ * 其余一切（claim → ready → identity → speak → 群聊输入）原样复用交互路径。
  *
  * 环境变量契约（见 docs/headless-character.md）：
  * - PITAVERN_AUTO_JOIN=1        启用自动加入
@@ -46,8 +45,10 @@ interface AutoJoinOptions {
 }
 
 /**
- * auto-join 流程所需的最小上下文面。交互路径传真实 ExtensionContext * headless 启动器提供合成适配器（process.cwd + 生成 session id + stderr
- * notify），因为 RPC 模式没有 session_start / resources_discover 启动事件。
+ * auto-join 流程所需的最小上下文面。交互路径传真实 ExtensionContext；headless
+ * 启动器提供合成适配器（process.cwd + 生成 session id + stderr notify）——
+ * auto-join 调度于扩展加载，不依赖启动事件（「RPC 无 session_start」旧措辞已
+ * 实测证伪，核正见 architecture-backlog）。
  */
 export interface AutoJoinContext {
 	cwd: string;
@@ -157,7 +158,8 @@ export async function autoJoinCharacter(
 		return null;
 	}
 	try {
-		const runtime = await controller.claimCharacter(selected.character_id, pi);
+		// #180：warning 通道随入口装配（模型 hook 异步失败提示 → stderr）。
+		const runtime = await controller.claimCharacter(selected.character_id, pi, (message) => notify(message, "warning"));
 		notify(
 			`${HEADLESS_JOINED_PREFIX}${descriptor.name ?? descriptor.groupChatId}${HEADLESS_JOINED_MID}${runtime.character.name}`,
 			"info",
@@ -174,7 +176,9 @@ export async function autoJoinCharacter(
 			}
 			const retry = pickCharacter(options, attempt.availableCharacters);
 			if (retry) {
-				const runtime = await controller.claimCharacter(retry.character_id, pi);
+				const runtime = await controller.claimCharacter(retry.character_id, pi, (message) =>
+					notify(message, "warning"),
+				);
 				notify(
 					`${HEADLESS_JOINED_PREFIX}${descriptor.name ?? descriptor.groupChatId}${HEADLESS_JOINED_MID}${runtime.character.name}`,
 					"info",
