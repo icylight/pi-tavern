@@ -1,14 +1,12 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-
 import {
 	getGroupChatProjectDirectory,
 	getGroupChatSessionDirectory,
 } from "../../src/data/discovery/active-descriptor.js";
 import { PiProcess } from "./pi-process.js";
+import { createTempRoot } from "./temp-root.js";
 
 describe("acceptance: multiple real pi processes discover and join the same group chat", () => {
 	let root: string;
@@ -17,7 +15,7 @@ describe("acceptance: multiple real pi processes discover and join the same grou
 	const processes: PiProcess[] = [];
 
 	beforeAll(async () => {
-		root = await mkdtemp(join(tmpdir(), "pi-tavern-acc-"));
+		root = await createTempRoot("pi-tavern-acc-");
 		agentDir = join(root, "agent");
 		projectDir = join(root, "project");
 		await mkdir(join(agentDir, "characters"), { recursive: true });

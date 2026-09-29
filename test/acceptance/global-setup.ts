@@ -1,10 +1,10 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { PiProcess } from "./pi-process.js";
+import { createTempRoot } from "./temp-root.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -44,7 +44,7 @@ async function killOrphanedPiProcesses(): Promise<void> {
  */
 export default async function setup(): Promise<void> {
 	await killOrphanedPiProcesses();
-	const root = await mkdtemp(join(tmpdir(), "pi-tavern-warmup-"));
+	const root = await createTempRoot("pi-tavern-warmup-");
 	try {
 		const agentDir = join(root, "agent");
 		const projectDir = join(root, "project");

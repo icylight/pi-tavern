@@ -1,10 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseJsonc } from "jsonc-parser";
 import { afterAll, describe, expect, it } from "vitest";
-
 import { PiProcess, waitForDescriptor } from "./pi-process.js";
+import { createTempRoot } from "./temp-root.js";
 import { type BufferedWsClient, connectCharacter } from "./ws-helper.js";
 
 /**
@@ -97,7 +96,7 @@ describe("acceptance: RH3-whisper-projection（剧本驱动首部剧本）", () 
 	}
 
 	it("RH3-whisper：创建者完整正文 / 接收者实时 / 旁观者占位 / 重启恢复（剧本 rh3-whisper-projection.jsonc）", async () => {
-		root = await mkdtemp(join(tmpdir(), "pi-tavern-acc-rh3w-"));
+		root = await createTempRoot("pi-tavern-acc-rh3w-");
 		const agentDir = join(root, "agent");
 		const sessionDir = join(agentDir, "sessions", "creator");
 		const projectDir = join(root, "project");

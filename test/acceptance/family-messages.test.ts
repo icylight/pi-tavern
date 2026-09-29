@@ -1,13 +1,10 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-
 import type WebSocket from "ws";
-
 import type { PiProcess } from "./pi-process.js";
 import { leaveAndReset, spawnCreator, spawnStats, startFreshGroup } from "./process-fixture.js";
+import { createTempRoot } from "./temp-root.js";
 import { joinCharacterWs } from "./ws-helper.js";
 
 /**
@@ -30,7 +27,7 @@ describe("acceptance family: message sync + fetch + history paging (shared creat
 	const sockets: WebSocket[] = [];
 
 	beforeAll(async () => {
-		root = await mkdtemp(join(tmpdir(), "pi-tavern-acc-family-"));
+		root = await createTempRoot("pi-tavern-acc-family-");
 		agentDir = join(root, "agent");
 		projectDir = join(root, "project");
 		await mkdir(join(agentDir, "characters"), { recursive: true });

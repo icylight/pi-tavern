@@ -1,14 +1,12 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-
 import type WebSocket from "ws";
 import { MAX_WEBSOCKET_FRAME_BYTES } from "../../src/protocol/codec.js";
 import { DEFAULT_WELCOME_MESSAGE } from "../../src/shared/constants.js";
 import { PiProcess } from "./pi-process.js";
 import { leaveAndReset, spawnCreator, startFreshGroup } from "./process-fixture.js";
+import { createTempRoot } from "./temp-root.js";
 import { joinCharacterWs } from "./ws-helper.js";
 
 /**
@@ -37,7 +35,7 @@ describe("acceptance: welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => {
 	let creator: PiProcess;
 
 	beforeAll(async () => {
-		root = await mkdtemp(join(tmpdir(), "pi-tavern-acc-welcome-"));
+		root = await createTempRoot("pi-tavern-acc-welcome-");
 		roots.push(root);
 		agentDir = join(root, "agent");
 		projectDir = join(root, "project");
@@ -261,7 +259,7 @@ describe("acceptance: welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => {
 
 	it("WL4/WL1: 全局配置覆盖默认档 + 默认文案存在且非空", async () => {
 		// 全局档：agentDir 有全局 welcome_message、无项目配置 → 收到全局欢迎语。
-		const root2 = await mkdtemp(join(tmpdir(), "pi-tavern-acc-welcome-global-"));
+		const root2 = await createTempRoot("pi-tavern-acc-welcome-global-");
 		roots.push(root2);
 		const agentDir2 = join(root2, "agent");
 		const projectDir2 = join(root2, "project");
@@ -294,7 +292,7 @@ describe("acceptance: welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => {
 
 		// 默认档：全局/项目均无 welcome_message → 默认文案存在且非空
 		// （精确默认值由 unit 层钉，acceptance 断言"存在且非空"）。
-		const root3 = await mkdtemp(join(tmpdir(), "pi-tavern-acc-welcome-default-"));
+		const root3 = await createTempRoot("pi-tavern-acc-welcome-default-");
 		roots.push(root3);
 		const agentDir3 = join(root3, "agent");
 		const projectDir3 = join(root3, "project");
@@ -325,7 +323,7 @@ describe("acceptance: welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => {
 
 	it("WL4 边界: 空串回退默认文案 + 超长配置拒绝（P1-1 User 评论补钉）", async () => {
 		// 空串档：welcome_message="" 视为未配置 → 回退 DEFAULT_WELCOME_MESSAGE。
-		const root4 = await mkdtemp(join(tmpdir(), "pi-tavern-acc-welcome-empty-"));
+		const root4 = await createTempRoot("pi-tavern-acc-welcome-empty-");
 		roots.push(root4);
 		const agentDir4 = join(root4, "agent");
 		const projectDir4 = join(root4, "project");
@@ -357,7 +355,7 @@ describe("acceptance: welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => {
 
 		// 超长档：welcome_message UTF-8 字节超 MAX_WEBSOCKET_FRAME_BYTES →
 		// 配置 fail-fast（/tavern-new 报 ERROR_INVALID_CONFIG_PREFIX 同族文案）。
-		const root5 = await mkdtemp(join(tmpdir(), "pi-tavern-acc-welcome-huge-"));
+		const root5 = await createTempRoot("pi-tavern-acc-welcome-huge-");
 		roots.push(root5);
 		const agentDir5 = join(root5, "agent");
 		const projectDir5 = join(root5, "project");
@@ -396,7 +394,7 @@ describe("acceptance: welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => {
 
 		// P1-3 反例（User 评论 3）：全局有效 + 项目空串 → 回退链不截断，
 		// 生效值 = 全局文案（修复前 project ?? global 先选空串 → 错误回退代码默认）。
-		const root6 = await mkdtemp(join(tmpdir(), "pi-tavern-acc-welcome-chain-"));
+		const root6 = await createTempRoot("pi-tavern-acc-welcome-chain-");
 		roots.push(root6);
 		const agentDir6 = join(root6, "agent");
 		const projectDir6 = join(root6, "project");
@@ -433,7 +431,7 @@ describe("acceptance: welcome system_message (WL1/WL2/WL3/WL4/WL6)", () => {
 		// 验收：① 欢迎语含 tavern_history 指引（AI 自主决策拉历史）② 历史可经
 		// tavern_history 观察通道分页拉取（10 + has_more + total=12）③ 无机械拉取
 		// 注入（不依赖服务端推送）。游标预置（进入时刻水位）由 unit/integration 钉覆盖。
-		const root7 = await mkdtemp(join(tmpdir(), "pi-tavern-acc-welcome-history-"));
+		const root7 = await createTempRoot("pi-tavern-acc-welcome-history-");
 		roots.push(root7);
 		const agentDir7 = join(root7, "agent");
 		const projectDir7 = join(root7, "project");

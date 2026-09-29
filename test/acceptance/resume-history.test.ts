@@ -1,10 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
 import { afterAll, describe, expect, it } from "vitest";
-
 import { PiProcess } from "./pi-process.js";
+import { createTempRoot } from "./temp-root.js";
 
 /**
  *  红测（acceptance 进程级）：resume 历史投影。
@@ -51,7 +49,7 @@ describe("acceptance: resume history projection (RH1-RH4 + A3-1/A4)", () => {
 	}
 
 	async function setupRoot(): Promise<{ agentDir: string; sessionDir: string; projectDir: string }> {
-		const root = await mkdtemp(join(tmpdir(), `pi-tavern-acc-resume-${pairIndex}-`));
+		const root = await createTempRoot(`pi-tavern-acc-resume-${pairIndex}-`);
 		pairIndex += 1;
 		roots.push(root);
 		const agentDir = join(root, "agent");

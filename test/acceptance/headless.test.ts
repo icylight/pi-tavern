@@ -1,11 +1,10 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getGroupChatCursorDirectory } from "../../src/data/discovery/active-descriptor.js";
 import { pollSessionCursor } from "./cursor-helper.js";
 import { PiProcess } from "./pi-process.js";
+import { createTempRoot } from "./temp-root.js";
 
 /**
  *  acceptance: headless RPC character mode (CPU 根治).
@@ -24,7 +23,7 @@ describe("acceptance: headless RPC character auto-join", () => {
 	const processes: PiProcess[] = [];
 
 	beforeAll(async () => {
-		root = await mkdtemp(join(tmpdir(), "pi-tavern-acc-headless-"));
+		root = await createTempRoot("pi-tavern-acc-headless-");
 		agentDir = join(root, "agent");
 		projectDir = join(root, "project");
 		await mkdir(join(agentDir, "characters"), { recursive: true });

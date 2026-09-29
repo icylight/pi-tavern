@@ -1,10 +1,8 @@
-import { access, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { access, mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-
 import { PiProcess } from "./pi-process.js";
+import { createTempRoot } from "./temp-root.js";
 
 async function exists(path: string): Promise<boolean> {
 	try {
@@ -21,7 +19,7 @@ describe("acceptance: a developer pi's activity does not pollute the daily pi", 
 	const processes: PiProcess[] = [];
 
 	beforeAll(async () => {
-		root = await mkdtemp(join(tmpdir(), "pi-tavern-acc-isolate-"));
+		root = await createTempRoot("pi-tavern-acc-isolate-");
 		projectDir = join(root, "project");
 		await mkdir(projectDir, { recursive: true });
 	});

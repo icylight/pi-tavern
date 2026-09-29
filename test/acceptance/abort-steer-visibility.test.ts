@@ -1,10 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
 import { afterAll, describe, expect, it, vi } from "vitest";
-
 import { PiProcess, waitForDescriptor } from "./pi-process.js";
+import { createTempRoot } from "./temp-root.js";
 
 /**
  * A' abort 打断投递 v0.5——红钉先行。
@@ -43,7 +41,7 @@ describe("acceptance: A'——steer 安全边界 abort 重开（可见性 + 收�
 	});
 
 	async function startCreator(): Promise<{ creator: PiProcess; root: string }> {
-		const root = await mkdtemp(join(tmpdir(), `pi-tavern-acc-abort-${index}-`));
+		const root = await createTempRoot(`pi-tavern-acc-abort-${index}-`);
 		index += 1;
 		roots.push(root);
 		const agentDir = join(root, "agent");

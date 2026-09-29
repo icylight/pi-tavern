@@ -1,10 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-
 import { PiProcess } from "./pi-process.js";
+import { createTempRoot } from "./temp-root.js";
 
 describe("acceptance: abnormal termination converges without manual intervention", () => {
 	let root: string;
@@ -13,7 +11,7 @@ describe("acceptance: abnormal termination converges without manual intervention
 	const processes: PiProcess[] = [];
 
 	beforeAll(async () => {
-		root = await mkdtemp(join(tmpdir(), "pi-tavern-acc-crash-"));
+		root = await createTempRoot("pi-tavern-acc-crash-");
 		agentDir = join(root, "agent");
 		projectDir = join(root, "project");
 		await mkdir(join(agentDir, "characters"), { recursive: true });

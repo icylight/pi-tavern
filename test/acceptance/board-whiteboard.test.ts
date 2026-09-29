@@ -1,11 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-
 import type { PiProcess } from "./pi-process.js";
 import { leaveAndReset, spawnCreator, startFreshGroup } from "./process-fixture.js";
+import { createTempRoot } from "./temp-root.js";
 import type { BufferedWsClient } from "./ws-helper.js";
 import { joinCharacterWs } from "./ws-helper.js";
 
@@ -39,7 +37,7 @@ describe("acceptance: whiteboard board flow e2e", () => {
 	const processes: PiProcess[] = [];
 
 	beforeAll(async () => {
-		root = await mkdtemp(join(tmpdir(), "pi-tavern-acc-board-"));
+		root = await createTempRoot("pi-tavern-acc-board-");
 		agentDir = join(root, "agent");
 		projectDir = join(root, "project");
 		await mkdir(join(agentDir, "characters"), { recursive: true });
