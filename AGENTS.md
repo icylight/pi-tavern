@@ -17,7 +17,7 @@ PiTavern 是 pi-coding-agent 的本地扩展：多个独立 pi session 以 Chara
 
 ## 核心原则
 
-1. **三角色协作**：PM（做什么/验收标准/收口 review）、Dev（设计/实现/测试/架构契约）、QA（独立验证/验收/缺陷）。文件所有权表与 git 纪律见 `docs/development/workflow.md`——改文件前先查属主，非属主默认只读；git 写操作（commit/push/PR/merge/分支）统一由 PM 执行（PR 合并与分支推送经 User 放开逐次审批，归口 PM）。
+1. **三角色协作**：owner（做什么/验收标准/收口 review）、Dev（设计/实现/测试/架构契约）、QA（独立验证/验收/缺陷）。文件所有权表与 git 纪律见 `docs/development/workflow.md`——改文件前先查属主，非属主默认只读；git 写操作（commit/push/PR/merge/分支）统一由 owner 执行（PR 合并与分支推送经 User 放开逐次审批，归口 owner）。
 2. **验收驱动**：功能声称"完成"必须以 `docs/development/acceptance.md` 中的现行可验证标准为准；当前版本需求以对应 GitHub Issue 为准，不以口头承诺或代码现状代替。
 3. **契约零漂移**：`src/protocol/` 的 wire schema 默认零改动；任何协议/持久化/schema 变更必须先声明影响面、三方确认后再改。
 4. **验证默认不跑**（门卫机制）：测试命令无参 = exit 1 拒绝（提示"这是拒绝不是失败"）。日常验证必须显式指定目标：`npm run test:unit -- <pattern>`（unit/integration/acceptance 同规，pattern = 文件或目录）；层内全量用 `-- --all`；收口门禁用 `npm run test:full`（三层串行）。跑测试前 `git status` + `git rev-parse HEAD` 确认分支与工作区。
@@ -35,10 +35,10 @@ PiTavern 是 pi-coding-agent 的本地扩展：多个独立 pi session 以 Chara
 ## AI agent 使用规范
 
 - 允许：读代码与文档；跑显式定向测试；在属主文件内做工作区产出；用 `tavern_whoami` 查证身份（不猜测）。
-- 不允许：自行 git add/commit/push/merge/迁分支（PM 归口）；无参跑测试或隐式全量；改动非属主文件（先群聊声明等属主确认）；在 GitHub PR/issue 直接评论留痕（评论内容可提供，发布由 PM 归口）；回复同议题已被回答的内容（事实增量原则——纯复读/重复确认一律不发）。
+- 不允许：自行 git add/commit/push/merge/迁分支（owner 归口）；无参跑测试或隐式全量；改动非属主文件（先群聊声明等属主确认）；在 GitHub PR/issue 直接评论留痕（评论内容可提供，发布由 owner 归口）；回复同议题已被回答的内容（事实增量原则——纯复读/重复确认一律不发）。
 
 ## 写作与规范
 
 - Commit：Conventional Commits（feat/fix/refactor/docs/test + scope），一个逻辑一个 commit，中文描述，附关键证据（命令 + 结果摘要）。
-- 分支命名：`<type>/<slug>`（refactor/ fix/ feat/ docs/），基点 main，PM 指定。
+- 分支命名：`<type>/<slug>`（refactor/ fix/ feat/ docs/），基点 main，owner 指定。
 - 宣布完成/通过必须附证据（V0 留痕：命令 | 结果 | hash@层 | 环境），留痕即证据、引用不重跑。

@@ -106,7 +106,7 @@ class Peer {
 			if (Date.now() > deadline) {
 				throw new Error("timeout waiting for frame");
 			}
-			// PM/Dev ①：等待期间必须真超时（deadline 检查在 await 后 = 假超时）——
+			// owner/Dev ①：等待期间必须真超时（deadline 检查在 await 后 = 假超时）——
 			// Promise.race 兜底唤醒，帧到达与超时竞争。
 			await Promise.race([
 				new Promise<void>((resolveWait) => {

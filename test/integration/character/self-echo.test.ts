@@ -46,7 +46,7 @@ async function startCreator(
 	const root = await createTemporaryDirectory();
 	const configPath = join(root, "tavern.json");
 	await mkdir(join(root, "characters"), { recursive: true });
-	const cards = ["Architect", "Developer", "QA", "PM"]
+	const cards = ["Architect", "Developer", "QA", "owner"]
 		.slice(0, characterCount)
 		.map((name) => ({ name, description: name }));
 	for (const card of cards) {

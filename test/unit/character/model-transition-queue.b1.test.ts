@@ -9,10 +9,10 @@ import {
  * L2 B1（二次 reload 落在 barrier 窗口内）——QA 独立复核钉。
  *
  * 形态来源：
- * - T1 = PM 探针 v1（离开的 restore 被吞：收尾停在 sonnet/high）
- * - T2 = PM 探针 v2（并发峰值 2）
+ * - T1 = owner 探针 v1（离开的 restore 被吞：收尾停在 sonnet/high）
+ * - T2 = owner 探针 v2（并发峰值 2）
  * - T3 = QA 对抗组（已冻队列的 barrier 仍写 remaining）
- * - T4/T5 = PM seq166 采纳的「恰好一次」保绿钉
+ * - T4/T5 = owner seq166 采纳的「恰好一次」保绿钉
  * - AD1/AD2 = QA 复核对抗组（3 跳接力 / 首跳排队 restore + 3 跳；scratch qa-l2-b1v2 落盘）
  *
  * 期望：T1/T2/T3 在未修树 = 红；修复（接力保留 inFlight + runBarrier frozen 判定）后全绿。

@@ -99,7 +99,7 @@ export async function loadTavernConfig(options: LoadTavernConfigOptions): Promis
 	// 空白归一化必须在合并**之前**分别进行——否则
 	// `??` 先选中项目空串（空串非 null/undefined），再归一化 undefined 后直接回落
 	// 代码默认，截断三档回退链（反例：全局有效 + 项目空串 → 应回全局，实际默认）。
-	// 归一化语义：空白串视为未配置（PM 口径，与「欢迎语必非空 → join 后必有首次
+	// 归一化语义：空白串视为未配置（owner 口径，与「欢迎语必非空 → join 后必有首次
 	// 可见注入」文档依据一致）。
 	const effectiveWelcomeMessage =
 		normalizeWelcomeMessage(projectConfig?.welcome_message) ?? normalizeWelcomeMessage(globalConfig?.welcome_message);

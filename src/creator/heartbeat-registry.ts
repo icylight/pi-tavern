@@ -87,7 +87,7 @@ export class HeartbeatRegistry {
 		this.lastTickAt = now;
 		// 挂起感知（#203）：tick 实际间隔远超两倍心跳周期 ⇒ 进程被系统冻结过 ⇒
 		// 本轮「无对端活动」不可信：重置 baseline + 主动 probe，不判死。
-		// θ=2×interval（PM 裁定，与半开判定窗口解耦）。
+		// θ=2×interval（owner 裁定，与半开判定窗口解耦）。
 		// null = 本 registry 首轮（含 reload handoff 新实例接管）——handoff 窗口
 		// 可能跨越睡眠，陈旧 lastPongAt 不可信，首轮同样走宽限。
 		const suspended = previousTickAt === null || now - previousTickAt > this.options.intervalMs * 2;
