@@ -25,6 +25,7 @@ export class HeartbeatRegistry {
 	private readonly states = new Map<string, HeartbeatState>();
 	private readonly options: HeartbeatRegistryOptions;
 	private timer: NodeJS.Timeout | null = null;
+	private lastTickAt: number | null = null;
 
 	constructor(options: HeartbeatRegistryOptions) {
 		this.options = options;
@@ -82,7 +83,20 @@ export class HeartbeatRegistry {
 
 	private tick(): void {
 		const now = this.options.now().getTime();
+		const previousTickAt = this.lastTickAt;
+		this.lastTickAt = now;
+		// 挂起感知（#203）：tick 实际间隔远超两倍心跳周期 ⇒ 进程被系统冻结过 ⇒
+		// 本轮「无对端活动」不可信：重置 baseline + 主动 probe，不判死。
+		// θ=2×interval（PM 裁定，与半开判定窗口解耦）。
+		// null = 本 registry 首轮（含 reload handoff 新实例接管）——handoff 窗口
+		// 可能跨越睡眠，陈旧 lastPongAt 不可信，首轮同样走宽限。
+		const suspended = previousTickAt === null || now - previousTickAt > this.options.intervalMs * 2;
 		for (const [sessionId, state] of this.states) {
+			if (suspended) {
+				state.lastPongAt = now;
+				this.options.getSocket(sessionId)?.ping();
+				continue;
+			}
 			if (now - state.lastPongAt > this.options.timeoutMs) {
 				// 半开连接：terminate 触发 close → 统一断连清理。
 				this.options.onStale(sessionId);

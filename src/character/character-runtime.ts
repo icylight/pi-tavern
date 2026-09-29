@@ -232,6 +232,7 @@ export class CharacterRuntime {
 	private closePromise: Promise<void> | null = null;
 	private disconnected = false;
 	private lastPingAt = 0;
+	private lastTickAt = 0;
 	private heartbeatTimer: NodeJS.Timeout | null = null;
 	private lifecycle: "active" | "detaching" | "disposed" = "active";
 	private bufferingHandlers: { message: (data: WebSocket.RawData) => void; close: () => void } | null = null;
@@ -1030,7 +1031,7 @@ export class CharacterRuntime {
 				speakSoftLimitChars = reloaded.speakSoftLimitChars;
 			} catch (error) {
 				notify?.(
-					`reload: failed to reload tavern.json, keeping the previous message templates: ${error instanceof Error ? error.message : String(error)}`,
+					`reload: failed to reload tavern.json, keeping the previous message templates and speak soft limit: ${error instanceof Error ? error.message : String(error)}`,
 				);
 			}
 		}
@@ -1248,7 +1249,20 @@ export class CharacterRuntime {
 			return;
 		}
 		this.heartbeatTimer = setInterval(() => {
-			if (Date.now() - this.lastPingAt > this.heartbeatTimeoutMs) {
+			const now = Date.now();
+			const previousTickAt = this.lastTickAt;
+			this.lastTickAt = now;
+			// 挂起感知（#203）：tick 实际间隔远超两倍心跳周期 ⇒ 本轮「无 ping」不可信，
+			// 重置存活 baseline、本轮不判死；真半开由后续轮次照常收敛。
+			// θ=2×interval（PM 裁定）：与半开判定窗口（timeout）解耦，睡眠落在
+			// [2×interval, timeout) 区间也会被识别为挂起而非误判半开。
+			// 首次 tick（previousTickAt = 0）与 reload handoff 接管后的首轮同走
+			// 宽限：handoff 窗口可能跨越睡眠，陈旧 lastPingAt 不可信。
+			if (previousTickAt === 0 || now - previousTickAt > this.heartbeatIntervalMs * 2) {
+				this.lastPingAt = now;
+				return;
+			}
+			if (now - this.lastPingAt > this.heartbeatTimeoutMs) {
 				// 超时窗口内不给 creator 发 ping：连接处于半开状态。
 				this.failConnection(new Error(ERROR_HEARTBEAT_TIMEOUT));
 			}
