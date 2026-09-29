@@ -41,6 +41,8 @@ interface AutoJoinOptions {
 	loadConfig?: (options: { agentDir: string; cwd: string }) => Promise<TavernConfig>;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	triggerDebounceMs?: number;
+	/** #196 忙态投递窗口（注入化；undefined = 默认 5000ms）。 */
+	deliveryWindowMs?: number;
 }
 
 /**
@@ -130,6 +132,7 @@ export async function autoJoinCharacter(
 	const joinConfig = await loadConfig({ agentDir, cwd: ctx.cwd });
 	const attempt = await controller.startJoining(descriptor, sessionId, {
 		...(options.triggerDebounceMs !== undefined ? { triggerDebounceMs: options.triggerDebounceMs } : {}),
+		...(options.deliveryWindowMs !== undefined ? { deliveryWindowMs: options.deliveryWindowMs } : {}),
 		// 游标跟随 Session：cursors/<groupId>/<sessionId>.json，同群聊多角色互不共用
 		cursorStorePath: join(getGroupChatCursorDirectory(agentDir, ctx.cwd), descriptor.groupChatId, `${sessionId}.json`),
 		...(joinConfig.messageTemplates !== undefined ? { messageTemplates: joinConfig.messageTemplates } : {}),

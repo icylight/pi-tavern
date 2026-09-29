@@ -57,6 +57,14 @@ const JOIN_BATCH_DEBOUNCE_MS = 1000;
 const TRIGGER_DEBOUNCE_MS = 1000;
 
 /**
+ * #196 忙态投递窗口：忙态消息到达后启动固定窗口（窗口内并入、不重置），到期仍
+ * 未 settle → 主动拉取投递（flush 统一 steer 通道 → 工具批后、下一 LLM 调用前
+ * 可见）。投递延迟上界 = 「窗口 + 一个工具间隙」，不依赖 run 结束。默认 5s；
+ * `PITAVERN_DELIVERY_WINDOW_MS` 可注入（测试用短值 ≥50ms）。
+ */
+const DELIVERY_WINDOW_MS = 5_000;
+
+/**
  * 忙态安全边界打断令牌。令牌作为隐藏 custom message 经 steer 排队，在下一次
  * provider 请求前由 context 钩子消费；session JSONL 保留记录，但模型上下文
  * 始终过滤该类型。
@@ -68,6 +76,8 @@ export class GroupChatInput {
 	private debounceDueAt: number | null = null;
 	/** ：闲态触发窗口定时器（fixed 1s，窗口内并入不重置；reload 本地交接）。 */
 	private idleWindowTimer: ReturnType<typeof setTimeout> | null = null;
+	/** #196：忙态投递窗口定时器（窗口内并入不重置）。 */
+	private deliveryWindowTimer: ReturnType<typeof setTimeout> | null = null;
 	private idleWindowDueAt: number | null = null;
 	/** 闲态窗口内是否已有通知可确认包含他人公共消息。 */
 	private idleWindowAbortEligible = false;
@@ -125,15 +135,18 @@ export class GroupChatInput {
 		private readonly runtime: CharacterRuntime,
 		private readonly pi: ExtensionAPI,
 		private readonly triggerDebounceMs: number = TRIGGER_DEBOUNCE_MS,
+		private readonly deliveryWindowMs: number = DELIVERY_WINDOW_MS,
 	) {
-		// 公共群消息正文不在 run 中投递。运行中到达的 update 只置忙态标记并
-		// 按需排隐藏令牌；settle = 正文拉取触发点。
+		// 公共群消息正文不在 run 中投递。运行中到达的 update 只置忙态标记 + 启动
+		// #196 投递窗口；settle 或窗口到期（先到者）触发正文拉取投递。
 		this.onSettled = () => {
 			if (this.stopped) {
 				return;
 			}
 			this.abortTokenQueued = false;
 			this.abortRequested = false;
+			// settle 已消费待投递状态：窗口空转（避免窗口提前到期把下一轮消息过早投出）。
+			this.cancelDeliveryWindow();
 			if (this.incrementPending) {
 				this.incrementPending = false;
 				void this.pullIncrement();
@@ -197,7 +210,10 @@ export class GroupChatInput {
 					// 才 abort 当前 run。preview 不完整且含自身回显时无法证明他人消息
 					// 归属，只保留待拉取状态，让当前 run 自然 settled 后补拉，避免自身
 					// 连续发言造成自打断。
+					// #196：另启动投递窗口——长 run（连续工具链数十分钟不 settle）下
+					// 不再无限期等 settle；窗口到期主动拉取投递（steer 通道，工具间隙可见）。
 					this.incrementPending = true;
+					this.armDeliveryWindow();
 					if (selfPreview !== "incomplete-with-self") {
 						this.queueAbortControlToken();
 					}
@@ -399,8 +415,9 @@ export class GroupChatInput {
 		if (events.length === 0) {
 			return;
 		}
-		// await 投递链：flush 内 preflightResult 成功才推进游标——do-while 补拉
-		// 决策必须基于已推进的游标（否则重复投递已投窗口）。
+		// await 投递链：flush 内经 sendWithDeliveryAck 乐观推进游标（同步返回即
+		// 推进；同步抛错不推进并整批重投）——do-while 补拉决策必须基于已推进
+		// 的游标（否则重复投递已投窗口）。
 		try {
 			await this.flush(events, latestSequence);
 		} finally {
@@ -451,6 +468,7 @@ export class GroupChatInput {
 		this.handler = undefined;
 		this.clearDebounce();
 		this.cancelIdleWindow();
+		this.cancelDeliveryWindow();
 		this.pendingEvents = [];
 		this.abortTokenQueued = false;
 		this.abortRequested = false;
@@ -596,6 +614,34 @@ export class GroupChatInput {
 		}
 		this.idleWindowDueAt = null;
 		this.idleWindowAbortEligible = false;
+	}
+
+	/**
+	 * #196：忙态投递窗口。窗口内并入不重置；到期时若待投递状态仍未被 settle 消费
+	 * （`incrementPending` 仍为 true）→ 主动拉取投递。
+	 *
+	 * 与 settle 无竞态：两侧以 `incrementPending` 为唯一闸门——先到者置 false 并
+	 * 投递，后到者见 false 空转；两条路径均经统一 flush（忙态走 steer 通道）。
+	 */
+	private armDeliveryWindow(): void {
+		if (this.stopped || this.deliveryWindowTimer !== null) {
+			return;
+		}
+		this.deliveryWindowTimer = setTimeout(() => {
+			this.deliveryWindowTimer = null;
+			if (this.stopped || !this.incrementPending) {
+				return;
+			}
+			this.incrementPending = false;
+			void this.pullIncrement();
+		}, this.deliveryWindowMs);
+	}
+
+	private cancelDeliveryWindow(): void {
+		if (this.deliveryWindowTimer !== null) {
+			clearTimeout(this.deliveryWindowTimer);
+			this.deliveryWindowTimer = null;
+		}
 	}
 
 	hasPendingBatch(): boolean {
@@ -910,11 +956,13 @@ export class GroupChatInput {
 
 		if (this.stopped) return;
 
-		// Arch settle 竞态修复：在 await 之后、与发送同一微任务内重查
-		// isAgentActive。若拉取状态期间 run 已 settle，pi 不再 streaming——
-		// steer 只会 append 而不唤醒（idle 时 triggerTurn 被忽略）。回退到
-		// idle 路径，批次开启群聊触发的 turn（marker 按  正确点亮
-		// is_streaming）。
+		// #196：投递通道统一 steer——pi 的 sendCustomMessage 只在 streaming 时区分
+		// steer/followUp（后者仅在「agent 无工具调用、即将停」时逐条消费，长工具链下
+		// 可滞留数十分钟），idle 时忽略 deliverAs 直接跑 run。本地 isAgentActive 与 pi
+		// 真实 streaming 状态可能不一致（watchdog 误判 / settle 事件迟到），旧实现据此
+		// 分流会把消息送进 followUp 滞留；统一 steer 后交 pi 按真实状态分派：
+		// streaming → steering 队列（工具批后、下一 LLM 调用前注入，秒级，不打断 run）；
+		// idle → 直接触发新一轮 run。
 		if (this.runtime.isAgentActive) {
 			await this.deliverSteer(toDeliver, groupChatState, effectiveLatestSequence);
 			return;
@@ -955,18 +1003,17 @@ export class GroupChatInput {
 			}
 		}
 
-		// 投递承诺（Arch 竞态审计形状）：入队接受（preflightResult）即 resolve——
-		// pi SDK 的 sendMessage 在 run 结束后才 resolve（prompt() 内部 await 链），
-		// await 它会锁死单飞行锁；saveCursor 在 preflightResult 内同步执行，
-		// 承诺 resolve 时游标已推进（do-while 复查读新游标，不重投）。
-		await this.sendWithDeliveryAck(toDeliver, content, groupChatState, effectiveLatestSequence, "followUp");
+		// 投递承诺：#196 起两路径均用 steer（见上）。pi 的 sendMessage 为 fire-and-forget
+		// （不同步返回投递结果）；同步抛错（入队拒绝/会话未就绪）由 sendWithDeliveryAck
+		// catch 入 retryBatch，不推进游标。
+		await this.sendWithDeliveryAck(toDeliver, content, groupChatState, effectiveLatestSequence, "steer");
 	}
 
 	/**
-	 * 统一投递 + 游标双通道判定：sendMessage 挂
-	 * preflightResult 回调——入队接受（true）即推进游标并 resolve 短承诺；
-	 * 拒绝/抛错不推进（settle 兜底重投）且同样 resolve（防飞行锁挂死）。
-	 * 不 await sendMessage 全量完成（pi SDK：run 结束后才 resolve）。
+	 * 统一投递 + 游标推进：sendMessage 同步抛错（入队拒绝/会话未就绪）→ 不推进
+	 * 游标并整批入 retryBatch 重投（重复可接受、跳过不可接受）；正常返回 → 推进游标。
+	 * 边界（pi API 面）：异步失败（如 idle 路径直接跑 run 报错）只经 pi 的 emitError
+	 * 上报，扩展侧拿不到投递确认——发送后即推进是乐观语义，见 group-chat-input.md。
 	 */
 	private async sendWithDeliveryAck(
 		events: ServerMessage[],
@@ -998,6 +1045,10 @@ export class GroupChatInput {
 				},
 				{ triggerTurn: true, deliverAs },
 			);
+			// 乐观推进的已知边界（区间跳过）：入队后被 pi 队列清空路径
+			// （interactive abort / Esc → clearAllQueues）静默丢弃的扩展消息无
+			// 返还、无事件，游标已过 → 该区间永久跳过；完整修法（消费后推进 +
+			// gap 补拉）归 #201，见 group-chat-input.md 已知边界节。
 			if (latestSequence !== undefined) {
 				const currentCursor = this.runtime.loadCursor() ?? 0;
 				if (latestSequence > currentCursor) {

@@ -67,6 +67,11 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	const triggerDebounceMs = Number(process.env.PITAVERN_TRIGGER_DEBOUNCE_MS ?? "1000");
 	const injectTriggerDebounce =
 		Number.isFinite(triggerDebounceMs) && triggerDebounceMs >= 0 ? triggerDebounceMs : undefined;
+	// #196 忙态投递窗口注入化：默认 5000ms；测试可设 PITAVERN_DELIVERY_WINDOW_MS 缩短
+	// ≥50ms（断言面 = 「窗口 + 工具间隙内可见」，与窗口时长无关）。启动早期一次性读取。
+	const deliveryWindowMs = Number(process.env.PITAVERN_DELIVERY_WINDOW_MS ?? "5000");
+	const injectDeliveryWindow =
+		Number.isFinite(deliveryWindowMs) && deliveryWindowMs >= 50 ? deliveryWindowMs : undefined;
 	// 增量拉取上下文窗口——拉取起点前移游标前 N 条已读（默认 1，暂不配置）。
 	// getter 闭包注入（每轮拉取实时取值，非快照）；显式传入优先，undefined → 窗口 0 行为不变。
 	const DEFAULT_FETCH_CONTEXT_WINDOW = 1;
@@ -77,6 +82,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 			JoinAttempt.connect(descriptor, sessionId, {
 				...options,
 				...(options.getFetchContextWindow === undefined ? { getFetchContextWindow } : {}),
+				...(injectDeliveryWindow !== undefined ? { deliveryWindowMs: injectDeliveryWindow } : {}),
 			}),
 		);
 	const presenter = new TavernUiPresenter();
@@ -88,6 +94,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	};
 	registerCommands(pi, ctrl, {
 		...(injectTriggerDebounce !== undefined ? { triggerDebounceMs: injectTriggerDebounce } : {}),
+		...(injectDeliveryWindow !== undefined ? { deliveryWindowMs: injectDeliveryWindow } : {}),
 		discoverGroupChats: (options) => discoverActiveGroupChats(options),
 		listGroupChatSessions: (agentDir, cwd) =>
 			listPersistedGroupChatSessions(agentDir, cwd, {
@@ -131,6 +138,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 			void autoJoinCharacter(pi, ctrl, ctx, {
 				// 组合根装配（五层依赖方向，architecture.md §5）。
 				...(injectTriggerDebounce !== undefined ? { triggerDebounceMs: injectTriggerDebounce } : {}),
+				...(injectDeliveryWindow !== undefined ? { deliveryWindowMs: injectDeliveryWindow } : {}),
 				discoverGroupChats: (options) => discoverActiveGroupChats(options),
 				...(process.env.PITAVERN_CHARACTER !== undefined && process.env.PITAVERN_CHARACTER !== ""
 					? { character: process.env.PITAVERN_CHARACTER }

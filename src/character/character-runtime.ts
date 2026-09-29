@@ -95,6 +95,8 @@ interface PrepareCharacterRuntimeOptions {
 	agentWedgedTimeoutMs?: number;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	triggerDebounceMs?: number;
+	/** #196 忙态投递窗口（注入化；undefined = 默认 5000ms，测试用短值 ≥50ms）。 */
+	deliveryWindowMs?: number;
 	/**
 	 * ：增量拉取上下文窗口 getter（getter 闭包注入，每轮拉取实时取值，
 	 * 非快照）。拉取起点前移至 max(0, cursor - window)——额外 N 条已读上下文
@@ -146,6 +148,8 @@ export class CharacterRuntime {
 	private readonly agentWedgedTimeoutMs: number;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	private readonly triggerDebounceMs: number | undefined;
+	/** #196 忙态投递窗口（undefined = 默认 5000ms）。 */
+	private readonly deliveryWindowMs: number | undefined;
 	/** ：增量拉取上下文窗口 getter（undefined → 窗口 0，行为不变）。 */
 	private readonly getFetchContextWindow: (() => number) | undefined;
 	readonly messageTemplates: Record<MessageTemplateKey, string> | undefined;
@@ -268,6 +272,7 @@ export class CharacterRuntime {
 		this.cursorStorePath = options.cursorStorePath;
 		this.agentWedgedTimeoutMs = options.agentWedgedTimeoutMs ?? DEFAULT_AGENT_WEDGED_TIMEOUT_MS;
 		this.triggerDebounceMs = options.triggerDebounceMs;
+		this.deliveryWindowMs = options.deliveryWindowMs;
 		this.getFetchContextWindow = options.getFetchContextWindow;
 		this.messageTemplates = options.messageTemplates;
 		this.agentDir = options.agentDir;
@@ -316,7 +321,7 @@ export class CharacterRuntime {
 		this.startHeartbeat();
 
 		if (pi) {
-			this.groupChatInput = new GroupChatInput(this, pi, this.triggerDebounceMs);
+			this.groupChatInput = new GroupChatInput(this, pi, this.triggerDebounceMs, this.deliveryWindowMs);
 			this.groupChatInput.start();
 		}
 
@@ -1059,7 +1064,7 @@ export class CharacterRuntime {
 		this.startHeartbeat();
 
 		if (pi) {
-			this.groupChatInput = new GroupChatInput(this, pi, this.triggerDebounceMs);
+			this.groupChatInput = new GroupChatInput(this, pi, this.triggerDebounceMs, this.deliveryWindowMs);
 			this.groupChatInput.start();
 			this.groupChatInput.restoreFromReload({
 				pendingEvents: handoff.pendingEvents,

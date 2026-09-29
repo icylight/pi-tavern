@@ -62,7 +62,7 @@ function update(latestSequence: number, previewMessages: PublicMessage[]): Serve
 describe("GroupChatInput steer 安全边界打断", () => {
 	afterEach(() => vi.useRealTimers());
 
-	it("忙态通知只排隐藏令牌，安全边界才 abort，settled 后 followUp 拉全", async () => {
+	it("忙态通知只排隐藏令牌，安全边界才 abort，settled 后 steer 拉全", async () => {
 		vi.useFakeTimers();
 		let cursor = 0;
 		const runtime = createMockRuntime();
@@ -103,7 +103,7 @@ describe("GroupChatInput steer 安全边界打断", () => {
 		expect(runtime.saveCursor).toHaveBeenCalledWith(2);
 		expect(pi.sendMessage).toHaveBeenCalledTimes(2);
 		expect((pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[1]?.[1]).toMatchObject({
-			deliverAs: "followUp",
+			deliverAs: "steer",
 			triggerTurn: true,
 		});
 		input.stop();
@@ -254,7 +254,7 @@ describe("GroupChatInput steer 安全边界打断", () => {
 		expect(runtime.fetchMessagesSince).toHaveBeenCalledOnce();
 		expect(cursor).toBe(4);
 		expect(pi.sendMessage).toHaveBeenCalledOnce();
-		expect((pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({ deliverAs: "followUp" });
+		expect((pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({ deliverAs: "steer" });
 		input.stop();
 	});
 
@@ -293,7 +293,7 @@ describe("GroupChatInput steer 安全边界打断", () => {
 		expect(cursor).toBe(1);
 		expect(resumedPi.sendMessage).toHaveBeenCalledOnce();
 		expect((resumedPi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({
-			deliverAs: "followUp",
+			deliverAs: "steer",
 		});
 		resumed.stop();
 	});

@@ -57,7 +57,7 @@ npm run test:full # 三层串行全量（发版前收口验收证据）
 | tavern_whoami | character 可用返回 `runtime.character` 三字段；creator/idle 明确拒绝；身份行被动告知保留 | whoami 单测（三态） |
 | reload 角色卡刷新 | handoff 重读新卡注入；重读失败保旧卡 + notify 告警，不断连 | `reload` |
 | TUI 发言次数 | 轮次开启显示 used/max 与剩余；发言后递增；上限显举手；无轮次隐藏该行 | 手动（三轮态） |
-| 消息推拉混合 | 广播通知化 + 主动增量拉取 + Session 游标持久化 + 缺口检测；闲态 ≤1s 固定窗口聚合 N→1 不重置、忙态零正文（仅置未读/排隐藏令牌）settled 后拉全投递（≤5s）；游标 = `cursors/<groupId>/<sessionId>.json`，join 预置 = 进入时刻水位（三分：已有游标返回 / 新帧 latest_sequence 预置 / 旧帧回退查询水位 CAS 写），旧群聊级共享游标不采用（不读不写不删），仅预置失败游标保持 null → 全量分页兜底；同 Session 文件不存在仅现于预置失败 | `live-delivery`、`context-window`、does-not-adopt-v1 钉测、游标单测 |
+| 消息推拉混合 | 广播通知化 + 主动增量拉取 + Session 游标持久化 + 缺口检测；闲态 ≤1s 固定窗口聚合 N→1 不重置、忙态零正文但启动投递窗口（默认 5s，`PITAVERN_DELIVERY_WINDOW_MS` 可注入；窗口与 settle 先到者触发拉取投递，投递延迟上界 = 窗口 + 一个工具间隙）；投递通道统一 steer + triggerTurn（pi 按真实 streaming 分派，不打断 run）；游标 = `cursors/<groupId>/<sessionId>.json`，join 预置 = 进入时刻水位（三分：已有游标返回 / 新帧 latest_sequence 预置 / 旧帧回退查询水位 CAS 写），旧群聊级共享游标不采用（不读不写不删），仅预置失败游标保持 null → 全量分页兜底；同 Session 文件不存在仅现于预置失败 | `live-delivery`、`context-window`、`delivery-window`（#196）、does-not-adopt-v1 钉测、游标单测 |
 | 仓库健康度 | `npm run health` 聚合 audit/gitleaks/卫生三检查；退出码 0=全绿；输出结构稳定 | 手动（人造样本） |
 | TUI 工作状态 | agent_start 续命 watchdog（clearStreamingResetWatchdog + isAgentActive 守卫）；真悬挂 5s 复位保留；空闲不误亮 | `w1c-light-probe`、`streaming-truth` |
 | 消息来源显式化 | `public_message.source` 字段（缺省=group）；群聊注入含显式来源声明；终端私聊不进入公共流，Character 间私信走独立 whisper 帧 | `identity-consistency`、`abort-steer-visibility` |
