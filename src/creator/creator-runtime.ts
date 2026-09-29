@@ -9,7 +9,7 @@ import type { BoardStore } from "../data/board-store.js";
 import type { ActiveGroupChatDescriptor } from "../data/discovery/active-descriptor.js";
 import type { GroupChatState } from "../data/group-chat-state.js";
 import type { SessionStore } from "../data/session-store.js";
-import type { ClientMessage } from "../protocol/messages.js";
+import type { ClientMessage, ServerMessage } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
 import type { WhisperMessageState } from "../protocol/whisper-message-state.js";
 import { type WebSocketMessageReader, WebSocketMessageWriter } from "../protocol/ws-message-io.js";
@@ -106,6 +106,8 @@ export interface CreatorRuntimeDependencies {
 	 * 由组合根注入（creator-factory 默认装配 = loadTavernConfig 重读）。
 	 */
 	loadCharacters?: () => Promise<CharacterCard[]>;
+	/** #202 测试专用：广播丢弃钩子（返回 true = 帧对该连接静默不发；生产不注入）。 */
+	testDropBroadcast?: (sessionId: string | undefined, message: ServerMessage) => boolean;
 }
 
 export class CreatorRuntime {
@@ -248,6 +250,9 @@ export class CreatorRuntime {
 			isActive: () => this.lifecycle === "active",
 			onSendFailure: (socket) => this.handleSendFailure(socket),
 			toCharacterSummaryMessage,
+			// #202：发送侧身份面 + 测试丢弃钩子（deps 覆盖注入；生产不落后者）。
+			sessionIdOf: (socket) => this.connectionManager.getConnection(socket)?.sessionId ?? undefined,
+			...(this.deps.testDropBroadcast !== undefined ? { testDropBroadcast: this.deps.testDropBroadcast } : {}),
 		});
 
 		this.connectionManager = new ConnectionManager({

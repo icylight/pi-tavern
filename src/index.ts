@@ -29,6 +29,7 @@ import { registerTavernTools } from "./extension/tavern-tools.js";
 import { type AutoJoinContext, autoJoinCharacter } from "./headless.js";
 import type { PublicMessageState } from "./protocol/public-message-state.js";
 import type { WhisperMessageState } from "./protocol/whisper-message-state.js";
+import { setDiagnosticSink } from "./shared/diagnostic.js";
 import {
 	ERROR_TUI_PROJECTION_FAILED_PREFIX,
 	ERROR_UNKNOWN,
@@ -153,6 +154,8 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 		// 为真实 ctx.ui.notify，[tavern-inject] 落 RPC notify 事件；此处 stderr
 		// 仅为 session_start 到达前的兜底。
 		setTestNotify(ctx.ui.notify);
+		// #202：诊断面 sink（同注入面口径——生产 `PITAVERN_DIAG` 未设时不产生行）。
+		setDiagnosticSink(ctx.ui.notify);
 		const run = () => {
 			void autoJoinCharacter(pi, ctrl, ctx, {
 				// 组合根装配（五层依赖方向，architecture.md §5）。
@@ -193,6 +196,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 		sessionManagerRef = ctx.sessionManager;
 		presenter.bind(ctx.ui);
 		setTestNotify(ctx.ui.notify);
+		setDiagnosticSink(ctx.ui.notify);
 		if (event.reason === "reload") {
 			void ctrl
 				.takeReloadHandoff(ctx.sessionManager.getSessionId(), pi, ctx.ui.notify)

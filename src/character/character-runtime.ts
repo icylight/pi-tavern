@@ -27,6 +27,7 @@ import {
 	HEARTBEAT_TIMEOUT_MS,
 	SHORT_COORDINATION_TIMEOUT_MS,
 } from "../shared/constants.js";
+import { diag, diagEnabled } from "../shared/diagnostic.js";
 import {
 	ERROR_BINARY_FRAME_RECEIVED,
 	ERROR_CHARACTER_RUNTIME_DETACHED,
@@ -98,6 +99,10 @@ interface PrepareCharacterRuntimeOptions {
 	triggerDebounceMs?: number;
 	/** #196 忙态投递窗口（注入化；undefined = 默认 5000ms，测试用短值 ≥50ms）。 */
 	deliveryWindowMs?: number;
+	/** #202 测试专用：flush 阶段 hold（构造注入；生产入口不落，见 diagnostics.md）。 */
+	testFlushHold?: (point: "enter" | "before-state" | "after-state") => Promise<void> | undefined;
+	/** #202 测试专用：请求发出后、等待响应前的 hold（模拟「发起未回」；生产入口不落）。 */
+	testRequestHold?: (method: string) => Promise<void> | undefined;
 	/**
 	 * ：增量拉取上下文窗口 getter（getter 闭包注入，每轮拉取实时取值，
 	 * 非快照）。拉取起点前移至 max(0, cursor - window)——额外 N 条已读上下文
@@ -153,6 +158,11 @@ export class CharacterRuntime {
 	private readonly triggerDebounceMs: number | undefined;
 	/** #196 忙态投递窗口（undefined = 默认 5000ms）。 */
 	private readonly deliveryWindowMs: number | undefined;
+	/** #202 测试专用 hold（默认 undefined；仅构造注入，无 env 入口）。 */
+	private readonly testFlushHold:
+		| ((point: "enter" | "before-state" | "after-state") => Promise<void> | undefined)
+		| undefined;
+	private readonly testRequestHold: ((method: string) => Promise<void> | undefined) | undefined;
 	/** ：增量拉取上下文窗口 getter（undefined → 窗口 0，行为不变）。 */
 	private readonly getFetchContextWindow: (() => number) | undefined;
 	readonly messageTemplates: Record<MessageTemplateKey, string> | undefined;
@@ -279,6 +289,8 @@ export class CharacterRuntime {
 		this.agentWedgedTimeoutMs = options.agentWedgedTimeoutMs ?? DEFAULT_AGENT_WEDGED_TIMEOUT_MS;
 		this.triggerDebounceMs = options.triggerDebounceMs;
 		this.deliveryWindowMs = options.deliveryWindowMs;
+		this.testFlushHold = options.testFlushHold;
+		this.testRequestHold = options.testRequestHold;
 		this.getFetchContextWindow = options.getFetchContextWindow;
 		this.messageTemplates = options.messageTemplates;
 		this.speakSoftLimitChars = options.speakSoftLimitChars;
@@ -328,7 +340,13 @@ export class CharacterRuntime {
 		this.startHeartbeat();
 
 		if (pi) {
-			this.groupChatInput = new GroupChatInput(this, pi, this.triggerDebounceMs, this.deliveryWindowMs);
+			this.groupChatInput = new GroupChatInput(
+				this,
+				pi,
+				this.triggerDebounceMs,
+				this.deliveryWindowMs,
+				this.testFlushHold,
+			);
 			this.groupChatInput.start();
 		}
 
@@ -418,7 +436,7 @@ export class CharacterRuntime {
 	 */
 	async refreshGroupChatState(): Promise<void> {
 		try {
-			await this.getGroupChatState();
+			await this.getGroupChatState("refresh");
 		} catch {
 			// 仅刷新展示，不影响协议与成员资格。副作用注记：失败时
 			// lastGroupChatState 保持旧值（不置空），onStateSnapshot 不触发
@@ -426,8 +444,18 @@ export class CharacterRuntime {
 		}
 	}
 
-	async getGroupChatState(): Promise<GroupChatStateMessage> {
+	async getGroupChatState(caller: "flush" | "refresh" | "other" = "other"): Promise<GroupChatStateMessage> {
+		const diagStartedAt = Date.now();
+		if (diagEnabled()) diag("state", { phase: "start", caller });
 		const response = await this.request({ method: METHOD_GET_GROUP_CHAT_STATE, params: {} });
+		if (diagEnabled()) {
+			diag("state", {
+				phase: "end",
+				caller,
+				durMs: Date.now() - diagStartedAt,
+				ok: !("error" in response),
+			});
+		}
 		if ("error" in response) {
 			throw new Error(response.error.message);
 		}
@@ -523,6 +551,8 @@ export class CharacterRuntime {
 	} | null> {
 		// 前移起点 clamp 到 0（历史不足 N 条时取实际可用全量）。
 		const adjustedSince = Math.max(0, sinceSequence - contextWindow);
+		const diagStartedAt = Date.now();
+		if (diagEnabled()) diag("fetch", { phase: "start", since: sinceSequence, adjustedSince });
 		let response: ServerMessage;
 		try {
 			response = await this.request({
@@ -546,6 +576,14 @@ export class CharacterRuntime {
 			latest_sequence: number;
 			total_messages: number;
 		};
+		if (diagEnabled()) {
+			diag("fetch", {
+				phase: "end",
+				durMs: Date.now() - diagStartedAt,
+				count: data.messages?.length ?? 0,
+				latest: data.latest_sequence,
+			});
+		}
 		// 上下文/未读分界 = 原始 since（窗口前移前的拉取起点）。
 		// 服务端按 sequence 升序返回（submit 原子 +1 无空洞），上下文恒为前缀。
 		const contextCount = data.messages.filter((m) => {
@@ -1085,7 +1123,13 @@ export class CharacterRuntime {
 		this.startHeartbeat();
 
 		if (pi) {
-			this.groupChatInput = new GroupChatInput(this, pi, this.triggerDebounceMs, this.deliveryWindowMs);
+			this.groupChatInput = new GroupChatInput(
+				this,
+				pi,
+				this.triggerDebounceMs,
+				this.deliveryWindowMs,
+				this.testFlushHold,
+			);
 			this.groupChatInput.start();
 			this.groupChatInput.restoreFromReload({
 				pendingEvents: handoff.pendingEvents,
@@ -1170,28 +1214,10 @@ export class CharacterRuntime {
 			return Promise.reject(new Error(`No request type for method: ${message.method}`));
 		}
 		const pending = (this.jsonrpcConnection as MessageConnection).sendRequest(type as never, message.params as never);
-		const withTimeout = new Promise<unknown>((resolveRequest, rejectRequest) => {
-			const timer = setTimeout(() => {
-				const error = new Error(ERROR_REQUEST_TIMED_OUT);
-				rejectRequest(error);
-				this.failConnection(error);
-			}, this.requestTimeoutMs);
-			timer.unref?.();
-			const inflight = { timer, reject: rejectRequest };
-			this.inflightRequests.add(inflight);
-			void pending.then(
-				(result) => {
-					clearTimeout(timer);
-					this.inflightRequests.delete(inflight);
-					resolveRequest(result);
-				},
-				(error) => {
-					clearTimeout(timer);
-					this.inflightRequests.delete(inflight);
-					rejectRequest(error);
-				},
-			);
-		});
+		// #202 测试专用 hold：请求已发出、调用方仍在等（超时计时器尚未布防——
+		// 长 hold 不会触发 fail-close；生产入口不落该选项）。未注入时下方流程与
+		// 既有实现逐字等价（同步布防）。
+		const withTimeout = this.awaitResponseWithTimeout(pending, this.testRequestHold?.(message.method));
 		return withTimeout.then(
 			(result) => {
 				//  方案 B：解析时形状校验（method 调用点已知，替代 feed 前 gate）。
@@ -1223,6 +1249,42 @@ export class CharacterRuntime {
 		);
 	}
 
+	/**
+	 * #202：请求等待包装（超时 = fail-close）。`hold` 非空时先等 hold 再布防
+	 * 计时器（测试专用路径；生产不注 = 同步布防，与既有实现等价）。
+	 */
+	private awaitResponseWithTimeout(pending: Promise<unknown>, hold: Promise<void> | undefined): Promise<unknown> {
+		return new Promise<unknown>((resolveRequest, rejectRequest) => {
+			const arm = (): void => {
+				const timer = setTimeout(() => {
+					const error = new Error(ERROR_REQUEST_TIMED_OUT);
+					rejectRequest(error);
+					this.failConnection(error);
+				}, this.requestTimeoutMs);
+				timer.unref?.();
+				const inflight = { timer, reject: rejectRequest };
+				this.inflightRequests.add(inflight);
+				void pending.then(
+					(result) => {
+						clearTimeout(timer);
+						this.inflightRequests.delete(inflight);
+						resolveRequest(result);
+					},
+					(error) => {
+						clearTimeout(timer);
+						this.inflightRequests.delete(inflight);
+						rejectRequest(error);
+					},
+				);
+			};
+			if (hold !== undefined) {
+				void hold.then(arm, arm);
+			} else {
+				arm();
+			}
+		});
+	}
+
 	private send(message: unknown): void {
 		if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
 			throw new Error(ERROR_CONNECTION_NOT_OPEN);
@@ -1247,6 +1309,18 @@ export class CharacterRuntime {
 
 		this.receivedMessages.push(message);
 
+		if (diagEnabled()) {
+			const method = "method" in message ? message.method : undefined;
+			const params =
+				"params" in message ? (message.params as { sequence?: unknown; latest_sequence?: unknown }) : undefined;
+			const seq = params?.sequence ?? params?.latest_sequence;
+			diag("recv", {
+				method,
+				seq,
+				handler: this.onEnvironmentMessage !== undefined,
+				envMessages: this.receivedMessages.length,
+			});
+		}
 		this.onEnvironmentMessage?.(message);
 
 		if ("method" in message && message.method === METHOD_GROUP_CHAT_CLOSED) {
@@ -1269,11 +1343,14 @@ export class CharacterRuntime {
 			// 首次 tick（previousTickAt = 0）与 reload handoff 接管后的首轮同走
 			// 宽限：handoff 窗口可能跨越睡眠，陈旧 lastPingAt 不可信。
 			if (previousTickAt === 0 || now - previousTickAt > this.heartbeatIntervalMs * 2) {
+				if (diagEnabled())
+					diag("ws", { event: "suspend-suspected", gapMs: previousTickAt === 0 ? 0 : now - previousTickAt });
 				this.lastPingAt = now;
 				return;
 			}
 			if (now - this.lastPingAt > this.heartbeatTimeoutMs) {
 				// 超时窗口内不给 creator 发 ping：连接处于半开状态。
+				if (diagEnabled()) diag("ws", { event: "heartbeat-timeout", sinceLastPingMs: now - this.lastPingAt });
 				this.failConnection(new Error(ERROR_HEARTBEAT_TIMEOUT));
 			}
 		}, this.heartbeatIntervalMs);
@@ -1288,6 +1365,7 @@ export class CharacterRuntime {
 	}
 
 	private failConnection(error: Error): void {
+		if (diagEnabled()) diag("ws", { event: "fail-close", cause: error.message });
 		const socket = this.socket;
 		if (socket && socket.readyState !== WebSocket.CLOSED) {
 			socket.terminate();

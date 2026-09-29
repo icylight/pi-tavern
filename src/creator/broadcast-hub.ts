@@ -4,6 +4,7 @@ import type { GroupChatState } from "../data/group-chat-state.js";
 import { encodeMessage } from "../protocol/codec.js";
 import { JSONRPC_VERSION, type ServerMessage } from "../protocol/messages.js";
 import type { PublicMessageState } from "../protocol/public-message-state.js";
+import { diag, diagEnabled } from "../shared/diagnostic.js";
 import { METHOD_GROUP_CHAT_UPDATE, METHOD_PUBLIC_MESSAGE, type ProtocolErrorCode } from "../shared/messages.js";
 
 interface BroadcastHubOptions {
@@ -22,6 +23,10 @@ interface BroadcastHubOptions {
 		name: string;
 		description: string;
 	};
+	/** #202 诊断：socket → sessionId（`hub.send` 钉与丢弃钩子的身份面）。 */
+	sessionIdOf?: (socket: WebSocket) => string | undefined;
+	/** #202 测试专用：广播丢弃钩子（返回 true = 该帧对该连接静默不发；生产不注入）。 */
+	testDropBroadcast?: (sessionId: string | undefined, message: ServerMessage) => boolean;
 }
 
 /**
@@ -72,6 +77,22 @@ export class BroadcastHub {
 	}
 
 	send(socket: WebSocket, message: unknown): void {
+		// #202：发送侧钉（态 ① 的「已发出未到达」证据面；sink 随 creator 进程）。
+		// 丢弃钩子（测试专用）在发送前短路——模拟「通知未发出」（RPC 不受影响）。
+		if (this.options.testDropBroadcast !== undefined || diagEnabled()) {
+			const sessionId = this.options.sessionIdOf?.(socket);
+			const method = (message as { method?: unknown }).method;
+			const params = (message as { params?: { sequence?: unknown; latest_sequence?: unknown } }).params;
+			// group_chat_update 帧只有 latest_sequence（无 sequence）——与 recv 钉同口径回退。
+			const seq = params?.sequence ?? params?.latest_sequence;
+			if (this.options.testDropBroadcast?.(sessionId, message as ServerMessage) === true) {
+				if (diagEnabled()) diag("hub.send", { sessionId, method, seq, dropped: true });
+				return;
+			}
+			if (diagEnabled()) {
+				diag("hub.send", { sessionId, method, seq, socketOpen: socket.readyState === WebSocket.OPEN });
+			}
+		}
 		try {
 			if (socket.readyState === WebSocket.OPEN) {
 				socket.send(encodeMessage(message));

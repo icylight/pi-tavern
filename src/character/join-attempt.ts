@@ -45,6 +45,10 @@ export interface JoinAttemptOptions {
 	triggerDebounceMs?: number;
 	/** #196 忙态投递窗口（注入化；undefined = 默认 5000ms）。 */
 	deliveryWindowMs?: number;
+	/** #202 测试专用：flush 阶段 hold（转发给 CharacterRuntime；生产入口不落）。 */
+	testFlushHold?: (point: "enter" | "before-state" | "after-state") => Promise<void> | undefined;
+	/** #202 测试专用：请求等待期 hold（转发给 CharacterRuntime；生产入口不落）。 */
+	testRequestHold?: (method: string) => Promise<void> | undefined;
 	/** ：增量拉取上下文窗口 getter（getter 闭包，每轮实时取值），转发给 CharacterRuntime。 */
 	getFetchContextWindow?: () => number;
 	/** ：群聊文案模板集（claim 时本地配置加载，转发给 CharacterRuntime）。 */
@@ -84,6 +88,10 @@ export class JoinAttempt {
 	private readonly cursorStorePath: string | undefined;
 	private readonly triggerDebounceMs: number | undefined;
 	private readonly deliveryWindowMs: number | undefined;
+	private readonly testFlushHold:
+		| ((point: "enter" | "before-state" | "after-state") => Promise<void> | undefined)
+		| undefined;
+	private readonly testRequestHold: ((method: string) => Promise<void> | undefined) | undefined;
 	private readonly getFetchContextWindow: (() => number) | undefined;
 	private readonly messageTemplates: Record<MessageTemplateKey, string> | undefined;
 	private readonly speakSoftLimitChars: number | undefined;
@@ -139,6 +147,8 @@ export class JoinAttempt {
 		this.cursorStorePath = options.cursorStorePath;
 		this.triggerDebounceMs = options.triggerDebounceMs;
 		this.deliveryWindowMs = options.deliveryWindowMs;
+		this.testFlushHold = options.testFlushHold;
+		this.testRequestHold = options.testRequestHold;
 		this.getFetchContextWindow = options.getFetchContextWindow;
 		this.messageTemplates = options.messageTemplates;
 		this.speakSoftLimitChars = options.speakSoftLimitChars;
@@ -226,6 +236,8 @@ export class JoinAttempt {
 				...(this.cursorStorePath !== undefined ? { cursorStorePath: this.cursorStorePath } : {}),
 				...(this.triggerDebounceMs !== undefined ? { triggerDebounceMs: this.triggerDebounceMs } : {}),
 				...(this.deliveryWindowMs !== undefined ? { deliveryWindowMs: this.deliveryWindowMs } : {}),
+				...(this.testFlushHold !== undefined ? { testFlushHold: this.testFlushHold } : {}),
+				...(this.testRequestHold !== undefined ? { testRequestHold: this.testRequestHold } : {}),
 				...(this.getFetchContextWindow !== undefined ? { getFetchContextWindow: this.getFetchContextWindow } : {}),
 				...(this.messageTemplates !== undefined ? { messageTemplates: this.messageTemplates } : {}),
 				...(this.speakSoftLimitChars !== undefined ? { speakSoftLimitChars: this.speakSoftLimitChars } : {}),

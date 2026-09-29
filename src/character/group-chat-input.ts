@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_TEMPLATES, type MessageTemplateKey, renderTemplate } from "../config/message-templates.js";
 import type { ServerMessage } from "../protocol/messages.js";
+import { diag, diagEnabled } from "../shared/diagnostic.js";
 import {
 	METHOD_BOARD_UPDATE,
 	METHOD_CHARACTER_JOINED,
@@ -77,6 +78,12 @@ const DEFAULT_SPEAK_SOFT_LIMIT_CHARS = 4000;
  */
 export const ABORT_CONTROL_CUSTOM_TYPE = "pi-tavern.abort-control";
 
+/** #202：诊断探针 tick（仅 `PITAVERN_DIAG=1` 时启动；只记日志）。 */
+const DIAG_WATCH_TICK_MS = 30_000;
+/** #202：单飞链 age 告警阈值——请求类（flush 链）15s = 3× requestTimeout；排队类 60s。 */
+const DIAG_STUCK_REQUEST_MS = 15_000;
+const DIAG_STUCK_QUEUE_MS = 60_000;
+
 /**
  * #201：群聊注入批次的 customType。消费确认信号据此识别——pi 把批次推入
  * agent 上下文时 emit `message_start`（`{ message }`，含 `details`），本侧据
@@ -145,13 +152,25 @@ export class GroupChatInput {
 	private retryBatch: { events: ServerMessage[]; latestSequence?: number; coverageFrom?: number } | undefined;
 	/** #201：消费确认订阅解除（start 注册、stop 解除）。 */
 	private unsubscribeMessageConsumed: (() => void) | undefined;
+	/** #202 诊断：在飞阶段（watch 探针；默认关时恒 null）。 */
+	private diagStage: { name: string; since: number } | null = null;
+	private diagFlushQueuedAt: number | null = null;
+	private diagWatchTimer: ReturnType<typeof setInterval> | null = null;
+	/** #202 诊断：批序号（开关期写入批 `details.diag_batch_id`，关联入队/消费/会话条目）。 */
+	private diagBatchSeq = 0;
+	/** #202 测试专用 hold（构造注入；未注入 = 仅一次真值判断，生产不可达）。 */
+	private readonly testFlushHold:
+		| ((point: "enter" | "before-state" | "after-state") => Promise<void> | undefined)
+		| undefined;
 
 	constructor(
 		private readonly runtime: CharacterRuntime,
 		private readonly pi: ExtensionAPI,
 		private readonly triggerDebounceMs: number = TRIGGER_DEBOUNCE_MS,
 		private readonly deliveryWindowMs: number = DELIVERY_WINDOW_MS,
+		testFlushHold?: (point: "enter" | "before-state" | "after-state") => Promise<void> | undefined,
 	) {
+		this.testFlushHold = testFlushHold;
 		// 公共群消息正文不在 run 中投递。运行中到达的 update 只置忙态标记 + 启动
 		// #196 投递窗口；settle 或窗口到期（先到者）触发正文拉取投递。
 		this.onSettled = () => {
@@ -162,6 +181,13 @@ export class GroupChatInput {
 			this.abortRequested = false;
 			// settle 已消费待投递状态：窗口空转（避免窗口提前到期把下一轮消息过早投出）。
 			this.cancelDeliveryWindow();
+			if (diagEnabled()) {
+				diag("agent", {
+					event: "settled",
+					incrementPending: this.incrementPending,
+					pendingEvents: this.pendingEvents.length,
+				});
+			}
 			if (this.incrementPending) {
 				this.incrementPending = false;
 				void this.pullIncrement();
@@ -184,6 +210,10 @@ export class GroupChatInput {
 			this.unsubscribeMessageConsumed = piWithOn.on("message_start", (payload) => {
 				this.confirmBatchConsumed(payload);
 			});
+		}
+		// #202：诊断探针（默认关；只记日志，不 abort、不改超时）。
+		if (diagEnabled()) {
+			this.startDiagWatch();
 		}
 		// （Arch 定案 + 四方收敛，零 wire 变化）：进入时刻游标预置——
 		// 新 Session 无游标时调一次 get_message_history 取水位（totalMessages，
@@ -210,6 +240,12 @@ export class GroupChatInput {
 				if (this.pendingEvents.length > before) {
 					this.resetJoinDebounce();
 				}
+				// #202：路由判决钉（帧是否被分支吞掉）。
+				this.diagRoute(() => ({
+					decision: "history",
+					added: this.pendingEvents.length - before,
+					cursor: this.runtime.loadCursor() ?? 0,
+				}));
 				// 分页刻意 fire-and-forget：下方已排定的 flush 携带第一页；更早的
 				// 页到达后追加，由随后的 debounce 一并 flush。
 				if (message.params.has_more) {
@@ -230,6 +266,11 @@ export class GroupChatInput {
 				const cursor = this.runtime.loadCursor() ?? 0;
 				const selfPreview = this.classifySelfPreview(message, cursor);
 				if (message.params.latest_sequence <= cursor || selfPreview === "complete-self-only") {
+					this.diagRoute(() => ({
+						decision: "update-self-only",
+						seq: message.params.latest_sequence,
+						cursor,
+					}));
 					return;
 				}
 				if (this.runtime.isAgentActive) {
@@ -242,11 +283,23 @@ export class GroupChatInput {
 					// 不再无限期等 settle；窗口到期主动拉取投递（steer 通道，工具间隙可见）。
 					this.incrementPending = true;
 					this.armDeliveryWindow();
+					this.diagRoute(() => ({
+						decision: "update-busy-flag",
+						seq: message.params.latest_sequence,
+						cursor,
+						selfPreview,
+					}));
 					if (selfPreview !== "incomplete-with-self") {
 						this.queueAbortControlToken();
 					}
 				} else {
 					this.armIdleWindow(selfPreview === "external");
+					this.diagRoute(() => ({
+						decision: "update-idle-armed",
+						seq: message.params.latest_sequence,
+						cursor,
+						selfPreview,
+					}));
 				}
 				void this.runtime.refreshGroupChatState();
 				return;
@@ -255,6 +308,7 @@ export class GroupChatInput {
 			// 不注入不唤醒不进 debounce（WH6）。
 			if ("method" in message && message.method === METHOD_WHISPER_PLACEHOLDER) {
 				this.noteWhisperPlaceholderWatermark(message);
+				this.diagRoute(() => ({ decision: "placeholder", seq: message.params.sequence }));
 				return;
 			}
 			// 接收者实时 whisper_message——
@@ -266,17 +320,27 @@ export class GroupChatInput {
 				const cursor = this.runtime.loadCursor() ?? 0;
 				// 去重三态：已投递（seq <= cursor）/ 同批已注入（seq <= injected）
 				// ——flush 前同帧到两次只进一份；连续性判定用 next = max+1。
-				if (seq <= cursor || seq <= this.injectedWhisperSequence) return;
+				if (seq <= cursor || seq <= this.injectedWhisperSequence) {
+					this.diagRoute(() => ({
+						decision: "whisper-dedup-drop",
+						seq,
+						cursor,
+						injected: this.injectedWhisperSequence,
+					}));
+					return;
+				}
 				// #201：自产 whisper 回帧静默——不注入正文（发送者零事件），仅推进
 				// 实时连续性簿记（否则下一帧被判 gap 触发多余补拉）；游标由拉取
 				// 路径的覆盖证明推进（发布侧不再推进游标）。
 				if (this.isOwnWhisper(message)) {
 					this.injectedWhisperSequence = Math.max(this.injectedWhisperSequence, seq);
+					this.diagRoute(() => ({ decision: "whisper-self-silent", seq }));
 					return;
 				}
 				const next = Math.max(cursor, this.injectedWhisperSequence) + 1;
 				if (seq > next) {
 					// gap：不注入——按忙闲安排补拉（idle 无 settle 事件，须主动拉取）。
+					this.diagRoute(() => ({ decision: "whisper-gap-pull", seq, cursor, injected: this.injectedWhisperSequence }));
 					if (this.runtime.isAgentActive) {
 						this.markIncrementPending();
 					} else {
@@ -287,11 +351,22 @@ export class GroupChatInput {
 				this.pendingEvents.push(message);
 				this.injectedWhisperSequence = Math.max(this.injectedWhisperSequence, seq);
 				this.resetJoinDebounce();
+				this.diagRoute(() => ({ decision: "whisper-pending", seq }));
 				return;
 			}
-			if (!this.isEnvironmentEvent(message)) return;
+			if (!this.isEnvironmentEvent(message)) {
+				const method = "method" in message ? message.method : undefined;
+				this.diagRoute(() => ({ decision: "ignored-nonenv", method }));
+				return;
+			}
 			this.pendingEvents.push(message);
 			this.resetJoinDebounce();
+			const realtimeMethod = "method" in message ? message.method : undefined;
+			this.diagRoute(() => ({
+				decision: "realtime-pending",
+				method: realtimeMethod,
+				pending: this.pendingEvents.length,
+			}));
 		};
 		this.runtime.onEnvironmentMessage = this.handler;
 		// （重新）启动时重新挂接 settle 钩子。
@@ -350,7 +425,9 @@ export class GroupChatInput {
 			do {
 				this.refetchRequested = false;
 				const since = this.runtime.loadCursor() ?? 0;
+				if (diagEnabled()) this.diagEnterStage("fetch");
 				const page = await this.runtime.fetchMessagesSince(since);
+				if (diagEnabled()) this.diagLeaveStage();
 				if (!page || this.stopped) {
 					return;
 				}
@@ -426,6 +503,14 @@ export class GroupChatInput {
 					// 证明型推进（窗口内无可递送未读 ⇒ 区间不存在未读他人帧），与
 					// #201 消费确认语义一致（自产消息无需消费）。
 					this.runtime.saveCursor(page.latestSequence);
+					if (diagEnabled()) {
+						diag("inject", {
+							phase: "cursor-write",
+							reason: "pull-proof",
+							cursor: page.latestSequence,
+							since,
+						});
+					}
 				}
 			} while (this.refetchRequested && !this.stopped);
 		} catch {
@@ -501,6 +586,7 @@ export class GroupChatInput {
 
 	stop(): void {
 		this.stopped = true;
+		this.stopDiagWatch();
 		this.unsubscribeMessageConsumed?.();
 		this.unsubscribeMessageConsumed = undefined;
 		this.runtime.onEnvironmentMessage = undefined;
@@ -532,6 +618,7 @@ export class GroupChatInput {
 		}
 		this.abortTokenQueued = false;
 		this.abortRequested = true;
+		if (diagEnabled()) diag("agent", { event: "token-consumed" });
 		abort();
 		if (process.env.PITAVERN_TEST === "1") {
 			testNotify?.(`${INJECTION_TEST_NOTIFY_PREFIX} group=${this.runtime.groupChatId} abort=1 boundary=steer`);
@@ -544,6 +631,7 @@ export class GroupChatInput {
 			return;
 		}
 		this.abortTokenQueued = true;
+		if (diagEnabled()) diag("agent", { event: "token-queued", incrementPending: this.incrementPending });
 		try {
 			this.pi.sendMessage(
 				{
@@ -627,11 +715,21 @@ export class GroupChatInput {
 
 	private scheduleIdleWindow(delayMs: number): void {
 		this.idleWindowDueAt = Date.now() + delayMs;
+		if (diagEnabled()) diag("timer", { name: "idle-window", event: "arm", dueMs: delayMs });
 		this.idleWindowTimer = setTimeout(() => {
 			this.idleWindowTimer = null;
 			this.idleWindowDueAt = null;
 			const shouldAbort = this.idleWindowAbortEligible;
 			this.idleWindowAbortEligible = false;
+			if (diagEnabled()) {
+				diag("timer", {
+					name: "idle-window",
+					event: "fire",
+					agentActive: this.runtime.isAgentActive,
+					incrementPending: this.incrementPending,
+					abortEligible: shouldAbort,
+				});
+			}
 			if (this.stopped) {
 				return;
 			}
@@ -669,8 +767,17 @@ export class GroupChatInput {
 		if (this.stopped || this.deliveryWindowTimer !== null) {
 			return;
 		}
+		if (diagEnabled()) diag("timer", { name: "delivery-window", event: "arm", dueMs: this.deliveryWindowMs });
 		this.deliveryWindowTimer = setTimeout(() => {
 			this.deliveryWindowTimer = null;
+			if (diagEnabled()) {
+				diag("timer", {
+					name: "delivery-window",
+					event: "fire",
+					incrementPending: this.incrementPending,
+					agentActive: this.runtime.isAgentActive,
+				});
+			}
 			if (this.stopped || !this.incrementPending) {
 				return;
 			}
@@ -928,13 +1035,102 @@ export class GroupChatInput {
 		// （role:"custom" + timestamp 由 sendCustomMessage 内部补齐）；测试替身可传
 		// 原始发送对象，判别力等价（外部 user/assistant 消息无本 customType）。
 		if (message.customType !== GROUP_CHAT_INPUT_CUSTOM_TYPE) return;
-		const details = message.details as { latest_sequence?: unknown; coverage_from?: unknown } | undefined;
+		const details = message.details as
+			| { latest_sequence?: unknown; coverage_from?: unknown; diag_batch_id?: unknown }
+			| undefined;
 		const latestSequence = details?.latest_sequence;
 		const coverageFrom = details?.coverage_from;
+		const diagBatchId = details?.diag_batch_id;
 		if (typeof latestSequence !== "number" || typeof coverageFrom !== "number") return;
 		const cursor = this.runtime.loadCursor() ?? 0;
-		if (coverageFrom > cursor || latestSequence <= cursor) return;
+		if (coverageFrom > cursor || latestSequence <= cursor) {
+			if (diagEnabled()) {
+				diag("inject", {
+					phase: "consumed-noop",
+					batch: diagBatchId,
+					latest: latestSequence,
+					coverageFrom,
+					cursor,
+				});
+			}
+			return;
+		}
 		this.runtime.saveCursor(latestSequence);
+		if (diagEnabled()) {
+			diag("inject", {
+				phase: "consumed",
+				batch: diagBatchId,
+				latest: latestSequence,
+				coverageFrom,
+				cursor: latestSequence,
+			});
+		}
+	}
+
+	/** #202：路由判决钉（字段构造延迟到开关打开——热路径零成本）。 */
+	private diagRoute(fields: () => Record<string, unknown>): void {
+		if (diagEnabled()) diag("route", fields());
+	}
+
+	/** #202：阶段进入（watch 探针据此判别「链在飞 vs 空闲」）。 */
+	private diagEnterStage(name: string): void {
+		this.diagStage = { name, since: Date.now() };
+	}
+
+	private diagLeaveStage(): void {
+		this.diagStage = null;
+	}
+
+	/** #202：测试专用 flush 阶段 hold（未注入 = 无成本；释放 = 解析该 Promise）。 */
+	private async diagHoldFlush(point: "enter" | "before-state" | "after-state"): Promise<void> {
+		const held = this.testFlushHold?.(point);
+		if (held !== undefined) {
+			await held;
+		}
+	}
+
+	/**
+	 * #202：周期探针——只记日志，不 abort、不取消、不改超时。
+	 * 判别作用：把「零消费」分裂为「链在飞」（stage 持续存在）与「链空闲」
+	 * （stage 为空 ⇒ 问题在没触发 / 被早退），并对超阈阶段输出一行 `stuck`。
+	 */
+	private startDiagWatch(): void {
+		if (this.diagWatchTimer !== null) {
+			return;
+		}
+		this.diagWatchTimer = setInterval(() => {
+			if (this.stopped) return;
+			const now = Date.now();
+			const stage = this.diagStage;
+			const stageMs = stage === null ? 0 : now - stage.since;
+			const queuedMs = this.diagFlushQueuedAt === null ? 0 : now - this.diagFlushQueuedAt;
+			diag("watch", {
+				tick: true,
+				stage: stage?.name,
+				stageMs,
+				flushQueuedMs: queuedMs,
+				pendingEvents: this.pendingEvents.length,
+				agentActive: this.runtime.isAgentActive,
+				incrementPending: this.incrementPending,
+				cursor: this.runtime.loadCursor() ?? "none",
+			});
+			if (stage !== null && stageMs > DIAG_STUCK_REQUEST_MS) {
+				diag("watch", { stuck: true, chain: stage.name, ageMs: stageMs });
+			}
+			if (this.diagFlushQueuedAt !== null && queuedMs > DIAG_STUCK_QUEUE_MS) {
+				diag("watch", { stuck: true, chain: "flush-queued", ageMs: queuedMs });
+			}
+		}, DIAG_WATCH_TICK_MS);
+		this.diagWatchTimer.unref?.();
+	}
+
+	private stopDiagWatch(): void {
+		if (this.diagWatchTimer !== null) {
+			clearInterval(this.diagWatchTimer);
+			this.diagWatchTimer = null;
+		}
+		this.diagStage = null;
+		this.diagFlushQueuedAt = null;
 	}
 
 	private resetJoinDebounce(): void {
@@ -942,9 +1138,11 @@ export class GroupChatInput {
 			clearTimeout(this.debounceTimer);
 		}
 		this.debounceDueAt = Date.now() + JOIN_BATCH_DEBOUNCE_MS;
+		if (diagEnabled()) diag("timer", { name: "debounce", event: "arm", dueMs: JOIN_BATCH_DEBOUNCE_MS });
 		this.debounceTimer = setTimeout(() => {
 			this.debounceTimer = null;
 			this.debounceDueAt = null;
+			if (diagEnabled()) diag("timer", { name: "debounce", event: "fire", pending: this.pendingEvents.length });
 			void this.flush();
 		}, JOIN_BATCH_DEBOUNCE_MS);
 	}
@@ -978,6 +1176,15 @@ export class GroupChatInput {
 	 * （Arch settle 竞态修复）。
 	 */
 	private flush(events?: ServerMessage[], latestSequence?: number): Promise<void> {
+		if (diagEnabled()) {
+			this.diagFlushQueuedAt ??= Date.now();
+			diag("flush", {
+				phase: "enqueue",
+				pending: this.pendingEvents.length,
+				queuedMs: this.diagFlushQueuedAt === null ? 0 : Date.now() - this.diagFlushQueuedAt,
+				retry: this.retryBatch !== undefined,
+			});
+		}
 		const queued = this.flushTail.then(() => this.flushOnce(events, latestSequence));
 		this.flushTail = queued
 			.catch(() => undefined)
@@ -992,6 +1199,22 @@ export class GroupChatInput {
 	}
 
 	private async flushOnce(events?: ServerMessage[], latestSequence?: number): Promise<void> {
+		// #202 测试专用 hold：enter（在 "flush enqueue" 钉之后、"flush enter" 钉之前）。
+		if (this.testFlushHold !== undefined) {
+			await this.diagHoldFlush("enter");
+		}
+		if (diagEnabled()) {
+			this.diagFlushQueuedAt = null;
+			this.diagEnterStage("flush-enter");
+			diag("flush", {
+				phase: "enter",
+				events: events?.length,
+				pending: this.pendingEvents.length,
+				cursor: this.runtime.loadCursor() ?? "none",
+				agentActive: this.runtime.isAgentActive,
+				retry: this.retryBatch !== undefined,
+			});
+		}
 		// 无参 flush 优先原子重投 retryBatch——
 		// 领取即清槽（水位随批绑定，其他 flush 无从借用）；重投失败由
 		// sendWithDeliveryAck catch 重新入槽（水位不丢）。
@@ -1014,9 +1237,14 @@ export class GroupChatInput {
 		if (events === undefined && toDeliver === this.pendingEvents) {
 			this.pendingEvents = [];
 		}
+		if (diagEnabled() && retryLatestSequence !== undefined) {
+			diag("flush", { phase: "merged", events: toDeliver.length, retryLatestSequence });
+		}
 
-		if (this.stopped) return;
-
+		if (this.stopped) {
+			if (diagEnabled()) diag("flush", { phase: "empty", reason: "stopped" });
+			return;
+		}
 		// flush 入队后，前一批可能已经推进 cursor。执行时再次过滤已消费投影，
 		// 防止等待中的旧实时帧重复注入或把游标从较新值写回旧值。
 		const deliveredCursor = this.runtime.loadCursor() ?? 0;
@@ -1043,7 +1271,13 @@ export class GroupChatInput {
 			seenSequences.add(event.params.sequence);
 			return true;
 		});
-		if (toDeliver.length === 0) return;
+		if (toDeliver.length === 0) {
+			if (diagEnabled()) {
+				this.diagLeaveStage();
+				diag("flush", { phase: "empty", reason: "filtered", cursor: deliveredCursor });
+			}
+			return;
+		}
 
 		// #201：覆盖区间下界（消费确认推进水位的连续性证明，见
 		// confirmBatchConsumed）——pull 批（显式 latestSequence）：服务端
@@ -1069,11 +1303,37 @@ export class GroupChatInput {
 				: undefined;
 
 		let groupChatState: unknown = null;
+		// #202 测试专用 hold：before-state（state 调用前）/ after-state（state 返回后、投递前）。
+		if (this.testFlushHold !== undefined) {
+			await this.diagHoldFlush("before-state");
+		}
 		try {
-			groupChatState = await this.runtime.getGroupChatState();
+			groupChatState = await this.runtime.getGroupChatState("flush");
 		} catch {}
+		if (this.testFlushHold !== undefined) {
+			await this.diagHoldFlush("after-state");
+		}
 
-		if (this.stopped) return;
+		if (this.stopped) {
+			if (diagEnabled()) {
+				this.diagLeaveStage();
+				diag("flush", { phase: "empty", reason: "stopped-after-state" });
+			}
+			return;
+		}
+
+		// #202：退出钉（通道决策点 = 投递通道与水位候选同时定型的唯一位置）。
+		if (diagEnabled()) {
+			this.diagLeaveStage();
+			diag("flush", {
+				phase: "exit",
+				channel: this.runtime.isAgentActive ? "steer" : "idle",
+				events: toDeliver.length,
+				watermark: effectiveLatestSequence,
+				coverageFrom,
+				deliveredCursor,
+			});
+		}
 
 		// #196：投递通道统一 steer——pi 的 sendCustomMessage 只在 streaming 时区分
 		// steer/followUp（后者仅在「agent 无工具调用、即将停」时逐条消费，长工具链下
@@ -1145,6 +1405,9 @@ export class GroupChatInput {
 		deliverAs: "followUp" | "steer",
 		coverageFrom?: number,
 	): Promise<void> {
+		// #202 入队时点钉（#201 残余）：入队 ≠ 消费。开关期批 `details` 携带
+		// `diag_batch_id`，与「消费确认钉 / 会话 jsonl 条目 / 游标写入」同一 id 关联。
+		const diagBatchId = diagEnabled() ? ++this.diagBatchSeq : undefined;
 		try {
 			this.pi.sendMessage(
 				{
@@ -1160,12 +1423,28 @@ export class GroupChatInput {
 						// coverage_from = 覆盖区间下界（不含）；latest_sequence = 消费后水位。
 						...(coverageFrom !== undefined ? { coverage_from: coverageFrom } : {}),
 						...(latestSequence !== undefined ? { latest_sequence: latestSequence } : {}),
+						// #202：仅开关期写入（关时生产 details 形状零变化）。
+						...(diagBatchId !== undefined ? { diag_batch_id: diagBatchId } : {}),
 					},
 				},
 				{ triggerTurn: true, deliverAs },
 			);
+			if (diagEnabled()) {
+				diag("inject", {
+					phase: "call",
+					batch: diagBatchId,
+					events: events.length,
+					latest: latestSequence,
+					coverageFrom,
+					channel: deliverAs,
+					agentActive: this.runtime.isAgentActive,
+				});
+			}
 		} catch {
 			// 同步抛错（入队拒绝/steer 失败）：不推进。
+			// #202 钉：本 catch = **同步**入队失败唯一可观测点；pi 的异步失败扩
+			// 展侧结构性不可观测（`sendMessage` 返回 void，loader 丢弃内部 promise，
+			// 见 diagnostics.md）。
 			// 统一 requeue（followUp + steer）——
 			// steer 同步失败同样不得静默丢事件（busy 实时私信无 group_chat_update
 			// 保证再拉，重复可接受、跳过不可接受）；保留原始连续水位（pull 窗口
@@ -1184,6 +1463,14 @@ export class GroupChatInput {
 			// 重排 flush 定时器重投（busy 走 steer 通道投递；不用 armIdleWindow
 			// ——那是拉取路径，retryBatch 残留帧无人 flush）。
 			this.resetJoinDebounce();
+			if (diagEnabled())
+				diag("inject", {
+					phase: "error",
+					batch: diagBatchId,
+					events: events.length,
+					latest: latestSequence,
+					channel: deliverAs,
+				});
 		}
 	}
 
