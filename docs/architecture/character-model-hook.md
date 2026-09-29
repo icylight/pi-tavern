@@ -44,9 +44,9 @@ model/thinking 是 pi 会话的**运行时状态**——扩展 API 可读写（`
   - **switch** {kind, epoch, target: {model?, thinking?}}：至少一维；执行序 model → thinking；
   - **restore** {kind, epoch}：执行时读槽位，按槽位 mask 逐维恢复（显式双维 mask，不用「属性是否存在」隐式代替——getter 不可用与未配置不是一回事）；
 - **profile 执行语义**：
-  - model 维：达标判定按**规范键** `${provider}/${id}` 比较——lastModel（生效二元组）转规范键后与 target.model（原始字符串）相等即达标短路；不相等则 setModel（执行器收原始字符串，自行拆解/find/set），settle 后按实际 getter 校正（回执仅决定告警）；restore 时槽位 values.model（生效二元组）同样转规范键字符串交执行器；
+  - model 维：队列先按首个 "/" 拆分原始串、两段各 trim（纯函数 `splitModelReference`；无 "/" 或空段 = invalid）；达标判定按二元组精确比较（provider/id 逐段相等，大小写敏感，与 find 同语义）——相等短路；不等 → applyModel(provider, id)，执行器不见原始串；settle 后按 getter 校正（回执仅决定告警）；restore 槽位 values.model 即二元组，同规。
   - thinking 维（switch）：model 维达标后才 setThinking(target.thinking)；model 缺席（thinking-only）直接 setThinking；model 已提供但 invalid/不可用/未到目标 → 跳过 thinking + warning；thinking 为任意非空字符串（不校验枚举），cast 直传 pi setter，pi clamp 为正常处理（非法值由 pi 钳制、无失败提示），仅 throw 才 warning 且不回滚 model；
-  - restore：槽位 model 维存在 → 恢复 model（undefined = 无模型环境跳过）；槽位 thinking 维存在 → model 恢复达标后 setThinking(槽位.thinking)，model 未达标则跳过 thinking + warning（避免套到错误模型）；model-only mask 不显式回滚 thinking，thinking-only mask 不触碰 model；顺序 model → thinking。
+  - restore（按 mask 逐维，顺序 model → thinking）：mask.model=true → values.model 存在 → 恢复 model（达标短路同 switch）；thinking 门控：lastModel == values.model → setThinking(values.thinking)，不等 → 跳过 + warning；values.model 缺失（capture 未取到）→ 模型 no-op，thinking 亦跳过 + warning。mask.model=false（thinking-only）→ 无模型步骤，「达标」不适用，直接 setThinking(values.thinking)，与 switch thinking-only 对称。mask.thinking=false → 不触碰 thinking。
 
 ## 5. 三条规则
 
@@ -69,8 +69,8 @@ model/thinking 是 pi 会话的**运行时状态**——扩展 API 可读写（`
 
 基线以**槽位**承载：epoch → `{mask: {model, thinking}, values: {model?, thinking?}}`——mask 显式保存基础检查通过维度（不用「槽位是否有该属性」隐式代替 mask：getter 暂不可用/值 undefined 与未配置不是一回事）。
 
-- capture 任务携带双维 mask；执行时按 mask 拍 values（mask 开启但 getter 无值 → 保留 mask + 观测告警）；restore 执行时读槽位——不拷贝值、不依赖提交时值已存在（快速 join→立即 leave 时 capture 尚未执行，restore 执行时 FIFO 保证 capture 已完成）；
-- restore 按 mask 逐维恢复：mask.model → 恢复 values.model（undefined = 无模型环境 → no-op）；mask.thinking → model 达标后恢复 values.thinking（undefined → no-op + 观测告警）；mask 未开启维度不触碰（不额外回滚中途手动值）；
+- capture 任务携带双维 mask；执行时按 mask 拍 values（mask 开启但 getter 无值 → 保留 mask + 观测告警）；仅 mask 开启维度写 values（模型身份含在内），mask 关闭维度不记录。restore 执行时读槽位——不拷贝值、不依赖提交时值已存在（快速 join→立即 leave 时 capture 尚未执行，restore 执行时 FIFO 保证 capture 已完成）；
+- restore 按 mask 逐维恢复，执行判据见 §4「profile 执行语义」（本节只管槽位读取与回收）；mask 未开启维度不触碰（不额外回滚中途手动值）；
 - **槽位回收**：不绑定同步状态迁移——leave 不等待 restore，进入 idle 时槽位不得删除（排队 restore 仍需读槽）；回收时机 = 该 epoch 的 restore 完成/该 epoch 无待执行任务后；再次 join 新 epoch 重拍（连续加入/离开不覆盖旧轮、不用旧轮基线）；
 - **freeze 与快照**：detach 时队列 freeze（当前 in-flight 完成后不再取 pending）；snapshot = pending 纯任务（不含在途）+ lastModel + lastThinking + 槽位表 + 至多一个 inFlight（单飞保证）。
 
@@ -101,6 +101,8 @@ pi `setModel` 内部会 `setDefaultModelAndProvider` 把新模型持久化为用
 3. setModel 调用后 try/catch 全包 + 返回值判断（内部二次 checkAuth 可能 throw）→ 失败；
 4. setThinkingLevel 同步 void、仅 throw 层——任意非空字符串 cast 直传；pi 对非法值由 pi 钳制（`includes ? level : _clampThinkingLevel`），视为正常处理不另判失败；仅 throw/执行异常才 try/catch + warning（含目标值 + 动作），不回滚 model。
 
+注入接口（六方法，已冻结）：`getModelIdentity()` / `getThinkingLevel()` / `resolveModel(provider, id)` / `applyModel(provider, id)` / `applyThinking(level)` / `notifyWarning(message)`。拆分与 trim 归队列纯函数 `splitModelReference`（首个 "/" 拆分、两段各 trim、无 "/" 或空段同失败），执行器只收二元组、不见原始串；签名冻结后变更走契约变更流程。
+
 分层分工：角色卡 `model`/`thinking` 字段解析失败在 runtime 层检测并统一流入失败路径（「未提交 switch + 队列无任务」行为面断言归 runtime 层）；提示（notify）由 adapter 层发出（notify 面断言归 adapter 层）——提示逻辑不落 runtime 层，避免断言错位。
 
 提示通道：执行器只依赖**单一 notify 回调注入**（一条 warning 语义，不做双发）；入口适配归装配方——命令加入装配 `ctx.ui.notify`、headless auto-join 装配 stderr 回调。warning 消息含目标 provider/id（或 thinking 值）与失败动作。未装配模式 no-op 兜底；断言：unit 断言统一回调，acceptance 按入口分载体断言（`extension_ui_request` + `method==="notify"` 先例 / stderr）。
@@ -109,7 +111,7 @@ pi `setModel` 内部会 `setDefaultModelAndProvider` 把新模型持久化为用
 
 | 组件 | 层 | 落点 | 说明 |
 | --- | --- | --- | --- |
-| model-transition-queue | runtime 域 | `src/character/` | 纯逻辑；执行器以回调注入（setModel + setThinking），不 import pi SDK |
+| model-transition-queue | runtime 域 | `src/character/` | 纯逻辑；执行器以六方法注入接口装配（§10），不 import pi SDK |
 | 基线持有 + 挂点（claim / leave / handleConnectionClosed / takeReloadHandoff / detachForReload） | application | `src/controller/` | 状态权威点触发，与状态迁移同步 |
 | setModel/setThinking 执行器 + 装配 | adapter | `src/extension/` + `src/index.ts` 组合根 | 错误归一 + 单一 notify 回调 |
 | handoff 基线字段 | application/controller 域 | `src/controller/reload-handoff-registry.ts`（`CharacterReloadHandoff`）携带队列快照（pending + lastModel + lastThinking + 槽位表 + 至多一个 inFlight{task, completionPromise, phase, remaining}），`CharacterRuntime.takeHandoff` 重建 | 与 pendingEvents 交接同构 |
@@ -121,4 +123,4 @@ pi `setModel` 内部会 `setDefaultModelAndProvider` 把新模型持久化为用
 
 - acceptance（真实 RPC，`get_state`（model/thinkingLevel）/`set_model`/`get_available_models` 原语可断言）：核心序列 A→B→leave/join C→leave（model+thinking 双断言）；reload 后离开回基线；不可用模型失败层；裸字符串 model 运行时失败 warning + 不阻塞；任意 thinking 由 pi 钳制且以 getter 实际值断言；手动换模型恢复基线；settings 双断言；无字段回归；强杀只验收敛不验恢复。thinking 断言锚 get_state.thinkingLevel 生效值（非配置原值），settings 只断离开最终基线；clamp 超能力场景下沉 unit/integration。
 - integration（可控时序/注入）：WS 瞬断重连（handleConnectionClosed 注入）；队列竞态全场景（switch 在途 leave、epoch 过期、幂等短路、capture 屏障、thinking 随 model 达标后设置、restore mask）。
-- unit（mock）：throw 层注入、notify no-op 兜底、队列规则全枚举、parseModelField/parseThinkingField 三态、clamp 语义（生效值锚定）。
+- unit（mock）：throw 层注入、notify no-op 兜底、队列规则全枚举、splitModelReference 全输入域（任意输入不抛 + 三态）、parseModelField/parseThinkingField 三态、clamp 语义（生效值锚定）；padded 与大小写两条钉 resolveModel 入参（队列出口），不进纯函数。
