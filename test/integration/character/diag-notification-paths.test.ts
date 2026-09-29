@@ -97,14 +97,6 @@ function formatLines(lines: DiagLine[]): string {
 	return lines.map((line) => line.raw).join("\n");
 }
 
-function lastIndexWhere(lines: DiagLine[], match: (line: DiagLine) => boolean): number {
-	for (let index = lines.length - 1; index >= 0; index -= 1) {
-		const line = lines[index];
-		if (line !== undefined && match(line)) return index;
-	}
-	return -1;
-}
-
 /** 有序子序列断言（跳过无关行，不比行数）。 */
 function orderedSubsequence(lines: DiagLine[], matchers: Array<(line: DiagLine) => boolean>, label: string): void {
 	let index = 0;
@@ -324,7 +316,7 @@ describe("#202 诊断面构造与判别矩阵（QA 复验）", () => {
 	});
 
 	it(
-		"B3 成对：hold@before-state（enter 有、链内 state 未发起）→ 释放后 state 起止 + 投递",
+		"B3 成对：hold@before-state（caller=flush 的 state 未发起）→ 释放后 state 起止 + 投递",
 		{ timeout: 20_000 },
 		async () => {
 			const { creator, character } = await startCreator();
@@ -345,13 +337,12 @@ describe("#202 诊断面构造与判别矩阵（QA 复验）", () => {
 			);
 			await sleep(250);
 			const heldLines = linesSince(heldMark);
-			// route 期的 refreshGroupChatState 也出 state 钉（无 caller 标）——
-			// 判定锚到「flush enter 之后」：链内 state 调用未发起。
-			const enterIndex = lastIndexWhere(heldLines, (line) => line.tag === "flush" && line.fields.phase === "enter");
-			expect(enterIndex).toBeGreaterThanOrEqual(0);
-			expect(
-				heldLines.slice(enterIndex + 1).some((line) => line.tag === "state" && line.fields.phase === "start"),
-			).toBe(false);
+			// caller 标消歧：route 期 refresh 的 state 对是 caller=refresh 噪声；
+			// 链内 state 调用未发起 = 无 caller=flush 的 start（refresh 对同时在窗内）。
+			expect(hasLine(heldLines, "state", (fields) => fields.phase === "start" && fields.caller === "flush")).toBe(
+				false,
+			);
+			expect(hasLine(heldLines, "state", (fields) => fields.caller === "refresh")).toBe(true);
 			expect(hasLine(heldLines, "flush", (fields) => fields.phase === "empty" || fields.phase === "exit")).toBe(false);
 			expect(hasLine(heldLines, "inject", (fields) => fields.phase === "call")).toBe(false);
 
@@ -361,14 +352,14 @@ describe("#202 诊断面构造与判别矩阵（QA 复验）", () => {
 				"释放后 flush exit",
 			);
 			orderedSubsequence(
-				linesSince(heldMark).slice(enterIndex + 1),
+				linesSince(heldMark),
 				[
-					(line) => line.tag === "state" && line.fields.phase === "start",
-					(line) => line.tag === "state" && line.fields.phase === "end",
+					(line) => line.tag === "state" && line.fields.phase === "start" && line.fields.caller === "flush",
+					(line) => line.tag === "state" && line.fields.phase === "end" && line.fields.caller === "flush",
 					(line) => line.tag === "flush" && line.fields.phase === "exit",
 					(line) => line.tag === "inject" && line.fields.phase === "call" && line.fields.latest === "3",
 				],
-				"B3 释放后链（锚定 flush enter 之后）",
+				"B3 释放后链（caller=flush）",
 			);
 			mock.emitConsumption();
 			await waitForDiag(() => injectConsumed(linesSince(heldMark), 3) !== undefined, "释放后 m3 消费");
@@ -415,21 +406,20 @@ describe("#202 诊断面构造与判别矩阵（QA 复验）", () => {
 		const { runtime, mock } = await joinCharacter(creator, character, "qa-202-c1");
 		await settleJoin(runtime, mock);
 
-		// 基线帧：hub.send 与 recv 双有（hub.send 钉对 group_chat_update 帧无 seq 字段，
-		// 以 dropped 标与 recv 侧 seq 判别）
+		// 基线帧：hub.send（现已带 seq）与 recv 双有
 		const baseMark = diagLines.length;
 		await publishAndConsume(creator, mock, "KEEP-1", 2);
 		const base = linesSince(baseMark);
-		expect(hasLine(base, "hub.send", (fields) => fields.dropped !== "true")).toBe(true);
+		expect(hasLine(base, "hub.send", (fields) => fields.seq === "2" && fields.dropped !== "true")).toBe(true);
 		expect(hasLine(base, "recv", (fields) => fields.seq === "2")).toBe(true);
 
-		// 丢弃帧：服务端 dropped=true、客户端无 recv、无投递
+		// 丢弃帧：服务端 dropped=true（按 seq 直配）、客户端无 recv、无投递
 		const dropMark = diagLines.length;
 		dropping = true;
 		await creator.submitUserPersonaMessage("DROP-ME");
 		await waitForDiag(
-			() => hasLine(linesSince(dropMark), "hub.send", (fields) => fields.dropped === "true"),
-			"hub.send dropped",
+			() => hasLine(linesSince(dropMark), "hub.send", (fields) => fields.seq === "3" && fields.dropped === "true"),
+			"hub.send dropped seq=3",
 		);
 		await sleep(400);
 		const dropLines = linesSince(dropMark);
