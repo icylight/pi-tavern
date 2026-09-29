@@ -27,6 +27,28 @@ npm run test:full # 三层串行全量（发版前收口验收证据）
 | 异常终止收敛 | `crash-convergence.test.ts` | kill -9 Character → creator 收敛成员；kill -9 Creator → character 回 idle；残留 descriptor 被后续发现流程清理 |
 | reload 保持连接 | `reload.test.ts` | 真实 `/reload`（经测试命令触发 `ctx.reload()`）：成员连接、身份、端口保持，reload 后消息仍可达 |
 
+### 改动面 → 定向 acceptance 反查表
+
+定向跑的依据是**行为面经哪条消费链**，不是 import 关系（渲染末端如 `ui/` 容易漏，而它恰是 resume/welcome 的观测面）。最小集 = 本表并集；拿不准取超集。行内测试文件省略 `.test.ts`。
+
+| src 改动面 | 行为面 | 定向 acceptance |
+| --- | --- | --- |
+| `src/character/group-chat-input.ts`、`response-gate.ts`、`injection-text.ts` | 输入注入/打断/令牌/游标消费/信封 | abort-steer-visibility、j2-rpc-abort-no-loss、speak-read-first、context-window、live-delivery、identity-consistency、welcome-message、board-whiteboard |
+| `src/character/join-attempt.ts` | 发现-加入握手 | multi-process、identity-consistency、headless、welcome-message、crash-convergence |
+| `src/creator/**`（连接/成员/广播/心跳/流水线） | 连接收敛/广播/投影 | crash-convergence、multi-process、family-messages、live-delivery、board-whiteboard、rh3-whisper-projection、welcome-message |
+| `src/creator/reload-flow.ts`、`src/controller/**` | reload 交接 | reload、resume-history |
+| `src/data/discovery/**` | 描述符/发现/进程校验 | multi-process、crash-convergence、headless、welcome-message、isolation |
+| `src/data/**`（游标/持久化） | 游标读写/水位/历史投影 | welcome-message、context-window、speak-read-first、resume-history、reload、isolation |
+| `src/config/character-card.ts` | 角色身份/人格 | identity-consistency、board-whiteboard、isolation、multi-process |
+| `src/config/load-config.ts`、`message-templates.ts` | 轮次上限/渲染文案三消费面 | welcome-message、family-messages、rh3-whisper-projection、board-whiteboard |
+| `src/extension/**`（工具/生命周期/状态机） | 工具面/工作状态机 | headless、w1c-light-probe、streaming-truth、identity-consistency、board-whiteboard、speak-read-first、rh3-whisper-projection、welcome-message |
+| `src/ui/**` | TUI 渲染 | board-whiteboard、resume-history、welcome-message；三轮态/状态行见手动 |
+| `src/headless.ts` | 无人值守入口 | headless、multi-process、welcome-message、identity-consistency |
+| `src/character/character-runtime.ts`（游标/前置门/投递/handoff/心跳）、`src/protocol/**`、`src/index.ts` | 角色侧核心 / wire 契约 / 组合根接线 | **全量**（非定向） |
+| `test/acceptance/**`（基建） | 验收基建自身 | 改哪个跑哪个；`pi-process`/`global-setup` 类改后加单文件冒烟 |
+
+维护：新增 acceptance 文件 → 回填所属行；剧本化迁移（workflow §0.6）后按剧本名对应。
+
 ## 当前行为验收锚
 
 | 行为域 | 现行行为（一句话） | 锚点测试/验证 |
