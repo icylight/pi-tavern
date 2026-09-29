@@ -89,6 +89,8 @@ interface RegisterCommandsOptions {
 	deleteBoard?: (groupId: string, boardDir: string) => Promise<DeleteBoardResult>;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	triggerDebounceMs?: number;
+	/** #196 忙态投递窗口（注入化；undefined = 默认 5000ms）。 */
+	deliveryWindowMs?: number;
 }
 
 export function registerCommands(
@@ -229,6 +231,7 @@ export function registerCommands(
 				const joinConfig = await loadConfig({ agentDir, cwd: ctx.cwd });
 				const attempt = await controller.startJoining(descriptor, sessionId, {
 					...(options.triggerDebounceMs !== undefined ? { triggerDebounceMs: options.triggerDebounceMs } : {}),
+					...(options.deliveryWindowMs !== undefined ? { deliveryWindowMs: options.deliveryWindowMs } : {}),
 					// 游标跟随 Session：cursors/<groupId>/<sessionId>.json，
 					// 同群聊多角色互不共用游标文件；旧群聊级单文件由 loadCursor 兼容回退。
 					cursorStorePath: join(

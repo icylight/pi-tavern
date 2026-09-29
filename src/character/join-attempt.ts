@@ -43,6 +43,8 @@ export interface JoinAttemptOptions {
 	cursorStorePath?: string;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	triggerDebounceMs?: number;
+	/** #196 忙态投递窗口（注入化；undefined = 默认 5000ms）。 */
+	deliveryWindowMs?: number;
 	/** ：增量拉取上下文窗口 getter（getter 闭包，每轮实时取值），转发给 CharacterRuntime。 */
 	getFetchContextWindow?: () => number;
 	/** ：群聊文案模板集（claim 时本地配置加载，转发给 CharacterRuntime）。 */
@@ -79,6 +81,7 @@ export class JoinAttempt {
 	private readonly heartbeatTimeoutMs: number | undefined;
 	private readonly cursorStorePath: string | undefined;
 	private readonly triggerDebounceMs: number | undefined;
+	private readonly deliveryWindowMs: number | undefined;
 	private readonly getFetchContextWindow: (() => number) | undefined;
 	private readonly messageTemplates: Record<MessageTemplateKey, string> | undefined;
 	private readonly agentDir: string | undefined;
@@ -132,6 +135,7 @@ export class JoinAttempt {
 		this.heartbeatTimeoutMs = options.heartbeatTimeoutMs;
 		this.cursorStorePath = options.cursorStorePath;
 		this.triggerDebounceMs = options.triggerDebounceMs;
+		this.deliveryWindowMs = options.deliveryWindowMs;
 		this.getFetchContextWindow = options.getFetchContextWindow;
 		this.messageTemplates = options.messageTemplates;
 		this.agentDir = options.agentDir;
@@ -217,6 +221,7 @@ export class JoinAttempt {
 				...(this.heartbeatTimeoutMs !== undefined ? { heartbeatTimeoutMs: this.heartbeatTimeoutMs } : {}),
 				...(this.cursorStorePath !== undefined ? { cursorStorePath: this.cursorStorePath } : {}),
 				...(this.triggerDebounceMs !== undefined ? { triggerDebounceMs: this.triggerDebounceMs } : {}),
+				...(this.deliveryWindowMs !== undefined ? { deliveryWindowMs: this.deliveryWindowMs } : {}),
 				...(this.getFetchContextWindow !== undefined ? { getFetchContextWindow: this.getFetchContextWindow } : {}),
 				...(this.messageTemplates !== undefined ? { messageTemplates: this.messageTemplates } : {}),
 				...(this.agentDir !== undefined ? { agentDir: this.agentDir } : {}),

@@ -226,7 +226,7 @@ describe("GroupChatInput", () => {
 		expect(message.content).toMatch(/User Persona（\d{4}-\d{2}-\d{2} \d{2}:\d{2}（\d+ 秒前|\d+ 分钟前））:/);
 
 		expect(options.triggerTurn).toBe(true);
-		expect(options.deliverAs).toBe("followUp");
+		expect(options.deliverAs).toBe("steer");
 
 		input.stop();
 	});
@@ -809,7 +809,7 @@ describe("GroupChatInput", () => {
 		const message = call[0] as { details: { events: Array<{ params?: { sequence?: number } }> } };
 		expect(message.details.events.map((e) => (e as Record<string, unknown>).method)).toEqual(["public_message"]);
 		const options = call[1] as { deliverAs: string };
-		expect(options.deliverAs).toBe("followUp");
+		expect(options.deliverAs).toBe("steer");
 
 		// settle → 补拉全（游标已推进到 7 → 空拉取，无重复投递）。
 		runtime.onAgentSettled?.();
@@ -860,7 +860,7 @@ describe("GroupChatInput", () => {
 				total_messages: 9,
 			},
 		} as unknown as ServerMessage);
-		// 忙态先排令牌；安全边界 abort、settled 后一次拉全并 followUp 重开。
+		// 忙态先排令牌；安全边界 abort、settled 后一次拉全并经 steer 投递（#196 通道统一）。
 		await vi.advanceTimersByTimeAsync(0);
 		expect(input.consumeAbortControlToken(vi.fn())).toBe(true);
 		runtime.isAgentActive = false;
@@ -954,7 +954,7 @@ describe("GroupChatInput", () => {
 			delivery[0] as { details: { events: Array<{ params?: { sequence?: number } }> } }
 		).details.events.map((event) => event.params?.sequence);
 		expect(delivered).toEqual([7, 8, 9]);
-		expect((delivery[1] as { deliverAs: string }).deliverAs).toBe("followUp");
+		expect((delivery[1] as { deliverAs: string }).deliverAs).toBe("steer");
 
 		input.stop();
 	});
@@ -962,7 +962,7 @@ describe("GroupChatInput", () => {
 	it("T3 (revised ): delivery channels keep steer semantics; no group-chat marker involved", async () => {
 		// 标记机制已删除——点亮由 agent_start 无条件执行（run 活跃即亮，
 		// 拍板），投递路径不再涉及标记。保留的语义断言 =
-		// 通道选择：idle 用 followUp+triggerTurn，忙态用 steer+triggerTurn。
+		// 通道选择：#196 起两态统一 steer+triggerTurn（pi 按真实 streaming 状态分派）。
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({
@@ -970,7 +970,7 @@ describe("GroupChatInput", () => {
 		});
 		const pi = createMockPi();
 
-		// idle 投递：followUp 通道 + triggerTurn（开启新 turn 唤醒 agent）。
+		// idle 投递：steer + triggerTurn（pi 在 idle 时忽略 deliverAs，直接开新 turn）。
 		const idleInput = new GroupChatInput(runtime, pi);
 		idleInput.start();
 		const idleHandler = runtime.onEnvironmentMessage ?? (() => {});
@@ -980,7 +980,7 @@ describe("GroupChatInput", () => {
 			deliverAs: string;
 			triggerTurn: boolean;
 		};
-		expect(idleOptions.deliverAs).toBe("followUp");
+		expect(idleOptions.deliverAs).toBe("steer");
 		expect(idleOptions.triggerTurn).toBe(true);
 		idleInput.stop();
 		(pi.sendMessage as ReturnType<typeof vi.fn>).mockClear();
@@ -1307,7 +1307,7 @@ describe("GroupChatInput", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		expect(fetchMock.mock.calls[0]?.[0]).toBe(4);
 		expect(pi.sendMessage).toHaveBeenCalledTimes(2);
-		expect((pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[1]?.[1]).toMatchObject({ deliverAs: "followUp" });
+		expect((pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[1]?.[1]).toMatchObject({ deliverAs: "steer" });
 		expect(runtime.saveCursor).toHaveBeenCalledWith(7);
 
 		// settle：补拉全（游标已推进 → 空）无重复投递。

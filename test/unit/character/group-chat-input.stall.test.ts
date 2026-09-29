@@ -152,7 +152,7 @@ describe("GroupChatInput  会话侧投递挂起（单飞行锁形态）", () => 
 		await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
 		expect(pi.sendMessage).toHaveBeenLastCalledWith(
 			expect.objectContaining({ details: expect.objectContaining({ character_id: "dev" }) }),
-			expect.objectContaining({ deliverAs: "followUp" }),
+			expect.objectContaining({ deliverAs: "steer" }),
 		);
 		expect(runtime.saveCursor).toHaveBeenCalledWith(6);
 
