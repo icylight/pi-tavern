@@ -58,9 +58,10 @@ export function formatMemberList(members: ReadonlyArray<{ name: string; characte
 /** `tavern_members` 的简介截断上限（默认值，工具面复用）。 */
 export const MEMBER_DESCRIPTION_LIMIT = 80;
 
-/** 简介截断：超限时按字符截断并追加省略号。 */
+/** 简介截断：超限时按**码点**截断并追加省略号（不切断代理对，避免半字符）。 */
 export function truncateDescription(text: string, limit: number = MEMBER_DESCRIPTION_LIMIT): string {
-	return text.length <= limit ? text : `${text.slice(0, limit)}…`;
+	const codePoints = [...text];
+	return codePoints.length <= limit ? text : `${codePoints.slice(0, limit).join("")}…`;
 }
 
 /** 名册排序：自己置首，其余保持快照顺序（join 序）——列表与错误清单同序。 */

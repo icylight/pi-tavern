@@ -132,6 +132,11 @@ describe("成员清单格式化", () => {
 		const keep = "x".repeat(MEMBER_DESCRIPTION_LIMIT);
 		expect(truncateDescription(keep)).toBe(keep);
 		expect(truncateDescription(`${keep}y`)).toBe(`${keep}…`);
+		// 代理对（emoji）按码点截断，不产生半字符。
+		const emoji = "🙂".repeat(MEMBER_DESCRIPTION_LIMIT + 1);
+		const truncatedEmoji = truncateDescription(emoji);
+		expect(truncatedEmoji).toBe(`${"🙂".repeat(MEMBER_DESCRIPTION_LIMIT)}…`);
+		expect([...truncatedEmoji].length).toBe(MEMBER_DESCRIPTION_LIMIT + 1);
 	});
 
 	it("orderRoster：自己置首，其余保持快照顺序", () => {
