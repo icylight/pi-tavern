@@ -59,6 +59,7 @@ export class PiProcess {
 	private readonly waiters: Array<(event: RpcEvent, index: number) => void> = [];
 	private buffered = "";
 	private commandId = 0;
+	private exitInfo: { code: number | null; signal: NodeJS.Signals | null } | null = null;
 
 	private constructor(label: string, child: ChildProcess) {
 		this.label = label;
@@ -106,6 +107,11 @@ export class PiProcess {
 			},
 		);
 		const process_ = new PiProcess(options.label, child);
+		// 退出诊断（#191 教训）：子进程被杀/自杀时，等待类报错只显示「超时/不可写」，
+		// 看不出进程已死——记录退出信息，报错时附带（describeExit）。
+		child.once("exit", (code, signal) => {
+			process_.exitInfo = { code, signal };
+		});
 		child.stdout?.on("data", (chunk) => process_.onStdout(chunk));
 		child.stderr?.on("data", (chunk) => process_.onStderr(chunk));
 		return process_;
@@ -136,7 +142,10 @@ export class PiProcess {
 				return;
 			}
 			const timer = setTimeout(
-				() => rejectEvent(new Error(`[${this.label}] timeout waiting for event after ${timeoutMs}ms`)),
+				() =>
+					rejectEvent(
+						new Error(`[${this.label}] timeout waiting for event after ${timeoutMs}ms${this.describeExit()}`),
+					),
 				timeoutMs,
 			);
 			const waiter = (event: RpcEvent): void => {
@@ -171,7 +180,10 @@ export class PiProcess {
 				return;
 			}
 			const timer = setTimeout(
-				() => rejectEvent(new Error(`[${this.label}] timeout waiting for event after ${timeoutMs}ms`)),
+				() =>
+					rejectEvent(
+						new Error(`[${this.label}] timeout waiting for event after ${timeoutMs}ms${this.describeExit()}`),
+					),
 				timeoutMs,
 			);
 			const waiter = (event: RpcEvent, index: number): void => {
@@ -200,7 +212,7 @@ export class PiProcess {
 	send(message: Record<string, unknown>): Promise<string> {
 		return new Promise((resolveId, rejectId) => {
 			if (!this.child.stdin?.writable) {
-				rejectId(new Error(`[${this.label}] stdin is not writable`));
+				rejectId(new Error(`[${this.label}] stdin is not writable${this.describeExit()}`));
 				return;
 			}
 			this.commandId += 1;
@@ -321,6 +333,15 @@ export class PiProcess {
 		return this.stderrChunks.join("");
 	}
 
+	/** 退出诊断后缀：进程已退出时附 code/signal + stderr 尾；未退出返回空串。 */
+	private describeExit(): string {
+		if (!this.exitInfo) {
+			return "";
+		}
+		const tail = this.getStderr().trim().slice(-400);
+		return ` [子进程已退出 code=${this.exitInfo.code ?? "null"} signal=${this.exitInfo.signal ?? "null"}${tail ? `; stderr 尾: ${tail}` : ""}]`;
+	}
+
 	/** Wait until stderr contains the given substring (polling, best effort). */
 	async waitForStderr(substring: string, timeoutMs = STEP_TIMEOUT_MS): Promise<void> {
 		const deadline = Date.now() + timeoutMs;
@@ -330,7 +351,7 @@ export class PiProcess {
 			}
 			if (Date.now() > deadline) {
 				throw new Error(
-					`[${this.label}] timeout waiting for stderr text: ${substring}; got: ${this.getStderr().slice(-800)}`,
+					`[${this.label}] timeout waiting for stderr text: ${substring}; got: ${this.getStderr().slice(-800)}${this.describeExit()}`,
 				);
 			}
 			await new Promise((resolveWait) => setTimeout(resolveWait, 200));
