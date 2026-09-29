@@ -203,7 +203,7 @@ npm scripts（**门卫语义**：无参调用拒绝 exit 1 并打印指引——
 ```text
 npm run test:unit -- <pattern> → 只跑指定文件/目录（unit / integration / acceptance 同规）
 npm run test:unit -- --all → 层内全量
-npm run test:full → 三层全量串行（收口门禁）
+npm run test:full → 三层全量串行（发版前收口门禁；日常不跑）
 npm run check → 运行 Biome 检查和 TypeScript noEmit
 npm run format → 使用 Biome 自动格式化
 ```
