@@ -15,7 +15,7 @@ npm run test:full # 三层串行全量（发版前收口验收证据）
 
 套件位于 `test/acceptance/`，通过 `vitest.acceptance.config.ts` 独立配置，**不纳入日常默认测试**（真实 pi 进程启动慢，完整跑约 1-2 分钟；门卫机制下所有测试层均须显式指定目标才执行）。
 
-> ⚠️ 真实 pi 进程共享端口与临时目录：acceptance 全量（`npm run test:acceptance -- --all`）**必须与 `npm run check` 串行执行**，不能并行，否则进程互相干扰导致假失败。跨会话并发运行由运行锁互斥（已有活跃运行 fail-fast，见 #191）；跑前群聊报备（错峰）。
+> ⚠️ 真实 pi 进程共享端口与临时目录：acceptance 全量（`npm run test:acceptance -- --all`）**必须与 `npm run check` 串行执行**，不能并行，否则进程互相干扰导致假失败。跨会话并发运行由运行锁互斥（已有活跃运行 fail-fast，见 #191）；跑前私信报备（错峰）。
 
 所有测试：
 
