@@ -6,14 +6,14 @@ import {
 	type AgentTool,
 	agentLoop,
 	type StreamFn,
-} from "../../../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/index.js";
+} from "../../../node_modules/@earendil-works/pi-agent-core/dist/index.js";
 import {
 	type AssistantMessage,
 	type AssistantMessageEvent,
 	EventStream,
 	type Message,
 	type Model,
-} from "../../../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/index.js";
+} from "../../../node_modules/@earendil-works/pi-ai/dist/index.js";
 
 import { ABORT_CONTROL_CUSTOM_TYPE } from "../../../src/character/group-chat-input.js";
 import { wireAgentLifecycle } from "../../../src/extension/agent-lifecycle.js";
@@ -134,7 +134,7 @@ describe("steer 隐藏令牌的真实工具安全边界", () => {
 				return { content: [{ type: "text", text: "completed" }], details: undefined };
 			},
 		};
-		const context: AgentContext = { systemPrompt: "", messages: [], tools: [tool] };
+		const context: AgentContext = { messages: [], tools: [tool] };
 		let providerRequests = 0;
 		let secondRequestSignalAborted = false;
 		let secondRequestSawToken = false;
