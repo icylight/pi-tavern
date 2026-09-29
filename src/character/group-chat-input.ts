@@ -1031,7 +1031,7 @@ export class GroupChatInput {
 		try {
 			// 方案 A（乐观推进）：sendMessage 调用后
 			// 同步 saveCursor，不 await（await 会持有单飞行锁整个 run 时长，
-			// 忙态秒级可见在连续对话主场景退化回 run 边界——PM 矛盾实证）。
+			// 忙态秒级可见在连续对话主场景退化回 run 边界——owner 矛盾实证）。
 			// 忙态 steer/followUp = agent.steer/followUp 同步入队无失败返回
 			// （QA 实证）；idle triggerTurn 的异步 run 启动失败 = pi 环境
 			// 不可用例外（与改造前语义一致、与 wedged 同类）。

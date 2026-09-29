@@ -7,7 +7,7 @@ import WebSocket from "ws";
 
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 
-//  复现测试 ①（PM 领办）： 懒重扫 = join/claim/query 热路径唯一新增阻塞点
+//  复现测试 ①（owner 领办）： 懒重扫 = join/claim/query 热路径唯一新增阻塞点
 // （await 磁盘重扫、无超时保护）。本测试注入「永不 resolve 的 loadCharacters」，
 // 断言 join_group_chat 仍应在时限内响应——f2ac85f（含 ）预期红（join 被挂起
 // 的重扫无限阻塞 = 缺陷证实）；d5aa913（无 ）预期绿（无阻塞点）。

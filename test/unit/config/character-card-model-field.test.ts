@@ -1,5 +1,5 @@
 /**
- * 角色卡 model/thinking 字段解析契约红测（#180，PM 最终口径）。
+ * 角色卡 model/thinking 字段解析契约红测（#180，owner 最终口径）。
  *
  * 锚定契约：src/config/character-card.ts 导出 parseModelField / parseThinkingField——
  * 「不校验」= 不做 model 目录/provider-id 格式校验、不做 thinking 枚举/大小写校验；

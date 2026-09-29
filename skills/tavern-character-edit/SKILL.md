@@ -53,5 +53,5 @@ description: 创建或编辑 PiTavern 角色卡（Character Card）——通过�
    - AGENTS.md 上下文清单是否需提及新角色；
    - 其他受角色卡变更影响的流程文档。
 2. **无需同步**：向用户说明「无联动文档需同步」，流程结束。
-3. **需要同步**：**不得直接修改**这些文档——按四步流程走：群聊声明影响面 → 团队收敛（讨论前置纪律，见 docs/development/workflow.md §0）→ 对应属主复核（workflow.md/AGENTS.md 属主 = PM）→ PM 落盘。skill 只产出建议或 diff 文本供复核，不代落盘。
+3. **需要同步**：**不得直接修改**这些文档——按四步流程走：群聊声明影响面 → 团队收敛（讨论前置纪律，见 docs/development/workflow.md §0）→ 对应属主复核（workflow.md/AGENTS.md 属主 = owner）→ owner 落盘。skill 只产出建议或 diff 文本供复核，不代落盘。
 4. 引用上述契约文档原文约束，不复制粘贴条款内容（防双源漂移）。

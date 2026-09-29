@@ -89,7 +89,7 @@ interface PrepareCharacterRuntimeOptions {
 	cursorStorePath?: string;
 	/**
 	 * : run wedged watchdog 超时（agent_start 布防、agent_settled 清除；
-	 * 超时 → 强制 settle，恢复增量投递）。默认 180s（3min，产品参数 PM 定值）；
+	 * 超时 → 强制 settle，恢复增量投递）。默认 180s（3min，产品参数 owner 定值）；
 	 * 测试可注入短值（QA 红钉 1/2 窗口用）。
 	 */
 	agentWedgedTimeoutMs?: number;
@@ -115,7 +115,7 @@ interface PrepareCharacterRuntimeOptions {
 
 const DEFAULT_REQUEST_TIMEOUT_MS = SHORT_COORDINATION_TIMEOUT_MS;
 
-/** 产品参数（PM/User 定值）：run wedged 判定阈值，默认 3 分钟。 */
+/** 产品参数（owner/User 定值）：run wedged 判定阈值，默认 3 分钟。 */
 const DEFAULT_AGENT_WEDGED_TIMEOUT_MS = 180_000;
 
 /**
@@ -1254,7 +1254,7 @@ export class CharacterRuntime {
 			this.lastTickAt = now;
 			// 挂起感知（#203）：tick 实际间隔远超两倍心跳周期 ⇒ 本轮「无 ping」不可信，
 			// 重置存活 baseline、本轮不判死；真半开由后续轮次照常收敛。
-			// θ=2×interval（PM 裁定）：与半开判定窗口（timeout）解耦，睡眠落在
+			// θ=2×interval（owner 裁定）：与半开判定窗口（timeout）解耦，睡眠落在
 			// [2×interval, timeout) 区间也会被识别为挂起而非误判半开。
 			// 首次 tick（previousTickAt = 0）与 reload handoff 接管后的首轮同走
 			// 宽限：handoff 窗口可能跨越睡眠，陈旧 lastPingAt 不可信。

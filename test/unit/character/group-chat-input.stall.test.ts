@@ -4,7 +4,7 @@ import type { CharacterRuntime } from "../../../src/character/character-runtime.
 import { GroupChatInput } from "../../../src/character/group-chat-input.js";
 import type { PublicMessage, ServerMessage } from "../../../src/protocol/messages.js";
 
-//  会话侧投递挂起形态（PM 领办：13:44-48 Dev 会话零投递 8 分钟 → 会话侧链路）：
+//  会话侧投递挂起形态（owner 领办：13:44-48 Dev 会话零投递 8 分钟 → 会话侧链路）：
 // settled 后拉取挂起（fetchMessagesSince 永不 resolve = WS 请求挂起的极端形态）时，
 // 单飞行锁（fetchInFlight）不得并发拉取（S1）；挂起 resolve 后必须自愈——
 // refetchRequested 补拉 + 投递（S2，锁不死、不丢）。

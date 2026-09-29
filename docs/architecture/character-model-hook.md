@@ -1,13 +1,13 @@
 # Character Model Hook（角色模型/思考强度临时覆盖）
 
-> 状态：定稿（Issue #180，2026-08-17 五方收敛；含 thinking 扩围，PM 定案）
+> 状态：定稿（Issue #180，2026-08-17 五方收敛；含 thinking 扩围，owner 定案）
 > 属主：Dev（docs/architecture/）
 > 本文记录角色卡 model/thinking 配置的运行时切换机制：加入时 best-effort 切换到角色卡声明 profile，离开（含断线回 idle）时 best-effort 恢复加入前基线；失败不阻塞主流程、只提示。行为入口语义见 [interaction-model](interaction-model.md)；实现约束见 [architecture](architecture.md) 五层依赖。
 
 ## 1. 需求边界（定稿）
 
 - 角色卡 frontmatter 新增两个独立可选字段：`model` 与 `thinking`；未配置行为完全不变。
-- **不校验语义**（PM 最终口径）：不做 model 目录/provider-id 格式校验，不做 thinking 枚举/大小写校验；仅基础存在性——undefined = absent、非 string/空串 = invalid（提示不尝试）、其余任意字符串 = ok 原样传递。provider/id 拆解与模型查找归执行器；thinking 任意非空字符串 cast 直传 pi setter，**pi clamp 视为 pi 正常处理**（非法值由 pi 钳制为实际支持值，无失败提示），仅 setter throw/异常才 warning。
+- **不校验语义**（owner 最终口径）：不做 model 目录/provider-id 格式校验，不做 thinking 枚举/大小写校验；仅基础存在性——undefined = absent、非 string/空串 = invalid（提示不尝试）、其余任意字符串 = ok 原样传递。provider/id 拆解与模型查找归执行器；thinking 任意非空字符串 cast 直传 pi setter，**pi clamp 视为 pi 正常处理**（非法值由 pi 钳制为实际支持值，无失败提示），仅 setter throw/异常才 warning。
 - 加入后 best-effort 切换到角色卡 profile；正常离开 best-effort 恢复加入前基线；失败只提示、不阻塞主流程。
 - 加入期间允许手动换模型/强度；离开仅恢复「本轮基础检查通过」的维度（restore mask），未配置维度不额外回滚中途手动值。
 - 强杀不保证恢复，作为已知限制。

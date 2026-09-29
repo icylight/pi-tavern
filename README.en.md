@@ -249,7 +249,7 @@ Boundaries of the external advisor:
 
 - Does not join the group chat and does not consume public speaking quota;
 - Does not modify code or execute team tasks;
-- Does not directly direct PM, Dev, or QA;
+- Does not directly direct owner, Dev, or QA;
 - Does not make final decisions on behalf of the User;
 - Only reads group chat records, project documents, and necessary code state;
 - Returns observations and suggestions to the User privately;
