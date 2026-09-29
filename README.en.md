@@ -421,7 +421,7 @@ Run verification:
 # Tests do not run by default (gateway mechanism): you must specify targets explicitly
 npm run test:unit -- commands.test.ts   # single file (same for unit/integration/acceptance)
 npm run test:unit -- --all              # full layer
-npm run test:full                       # all three layers serially (acceptance evidence)
+npm run test:full                       # all three layers serially (release-time acceptance evidence)
 npm run check
 ```
 

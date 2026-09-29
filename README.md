@@ -381,7 +381,7 @@ npm --prefix references/pi run hydrate:model-data
 # 测试默认不跑（门卫机制）：必须显式指定，只跑改动到的用例
 npm run test:unit -- commands.test.ts   # 单文件（unit / integration / acceptance 同规）
 npm run test:unit -- --all              # 层内全量
-npm run test:full                       # 三层串行全量（收口验收证据）
+npm run test:full                       # 三层串行全量（发版前收口验收证据）
 npm run check
 npm run health                          # 仓库健康度体检：依赖漏洞 / 密钥扫描 / 卫生自查
 ```
