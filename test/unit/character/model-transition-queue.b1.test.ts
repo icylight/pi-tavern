@@ -13,9 +13,10 @@ import {
  * - T2 = PM 探针 v2（并发峰值 2）
  * - T3 = QA 对抗组（已冻队列的 barrier 仍写 remaining）
  * - T4/T5 = PM seq166 采纳的「恰好一次」保绿钉
+ * - AD1/AD2 = QA 复核对抗组（3 跳接力 / 首跳排队 restore + 3 跳；scratch qa-l2-b1v2 落盘）
  *
  * 期望：T1/T2/T3 在未修树 = 红；修复（接力保留 inFlight + runBarrier frozen 判定）后全绿。
- * T4/T5 为保绿钉（防修复引入重复应用）。
+ * T4/T5 为保绿钉（防修复引入重复应用）；AD1/AD2 覆盖多跳接力链。
  */
 
 const BASELINE: ModelIdentity = { provider: "anthropic", id: "haiku" };
@@ -212,5 +213,63 @@ describe("#203 无关 · L2 B1 复核钉", () => {
 			await tick();
 			expect(h.state().applyThinkingCalls).toBe(1);
 		}
+	});
+
+	// ── QA 对抗组（AD1/AD2）：3 跳接力链————超出 T1–T5 的覆盖面 ──
+	it("AD1：3 跳接力（q1→A→B→C）→ remaining 恰好一次、收尾 sonnet/high、峰值 ≤1", async () => {
+		const h = createHarness();
+		const q1 = new ModelTransitionQueue(h.executor);
+		q1.submitCapture(1, { model: true, thinking: true });
+		await q1.whenIdle();
+		q1.submitSwitch(1, { model: "anthropic/sonnet", thinking: "high" });
+		await tick();
+
+		// 三连跳：每次 freeze→snapshot→rehydrate，均在第一个 apply 挂起期间。
+		q1.freeze();
+		const A = ModelTransitionQueue.rehydrate(q1.snapshot(), h.executor);
+		A.freeze();
+		const B = ModelTransitionQueue.rehydrate(A.snapshot(), h.executor);
+		B.freeze();
+		const C = ModelTransitionQueue.rehydrate(B.snapshot(), h.executor);
+
+		h.release();
+		await C.whenIdle();
+		await tick();
+
+		const s = h.state();
+		expect(s.applyThinkingCalls).toBe(1);
+		expect(s.thinking).toBe("high");
+		expect(s.model).toEqual({ provider: "anthropic", id: "sonnet" });
+		expect(s.peakConcurrent).toBeLessThanOrEqual(1);
+	});
+
+	it("AD2：首跳排队 restore + 3 跳接力 → 收尾回基线、applyModel 恰好 2 次、末跳 inFlight=null", async () => {
+		const h = createHarness();
+		const q1 = new ModelTransitionQueue(h.executor);
+		q1.submitCapture(1, { model: true, thinking: true });
+		await q1.whenIdle();
+		q1.submitSwitch(1, { model: "anthropic/sonnet", thinking: "high" });
+		await tick();
+
+		q1.freeze();
+		const A = ModelTransitionQueue.rehydrate(q1.snapshot(), h.executor);
+		A.submitRestore(1); // 离开群聊：restore 排队（首跳）
+		A.freeze();
+		const B = ModelTransitionQueue.rehydrate(A.snapshot(), h.executor);
+		B.freeze();
+		const C = ModelTransitionQueue.rehydrate(B.snapshot(), h.executor);
+
+		h.release();
+		await C.whenIdle();
+		await tick();
+
+		const s = h.state();
+		expect(s.model).toEqual(BASELINE);
+		expect(s.thinking).toBe("low");
+		// restore 的 model 恢复 = 第 2 次 applyModel；不得有第 3 次（重复恢复）。
+		expect(s.applyModelCalls).toBe(2);
+		// 接力完成后，任何快照都不应再携带 inFlight。
+		expect(C.snapshot().inFlight).toBeNull();
+		expect(C.snapshot().pending).toEqual([]);
 	});
 });
