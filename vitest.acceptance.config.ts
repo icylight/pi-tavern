@@ -17,7 +17,7 @@ export default defineConfig({
 		// polling, not from cutting margins. 2026-09-29 降档 8 → 4（实测：8 并发
 		// 全量 2/2 红、单跑 3/3 绿、4 并发全量 39/39 绿；失败形态 = join/收件
 		// 30s 超时在文件间轮换）。跨 run 互杀（globalSetup pkill 作用域，见 #191）
-		// 另行防护：错峰约定——跑 acceptance 前群聊报备，不并行起同类运行。
+		// 另行防护：错峰约定——跑 acceptance 前私信报备，不并行起同类运行。
 		// QA owns this file.
 		maxWorkers: 4,
 	},
