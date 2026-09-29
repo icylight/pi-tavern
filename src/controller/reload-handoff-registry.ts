@@ -3,6 +3,7 @@ import type { MessageConnection } from "vscode-jsonrpc";
 import type WebSocket from "ws";
 import type { WebSocketServer } from "ws";
 
+import type { ModelTransitionSnapshot } from "../character/model-transition-queue.js";
 import type { CharacterCard } from "../config/character-card.js";
 import type { MessageTemplateKey } from "../config/message-templates.js";
 import type { BoardStore } from "../data/board-store.js";
@@ -93,6 +94,11 @@ export interface CharacterReloadHandoff {
 	/**  复评：reload 时重新加载磁盘配置所需路径（有则 takeHandoff 重载，失败保留快照）。 */
 	agentDir?: string;
 	cwd?: string;
+	/**
+	 * #180：model hook 队列快照（detach 时 freeze + 快照恰一次；新 controller
+	 * 据此 rehydrate，不重跑已执行任务）。旧态交接无此字段 = 不重建（行为不变）。
+	 */
+	modelTransition?: ModelTransitionSnapshot;
 	pendingEvents: ServerMessage[];
 	debounceDueAt: number | null;
 	/** 可选仅为兼容这些字段加入前创建的跨版本 reload handoff。 */

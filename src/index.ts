@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { type ExtensionAPI, type InputEventResult, SessionManager } from "@earendil-works/pi-coding-agent";
+import {
+	type ExtensionAPI,
+	type ExtensionContext,
+	type InputEventResult,
+	SessionManager,
+} from "@earendil-works/pi-coding-agent";
 import { setTestNotify } from "./character/group-chat-input.js";
 import { JoinAttempt } from "./character/join-attempt.js";
 import { registerCommands } from "./commands.js";
@@ -19,6 +24,7 @@ import {
 	type ProjectionEntryReader,
 } from "./data/resume-projection.js";
 import { wireAgentLifecycle } from "./extension/agent-lifecycle.js";
+import { createModelTransitionExecutor } from "./extension/model-hook-executor.js";
 import { registerTavernTools } from "./extension/tavern-tools.js";
 import { type AutoJoinContext, autoJoinCharacter } from "./headless.js";
 import type { PublicMessageState } from "./protocol/public-message-state.js";
@@ -60,6 +66,11 @@ interface CreatorBoardEntryData {
 
 /** 当前 pi 会话的只读引用（session_start 捕获，用于投影锚定扫描）。 */
 let sessionManagerRef: ProjectionEntryReader | null = null;
+/**
+ * #180：最新 ExtensionContext（session_start 捕获）——model hook 执行器经
+ * getter 闭包实时读取（防值拷贝；reload 后由新 boot 的 session_start 刷新）。
+ */
+let modelHookContext: ExtensionContext | undefined;
 
 export default function piTavern(pi: ExtensionAPI, controller?: TavernController): void {
 	// 闲态触发窗口注入化（Arch 提速项）：默认 1000ms 行为零变化；测试可设
@@ -78,12 +89,17 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	const getFetchContextWindow = () => DEFAULT_FETCH_CONTEXT_WINDOW;
 	const ctrl =
 		controller ??
-		new TavernController(undefined, (descriptor, sessionId, options) =>
-			JoinAttempt.connect(descriptor, sessionId, {
-				...options,
-				...(options.getFetchContextWindow === undefined ? { getFetchContextWindow } : {}),
-				...(injectDeliveryWindow !== undefined ? { deliveryWindowMs: injectDeliveryWindow } : {}),
-			}),
+		new TavernController(
+			undefined,
+			(descriptor, sessionId, options) =>
+				JoinAttempt.connect(descriptor, sessionId, {
+					...options,
+					...(options.getFetchContextWindow === undefined ? { getFetchContextWindow } : {}),
+					...(injectDeliveryWindow !== undefined ? { deliveryWindowMs: injectDeliveryWindow } : {}),
+				}),
+			undefined,
+			// #180 model hook：执行器装配（pi + 最新 ctx getter + 入口 notify 由 claim 传入）。
+			(pi, notifyWarning) => createModelTransitionExecutor({ pi, getContext: () => modelHookContext, notifyWarning }),
 		);
 	const presenter = new TavernUiPresenter();
 	// 组合根装配（五层依赖方向，architecture.md §5）：adapter 行为默认实现在此注入——
@@ -116,9 +132,10 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	registerTavernTools(pi, ctrl);
 	wireAgentLifecycle(pi, ctrl);
 
-	// headless RPC 角色模式——启动时自动 join。RPC 模式不触发
-	// session_start/resources_discover 事件，因此 join 从扩展加载时调度（会话
-	// 在扩展运行时已绑定；延迟只是让 runner 完成会话引导）。reload 不属于
+	// headless RPC 角色模式——启动时自动 join。调度锚 = 扩展加载（+ 引导延迟），
+	// 不依赖启动事件；扩展侧 session_start 在 RPC 模式实测同样触发（旧措辞
+	// 「RPC 不触发 session_start」已证伪；RPC 事件流不输出该事件为另一层，
+	// 待核站点见 architecture-backlog「RPC 启动事件注释核正」）。reload 不属于
 	// headless 操作（无 TUI 命令）；身份与连接由进程生命周期持有。
 	if (process.env.PITAVERN_AUTO_JOIN === "1") {
 		const ctx: AutoJoinContext = {
@@ -131,8 +148,10 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 				},
 			},
 		};
-		// headless 进程不触发 session_start（观察通道在 headless 是死通道）——
-		// 补接线：注入代码有 PITAVERN_TEST=1 门闸，生产零影响。
+		// 补接线：注入代码有 PITAVERN_TEST=1 门闸，生产零影响。实测（钉版 pi，
+		// headless RPC + PITAVERN_TEST=1）：session_start 同触发并随后把通道覆盖
+		// 为真实 ctx.ui.notify，[tavern-inject] 落 RPC notify 事件；此处 stderr
+		// 仅为 session_start 到达前的兜底。
 		setTestNotify(ctx.ui.notify);
 		const run = () => {
 			void autoJoinCharacter(pi, ctrl, ctx, {
@@ -167,6 +186,9 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 
 	// 仅 character 状态启用 tavern_speak，其余禁用
 	pi.on("session_start", (event, ctx) => {
+		// #180：model hook 执行器取 ctx 的唯一入口（model/thinking getter 与
+		// modelRegistry 均从 ctx 实时读；headless RPC 模式实测同事件触发）。
+		modelHookContext = ctx;
 		// 捕获会话引用供 resume 投影锚定扫描（会话复用场景跳过已显示段）。
 		sessionManagerRef = ctx.sessionManager;
 		presenter.bind(ctx.ui);
