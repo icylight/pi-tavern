@@ -76,7 +76,9 @@ describe("JoinAttempt and CharacterRuntime", () => {
 
 	it("B5 reload handoff：in-flight 请求显式取消 + 新 connection 不被旧 owner dispose（三轮阻断⑨）", async () => {
 		const { creator, character } = await startCreator();
-		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-1");
+		// 注入短请求超时（生产默认 5s）：本用例要「等过旧 owner 的请求超时窗口」验证
+		// 迟到 dispose 不发生，等待时长与超时值同阶——5s 超时使本用例固定花 5.2s。
+		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-1", { requestTimeoutMs: 200 });
 		const runtime = await attempt.claimCharacter(character.characterId);
 
 		// ① in-flight 请求（不 await——detach 必须显式取消它）。
@@ -84,13 +86,13 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		const handoff = await runtime.detachForReload("session-1");
 		getReloadHandoffRegistry().take("session-1"); // controller clears the slot before takeHandoff
 
-		// ② 旧请求被显式取消：及时 reject（断线原因），不悬挂到 5s 超时。
+		// ② 旧请求被显式取消：及时 reject（断线原因），不悬挂到请求超时。
 		await expect(inflight).rejects.toThrow(ERROR_CONNECTION_CLOSED_DURING_RELOAD);
 
 		// ③ 新 runtime 接管同一 connection；旧 owner 的迟到 dispose 不得发生——
-		// 等过旧 5s 超时窗口后，连接仍存活且新请求正常往返。
+		// 等过旧超时窗口后，连接仍存活且新请求正常往返。
 		const taken = await CharacterRuntime.takeHandoff(handoff);
-		await new Promise((resolve) => setTimeout(resolve, 5_200));
+		await new Promise((resolve) => setTimeout(resolve, 500));
 		await expect(taken.getGroupChatState()).resolves.toMatchObject({
 			online_characters: [
 				{

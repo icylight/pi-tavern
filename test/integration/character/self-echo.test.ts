@@ -27,6 +27,13 @@ import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
 const temporaryDirectories: string[] = [];
 const creatorRuntimes: CreatorRuntime[] = [];
 
+/**
+ * 注入短 idle 合并窗口（生产默认 1000ms）：本文件断言面 = 窗口行为
+ *（回声在窗口到期拉取时被过滤），与窗口长度无关；窗口 1000ms 时单用例
+ * 要等 3–5 个窗口，是 integration 层耗时大头。
+ */
+const TEST_TRIGGER_DEBOUNCE_MS = 100;
+
 async function createTemporaryDirectory(): Promise<string> {
 	const directory = await mkdtemp(join(tmpdir(), "pi-tavern-e68-"));
 	temporaryDirectories.push(directory);
@@ -81,6 +88,7 @@ async function joinCharacter(
 	const cursorPath = join(root, "cursors", `${sessionId}.json`);
 	const attempt = await JoinAttempt.connect(creator.activeDescriptor, sessionId, {
 		cursorStorePath: cursorPath,
+		triggerDebounceMs: TEST_TRIGGER_DEBOUNCE_MS,
 		...(options.getFetchContextWindow !== undefined ? { getFetchContextWindow: options.getFetchContextWindow } : {}),
 	});
 	const pi = createMockPi();
@@ -89,16 +97,15 @@ async function joinCharacter(
 }
 
 /**
- * join 后稳定态：等待 join 历史投递完成（debounce 1s 窗口），再手动推进游标
+ * join 后稳定态：等待 join 历史投递完成（注入窗口），再手动推进游标
  * 到 seq 1（message_history 投递 flush 不带 latestSequence 不推进游标，B6
  * 同款 saveCursor），随后清空 sendMessage 计数——保证后续断言只反映回声。
  */
 async function settleJoin(runtime: CharacterRuntime, pi: ExtensionAPI): Promise<void> {
 	const sendMessage = pi.sendMessage as ReturnType<typeof vi.fn>;
 	await waitFor(() => sendMessage.mock.calls.length > 0, 5_000);
-	// join 后环境批次仍有 1s 合并窗口：等待稳定后再清计数，
-	// 避免迟到投递污染回声断言。
-	await new Promise((resolve) => setTimeout(resolve, 1_500));
+	// join 后环境批次仍有合并窗口：等窗口 + 拉取余量后再清计数。
+	await new Promise((resolve) => setTimeout(resolve, 200));
 	runtime.saveCursor(1);
 	sendMessage.mockClear();
 }
@@ -132,9 +139,9 @@ describe("self-echo", () => {
 		expect(result.published).toBe(true);
 		expect(result.sequence).toBe(2);
 
-		// 回声广播到达后：闲态走 armIdleWindow → 1s 窗口到期拉取 → isOwnEcho 过滤
-		// → 空结果短路 → 零投递、零新 run。窗口 1s + 拉取余量，等待 2s 验证。
-		await new Promise((resolve) => setTimeout(resolve, 2_000));
+		// 回声广播到达后：闲态走 armIdleWindow → 注入窗口到期拉取 → isOwnEcho 过滤
+		// → 空结果短路 → 零投递、零新 run。窗口 + 拉取余量，等待 300ms 验证。
+		await new Promise((resolve) => setTimeout(resolve, 300));
 		expect(sendMessage).not.toHaveBeenCalled();
 		expect(runtime.isAgentActive).toBe(false);
 	});
@@ -152,7 +159,7 @@ describe("self-echo", () => {
 		expect(result.published).toBe(true);
 
 		// 忙态回声在水位门闸直接过滤：零令牌、零拉取、run 保持活跃。
-		await new Promise((resolve) => setTimeout(resolve, 1_000));
+		await new Promise((resolve) => setTimeout(resolve, 150));
 		expect(sendMessage).not.toHaveBeenCalled();
 		expect(runtime.isAgentActive).toBe(true);
 	});
@@ -189,7 +196,7 @@ describe("self-echo", () => {
 		expect(mine.published).toBe(true);
 
 		// 全回声窗口：游标不因回声推进（B6）——等待窗口+拉取完成。
-		await new Promise((resolve) => setTimeout(resolve, 1_500));
+		await new Promise((resolve) => setTimeout(resolve, 200));
 		expect(runtime.loadCursor()).toBe(1);
 
 		// 他人消息到达（seq 3）→ 投递链推进游标到 3。
@@ -221,8 +228,8 @@ describe("self-echo", () => {
 				expect(mine.published).toBe(true);
 			}
 
-			// 等待 idle 窗口（1s）+ 拉取完成（1.5s 余量）。
-			await new Promise((resolve) => setTimeout(resolve, 2_500));
+			// 等待 idle 窗口（注入 100ms）+ 拉取完成（350ms 余量）。
+			await new Promise((resolve) => setTimeout(resolve, 350));
 			expect(sendMessage).not.toHaveBeenCalled();
 			expect(runtime.isAgentActive).toBe(false);
 		},
