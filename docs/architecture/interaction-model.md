@@ -111,8 +111,8 @@ thinking: high
 ```
 
 - `name` 用于界面展示；`description` 用于角色选择器、在线列表和状态界面。
-- `model`（可选）声明本角色的运行模型，格式 `provider/id`；加入群聊时自动切换、离开时恢复加入前模型；未配置或解析失败沿用默认模型（失败只提示、不阻塞加入）。
-- `thinking`（可选）声明本角色的思考强度，合法 7 值 `off|minimal|low|medium|high|xhigh|max`；加入时在模型切换达标后设置（实际生效值按模型能力钳制）、离开时仅恢复「本轮配置过」的基线强度；未配置或非法只提示、不阻塞加入。
+- `model`（可选）声明本角色的运行模型，推荐格式 `provider/id`；不做格式校验（任意非空字符串）——加入群聊时自动切换（运行时无法解析/find 则切换失败只提示、不阻塞），离开时恢复加入前模型；未配置或非 string/空串只提示、不阻塞加入。
+- `thinking`（可选）声明本角色的思考强度；不校验枚举/大小写（任意非空字符串，由 pi 应用时按模型能力钳制）；加入时在模型切换达标后设置、离开时仅恢复「本轮配置过」的基线强度；未配置或非 string/空串只提示、不阻塞加入。
 - 行为与恢复语义见 [character-model-hook](character-model-hook.md)。
 - `claim_character` 预留时加载一次并缓存；`character_ready` 后在加入期间经 `before_agent_start` 对每次 run 应用同一份缓存，不随文件变化自动替换；`/reload` 会重读角色卡，读取失败时保留旧卡。
 - 提示词不重复拼接到群聊输入，也不作为聊天消息写入 pi session；离开群聊时移除。
@@ -131,7 +131,7 @@ project.configMaxMessages ?? global.configMaxMessages ?? 10
 - 两层配置：Global `~/.pi/agent/tavern.json`、Project `<repo>/.pi/tavern.json`；合并加载（列表合并、标量项目覆盖全局）。
 - `characters` 导入单个角色卡或目录（路径相对声明它的配置解析；文件=一张卡，目录=递归发现）。
 - `/tavern-join` 同时展示全局与项目角色卡；任意来源重复 `name` 配置无效；首版不支持排除全局角色。
-- 配置错误：无法解析/不符合 schema/角色卡读取失败或 frontmatter 非法（必填字段 `name`/`description` 缺失）→ 相关命令失败并列出具体文件，不静默跳过、不使用猜测默认值；已启动的 Runtime 继续用启动时配置，不监听文件变化。例外：可选 `model` 字段格式非法不导致命令失败——加载产出可传递失败状态，加入时只提示、不阻塞（见 [character-model-hook](character-model-hook.md)）。
+- 配置错误：无法解析/不符合 schema/角色卡读取失败或 frontmatter 非法（必填字段 `name`/`description` 缺失）→ 相关命令失败并列出具体文件，不静默跳过、不使用猜测默认值；已启动的 Runtime 继续用启动时配置，不监听文件变化。例外：可选 `model`/`thinking` 字段非 string/空串不导致命令失败——加载产出可传递失败状态，加入时只提示、不阻塞（见 [character-model-hook](character-model-hook.md)）。
 
 ## Tavern 对话
 

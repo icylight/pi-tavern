@@ -45,7 +45,7 @@ npm run test:full # 三层串行全量（收口验收证据）
 | 文档生成化 | `npm run check` = biome + tsc + generate-schema --check；schema jsonc 唯一手写处、generated 自动生成 | `npm run check` |
 | resume 完整历史 | 恢复后完整投影（无 10 条截断）升序；重复 resume 幂等；创建者见私信全文；统一文案渲染 | `resume-history`、`rh3-whisper-projection` |
 | 角色卡/模板编辑 skill | 两 SKILL.md 随包分发（pi manifest skills 声明）；命令已删、访谈指令迁入；template 单源引用 `tavern_template_defaults`；写入前 diff/确认/取消零写入；SKILL.md 含联动检查清单 | SK6 机械锚单测 |
-| 角色卡运行时 profile 临时覆盖（#180） | 可独立配置 `model: provider/id` 与 `thinking: off\|minimal\|low\|medium\|high\|xhigh\|max`；加入后异步 best-effort 按 model→thinking 应用，model 已提供但非法/不可用/未达标时跳过 thinking，失败提示但不阻塞；正常离开/存活断线按双维 mask 仅恢复合法配置维度，允许中途手动修改且不持续纠正；reload 交接 baseline/队列并对在途任务分阶段续接、不重放；缺失字段行为不变，强杀不保证恢复 | `character-model-hook` unit/integration；`character-model-hook.test.ts` acceptance（command/headless、thinking-only、model-only、手动修改、reload、失败与 settings 基线） |
+| 角色卡运行时 profile 临时覆盖（#180） | `model`/`thinking` 独立可选：配置层仅检查缺席、非 string 与空串，不校验 model 目录/provider-id 格式或 thinking 枚举/大小写；任意非空字符串原样进入运行时尝试。加入后异步 best-effort 按 model→thinking 应用，model 无法解析/不可用/未达标时跳过 thinking并提示但不阻塞；thinking 以 pi getter 钳制后的实际值为准。正常离开/存活断线按双维 mask 仅恢复基础检查通过的配置维度，允许中途手动修改且不持续纠正；reload 交接 baseline/队列并对在途任务分阶段续接、不重放；缺失字段行为不变，强杀不保证恢复 | `character-model-hook` unit/integration；`character-model-hook.test.ts` acceptance（command/headless、thinking-only、model-only、手动修改、reload、运行时失败/钳制与 settings 基线） |
 | 文案模板 | 五 key（public/seconds/minutes/whisper_full/whisper_placeholder）按 项目>全局>内置 合并；容错逐项回退；占位符规则校验；三消费面同模板集 | 模板单测 |
 | 私信 | `tavern_whisper` 仅在线 Character 间 + 活跃轮次；独立持久化共用 sequence 无空洞；三视角投影（他者只见占位）；占位不唤醒不阻塞；失败不占额度；WS 连接活跃 = 在线判定 | `whisper-placeholder-stale`、`rh3-whisper-projection` |
 
