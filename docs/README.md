@@ -30,7 +30,7 @@
 
 ## development/（贡献者向·流程与约定）
 
-- [workflow.md](development/workflow.md) — 协作工作流（四方/五方协作、分支纪律、验证留痕）
+- [workflow.md](development/workflow.md) — 协作工作流（三方协作、分支纪律、验证留痕）
 - [acceptance.md](development/acceptance.md) — 现行验收标准（功能「完成」的唯一判据）
 - [development-conventions.md](development/development-conventions.md) — 开发约定（注释语言 / prepare 红线 / 依赖归属红线）
 - [architecture-backlog.md](development/architecture-backlog.md) — 仍有效的架构优化待办
@@ -38,6 +38,6 @@
 
 ## 维护纪律
 
-- 契约文档（reference/websocket-protocol 等）零漂移：改动须四方声明影响面
+- 契约文档（reference/websocket-protocol 等）零漂移：改动须三方声明影响面
 - 已完成计划、一次性报告和已被现行事实源吸收的草稿不在仓库重复归档，通过 Git 与 GitHub 追溯
 - 文档索引随新增、移动或删除同步更新

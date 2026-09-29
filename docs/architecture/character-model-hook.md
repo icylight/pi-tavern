@@ -1,7 +1,7 @@
 # Character Model Hook（角色模型/思考强度临时覆盖）
 
 > 状态：定稿（Issue #180，2026-08-17 五方收敛；含 thinking 扩围，PM 定案）
-> 属主：Arch（docs/architecture/）
+> 属主：Dev（docs/architecture/）
 > 本文记录角色卡 model/thinking 配置的运行时切换机制：加入时 best-effort 切换到角色卡声明 profile，离开（含断线回 idle）时 best-effort 恢复加入前基线；失败不阻塞主流程、只提示。行为入口语义见 [interaction-model](interaction-model.md)；实现约束见 [architecture](architecture.md) 五层依赖。
 
 ## 1. 需求边界（定稿）

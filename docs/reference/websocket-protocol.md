@@ -610,4 +610,4 @@ Character 的 `tavern_whisper` Agent tool 通过 WebSocket 发送 `whisper` 请�
 | `group_chat_update` | ✓复用 | ✓复用 | — | — | — | ✓复用 | ✓复用 |
 | `board_update` | ✓复用 | ✓复用（他人更新；自回显过滤） | 不适用 | 不适用 | 不适用 | 白板更新桶 | ✓变更提示 |
 
-维护：新增帧类型时逐格核对并更新本表（属主=后端）。
+维护：新增帧类型时逐格核对并更新本表（属主=Dev）。

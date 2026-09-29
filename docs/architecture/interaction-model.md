@@ -101,13 +101,13 @@ Repository
 
 ```markdown
 ---
-name: Arch
-description: 负责系统设计、技术决策和架构风险分析
+name: Dev
+description: 负责系统设计、技术决策与实现
 model: anthropic/claude-sonnet-4-5
 thinking: high
 ---
 
-你是一名软件架构师……
+你是一名软件工程师……
 ```
 
 - `name` 用于界面展示；`description` 用于角色选择器、在线列表和状态界面。
