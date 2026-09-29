@@ -480,8 +480,13 @@ describe("PiTavern commands", () => {
 
 	it("registers #183 test seams only under PITAVERN_TEST and emits single-line notify output", async () => {
 		const saved = process.env.PITAVERN_TEST;
-		process.env.PITAVERN_TEST = "1";
 		try {
+			// 反向锚：无 env 不注册（生产零影响——两缝只在 PITAVERN_TEST=1 存在）。
+			delete process.env.PITAVERN_TEST;
+			const bare = register(new TavernController());
+			expect(bare.has("tavern-test-members")).toBe(false);
+			expect(bare.has("tavern-test-whisper")).toBe(false);
+			process.env.PITAVERN_TEST = "1";
 			const getGroupChatState = vi.fn(async () => ({
 				online_characters: [
 					{
@@ -577,7 +582,8 @@ describe("PiTavern commands", () => {
 			expect(idle.notify).toHaveBeenLastCalledWith("Not in character state", "error");
 		} finally {
 			if (saved === undefined) {
-				process.env.PITAVERN_TEST = undefined;
+				// 注意：赋 undefined 会留下字符串 "undefined"（truthy），必须 delete。
+				delete process.env.PITAVERN_TEST;
 			} else {
 				process.env.PITAVERN_TEST = saved;
 			}
