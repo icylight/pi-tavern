@@ -25,12 +25,6 @@ export interface CharacterSummary {
 	description: string;
 }
 
-/** 模型标识二元组：Model 类型无全局唯一单字段，同名 model 可跨 provider。 */
-export interface ModelId {
-	provider: string;
-	id: string;
-}
-
 /**
  * 角色卡可选 model 字段的三态解析结果（#180）。
  * 仅基础存在性/类型检查（User 定案：不做格式/目录/枚举校验，解析/切换
