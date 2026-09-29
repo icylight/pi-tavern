@@ -40,6 +40,8 @@ import {
 	TOOL_HISTORY_LABEL,
 	TOOL_HISTORY_TOTAL_PREFIX,
 	TOOL_HISTORY_UNAVAILABLE,
+	TOOL_MEMBERS_DESCRIPTION,
+	TOOL_MEMBERS_LABEL,
 	TOOL_NOT_JOINED_AS_CHARACTER,
 	TOOL_SPEAK_DESCRIPTION,
 	TOOL_SPEAK_LABEL,
@@ -54,6 +56,7 @@ import {
 	TOOL_WHOAMI_LABEL,
 	TOOL_WHOAMI_ROLE_PREFIX,
 } from "../shared/messages.js";
+import { runMembersToolCore, runWhisperToolCore } from "./whisper-tool-core.js";
 
 /** 注册 PiTavern 暴露给 pi Agent 的工具（tavern_speak / tavern_whoami）。 */
 export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): void {
@@ -475,73 +478,40 @@ export function registerTavernTools(pi: ExtensionAPI, ctrl: TavernController): v
 					isError: true,
 				};
 			}
-			try {
-				const result = await state.runtime.whisper(params.character_id, params.content);
-				if (!result.published) {
-					if (result.reason === "stale") {
-						// stale 自愈（与 speak 同路径）：预算内标记增量待投递，
-						// settle 补拉（合并流含 whisper 帧 → 机械消费占位/全文 + 游标推进）。
-						if (result.autoRecover) {
-							state.runtime.markIncrementPending();
-						}
-						return {
-							content: [
-								{
-									type: "text",
-									text:
-										`Message NOT published: you are out of sync with the group chat ` +
-										`(you last saw seq ${result.missingFrom !== undefined ? result.missingFrom - 1 : "?"}; ` +
-										`messages ${result.missingFrom}..${result.missingTo} arrived before your whisper). ` +
-										`Your message was not counted against the round quota and no hand was raised.` +
-										(result.autoRecover
-											? `\nThe new messages will be delivered to you after this turn (auto-recovery); re-decide then — revise or drop.`
-											: `\nAuto-recovery budget exhausted this round — wait for the group chat input before whispering again.`),
-								},
-							],
-							details: undefined,
-						};
-					}
-					if (result.reason === "round_limit_reached") {
-						// 与 speak 同款 round-limit 文案（已举手排队），
-						// 不得误报「未读已安排拉取」（未读分支语义不同）。
-						return {
-							content: [
-								{
-									type: "text",
-									text:
-										`Message not published: round limit reached. ` +
-										`Your hand is now raised — the creator will see you have more to say. ` +
-										`The full message remains in your private session.`,
-								},
-							],
-							details: undefined,
-						};
-					}
-					// 未读先读阻止（与 speak 同款）——不占额度、不举手。
-					return {
-						content: [
-							{
-								type: "text",
-								text:
-									"Message NOT published: 有未读消息，请先阅读再决定是否发言。" +
-									"未读已安排拉取，注入后将自动重新决策。",
-							},
-						],
-						details: undefined,
-					};
-				}
+			// #183：目标解析（精确 character_id 优先 → 注册名唯一命中）在共享
+			// 核心内完成；`/tavern-test-whisper` 缝调同一核心（验收工具路径）。
+			const result = await runWhisperToolCore(state.runtime, params.character_id, params.content);
+			// isError 仅在错误态置位（业务拒绝与既有分支保持 undefined，不得回归）。
+			return {
+				content: [{ type: "text", text: result.text }],
+				details: result.details,
+				...(result.isError ? { isError: true } : {}),
+			};
+		},
+	});
+
+	// #183：发现通道——在线成员列表（只读）。私信目标可传注册名或
+	// character_id；本工具供模型先查表再发信（离线成员不在列）。
+	pi.registerTool({
+		name: "tavern_members",
+		label: TOOL_MEMBERS_LABEL,
+		description: TOOL_MEMBERS_DESCRIPTION,
+		parameters: Type.Object({}, { additionalProperties: false }),
+		execute: async () => {
+			const state = ctrl.getState();
+			if (state.type !== "character") {
 				return {
-					content: [{ type: "text", text: `Message sent (sequence ${result.sequence}).` }],
-					details: undefined,
-				};
-			} catch (error) {
-				// 错误码透传（-32110 离线 / -32111 自发自收 / 超额 / stale 等）。
-				return {
-					content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+					content: [{ type: "text", text: TOOL_NOT_JOINED_AS_CHARACTER }],
 					details: undefined,
 					isError: true,
 				};
 			}
+			const result = await runMembersToolCore(state.runtime);
+			return {
+				content: [{ type: "text", text: result.text }],
+				details: result.details,
+				...(result.isError ? { isError: true } : {}),
+			};
 		},
 	});
 }

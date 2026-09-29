@@ -34,7 +34,8 @@ PITAVERN_GROUP_CHAT=xxx scripts/pi-char-dev.sh --character qa
 2. `session_start` 时检测 `PITAVERN_AUTO_JOIN=1` → 自动发现活动群聊 →
    程序化选择（环境变量匹配 → 唯一候选 → 第一个）→ 走既有三阶段 join
    （discover → claim → ready），无任何对话框；
-3. join 后与交互式角色完全一致：身份行注入、`tavern_speak` / `tavern_whoami`
+3. join 后与交互式角色完全一致：身份行注入、`tavern_speak` / `tavern_whoami` /
+   `tavern_whisper` / `tavern_members`
    可用、群聊输入（通知广播 + 增量拉取、Session 级游标持久化）正常；
 4. 群聊输入触发 LLM run 并发言——角色完全通过群聊交互。
 

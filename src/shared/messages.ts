@@ -400,6 +400,12 @@ export const NOTIFY_USAGE_TEST_BUSY = "Usage: /tavern-test-busy <ms>";
 /** tavern-test-history 命令描述（测试， 观察通道）。 */
 export const CMD_DESC_TEST_HISTORY =
 	"[test] Fetch one history page via the character runtime (observation channel for acceptance)";
+/** #183：tavern-test-members 命令描述（测试——工具等价路径观察通道）。 */
+export const CMD_DESC_TEST_MEMBERS =
+	"[test] List online members via the tavern_members core (observation channel for acceptance)";
+/** #183：tavern-test-whisper 命令描述（测试——工具等价路径，JSON 入参）。 */
+export const CMD_DESC_TEST_WHISPER =
+	'[test] Run the tavern_whisper core with JSON args, e.g. {"target":"QA","content":"hi"}';
 /** tavern-leave 命令描述。 */
 export const CMD_DESC_LEAVE = "Close or leave the current PiTavern group chat";
 
@@ -413,6 +419,16 @@ export const TOOL_WHISPER_LABEL = "Tavern Whisper";
 export const TOOL_BOARD_LABEL = "Tavern Board";
 /** tavern_whoami 工具 label。 */
 export const TOOL_WHOAMI_LABEL = "Tavern Whoami";
+/** #183：tavern_members 工具 label。 */
+export const TOOL_MEMBERS_LABEL = "Tavern Members";
+/** #183：tavern_members 工具描述。 */
+export const TOOL_MEMBERS_DESCRIPTION =
+	"列出当前在线的 Character（在线 only：注册名 / character_id / 状态 / 简介截断，自己置首）——私信目标发现与同名消歧用。" +
+	"离线成员不在列表内（无法收私信）；私信目标可传注册名（在线唯一命中）或精确 character_id。";
+/** #183：tavern_members 输出头部前缀（后接在线人数）。 */
+export const TOOL_MEMBERS_HEADER_PREFIX = "在线成员 ";
+/** #183：tavern_members 输出人数后缀（含离线说明）。 */
+export const TOOL_MEMBERS_OFFLINE_NOTE = " 人（在线 only；离线成员无法收私信）：";
 
 /** tavern_whoami 输出：当前角色前缀。 */
 export const TOOL_WHOAMI_ROLE_PREFIX = "当前角色：";
@@ -511,8 +527,9 @@ export const TOOL_SPEAK_DESCRIPTION =
 /** ：tavern_whisper 工具描述（Character 间私信；目标须为在线 Character，拒绝自发自收/离线）。 */
 export const TOOL_WHISPER_DESCRIPTION =
 	"向指定的其他 Character 发送私信（仅对目标与创建者可见全文，其他成员只见占位提示）。" +
-	"目标必须是当前在线的 Character；拒绝发送给 User Persona、自己或离线目标。" +
-	"要求活跃讨论轮次，与公开消息共用轮次额度与消息大小限制；失败不占额度。" +
+	"character_id 参数接受「精确 character_id（卡路径）」或「注册名」（在线成员内唯一命中；精确 id 优先）。" +
+	"拒绝发送给 User Persona、自己或离线目标；多命中同名时拒绝并返回候选（错误文案附在线成员清单，可用 tavern_members 查在线表）；拒绝不占额度、不发帧。" +
+	"要求活跃讨论轮次，与公开消息共用轮次额度与消息大小限制。" +
 	"接收者会实时收到全文，其他 Character 不会被主动唤醒（占位事件入其未读序列）。";
 
 export const TOOL_BOARD_DESCRIPTION =
