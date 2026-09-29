@@ -186,11 +186,12 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		const { creator, character } = await startCreator({ heartbeatIntervalMs: 30, heartbeatTimeoutMs: 120 });
 		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-1");
 		const runtime = await attempt.claimCharacter(character.characterId);
-		// 基线取点前先等 claim 链路的 system_message 欢迎单播到达（替代 message_history）：
-		// connection 重构后 reply 异步化（ready result → welcome → cj 宏任务投递），
-		// 取点早于通知会误判。
+		// 基线取点前先等 join burst 完整（system_message 单播 + character_joined 广播）：
+		// ready-pipeline 在同一 setImmediate 里先单播后广播、两条帧分开发送；
+		// 只等 system_message 会让晚到的 character_joined 落入下面 250ms 静默窗口（flaky 根因）。
 		await vi.waitFor(() => {
 			expect(runtime.receivedMessages.some((m) => "method" in m && m.method === "system_message")).toBe(true);
+			expect(runtime.receivedMessages.some((m) => "method" in m && m.method === "character_joined")).toBe(true);
 		});
 		const messageCountAfterJoin = runtime.receivedMessages.length;
 
@@ -198,6 +199,35 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		await new Promise((resolve) => setTimeout(resolve, 250));
 
 		expect(runtime.receivedMessages.length).toBe(messageCountAfterJoin);
+	});
+
+	it("静默窗口对 join burst 晚到帧不敏感（注入 character_joined 延迟）", async () => {
+		// 回归钉：把 character_joined 人为延迟到静默窗口内，断言取点等 burst 完整后不受影响。
+		// 「旧取点必挂」的修复证据（同注入前置、只等 system_message）：见 PR 描述。
+		const { creator, character } = await startCreator();
+		const attempt = await JoinAttempt.connect(creator.activeDescriptor, "session-1");
+		// 注入前置：服务端 socket 已就绪（clients 为空集时注入空转）。
+		await vi.waitFor(() => expect(creator.webSocketServer.clients.size).toBe(1));
+		const harness = delayCharacterJoinedFrames(creator.webSocketServer, INJECT_DELAY_MS);
+		try {
+			const runtime = await attempt.claimCharacter(character.characterId);
+			await vi.waitFor(
+				() => {
+					expect(runtime.receivedMessages.some((m) => "method" in m && m.method === "system_message")).toBe(true);
+					expect(runtime.receivedMessages.some((m) => "method" in m && m.method === "character_joined")).toBe(true);
+				},
+				{ timeout: WAIT_TIMEOUT_MS },
+			);
+			const messageCountAfterJoin = runtime.receivedMessages.length;
+
+			await new Promise((resolve) => setTimeout(resolve, 250));
+
+			// 防假绿：注入必须真的拦到帧（否则本实验什么都没测到）。
+			expect(harness.count()).toBeGreaterThanOrEqual(1);
+			expect(runtime.receivedMessages.length).toBe(messageCountAfterJoin);
+		} finally {
+			harness.restore();
+		}
 	});
 
 	it("terminates the connection when the creator stops sending heartbeats", async () => {
@@ -301,6 +331,52 @@ describe("JoinAttempt and CharacterRuntime", () => {
 		await taken2.close();
 	});
 });
+
+/**
+ * 注入：把 `character_joined` 帧延迟 delayMs 投递（其余帧原样转发），用于钉住
+ * 「取点早于 join burst 结束」的脆弱性：ready-pipeline 在同一个 setImmediate 里
+ * 先单播 system_message、再 broadcast character_joined，两条帧分开发送；取点若
+ * 只等 system_message，晚到的 character_joined 会落入静默窗口（两版 pi 实测
+ * 5-6/8 挂，非产品缺陷）。心跳走 ws 协议层 ping、不经 send，只包 send 不会误拦。
+ *
+ * 注入窗口：`JoinAttempt.connect(...)` 之后（socket 已建立）、`claimCharacter(...)`
+ * 之前（burst 由 claim→ready 触发）。
+ */
+function delayCharacterJoinedFrames(server: WebSocketServer, delayMs: number) {
+	let intercepted = 0;
+	const restores: Array<() => void> = [];
+	for (const socket of server.clients) {
+		const original = socket.send;
+		const patched = function (this: unknown, data: unknown, ...rest: unknown[]): void {
+			const forward = () => {
+				(original as (...args: unknown[]) => void).apply(this, [data, ...rest]);
+			};
+			if (typeof data === "string" && data.includes('"method":"character_joined"')) {
+				intercepted += 1;
+				setTimeout(forward, delayMs);
+				return;
+			}
+			forward();
+		};
+		socket.send = patched as typeof socket.send;
+		restores.push(() => {
+			socket.send = original;
+		});
+	}
+	return {
+		count: () => intercepted,
+		restore: () => {
+			for (const restore of restores) {
+				restore();
+			}
+		},
+	};
+}
+
+/** 注入延迟：必挂区间 = offset < delay < offset + 250ms（offset ∈ [0, ~100ms]）。 */
+const INJECT_DELAY_MS = 150;
+/** waitFor 超时必须大于注入延迟（否则注入实验以超时形态失败、与断言失败混淆）。 */
+const WAIT_TIMEOUT_MS = 1_000;
 
 async function startCreator(
 	creatorOverrides: Partial<import("../../../src/creator/creator-runtime.js").CreatorRuntimeDependencies> = {},

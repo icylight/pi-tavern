@@ -9,6 +9,7 @@ import {
 	getGroupChatSessionDirectory,
 } from "../../../src/data/discovery/active-descriptor.js";
 import {
+	defaultGroupChatSessionIoDependencies,
 	deleteGroupChatSession,
 	type GroupChatSessionManagerLike,
 	listGroupChatSessions,
@@ -188,12 +189,18 @@ describe("group chat sessions", () => {
 		expect(result).toEqual({ ok: true, method: "trash" });
 	});
 
-	it("deletes real files with unlink through the default dependencies", async () => {
+	it("deletes real files through the unlink fallback when trash is unavailable", async () => {
+		// 依赖注入：只把 trash 钉成确定性失败，exists/unlink 保留真实实现（真删断言不变）。
+		// 不走真实默认依赖——那会把「本机是否安装 trash CLI」变成断言前提
+		//（开发机装了 trash 时恒红：expected unlink got trash）。
 		const root = await createTemporaryDirectory();
 		const path = join(root, "old.jsonl");
 		await writeFile(path, "{}");
 
-		const result = await deleteGroupChatSession(path);
+		const result = await deleteGroupChatSession(path, {
+			...defaultGroupChatSessionIoDependencies,
+			trash: () => ({ status: 1, stderr: "trash: command not found" }),
+		});
 
 		expect(result.ok).toBe(true);
 		expect(result.method).toBe("unlink");
