@@ -1,7 +1,7 @@
 # PiTavern 架构（五层依赖图）
 
 > 状态：**活文档**（living document，随实现演进持续更新）
-> 属主：Arch（docs/architecture/architecture.md + docs/development/architecture-backlog.md 属主体系；本文件变更须群聊声明影响面）
+> 属主：Dev（docs/architecture/architecture.md + docs/development/architecture-backlog.md 属主体系；本文件变更须群聊声明影响面）
 > 本文件承载当前五层架构、依赖图与豁免；`npm run lint:layers` 是依赖方向强制门禁。
 > 更新纪律：新增/移动 src 文件、改变跨层依赖时同步更新本文件；本文件与 `lint:layers` 规则矩阵互为对照——规则矩阵是机器强制面，本文件是人读依赖图。
 
@@ -96,7 +96,7 @@ src/
 
 ## 3. 依赖规则（`lint:layers` 强制矩阵）
 
-脚本：`scripts/lint-layers.mjs`（零依赖 node，`npm run lint:layers`，CI 与 biome 并列）。规则三条（Arch 裁决）：
+脚本：`scripts/lint-layers.mjs`（零依赖 node，`npm run lint:layers`，CI 与 biome 并列）。规则三条（裁决定稿）：
 
 | # | 规则 | 源文件集 | 禁 import |
 | --- | --- | --- | --- |
