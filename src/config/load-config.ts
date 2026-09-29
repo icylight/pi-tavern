@@ -26,6 +26,12 @@ export interface TavernConfig {
 	welcomeMessage?: string;
 	/** ：合并后的消息文案模板集（项目 > 全局 > 内置；缺省 = 内置中文全量）。 */
 	messageTemplates?: Record<MessageTemplateKey, string>;
+	/**
+	 * 公开回复软上限字符数（可选——缺省 = 注入面代码默认；仅控制提示文本，
+	 * 不校验不截断，64 KiB 协议上限独立）。装配透传：commands/headless →
+	 * controller.startJoining → JoinAttempt → CharacterRuntime（handoff 携带、reload 重读）。
+	 */
+	speakSoftLimitChars?: number;
 }
 
 interface LoadTavernConfigOptions {
@@ -44,6 +50,8 @@ const TavernConfigFileSchema = Type.Object(
 		welcome_message: Type.Optional(Type.String()),
 		// 消息文案模板文件（可选——相对声明它的 tavern.json 解析；缺省 = 内置中文）。
 		message_templates: Type.Optional(Type.String()),
+		// 公开回复软上限字符数（可选；最小 1）。
+		speak_soft_limit_chars: Type.Optional(Type.Integer({ minimum: 1 })),
 	},
 	{ additionalProperties: false },
 );
@@ -84,6 +92,8 @@ export async function loadTavernConfig(options: LoadTavernConfigOptions): Promis
 
 	const boardMaxNotes = projectConfig?.board_max_notes ?? globalConfig?.board_max_notes;
 	const boardMaxNoteLength = projectConfig?.board_max_note_length ?? globalConfig?.board_max_note_length;
+	// 公开回复软上限（项目 > 全局；缺省 undefined → 注入面默认）。
+	const speakSoftLimitChars = projectConfig?.speak_soft_limit_chars ?? globalConfig?.speak_soft_limit_chars;
 	// 欢迎文案三档合并（项目 > 全局 > 代码默认），沿用 board 先例；
 	// 未配置 = undefined（管线侧回落 DEFAULT_WELCOME_MESSAGE）。
 	// 空白归一化必须在合并**之前**分别进行——否则
@@ -116,6 +126,7 @@ export async function loadTavernConfig(options: LoadTavernConfigOptions): Promis
 			projectConfig?.config_max_messages ?? globalConfig?.config_max_messages ?? DEFAULT_CONFIG_MAX_MESSAGES,
 		...(boardMaxNotes !== undefined ? { boardMaxNotes } : {}),
 		...(boardMaxNoteLength !== undefined ? { boardMaxNoteLength } : {}),
+		...(speakSoftLimitChars !== undefined ? { speakSoftLimitChars } : {}),
 		...(effectiveWelcomeMessage !== undefined ? { welcomeMessage: effectiveWelcomeMessage } : {}),
 		...(projectTemplates.templates !== null || globalTemplates.templates !== null
 			? { messageTemplates: mergedTemplates }

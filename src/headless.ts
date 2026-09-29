@@ -136,6 +136,7 @@ export async function autoJoinCharacter(
 		// 游标跟随 Session：cursors/<groupId>/<sessionId>.json，同群聊多角色互不共用
 		cursorStorePath: join(getGroupChatCursorDirectory(agentDir, ctx.cwd), descriptor.groupChatId, `${sessionId}.json`),
 		...(joinConfig.messageTemplates !== undefined ? { messageTemplates: joinConfig.messageTemplates } : {}),
+		...(joinConfig.speakSoftLimitChars !== undefined ? { speakSoftLimitChars: joinConfig.speakSoftLimitChars } : {}),
 		//  路径透传，reload 时重新加载磁盘配置（模板修改落盘后生效）。
 		agentDir,
 		cwd: ctx.cwd,

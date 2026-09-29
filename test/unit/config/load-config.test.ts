@@ -160,4 +160,44 @@ describe("loadTavernConfig", () => {
 			await expect(configWithWelcome(root, oversized, undefined)).rejects.toThrow(/Invalid PiTavern config/);
 		});
 	});
+
+	describe("speak_soft_limit_chars（#187：公开回复软上限）", () => {
+		it("S1 缺省 = 不带字段（注入面回落代码默认）", async () => {
+			const root = await createTemporaryDirectory();
+			const config = await loadTavernConfig({ agentDir: join(root, "agent"), cwd: join(root, "project") });
+			expect(config.speakSoftLimitChars).toBeUndefined();
+		});
+
+		it("S2 项目覆盖全局（?? 链不变）", async () => {
+			const root = await createTemporaryDirectory();
+			const agentDir = join(root, "agent");
+			const cwd = join(root, "project");
+			await mkdir(join(cwd, ".pi"), { recursive: true });
+			await mkdir(agentDir, { recursive: true });
+			await writeFile(join(agentDir, "tavern.json"), JSON.stringify({ speak_soft_limit_chars: 3000 }));
+			await writeFile(join(cwd, ".pi", "tavern.json"), JSON.stringify({ speak_soft_limit_chars: 3500 }));
+			expect((await loadTavernConfig({ agentDir, cwd })).speakSoftLimitChars).toBe(3500);
+		});
+
+		it("S3 仅全局配置 → 全局生效", async () => {
+			const root = await createTemporaryDirectory();
+			const agentDir = join(root, "agent");
+			const cwd = join(root, "project");
+			await mkdir(agentDir, { recursive: true });
+			await writeFile(join(agentDir, "tavern.json"), JSON.stringify({ speak_soft_limit_chars: 3000 }));
+			expect((await loadTavernConfig({ agentDir, cwd })).speakSoftLimitChars).toBe(3000);
+		});
+
+		it("S4 非法（0/负数/非整数）→ fail-fast（同 board 先例）", async () => {
+			const root = await createTemporaryDirectory();
+			const agentDir = join(root, "agent");
+			const cwd = join(root, "project");
+			await mkdir(agentDir, { recursive: true });
+			const configPath = join(agentDir, "tavern.json");
+			for (const invalid of [0, -1, 1.5]) {
+				await writeFile(configPath, JSON.stringify({ speak_soft_limit_chars: invalid }));
+				await expect(loadTavernConfig({ agentDir, cwd })).rejects.toThrow(configPath);
+			}
+		});
+	});
 });

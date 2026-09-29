@@ -88,6 +88,8 @@ export interface CharacterReloadHandoff {
 	getFetchContextWindow?: () => number;
 	/**  T5：群聊文案模板集快照（reload 移交后渲染一致）。 */
 	messageTemplates?: Record<MessageTemplateKey, string>;
+	/** ：公开回复软上限快照（reload 移交后注入面一致）。 */
+	speakSoftLimitChars?: number;
 	/**  复评：reload 时重新加载磁盘配置所需路径（有则 takeHandoff 重载，失败保留快照）。 */
 	agentDir?: string;
 	cwd?: string;
