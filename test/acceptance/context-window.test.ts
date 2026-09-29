@@ -1,10 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
 import { afterAll, describe, expect, it } from "vitest";
-
 import { PiProcess, waitForDescriptor } from "./pi-process.js";
+import { createTempRoot } from "./temp-root.js";
 
 /**
  *  红钉（acceptance 进程级）：拉取附加上下文窗口（方案 A，零协议变更）。
@@ -33,7 +31,7 @@ describe("acceptance: 上下文窗口注入（WL-A/WL-B）", () => {
 	});
 
 	async function startCreator(): Promise<{ creator: PiProcess; agentDir: string; projectDir: string }> {
-		const root = await mkdtemp(join(tmpdir(), `pi-tavern-acc-cw-${index}-`));
+		const root = await createTempRoot(`pi-tavern-acc-cw-${index}-`);
 		index += 1;
 		roots.push(root);
 		const agentDir = join(root, "agent");

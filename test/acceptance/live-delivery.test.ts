@@ -1,12 +1,10 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
 import { afterAll, describe, expect, it } from "vitest";
-
 import { getGroupChatCursorDirectory } from "../../src/data/discovery/active-descriptor.js";
 import { pollSessionCursor } from "./cursor-helper.js";
 import { PiProcess } from "./pi-process.js";
+import { createTempRoot } from "./temp-root.js";
 
 /**
  *  口径 A（T4，进程级佐证）：run 进行中消息经 steer 通道有界可见——* 光标在 run 结束前推进（run 内投递），且 run 不被打断、无重复投递。
@@ -41,7 +39,7 @@ describe("acceptance: live steer delivery during a run (T4)", () => {
 		groupChatId: string;
 	}> {
 		// 每测试独立隔离：各自 agent 目录，descriptor 文件/群聊状态互不冲突。
-		const root = await mkdtemp(join(tmpdir(), `pi-tavern-acc-live-${pairIndex}-`));
+		const root = await createTempRoot(`pi-tavern-acc-live-${pairIndex}-`);
 		pairIndex += 1;
 		roots.push(root);
 		const agentDir = join(root, "agent");

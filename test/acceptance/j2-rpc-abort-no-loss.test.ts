@@ -1,10 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
 import { afterAll, describe, expect, it } from "vitest";
-
-import { PiProcess, waitForDescriptor } from "./pi-process.js";
+import { PiProcess } from "./pi-process.js";
+import { createTempRoot } from "./temp-root.js";
 
 /**
  *  J2 降级钉测：RPC abort 不清空已入队 steer。
@@ -15,14 +13,21 @@ import { PiProcess, waitForDescriptor } from "./pi-process.js";
  * commits 无 abort/queue/steer 相关变更。结论：版本差异实锤不成立（双绿），
  * 升级 pi 上游 issue 路径关闭。
  *
- * 本钉 = 把实证①固化为回归钉：真实 pi（默认锚定 references/pi 0.82.1）RPC
+ * 本钉 = 把实证①固化为回归钉：真实 pi（锚定 references/pi）RPC
  * 模式下 steer 入队 → abort → 队列保留（消息不丢）。防未来 pi 升级引入
  * 「abort 清队列」行为回归（届时本钉即红，触发重新评估）。
  *
+ * 0.86.0+ 适配（pi faa9863cb「run input handlers for queued messages」）：
+ * queued 消息（steer/followUp）现在也走 extension input handlers；pi-tavern 在
+ * creator 状态拦截输入转 User Persona 消息（src/index.ts），因此 creator 状态下
+ * RPC steer 会被转成群聊消息、不入队列（对照实验：无扩展 pending=1；tavern idle
+ * pending=1；tavern creator pending=0）。本钉语义（pi 队列不被 abort 清空）与
+ * 群聊状态无关——改在 idle 状态执行序列，避开输入拦截，钉义不变。
+ * 产品语义记录：creator 状态下的输入（含流式中 steer）一律转 User Persona 消息，
+ * 这是设计行为（0.86.0 前该输入会挂在队列无人消费）。
+ *
  * 实现注记：
- * - /tavern-new 群聊创建流程与 abort 的 waitForIdle 有时序耦合（创建未完成
- *   时 abort 可挂起）——本钉先等 descriptor 落盘再执行命令序列。
- * - abort 后偶发第二个连续 RPC 命令无响应（pi 0.82.1 RPC 侧疑点，非本钉
+ * - abort 后偶发第二个连续 RPC 命令无响应（pi RPC 侧疑点，非本钉
  *   语义面）——abort 后的状态验证改用事件扫描式（send + 轮询 events），
  *   不依赖响应 id 匹配，钉测聚焦「队列保留」语义。
  *
@@ -41,7 +46,7 @@ describe("acceptance: J2 降级——RPC abort 不清已入队 steer", () => {
 	});
 
 	async function startCreator(): Promise<{ creator: PiProcess; root: string }> {
-		const root = await mkdtemp(join(tmpdir(), `pi-tavern-acc-j2-${index}-`));
+		const root = await createTempRoot(`pi-tavern-acc-j2-${index}-`);
 		index += 1;
 		roots.push(root);
 		const agentDir = join(root, "agent");
@@ -59,9 +64,8 @@ describe("acceptance: J2 降级——RPC abort 不清已入队 steer", () => {
 		});
 		processes.push(creator);
 		await creator.waitForTavernReady();
-		await creator.runCommand("/tavern-new");
-		// 等群聊创建完成（descriptor 落盘）——消除与 abort waitForIdle 的时序耦合。
-		await waitForDescriptor(agentDir, projectDir);
+		// 不建群聊：序列在 controller idle 状态执行，避开 creator 状态的输入拦截
+		//（0.86.0+ queued 消息也走 input handlers，见文件头）。
 		return { creator, root };
 	}
 

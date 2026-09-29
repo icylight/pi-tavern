@@ -1,12 +1,10 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-
 import type { ActiveGroupChatDescriptor } from "../../src/data/discovery/active-descriptor.js";
 import { PiProcess } from "./pi-process.js";
+import { createTempRoot } from "./temp-root.js";
 import { BufferedWsClient } from "./ws-helper.js";
 
 /**
@@ -35,7 +33,7 @@ describe("acceptance: identity consistency", () => {
 	const sockets: WebSocket[] = [];
 
 	beforeAll(async () => {
-		root = await mkdtemp(join(tmpdir(), "pi-tavern-acc-identity-"));
+		root = await createTempRoot("pi-tavern-acc-identity-");
 		agentDir = join(root, "agent");
 		projectDir = join(root, "project");
 		await mkdir(join(agentDir, "characters"), { recursive: true });

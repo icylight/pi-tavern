@@ -1,13 +1,11 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-
 import type WebSocket from "ws";
 import type { ActiveGroupChatDescriptor } from "../../src/data/discovery/active-descriptor.js";
 import type { PiProcess } from "./pi-process.js";
 import { leaveAndReset, spawnCreator, startFreshGroup } from "./process-fixture.js";
+import { createTempRoot } from "./temp-root.js";
 import type { BufferedWsClient } from "./ws-helper.js";
 import { joinCharacterWs } from "./ws-helper.js";
 
@@ -39,7 +37,7 @@ describe("acceptance: 服务端投影半场（旁观者占位不触发 stale）"
 	const sockets: WebSocket[] = [];
 
 	beforeAll(async () => {
-		root = await mkdtemp(join(tmpdir(), "pi-tavern-acc-wps-"));
+		root = await createTempRoot("pi-tavern-acc-wps-");
 		agentDir = join(root, "agent");
 		projectDir = join(root, "project");
 		await mkdir(join(agentDir, "characters"), { recursive: true });

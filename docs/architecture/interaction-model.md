@@ -120,6 +120,16 @@ thinking: high
 - 首版只支持 PiTavern Character Markdown，不导入 SillyTavern 的 JSON/PNG/CHARX。
 - 内部 `characterId` = 角色卡相对于来源配置文件的规范化路径；领取/释放/消息归属使用 `characterId` 而非显示名；导入池重复 `name` 配置无效；移动或重命名角色卡产生新身份。
 
+### 专属 skill 写法约定（issue #190 Phase 0）
+
+角色卡可用正文末节声明本角色优先使用的 skill。这是提示词层面的软声明：不进 pi 的 `<available_skills>`（模型不会按 description 自动路由），生效靠每次 run 原样注入的 persona 文本——所以必须显式写清触发条件与动作。把声明注册进 skill 列表的硬实现受 pi 资源发现时机约束，未做（见 issue #190）。
+
+- 位置：正文末节，标题 `<N>. 专属 skill`（N = 卡内现有最末节号 + 1）。
+- 仓库内 skill：写仓库相对路径（按 session cwd 即启动 pi 的目录解析），句式「先读 `<路径>/SKILL.md`，按其中流程执行」。
+- 系统/全局 skill：写名字，句式「遇到 `<任务类型>` 优先用 `<name>`」。
+- 优先级：显式写「同类任务优先用本卡这份；系统提示词里存在同名或近似 skill 时用本卡这份」。
+- 路径纪律：禁机器绝对路径（角色卡是共享文件，跨机器路径无效）；声明的路径不存在不影响卡加载与加入。
+
 ## 配置
 
 PiTavern 使用独立配置，不向 `.pi/settings.json` 添加自定义字段。`configMaxMessages` 默认 `10`，新建群聊时继承为 `groupMaxMessages`。

@@ -1,11 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
 import { afterAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-
 import { PiProcess } from "./pi-process.js";
+import { createTempRoot } from "./temp-root.js";
 import { BufferedWsClient } from "./ws-helper.js";
 
 /**
@@ -44,7 +42,7 @@ describe("acceptance: A1/A2/A4 is_streaming semantic convergence", () => {
 	}> {
 		// 逐测试隔离：每组使用独立 agent 目录，使描述符
 		// 文件与群聊状态在测试间互不冲突。
-		const root = await mkdtemp(join(tmpdir(), `pi-tavern-acc-streaming-${pairIndex}-`));
+		const root = await createTempRoot(`pi-tavern-acc-streaming-${pairIndex}-`);
 		pairIndex += 1;
 		roots.push(root);
 		const agentDir = join(root, "agent");

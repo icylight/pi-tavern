@@ -1,6 +1,7 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { promisify } from "node:util";
 import type { ActiveGroupChatDescriptor } from "../../src/data/discovery/active-descriptor.js";
 import {
 	getActiveDescriptorPath,
@@ -336,30 +337,40 @@ export class PiProcess {
 		}
 	}
 
-	/** CPU share over a sampling window (utime+stime delta / wall clock). */
-	async sampleCpuPercent(sampleMs = 3_000): Promise<number> {
+	/** 累计 CPU 时间（秒）。Linux 读 /proc；其他平台读 ps cputime（macOS 无 /proc，#189 连带）。 */
+	private async readCpuSeconds(): Promise<number> {
 		const pid = this.child.pid;
 		if (pid === undefined) {
 			throw new Error("process has no pid");
 		}
-		const readTicks = async (): Promise<number> => {
+		if (process.platform === "linux") {
 			try {
 				const stat = await readFile(`/proc/${pid}/stat`, "utf8");
 				// utime（14）+ stime（15），以时钟滴答计（通常 100/秒）。
 				const fields = stat.split(" ");
-				return Number(fields[13]) + Number(fields[14]);
+				return (Number(fields[13]) + Number(fields[14])) / 100;
 			} catch {
 				return -1;
 			}
-		};
-		const before = await readTicks();
-		await new Promise((resolveWait) => setTimeout(resolveWait, sampleMs));
-		const after = await readTicks();
-		if (before < 0 || after < 0) {
-			throw new Error(`cannot read /proc/${pid}/stat`);
 		}
-		const hertz = 100; // CLK_TCK on Linux
-		return (after - before) / (sampleMs / 1000) / hertz;
+		// macOS / 其他 BSD：`ps -o cputime=` 格式 [[dd-][hh:]mm:ss.cc。
+		try {
+			const { stdout } = await promisify(execFile)("ps", ["-p", String(pid), "-o", "cputime="]);
+			return parseCpuTime(stdout.trim());
+		} catch {
+			return -1;
+		}
+	}
+
+	/** CPU share over a sampling window (utime+stime delta / wall clock). */
+	async sampleCpuPercent(sampleMs = 3_000): Promise<number> {
+		const before = await this.readCpuSeconds();
+		await new Promise((resolveWait) => setTimeout(resolveWait, sampleMs));
+		const after = await this.readCpuSeconds();
+		if (before < 0 || after < 0) {
+			throw new Error(`cannot read CPU time for pid ${this.child.pid ?? "?"}`);
+		}
+		return (after - before) / (sampleMs / 1000);
 	}
 
 	private onStderr(chunk: Buffer): void {
@@ -410,6 +421,16 @@ export async function waitForDescriptor(
 		}
 		await new Promise((resolveSleep) => setTimeout(resolveSleep, 200));
 	}
+}
+
+/** 解析 `ps -o cputime=` 输出：[[dd-][hh:]mm:ss.cc → 秒（macOS 测试路径）。 */
+export function parseCpuTime(raw: string): number {
+	const [dayPart, timePart] = raw.includes("-") ? (raw.split("-", 2) as [string, string]) : [undefined, raw];
+	let seconds = 0;
+	for (const segment of timePart.split(":")) {
+		seconds = seconds * 60 + Number(segment);
+	}
+	return (dayPart !== undefined ? Number(dayPart) * 86_400 : 0) + seconds;
 }
 
 export { getActiveDescriptorPath };

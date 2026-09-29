@@ -1,10 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-
 import { PiProcess, type RpcEvent } from "./pi-process.js";
+import { createTempRoot } from "./temp-root.js";
 import { joinCharacterWs } from "./ws-helper.js";
 
 describe("acceptance: reload keeps confirmed connections and identity", () => {
@@ -14,7 +12,7 @@ describe("acceptance: reload keeps confirmed connections and identity", () => {
 	const processes: PiProcess[] = [];
 
 	beforeAll(async () => {
-		root = await mkdtemp(join(tmpdir(), "pi-tavern-acc-reload-"));
+		root = await createTempRoot("pi-tavern-acc-reload-");
 		agentDir = join(root, "agent");
 		projectDir = join(root, "project");
 		await mkdir(join(agentDir, "characters"), { recursive: true });

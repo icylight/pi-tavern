@@ -1,10 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
 import { afterAll, describe, expect, it } from "vitest";
-
 import { PiProcess, waitForDescriptor } from "./pi-process.js";
+import { createTempRoot } from "./temp-root.js";
 
 /**
  *  W1-c 端到端点亮钉：真实 pi 下触发 run →
@@ -31,7 +29,7 @@ describe("acceptance: W1-c 端到端点亮点亮", () => {
 	});
 
 	async function startPair(): Promise<{ creator: PiProcess; headless: PiProcess; root: string }> {
-		const root = await mkdtemp(join(tmpdir(), `pi-tavern-acc-w1c-${index}-`));
+		const root = await createTempRoot(`pi-tavern-acc-w1c-${index}-`);
 		index += 1;
 		roots.push(root);
 		const agentDir = join(root, "agent");

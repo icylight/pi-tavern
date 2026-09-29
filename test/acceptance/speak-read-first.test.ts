@@ -1,11 +1,10 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getGroupChatCursorDirectory } from "../../src/data/discovery/active-descriptor.js";
 import { pollSessionCursor } from "./cursor-helper.js";
 import { PiProcess } from "./pi-process.js";
+import { createTempRoot } from "./temp-root.js";
 
 /**
  *  acceptance 验收：真实进程内「未读先读」机制的链路前提。
@@ -27,7 +26,7 @@ describe("acceptance: speak-read-first 链路前提（水位记录 + 拉取追�
 	const processes: PiProcess[] = [];
 
 	beforeAll(async () => {
-		root = await mkdtemp(join(tmpdir(), "pi-tavern-acc-srf-"));
+		root = await createTempRoot("pi-tavern-acc-srf-");
 		agentDir = join(root, "agent");
 		projectDir = join(root, "project");
 		await mkdir(join(agentDir, "characters"), { recursive: true });
