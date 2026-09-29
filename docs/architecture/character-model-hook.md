@@ -15,7 +15,7 @@
 
 ## 2. 关键决策：运行时切换而非启动期参数
 
-model/thinking 是 pi 会话的**运行时状态**——扩展 API 可读写（`pi.setModel` / `pi.setThinkingLevel` / `ctx.model` / getter），setModel 会把新模型持久化为 settings 默认值（副作用契约见 §9）。因此本功能选择运行时 hook 而非启动器透传，理由：
+model/thinking 是 pi 会话的**运行时状态**——扩展 API 可读写（`pi.setModel` / `pi.setThinkingLevel` / `ctx.model` / getter），且自 pi v0.84.3（#8356）起为会话作用域：扩展路径只改会话内状态与 session 记录，不写 settings 默认值（契约见 §9）。因此本功能选择运行时 hook 而非启动器透传，理由：
 
 - 需求语义是「临时覆盖」（加入切、离开回），启动器固定参数无法表达"离开恢复"；
 - pi 扩展 API 已提供运行时切换能力，无需新增 pi 能力；
@@ -30,7 +30,7 @@ model/thinking 是 pi 会话的**运行时状态**——扩展 API 可读写（`
 | 断线 handleConnectionClosed 回 idle | 视为离开：提交 restore（定案：断线回 idle = 离开） |
 | detachForReload（Character→Character 保持） | 不触发 restore；队列快照随 handoff 交接 |
 | takeReloadHandoff | 重建队列 + 恢复槽位/lastModel/lastThinking + 执行 inFlight remaining（见 §8）；不重跑已执行任务 |
-| 进程强杀 | 不承诺恢复；settings 残留为已知限制 |
+| 进程强杀 | 不承诺恢复（已知限制）；扩展路径不写 settings、无默认值残留；resume 同一 session 时模型随 session 记录恢复为角色模型 |
 
 恢复触发条件统一定义为「离开 Character 态（任何路径）」，与状态迁移一一对应，挂点枚举无例外。
 
@@ -80,17 +80,17 @@ reload 是独立于 claim/leave 的第三条状态通路（takeReloadHandoff 绕
 
 - **任务纯数据化**：handoff 携带 pending 纯任务 + lastModel + lastThinking + 槽位表 + 至多一个 inFlight{task, completionPromise, phase, remaining}，与 pendingEvents 交接同构；
 - **detach freeze**：交接前 freeze 旧队列——in-flight 完成后不再取 pending；旧调用不可重放（超时不取消旧 in-flight setModel，其副作用可能晚于 handoff 写入）；
-- **in-flight barrier（含分阶段恢复）**：takeHandoff 立即恢复 Character 主流程（不阻塞），但新队列停在 barrier 后：await inFlight.completion settle → 经 getter 读实际 model/thinking 校正记录 → **执行 inFlight 的 remaining 部分**（单飞保证 in-flight 至多一个：setModel 在途时 thinking 未执行，remaining = {thinking?}；新队列 barrier 后若 model 达标 → setThinking(remaining.thinking) 恰一次，未达标 → 跳过 + warning；旧队列 freeze 后不再执行 task 剩余部分）→ 继续执行 pending。snapshot.inFlight 携带 {task, completion, phase, remaining}。**校正规则（统一，不仅 barrier）**：回执不可靠——setModel 先改运行时 model/session/settings 再 await emit，后置 listener 抛错时 promise rejected 但副作用已发生；故任何任务完成后（无论 fulfilled/rejected），getter 可用则以实际值为准，否则保留记录并提示观测失败；rejected 照常 warning；
+- **in-flight barrier（含分阶段恢复）**：takeHandoff 立即恢复 Character 主流程（不阻塞），但新队列停在 barrier 后：await inFlight.completion settle → 经 getter 读实际 model/thinking 校正记录 → **执行 inFlight 的 remaining 部分**（单飞保证 in-flight 至多一个：setModel 在途时 thinking 未执行，remaining = {thinking?}；新队列 barrier 后若 model 达标 → setThinking(remaining.thinking) 恰一次，未达标 → 跳过 + warning；旧队列 freeze 后不再执行 task 剩余部分）→ 继续执行 pending。snapshot.inFlight 携带 {task, completion, phase, remaining}。**校正规则（统一，不仅 barrier）**：回执不可靠——setModel 先改运行时 model 与 session 记录再 await emit，后置 listener 抛错时 promise rejected 但副作用已发生；故任何任务完成后（无论 fulfilled/rejected），getter 可用则以实际值为准，否则保留记录并提示观测失败；rejected 照常 warning；
 - **超时与失败**：barrierTimeoutMs 默认 500ms（可注入），超时只发 warning、不得越障；永不 settle = hook 失败提示，不制造第二个并发写——model hook 可停滞，join/leave/reload 主流程不阻塞；
-- takeHandoff 不重跑已执行任务——已执行的 switch 不随 handoff 携带；模型「已持久化在位」由 setModel 写 settings 副作保证（reload 后 pi session 从 settings/session 恢复）。
+- takeHandoff 不重跑已执行任务——已执行的 switch 不随 handoff 携带；模型「已在位」由 setModel 改会话内 model 与 `appendModelChange` session 记录保证（reload 只重建 extension runner 与资源、不触碰二者；重启 resume 同一 session 时从 session 记录恢复）。
 
-## 9. 副作用契约（setModel 写 settings 默认值）
+## 9. 会话作用域契约（pi #8356，v0.84.3 起）
 
-pi `setModel` 内部会 `setDefaultModelAndProvider` 把新模型持久化为用户默认值；`setThinkingLevel` 仅实际变化时写 settings。两面性：
+pi v0.84.3（commit 2ff8ba622，#8356）起 `setModel` / `setThinkingLevel` 的 settings 写入（`setDefaultModelAndProvider` / `setDefaultThinkingLevel`）收进 `options.persist` 门控、默认不写；扩展绑定与 RPC `set_model` 均不传 options → **扩展路径只改会话内状态，不写 settings**（session-scoped）。唯 TUI `/model` 选择器显式 `persist: true`——用户显式操作，不属本 hook 路径。
 
-- **代价**：强杀时恢复不执行，默认 model 残留为角色模型（已知限制；headless 角色 agentDir 隔离影响小，TUI 用户日常 agentDir 影响真实）；
-- **收益**：reload 后 pi session 从 settings/session 恢复模型，角色模型天然保持——reload 无需重跑 switch（§8 依赖此行为）；
-- 正常 leave 恢复（再次 setModel 写回）后 settings 默认值回到原值——验收双断言（进程态 + 持久层）；thinking 的 settings 仅实际变化时写，断言锚定 get_state.thinkingLevel 生效值，settings 只断「leave 后回基线」方向。
+- **settings 全程不变**：join 切换、leave 恢复都不触碰 settings——验收为字段级三键不变断言（`defaultProvider` / `defaultModel` / `defaultThinkingLevel`，见 §12），不存在「被改成 B、离开写回 A」；
+- **强杀残留消失**：旧行为（v0.84.3 前）强杀残留默认模型；现在扩展路径不写 settings，强杀后新 session 从 settings 恢复基线——残留面收窄为「resume 同一 session 时继承 session 记录中的角色模型」（session 历史恢复语义，非破坏）；
+- **reload 依据改为 session**：reload 无需重跑 switch 的依据 = setModel 已改会话内 model 与 session 记录，reload 不触碰二者（§8 依赖此行为）。
 
 ## 10. 执行器契约（pi 集成侧）
 
@@ -121,6 +121,6 @@ pi `setModel` 内部会 `setDefaultModelAndProvider` 把新模型持久化为用
 
 ## 12. 验证锚点分层
 
-- acceptance（真实 RPC，`get_state`（model/thinkingLevel）/`set_model`/`get_available_models` 原语可断言）：核心序列 A→B→leave/join C→leave（model+thinking 双断言）；reload 后离开回基线；不可用模型失败层；裸字符串 model 运行时失败 warning + 不阻塞；任意 thinking 由 pi 钳制且以 getter 实际值断言；手动换模型恢复基线；settings 双断言；无字段回归；强杀只验收敛不验恢复。thinking 断言锚 get_state.thinkingLevel 生效值（非配置原值），settings 只断离开最终基线；clamp 超能力场景下沉 unit/integration。
+- acceptance（真实 RPC，`get_state`（model/thinkingLevel）/`set_model`/`get_available_models` 原语可断言）：核心序列 A→B→leave/join C→leave（model+thinking 双断言）；reload 后离开回基线；不可用模型失败层；裸字符串 model 运行时失败 warning + 不阻塞；任意 thinking 由 pi 钳制且以 getter 实际值断言；手动换模型恢复基线；settings 三键字段级不变断言（join 前快照 → 序列执行 → leave 后重读 `defaultProvider` / `defaultModel` / `defaultThinkingLevel` 逐字段相等；不断文件级——同文件有启动期写入）；无字段回归；强杀只验收敛不验恢复。thinking 断言锚 get_state.thinkingLevel 生效值（非配置原值）；正面锚按场景分派——model 切换断 `model_change`（无条件写入，最可靠）、thinking-only 或含 thinking 变化断 `thinking_level_change`（目标值须 ≠ 基线），目标值恰等于基线的 no-op 场景无 session 记录、钩子执行不可正面证明 → 下沉 unit/integration 用注入回调钉调用次数；clamp 超能力场景下沉 unit/integration。
 - integration（可控时序/注入）：WS 瞬断重连（handleConnectionClosed 注入）；队列竞态全场景（switch 在途 leave、epoch 过期、幂等短路、capture 屏障、thinking 随 model 达标后设置、restore mask）。
 - unit（mock）：throw 层注入、notify no-op 兜底、队列规则全枚举、splitModelReference 全输入域（任意输入不抛 + 三态）、parseModelField/parseThinkingField 三态、clamp 语义（生效值锚定）；padded 与大小写两条钉 resolveModel 入参（队列出口），不进纯函数。
