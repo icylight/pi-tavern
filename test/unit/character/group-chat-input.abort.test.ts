@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CharacterRuntime } from "../../../src/character/character-runtime.js";
 import { ABORT_CONTROL_CUSTOM_TYPE, GroupChatInput } from "../../../src/character/group-chat-input.js";
 import type { PublicMessage, ServerMessage } from "../../../src/protocol/messages.js";
+import { createConsumableMockPi } from "../../helpers/consumable-pi.js";
 
 function createMockRuntime(characterId = "dev"): CharacterRuntime {
 	return {
@@ -77,7 +78,8 @@ describe("GroupChatInput steer 安全边界打断", () => {
 			totalMessages: 2,
 			contextCount: 0,
 		}));
-		const pi = createMockPi();
+		const api = createConsumableMockPi();
+		const pi = api.pi;
 		const input = new GroupChatInput(runtime, pi);
 		input.start();
 
@@ -100,6 +102,8 @@ describe("GroupChatInput steer 安全边界打断", () => {
 		await vi.advanceTimersByTimeAsync(0);
 
 		expect(runtime.fetchMessagesSince).toHaveBeenCalledTimes(1);
+		// #201：游标只在消费确认时推进——投递后补一次消费事件。
+		api.emitConsumption();
 		expect(runtime.saveCursor).toHaveBeenCalledWith(2);
 		expect(pi.sendMessage).toHaveBeenCalledTimes(2);
 		expect((pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[1]?.[1]).toMatchObject({
@@ -191,19 +195,19 @@ describe("GroupChatInput steer 安全边界打断", () => {
 			totalMessages: 1,
 			contextCount: 0,
 		}));
-		const pi = createMockPi();
-		const input = new GroupChatInput(runtime, pi, 1000);
+		const api = createConsumableMockPi();
+		const input = new GroupChatInput(runtime, api.pi, 1000);
 		input.start();
 
 		// 通知到达时 idle，只开启固定窗口；窗口期间由私有提示等来源启动 run。
 		runtime.onEnvironmentMessage?.(update(1, [publicMessage(1)]));
-		expect(pi.sendMessage).not.toHaveBeenCalled();
+		expect(api.pi.sendMessage).not.toHaveBeenCalled();
 		runtime.isAgentActive = true;
 		await vi.advanceTimersByTimeAsync(1000);
 
 		expect(runtime.fetchMessagesSince).not.toHaveBeenCalled();
-		expect(pi.sendMessage).toHaveBeenCalledOnce();
-		expect(pi.sendMessage).toHaveBeenCalledWith(
+		expect(api.pi.sendMessage).toHaveBeenCalledOnce();
+		expect(api.pi.sendMessage).toHaveBeenCalledWith(
 			{ customType: ABORT_CONTROL_CUSTOM_TYPE, content: "", display: false },
 			{ triggerTurn: true, deliverAs: "steer" },
 		);
@@ -213,8 +217,10 @@ describe("GroupChatInput steer 安全边界打断", () => {
 		runtime.onAgentSettled?.();
 		await vi.advanceTimersByTimeAsync(0);
 		expect(runtime.fetchMessagesSince).toHaveBeenCalledOnce();
+		// #201：游标只在消费确认时推进。
+		api.emitConsumption();
 		expect(cursor).toBe(1);
-		expect(pi.sendMessage).toHaveBeenCalledTimes(2);
+		expect(api.pi.sendMessage).toHaveBeenCalledTimes(2);
 		input.stop();
 	});
 
@@ -232,8 +238,8 @@ describe("GroupChatInput steer 安全边界打断", () => {
 			totalMessages: 4,
 			contextCount: 0,
 		}));
-		const pi = createMockPi();
-		const input = new GroupChatInput(runtime, pi, 1000);
+		const api = createConsumableMockPi();
+		const input = new GroupChatInput(runtime, api.pi, 1000);
 		input.start();
 
 		runtime.onEnvironmentMessage?.(
@@ -245,16 +251,18 @@ describe("GroupChatInput steer 安全边界打断", () => {
 		runtime.isAgentActive = true;
 		await vi.advanceTimersByTimeAsync(1000);
 
-		expect(pi.sendMessage).not.toHaveBeenCalled();
+		expect(api.pi.sendMessage).not.toHaveBeenCalled();
 		expect(input.consumeAbortControlToken(vi.fn())).toBe(false);
 		runtime.isAgentActive = false;
 		runtime.onAgentSettled?.();
 		await vi.advanceTimersByTimeAsync(0);
 
 		expect(runtime.fetchMessagesSince).toHaveBeenCalledOnce();
+		// #201：游标只在消费确认时推进（自身回显 + 他条未读同批投递）。
+		api.emitConsumption();
 		expect(cursor).toBe(4);
-		expect(pi.sendMessage).toHaveBeenCalledOnce();
-		expect((pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({ deliverAs: "steer" });
+		expect(api.pi.sendMessage).toHaveBeenCalledOnce();
+		expect((api.pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({ deliverAs: "steer" });
 		input.stop();
 	});
 
@@ -283,13 +291,16 @@ describe("GroupChatInput steer 安全边界打断", () => {
 
 		// reload 终止旧 run；新 runtime 接管时处于 idle，应直接拉全，不再等待通知。
 		runtime.isAgentActive = false;
-		const resumedPi = createMockPi();
+		const resumedApi = createConsumableMockPi();
+		const resumedPi = resumedApi.pi;
 		const resumed = new GroupChatInput(runtime, resumedPi);
 		resumed.start();
 		resumed.restoreFromReload(snapshot);
 		await vi.advanceTimersByTimeAsync(0);
 
 		expect(runtime.fetchMessagesSince).toHaveBeenCalledOnce();
+		// #201：游标只在消费确认时推进。
+		resumedApi.emitConsumption();
 		expect(cursor).toBe(1);
 		expect(resumedPi.sendMessage).toHaveBeenCalledOnce();
 		expect((resumedPi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({

@@ -2,11 +2,12 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, type vi } from "vitest";
 import type { CharacterRuntime } from "../../../src/character/character-runtime.js";
 import { JoinAttempt } from "../../../src/character/join-attempt.js";
 import { type CharacterCard, loadCharacterCard } from "../../../src/config/character-card.js";
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
+import { createConsumableMockPi, emitBatchConsumption } from "../../helpers/consumable-pi.js";
 
 /**
  * #196 忙态投递窗口钉测（integration）：
@@ -37,7 +38,7 @@ async function createTemporaryDirectory(): Promise<string> {
 }
 
 function createMockPi(): ExtensionAPI {
-	return { sendMessage: vi.fn(async () => undefined) } as unknown as ExtensionAPI;
+	return createConsumableMockPi().pi;
 }
 
 async function startCreator(): Promise<{ creator: CreatorRuntime; character: CharacterCard }> {
@@ -241,8 +242,11 @@ describe("#196 忙态投递窗口", () => {
 		// 重投走 resetJoinDebounce（JOIN_BATCH_DEBOUNCE_MS = 1000ms）+ 余量。
 		await new Promise((resolve) => setTimeout(resolve, 1_400));
 
-		// 首次抛错不推进游标；retryBatch 重投成功（≥2 次投递调用：失败 1 + 成功 1+）。
-		expect(runtime.loadCursor()).toBeGreaterThan(cursorBefore ?? 0);
+		// 首次抛错不推进；重投到达也不推进（#201：投递与水位解耦）。
 		expect(deliveryCalls(sendMessage).length).toBeGreaterThanOrEqual(2);
+		expect(runtime.loadCursor() ?? 0).toBe(cursorBefore ?? 0);
+		// pi 消费确认（message_start）→ 水位推进到批水位。
+		emitBatchConsumption(pi);
+		expect(runtime.loadCursor()).toBeGreaterThan(cursorBefore ?? 0);
 	});
 });
