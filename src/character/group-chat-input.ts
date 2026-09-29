@@ -77,6 +77,13 @@ const DEFAULT_SPEAK_SOFT_LIMIT_CHARS = 4000;
  */
 export const ABORT_CONTROL_CUSTOM_TYPE = "pi-tavern.abort-control";
 
+/**
+ * #201：群聊注入批次的 customType。消费确认信号据此识别——pi 把批次推入
+ * agent 上下文时 emit `message_start`（`{ message }`，含 `details`），本侧据
+ * 批次的覆盖元数据推进连续性水位（见 `confirmBatchConsumed`）。
+ */
+export const GROUP_CHAT_INPUT_CUSTOM_TYPE = "pi-tavern.group-chat-input";
+
 export class GroupChatInput {
 	private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 	private debounceDueAt: number | null = null;
@@ -135,7 +142,9 @@ export class GroupChatInput {
 	 * B 批成功不得提前 saveCursor(A 水位) → 游标越过未投递帧 → 崩溃/退出后恢复
 	 * 永久跳过，违反「重复可接受、跳过不可接受」）。
 	 */
-	private retryBatch: { events: ServerMessage[]; latestSequence?: number } | undefined;
+	private retryBatch: { events: ServerMessage[]; latestSequence?: number; coverageFrom?: number } | undefined;
+	/** #201：消费确认订阅解除（start 注册、stop 解除）。 */
+	private unsubscribeMessageConsumed: (() => void) | undefined;
 
 	constructor(
 		private readonly runtime: CharacterRuntime,
@@ -163,6 +172,19 @@ export class GroupChatInput {
 	private readonly onSettled: () => void;
 
 	start(): void {
+		// #201：消费确认订阅——批次进入 agent 上下文（被消费）才推进游标；
+		// 入队不再是推进依据（入队乐观推进 = 清队静默丢弃后永久跳过，事故成因）。
+		// 扩展 API 无 on（降级面）→ 不订阅：水位不推进 = 重复投递，
+		// 失守方向 = 重复（跳过不可接受）。
+		this.unsubscribeMessageConsumed?.();
+		const piWithOn = this.pi as unknown as {
+			on?: (event: string, handler: (payload: unknown) => void) => () => void;
+		};
+		if (typeof piWithOn.on === "function") {
+			this.unsubscribeMessageConsumed = piWithOn.on("message_start", (payload) => {
+				this.confirmBatchConsumed(payload);
+			});
+		}
 		// （Arch 定案 + 四方收敛，零 wire 变化）：进入时刻游标预置——
 		// 新 Session 无游标时调一次 get_message_history 取水位（totalMessages，
 		// 丢弃消息内容）作游标基线，消除「无游标未知态」：
@@ -245,6 +267,13 @@ export class GroupChatInput {
 				// 去重三态：已投递（seq <= cursor）/ 同批已注入（seq <= injected）
 				// ——flush 前同帧到两次只进一份；连续性判定用 next = max+1。
 				if (seq <= cursor || seq <= this.injectedWhisperSequence) return;
+				// #201：自产 whisper 回帧静默——不注入正文（发送者零事件），仅推进
+				// 实时连续性簿记（否则下一帧被判 gap 触发多余补拉）；游标由拉取
+				// 路径的覆盖证明推进（发布侧不再推进游标）。
+				if (this.isOwnWhisper(message)) {
+					this.injectedWhisperSequence = Math.max(this.injectedWhisperSequence, seq);
+					return;
+				}
 				const next = Math.max(cursor, this.injectedWhisperSequence) + 1;
 				if (seq > next) {
 					// gap：不注入——按忙闲安排补拉（idle 无 settle 事件，须主动拉取）。
@@ -357,6 +386,9 @@ export class GroupChatInput {
 					// 发言被未读/stale 阻止后的补拉注入，AI 看到占位即完成消费）。
 					// 两类帧都推进游标（拉取窗口 = 已送达），防反复 stale。
 					if (m && typeof m === "object" && "method" in m && m.method === METHOD_WHISPER_MESSAGE) {
+						// #201：自产 whisper 回帧不注入（发送者零事件）；其水位由本批
+						// latestSequence 覆盖（服务端全量增量无截断，未注入帧只有自身回帧）。
+						if (this.isOwnWhisper(m as Extract<ServerMessage, { method: "whisper_message" }>)) continue;
 						messages.push(m as ServerMessage);
 						if (isWindowFrame(m as ServerMessage)) {
 							windowSeqs.add((m.params as { sequence: number }).sequence);
@@ -376,9 +408,9 @@ export class GroupChatInput {
 					}
 				}
 				if (hasDeliverableUnread) {
-					// 游标推进移至投递成功判定（双通道契约：idle followUp /
-					// 忙态 steer 入队成功 = 投递成功 → saveCursor；失败不推进，
-					// settle 兜底重投——A5 强化实现）。
+					// #201：投递入队不推进游标（消费确认推进，见 sendWithDeliveryAck /
+					// confirmBatchConsumed）；同步入队失败不推进并整批重投——重复可接受、
+					// 跳过不可接受。
 					await this.deliver(messages, page.latestSequence, windowSeqs);
 				} else if (
 					page.messages.some(
@@ -390,7 +422,9 @@ export class GroupChatInput {
 					)
 				) {
 					// 拉取窗口只有自身回显时不生成 Agent 输入，但仍消费对应水位；否则
-					// preview 超限的连续自身消息会在每次 settle 被永久重拉。
+					// preview 超限的连续自身消息会在每次 settle 被永久重拉。本分支为拉取
+					// 证明型推进（窗口内无可递送未读 ⇒ 区间不存在未读他人帧），与
+					// #201 消费确认语义一致（自产消息无需消费）。
 					this.runtime.saveCursor(page.latestSequence);
 				}
 			} while (this.refetchRequested && !this.stopped);
@@ -467,6 +501,8 @@ export class GroupChatInput {
 
 	stop(): void {
 		this.stopped = true;
+		this.unsubscribeMessageConsumed?.();
+		this.unsubscribeMessageConsumed = undefined;
 		this.runtime.onEnvironmentMessage = undefined;
 		if (this.runtime.onAgentSettled === this.onSettled) {
 			this.runtime.onAgentSettled = undefined;
@@ -711,6 +747,14 @@ export class GroupChatInput {
 		);
 	}
 
+	/** #201：自产 whisper（发送者视角回帧）——静默不注入，仅作水位簿记。 */
+	private isOwnWhisper(message: Extract<ServerMessage, { method: "whisper_message" }>): boolean {
+		return (
+			message.params.sender.type === "character" &&
+			message.params.sender.character_id === this.runtime.character.characterId
+		);
+	}
+
 	/**
 	 * ：speak 前置「未读先读」判定——推导式计数（单一事实源
 	 * = 投递游标 + 最新水位，不维护独立计数器，reload/重连无状态同步风险）。
@@ -839,6 +883,60 @@ export class GroupChatInput {
 		return max > 0 ? max : undefined;
 	}
 
+	/**
+	 * #201 实时批覆盖下界：注入帧段（public / whisper_message）连续时返回
+	 * `min - 1`，否则 undefined（无覆盖声明）。连续性由帧集自身判定（最大 - 最小
+	 * + 1 == 去重帧数）——缺口帧不由本批覆盖，消费不推进（留给拉取路径）。
+	 */
+	private coverageLowerBound(events: ServerMessage[]): number | undefined {
+		const sequences = new Set<number>();
+		let min = Number.POSITIVE_INFINITY;
+		let max = 0;
+		for (const event of events) {
+			if (!("method" in event)) continue;
+			if (event.method !== METHOD_PUBLIC_MESSAGE && event.method !== METHOD_WHISPER_MESSAGE) continue;
+			const sequence = event.params.sequence;
+			if (typeof sequence !== "number") continue;
+			sequences.add(sequence);
+			if (sequence < min) min = sequence;
+			if (sequence > max) max = sequence;
+		}
+		if (sequences.size === 0) return undefined;
+		if (max - min + 1 !== sequences.size) return undefined;
+		return min - 1;
+	}
+
+	/**
+	 * #201 消费确认 → 连续性水位推进。pi 把注入批推入 agent 上下文时 emit
+	 * `message_start`（agent-loop：消费点，非入队点）；批的 `details` 携带
+	 * `coverage_from` / `latest_sequence`。
+	 *
+	 * 判据（区间覆盖证明）：`coverage_from ≤ 游标` 时，区间 `(coverage_from,
+	 * latest_sequence]` 已被本批完整消费（pull 批 = 服务端无截断全量返回，未注入
+	 * 帧只有自身回帧；实时批 = 连续帧段）→ 推进。`coverage_from > 游标`（缺口未补）
+	 * → 不推进：缺口区间保持未读，后续投递机会重拉（重复可接受、跳过不可接受）。
+	 * 幂等：只前进不后退；未知批次（非本扩展 / 无覆盖元数据 / 队列降级）一律 no-op。
+	 */
+	private confirmBatchConsumed(payload: unknown): void {
+		if (this.stopped) {
+			return;
+		}
+		const message = (payload as { message?: { role?: unknown; customType?: unknown; details?: unknown } } | null)
+			?.message;
+		if (message === undefined || message === null) return;
+		// 判别以 customType 为准——真实 pi 载荷 = `{ message: CustomMessage }`
+		// （role:"custom" + timestamp 由 sendCustomMessage 内部补齐）；测试替身可传
+		// 原始发送对象，判别力等价（外部 user/assistant 消息无本 customType）。
+		if (message.customType !== GROUP_CHAT_INPUT_CUSTOM_TYPE) return;
+		const details = message.details as { latest_sequence?: unknown; coverage_from?: unknown } | undefined;
+		const latestSequence = details?.latest_sequence;
+		const coverageFrom = details?.coverage_from;
+		if (typeof latestSequence !== "number" || typeof coverageFrom !== "number") return;
+		const cursor = this.runtime.loadCursor() ?? 0;
+		if (coverageFrom > cursor || latestSequence <= cursor) return;
+		this.runtime.saveCursor(latestSequence);
+	}
+
 	private resetJoinDebounce(): void {
 		if (this.debounceTimer) {
 			clearTimeout(this.debounceTimer);
@@ -899,11 +997,13 @@ export class GroupChatInput {
 		// sendWithDeliveryAck catch 重新入槽（水位不丢）。
 		let toDeliver = events ?? this.pendingEvents;
 		let retryLatestSequence: number | undefined;
+		let retryCoverageFrom: number | undefined;
 		if (this.retryBatch !== undefined) {
 			// 已失败批永远先于后来显式批提交；显式 pull 批已从 pendingEvents
 			// 取出，不能搁置，故与 retry 批原子合并。水位取二者上界。
 			toDeliver = events === undefined ? this.retryBatch.events : [...this.retryBatch.events, ...events];
 			retryLatestSequence = this.retryBatch.latestSequence;
+			retryCoverageFrom = this.retryBatch.coverageFrom;
 			if (latestSequence !== undefined) {
 				retryLatestSequence = Math.max(retryLatestSequence ?? 0, latestSequence);
 			}
@@ -945,6 +1045,19 @@ export class GroupChatInput {
 		});
 		if (toDeliver.length === 0) return;
 
+		// #201：覆盖区间下界（消费确认推进水位的连续性证明，见
+		// confirmBatchConsumed）——pull 批（显式 latestSequence）：服务端
+		// fetch_messages_since 无截断，覆盖下界 = 投递时游标；实时批：仅当注入帧
+		// 段连续时声明 min-1（否则无覆盖声明，消费不推进）。retry 批携带原始
+		// 覆盖下界（帧已随本批重新投递），取二者更小值（更保守）。
+		const freshCoverage = latestSequence !== undefined ? deliveredCursor : this.coverageLowerBound(toDeliver);
+		const coverageFrom =
+			retryCoverageFrom === undefined
+				? freshCoverage
+				: freshCoverage === undefined
+					? retryCoverageFrom
+					: Math.min(retryCoverageFrom, freshCoverage);
+
 		// 实时路径（无参 flush）无 latestSequence——
 		// 游标候选只取已实际注入帧的最大 sequence。不得用 group_chat_update
 		// 水位（水位含未注入帧，提前 saveCursor 会抢在拉取路径前把消息标记
@@ -970,7 +1083,7 @@ export class GroupChatInput {
 		// streaming → steering 队列（工具批后、下一 LLM 调用前注入，秒级，不打断 run）；
 		// idle → 直接触发新一轮 run。
 		if (this.runtime.isAgentActive) {
-			await this.deliverSteer(toDeliver, groupChatState, effectiveLatestSequence);
+			await this.deliverSteer(toDeliver, groupChatState, effectiveLatestSequence, coverageFrom);
 			return;
 		}
 
@@ -1012,14 +1125,17 @@ export class GroupChatInput {
 		// 投递承诺：#196 起两路径均用 steer（见上）。pi 的 sendMessage 为 fire-and-forget
 		// （不同步返回投递结果）；同步抛错（入队拒绝/会话未就绪）由 sendWithDeliveryAck
 		// catch 入 retryBatch，不推进游标。
-		await this.sendWithDeliveryAck(toDeliver, content, groupChatState, effectiveLatestSequence, "steer");
+		await this.sendWithDeliveryAck(toDeliver, content, groupChatState, effectiveLatestSequence, "steer", coverageFrom);
 	}
 
 	/**
-	 * 统一投递 + 游标推进：sendMessage 同步抛错（入队拒绝/会话未就绪）→ 不推进
-	 * 游标并整批入 retryBatch 重投（重复可接受、跳过不可接受）；正常返回 → 推进游标。
-	 * 边界（pi API 面）：异步失败（如 idle 路径直接跑 run 报错）只经 pi 的 emitError
-	 * 上报，扩展侧拿不到投递确认——发送后即推进是乐观语义，见 group-chat-input.md。
+	 * 统一投递 + 批次元数据上报（#201 消费确认）：sendMessage 同步抛错（入队拒绝/
+	 * 会话未就绪）→ 不得静默丢事件，整批入 retryBatch 重投（重复可接受、跳过
+	 * 不可接受）；正常返回仅是把批次交给 pi 队列，**不推进游标**——游标 = 消费
+	 * 确认水位（`confirmBatchConsumed`），入队后被队列清空路径静默丢弃的批次
+	 * 无返还、无事件，游标保持未确认 → 后续投递机会重拉该区间。批次随
+	 * `details` 携带覆盖元数据（coverage_from / latest_sequence），消费事件据此
+	 * 判定可推进区间。
 	 */
 	private async sendWithDeliveryAck(
 		events: ServerMessage[],
@@ -1027,19 +1143,12 @@ export class GroupChatInput {
 		groupChatState: unknown,
 		latestSequence: number | undefined,
 		deliverAs: "followUp" | "steer",
+		coverageFrom?: number,
 	): Promise<void> {
 		try {
-			// 方案 A（乐观推进）：sendMessage 调用后
-			// 同步 saveCursor，不 await（await 会持有单飞行锁整个 run 时长，
-			// 忙态秒级可见在连续对话主场景退化回 run 边界——owner 矛盾实证）。
-			// 忙态 steer/followUp = agent.steer/followUp 同步入队无失败返回
-			// （QA 实证）；idle triggerTurn 的异步 run 启动失败 = pi 环境
-			// 不可用例外（与改造前语义一致、与 wedged 同类）。
-			// T2 竞态由调用方 await deliver 闭合（同步推进后 do-while 复查
-			// 读新游标）。
 			this.pi.sendMessage(
 				{
-					customType: "pi-tavern.group-chat-input",
+					customType: GROUP_CHAT_INPUT_CUSTOM_TYPE,
 					content,
 					display: true,
 					details: {
@@ -1047,20 +1156,14 @@ export class GroupChatInput {
 						character_id: this.runtime.character.characterId,
 						events,
 						group_chat_state: groupChatState,
+						// #201 消费确认元数据（非 wire、非持久化契约字段，仅本扩展消费）：
+						// coverage_from = 覆盖区间下界（不含）；latest_sequence = 消费后水位。
+						...(coverageFrom !== undefined ? { coverage_from: coverageFrom } : {}),
+						...(latestSequence !== undefined ? { latest_sequence: latestSequence } : {}),
 					},
 				},
 				{ triggerTurn: true, deliverAs },
 			);
-			// 乐观推进的已知边界（区间跳过）：入队后被 pi 队列清空路径
-			// （interactive abort / Esc → clearAllQueues）静默丢弃的扩展消息无
-			// 返还、无事件，游标已过 → 该区间永久跳过；完整修法（消费后推进 +
-			// gap 补拉）归 #201，见 group-chat-input.md 已知边界节。
-			if (latestSequence !== undefined) {
-				const currentCursor = this.runtime.loadCursor() ?? 0;
-				if (latestSequence > currentCursor) {
-					this.runtime.saveCursor(latestSequence);
-				}
-			}
 		} catch {
 			// 同步抛错（入队拒绝/steer 失败）：不推进。
 			// 统一 requeue（followUp + steer）——
@@ -1070,7 +1173,14 @@ export class GroupChatInput {
 			// 否则占位窗口游标不推进 → 反复 stale）。
 			// 批原子入槽：水位与 events 绑定（不拆散进 pendingEvents——其他
 			// flush 无从借用该水位；重投时整批消费 + 整批推进游标）。
-			this.retryBatch = latestSequence === undefined ? { events } : { events, latestSequence };
+			this.retryBatch =
+				latestSequence === undefined && coverageFrom === undefined
+					? { events }
+					: {
+							events,
+							...(latestSequence !== undefined ? { latestSequence } : {}),
+							...(coverageFrom !== undefined ? { coverageFrom } : {}),
+						};
 			// 重排 flush 定时器重投（busy 走 steer 通道投递；不用 armIdleWindow
 			// ——那是拉取路径，retryBatch 残留帧无人 flush）。
 			this.resetJoinDebounce();
@@ -1089,7 +1199,12 @@ export class GroupChatInput {
 	 * ：run 活跃即亮（agent_start 无条件点亮），steer 投递不再涉及点亮判定
 	 * ——投递内容（群聊/救援）不区分触发源。
 	 */
-	private async deliverSteer(events: ServerMessage[], groupChatState: unknown, latestSequence?: number): Promise<void> {
+	private async deliverSteer(
+		events: ServerMessage[],
+		groupChatState: unknown,
+		latestSequence?: number,
+		coverageFrom?: number,
+	): Promise<void> {
 		const content = this.buildContent(events, groupChatState);
 
 		if (process.env.PITAVERN_TEST === "1") {
@@ -1111,7 +1226,7 @@ export class GroupChatInput {
 			}
 		}
 
-		await this.sendWithDeliveryAck(events, content, groupChatState, latestSequence, "steer");
+		await this.sendWithDeliveryAck(events, content, groupChatState, latestSequence, "steer", coverageFrom);
 	}
 
 	private buildContent(events: ServerMessage[], state: unknown): string {

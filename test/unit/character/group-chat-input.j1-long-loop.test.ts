@@ -1,8 +1,8 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CharacterRuntime } from "../../../src/character/character-runtime.js";
 import { GroupChatInput } from "../../../src/character/group-chat-input.js";
 import type { PublicMessage, ServerMessage } from "../../../src/protocol/messages.js";
+import { createConsumableMockPi } from "../../helpers/consumable-pi.js";
 
 //  J1 长工具循环回归：密集通知只排一个隐藏令牌；安全边界 abort 后，
 // settled 一次拉全并通过 steer 投递（#196：通道统一 steer），最终无重复无遗漏。
@@ -34,12 +34,6 @@ function createMockRuntime(
 		fetchMessagesSince: async () => ({ messages: [], latestSequence: 0, totalMessages: 0, contextCount: 0 }),
 		refreshGroupChatState: async () => undefined,
 	} as unknown as CharacterRuntime;
-}
-
-function createMockPi(): ExtensionAPI {
-	return {
-		sendMessage: vi.fn(async () => undefined),
-	} as unknown as ExtensionAPI;
 }
 
 function aPublicMessage(sequence: number): PublicMessage {
@@ -86,7 +80,8 @@ describe("GroupChatInput  J1 长工具循环忙态投递回归", () => {
 		});
 		runtime.isAgentActive = true;
 
-		const pi = createMockPi();
+		const api = createConsumableMockPi();
+		const pi = api.pi;
 		const input = new GroupChatInput(runtime, pi);
 		input.start();
 		const handler = runtime.onEnvironmentMessage ?? (() => {});
@@ -120,6 +115,8 @@ describe("GroupChatInput  J1 长工具循环忙态投递回归", () => {
 		expect(delivered).toEqual(Array.from({ length: N }, (_, index) => 7 + index));
 		expect(new Set(delivered).size).toBe(N);
 		expect((delivery[1] as { deliverAs: string }).deliverAs).toBe("steer");
+		// #201：游标只在消费确认时推进（批次入队 → pi 消费）。
+		api.emitConsumption();
 		expect(runtime.saveCursor).toHaveBeenCalledOnce();
 		expect(runtime.saveCursor).toHaveBeenCalledWith(6 + N);
 		expect(cursor).toBe(6 + N);

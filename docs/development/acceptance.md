@@ -58,6 +58,7 @@ npm run test:full # 三层串行全量（发版前收口验收证据）
 | reload 角色卡刷新 | handoff 重读新卡注入；重读失败保旧卡 + notify 告警，不断连 | `reload` |
 | TUI 发言次数 | 轮次开启显示 used/max 与剩余；发言后递增；上限显举手；无轮次隐藏该行 | 手动（三轮态） |
 | 消息推拉混合 | 广播通知化 + 主动增量拉取 + Session 游标持久化 + 缺口检测；闲态 ≤1s 固定窗口聚合 N→1 不重置、忙态零正文但启动投递窗口（默认 5s，`PITAVERN_DELIVERY_WINDOW_MS` 可注入；窗口与 settle 先到者触发拉取投递，投递延迟上界 = 窗口 + 一个工具间隙）；投递通道统一 steer + triggerTurn（pi 按真实 streaming 分派，不打断 run）；游标 = `cursors/<groupId>/<sessionId>.json`，join 预置 = 进入时刻水位（三分：已有游标返回 / 新帧 latest_sequence 预置 / 旧帧回退查询水位 CAS 写），旧群聊级共享游标不采用（不读不写不删），仅预置失败游标保持 null → 全量分页兜底；同 Session 文件不存在仅现于预置失败 | `live-delivery`、`context-window`、`delivery-window`（#196）、does-not-adopt-v1 钉测、游标单测 |
+| 消费水位推进（#201） | 连续性游标只能由**消费确认**推进：批次入队（`sendMessage`）与 whisper 发布均不推进；水位写点收敛为消费确认（pi 注入确认）；`last_sequence` 仍是 pull 起点 / 门闸 / stale basis 的唯一水位——**格式不变、语义变更**（入队乐观水位 → 已消费水位，`persistence.md` 同批声明；旧值不追溯历史洞）。未确认形态（清队丢弃 / 异步失败不可见 / 消费事件缺失）→ 区间保持未读、后续投递机会重拉（重复可接受、跳过不可接受）；自产静默窗（whisper 无回显）不得使水位永久卡死（机制随设计） | `skip-hole.test.ts` integration（R2 清队丢弃 / R7 异步失败不可见 / R5 消费确认对照绿）；A1 acceptance 不变量（场景末注入 seq 集 ∩ 外部消息集 = 群日志外部消息集；窗口剔除 join 预置水位前、自身消息、whisper/board 帧） |
 | 仓库健康度 | `npm run health` 聚合 audit/gitleaks/卫生三检查；退出码 0=全绿；输出结构稳定 | 手动（人造样本） |
 | TUI 工作状态 | agent_start 续命 watchdog（clearStreamingResetWatchdog + isAgentActive 守卫）；真悬挂 5s 复位保留；空闲不误亮 | `w1c-light-probe`、`streaming-truth` |
 | 消息来源显式化 | `public_message.source` 字段（缺省=group）；群聊注入含显式来源声明；终端私聊不进入公共流，Character 间私信走独立 whisper 帧 | `identity-consistency`、`abort-steer-visibility` |
@@ -71,7 +72,7 @@ npm run test:full # 三层串行全量（发版前收口验收证据）
 | 文案模板 | 五 key（public/seconds/minutes/whisper_full/whisper_placeholder）按 项目>全局>内置 合并；容错逐项回退；占位符规则校验；三消费面同模板集 | 模板单测 |
 | 私信 | `tavern_whisper` 仅在线 Character 间 + 活跃轮次；独立持久化共用 sequence 无空洞；三视角投影（他者只见占位）；占位不唤醒不阻塞；失败不占额度；WS 连接活跃 = 在线判定 | `whisper-placeholder-stale`、`rh3-whisper-projection` |
 
-> 已知边界：interactive 模式 abort 可能丢失已入队 steer（入队即推进游标），见 group-chat-input.md「已知边界」节（J2 钉测 `j2-rpc-abort-no-loss` 固化）。
+> 已知边界：消费确认前未确认区间可被重拉重投（实时帧与拉取帧并存时同帧可投两次；长 run 无工具间隙时窗口最大）——失守方向 = 重复，非跳过；消费事件缺失（扩展 API 无 `on`）同属重复方向。interactive abort 丢弃已入队 steer 的语义随 #201 变更：区间保持未读、后续重拉（替代原「入队即推进 → 永久跳过」）；RPC abort 不清队列由 J2 钉测 `j2-rpc-abort-no-loss` 固化。详见 group-chat-input.md「已知边界与残余风险（#201 消费水位落地后）」节。
 
 ## 测试门控命令
 

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { CharacterRuntime } from "../../../src/character/character-runtime.js";
 import { GroupChatInput } from "../../../src/character/group-chat-input.js";
 import type { PublicMessage, ServerMessage } from "../../../src/protocol/messages.js";
+import { createConsumableMockPi } from "../../helpers/consumable-pi.js";
 
 //  会话侧投递挂起形态（owner 领办：13:44-48 Dev 会话零投递 8 分钟 → 会话侧链路）：
 // settled 后拉取挂起（fetchMessagesSince 永不 resolve = WS 请求挂起的极端形态）时，
@@ -132,7 +133,8 @@ describe("GroupChatInput  会话侧投递挂起（单飞行锁形态）", () => 
 			return { messages: [], latestSequence: 7, totalMessages: 0, contextCount: 0 };
 		});
 		const runtime = createMockRuntime({ fetchMessagesSince: fetch, isAgentActive: true });
-		const pi = createMockPi();
+		const api = createConsumableMockPi();
+		const pi = api.pi;
 		const input = new GroupChatInput(runtime, pi);
 		input.start();
 		const handler = runtime.onEnvironmentMessage;
@@ -154,6 +156,8 @@ describe("GroupChatInput  会话侧投递挂起（单飞行锁形态）", () => 
 			expect.objectContaining({ details: expect.objectContaining({ character_id: "dev" }) }),
 			expect.objectContaining({ deliverAs: "steer" }),
 		);
+		// #201：游标只在消费确认时推进（批次入队 → pi 消费）。
+		api.emitConsumption();
 		expect(runtime.saveCursor).toHaveBeenCalledWith(6);
 
 		input.stop();

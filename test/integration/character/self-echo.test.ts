@@ -2,11 +2,12 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, type vi } from "vitest";
 import type { CharacterRuntime } from "../../../src/character/character-runtime.js";
 import { JoinAttempt } from "../../../src/character/join-attempt.js";
 import { type CharacterCard, loadCharacterCard } from "../../../src/config/character-card.js";
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
+import { createConsumableMockPi, emitBatchConsumption } from "../../helpers/consumable-pi.js";
 
 /**
  *  回声钉测（QA 属主，integration 层）：
@@ -72,9 +73,7 @@ async function startCreator(
 
 /** 真实 pi 上下文替身：GroupChatInput 仅在 pi 存在时挂载（activate 条件）。 */
 function createMockPi(): ExtensionAPI {
-	return {
-		sendMessage: vi.fn(async () => undefined),
-	} as unknown as ExtensionAPI;
+	return createConsumableMockPi().pi;
 }
 
 async function joinCharacter(
@@ -199,8 +198,11 @@ describe("self-echo", () => {
 		await new Promise((resolve) => setTimeout(resolve, 200));
 		expect(runtime.loadCursor()).toBe(1);
 
-		// 他人消息到达（seq 3）→ 投递链推进游标到 3。
+		// 他人消息到达（seq 3）→ 投递链到达 → pi 消费确认推进游标到 3。
 		await creator.submitUserPersonaMessage("from user");
+		const sendMessageCalls = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls.length;
+		await waitFor(() => (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls.length > sendMessageCalls);
+		emitBatchConsumption(pi);
 		await waitFor(() => (runtime.loadCursor() ?? 0) >= 3);
 	});
 
