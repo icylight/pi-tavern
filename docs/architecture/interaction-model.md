@@ -91,7 +91,7 @@ Repository
 
 - 扩展间通过 WebSocket 传递实时消息与成员状态；创建者监听 `127.0.0.1:0`（OS 分配端口，不暴露局域网），同一机器/仓库运行，无证书或 token。
 - 活动群聊在 `active/` 写入活动描述文件（`instanceId`/`groupChatId`/PID/地址/端口/启动时间）供自动发现；URL 路径携带 `groupChatId` + `instanceId`，upgrade 阶段校验后接受。
-- 心跳：创建者每 30s ping，任一方连续 120s 未收到心跳即终止连接；心跳只兜底半开连接，不产生 JSON 消息或自动重连。
+- 心跳：创建者每 30s ping，任一方连续 120s 未收到心跳即终止连接；进程挂起（睡眠/冻结）经相邻 tick 间隔 > 2×周期（默认 60s）识别，当轮重置基线不判死、创建者侧补一次 ping 探测（#203）；心跳只兜底半开连接，不产生 JSON 消息或自动重连。
 - 消息序号群聊内递增；公开消息以 `group_chat_update` 通知广播（水位 + 最近 3 条预览），完整增量主动拉取；断线后手动重 join，增量以本 Session 持久化游标为准（join 预置 = 进入时刻水位），服务端不维护 per-connection 已读位置。
 - 细节见 [websocket-protocol](../reference/websocket-protocol.md)。
 
