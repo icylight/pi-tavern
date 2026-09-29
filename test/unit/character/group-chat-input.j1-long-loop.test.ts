@@ -5,7 +5,7 @@ import { GroupChatInput } from "../../../src/character/group-chat-input.js";
 import type { PublicMessage, ServerMessage } from "../../../src/protocol/messages.js";
 
 //  J1 长工具循环回归：密集通知只排一个隐藏令牌；安全边界 abort 后，
-// settled 一次拉全并通过 followUp 重开，最终无重复无遗漏。
+// settled 一次拉全并通过 steer 投递（#196：通道统一 steer），最终无重复无遗漏。
 
 function createMockRuntime(
 	overrides: {
@@ -119,7 +119,7 @@ describe("GroupChatInput  J1 长工具循环忙态投递回归", () => {
 		const delivered = message.details.events.map((event) => event.params?.sequence);
 		expect(delivered).toEqual(Array.from({ length: N }, (_, index) => 7 + index));
 		expect(new Set(delivered).size).toBe(N);
-		expect((delivery[1] as { deliverAs: string }).deliverAs).toBe("followUp");
+		expect((delivery[1] as { deliverAs: string }).deliverAs).toBe("steer");
 		expect(runtime.saveCursor).toHaveBeenCalledOnce();
 		expect(runtime.saveCursor).toHaveBeenCalledWith(6 + N);
 		expect(cursor).toBe(6 + N);
