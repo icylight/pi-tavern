@@ -72,7 +72,7 @@ npm run test:full # 三层串行全量（发版前收口验收证据）
 | 文案模板 | 五 key（public/seconds/minutes/whisper_full/whisper_placeholder）按 项目>全局>内置 合并；容错逐项回退；占位符规则校验；三消费面同模板集 | 模板单测 |
 | 私信 | `tavern_whisper` 仅在线 Character 间 + 活跃轮次；独立持久化共用 sequence 无空洞；三视角投影（他者只见占位）；占位不唤醒不阻塞；失败不占额度；WS 连接活跃 = 在线判定 | `whisper-placeholder-stale`、`rh3-whisper-projection` |
 
-> 已知边界：interactive 模式 abort 可能丢失已入队 steer（入队即推进游标），见 group-chat-input.md「已知边界」节（J2 钉测 `j2-rpc-abort-no-loss` 固化）。
+> 已知边界：消费确认前未确认区间可被重拉重投（实时帧与拉取帧并存时同帧可投两次；长 run 无工具间隙时窗口最大）——失守方向 = 重复，非跳过；消费事件缺失（扩展 API 无 `on`）同属重复方向。interactive abort 丢弃已入队 steer 的语义随 #201 变更：区间保持未读、后续重拉（替代原「入队即推进 → 永久跳过」）；RPC abort 不清队列由 J2 钉测 `j2-rpc-abort-no-loss` 固化。详见 group-chat-input.md「已知边界与残余风险（#201 消费水位落地后）」节。
 
 ## 测试门控命令
 
