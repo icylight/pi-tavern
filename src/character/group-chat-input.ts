@@ -1,5 +1,4 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { DEFAULT_TEMPLATES, type MessageTemplateKey, renderTemplate } from "../config/message-templates.js";
 import type { ServerMessage } from "../protocol/messages.js";
 import { diag, diagEnabled } from "../shared/diagnostic.js";
 import {
@@ -798,6 +797,19 @@ export class GroupChatInput {
 	}
 
 	/**
+	 * #215：同 Session 手动重入（进入前已有 Session 游标）时补一次增量拉取——
+	 * 断线窗口内的有 sequence 消息无需等待新的 group_chat_update 即可补齐。
+	 * 新 Session（无游标）不调用；reload 走 restoreFromReload，不经本方法。
+	 * 拉取失败不推进游标，仍按 F3 等待后续真实拉取机会。
+	 */
+	catchUpAfterRejoin(): void {
+		if (this.stopped) {
+			return;
+		}
+		void this.pullIncrement();
+	}
+
+	/**
 	 * ：统一「可投递消息投影」判定——首屏
 	 * （join 快照）/ 旧页（分页）/ 增量（pullIncrement）三路径复用，防三处
 	 * 漂移。接纳：public_message（经环境事件/自回显过滤）| whisper_message
@@ -1569,64 +1581,12 @@ export class GroupChatInput {
 			}
 		}
 
-		// 新消息
-		const messages = events.filter(
-			(e) =>
-				"method" in e &&
-				(e.method === METHOD_PUBLIC_MESSAGE ||
-					e.method === METHOD_WHISPER_MESSAGE ||
-					e.method === METHOD_WHISPER_PLACEHOLDER ||
-					e.method === METHOD_MESSAGE_HISTORY),
-		);
-		if (messages.length > 0) {
-			parts.push("\n新消息：");
-			for (const message of messages) {
-				if ("method" in message && message.method === METHOD_PUBLIC_MESSAGE) {
-					const sender = message.params.sender.type === "user_persona" ? "User Persona" : message.params.sender.name;
-					// 每条消息带发言时间 + 距当前注入时点的间隔（相对时间）。
-					// timestamp 为 ISO 字符串（creator 侧 toISOString 填充），
-					// 解析失败时静默降级为不带时间渲染，不阻塞消息展示。
-					// 统一文案模板渲染——时间并入 vars.sender（契约方案 a：
-					// 默认模板 `{sender}:\n{content}` 产出与现状逐字一致，双测试锚）。
-					const when = formatMessageTime(
-						message.params.timestamp,
-						now,
-						this.runtime.messageTemplates ?? DEFAULT_TEMPLATES,
-					);
-					const templates = this.runtime.messageTemplates ?? DEFAULT_TEMPLATES;
-					parts.push(
-						renderTemplate(templates.public_message, {
-							sender: when ? `${sender}（${when}）` : sender,
-							content: message.params.content,
-						}),
-					);
-				} else if ("method" in message && message.method === METHOD_WHISPER_MESSAGE) {
-					// 私信单播（接收者含正文）——whisper_full 模板渲染。
-					// sender/recipient 为 Character（schema：WhisperSender type const character）。
-					const templates = this.runtime.messageTemplates ?? DEFAULT_TEMPLATES;
-					const senderName = message.params.sender.name ?? message.params.sender.character_id;
-					const recipientName = message.params.recipient.name ?? message.params.recipient.character_id;
-					parts.push(
-						renderTemplate(templates.whisper_full, {
-							sender: senderName,
-							receiver: recipientName,
-							content: message.params.content,
-						}),
-					);
-				} else if ("method" in message && message.method === METHOD_WHISPER_PLACEHOLDER) {
-					// 占位广播（无正文，隐私不泄露）——whisper_placeholder 模板。
-					// 无 round 帧：不触碰轮次状态（Arch 确认 17:05）。
-					const templates = this.runtime.messageTemplates ?? DEFAULT_TEMPLATES;
-					const senderName = message.params.sender.name ?? message.params.sender.character_id;
-					const recipientName = message.params.recipient.name ?? message.params.recipient.character_id;
-					parts.push(
-						renderTemplate(templates.whisper_placeholder, {
-							sender: senderName,
-							receiver: recipientName,
-						}),
-					);
-				}
-			}
+		// 新消息（#215 结构化单轨）：按 sequence 稳定升序去重的 JSON 消息元素数组；
+		// 元素与同视角查询投影同形（jsonrpc/method/params），不带响应/分页外壳。
+		// 排序只作用于 LLM 可见投影，details.events 的聚合顺序不受影响。
+		const messageSection = serializeMessageSection(events);
+		if (messageSection !== null) {
+			parts.push(`\n新消息：\n${messageSection}`);
 		}
 
 		// 成员变化
@@ -1708,33 +1668,37 @@ function formatDateTime(date: Date): string {
 }
 
 /**
- * ：格式化消息发言时间 + 距当前注入时点的间隔（相对时间）。
- * 返回 `YYYY-MM-DD HH:MM（x 分钟前 / x 秒前）`；timestamp 缺失或非法时
- * 返回 null（调用方降级为不带时间渲染）。<60s 显示秒级，否则分钟级。
- * ：相对时间段走 seconds_ago/minutes_ago 模板渲染（自定义生效）；
- * 绝对时间戳与括号包裹留消费面（契约：本期只模板化相对时间）。
+ * #215：消息区结构化序列化——只接收已解码的合法消息帧，按 sequence 稳定升序去重，
+ * 输出可直接 JSON.parse 的消息元素数组（元素与同视角查询投影同形；请求 id、分页
+ * cursor、has_more、total_messages 与响应 result 外壳一律不进入）。
+ * 无消息元素时返回 null（不生成空段）。
  */
-function formatMessageTime(
-	timestamp: string | undefined,
-	now: Date,
-	templates: Record<MessageTemplateKey, string>,
-): string | null {
-	if (timestamp === undefined) {
+function serializeMessageSection(events: ServerMessage[]): string | null {
+	const elements: Array<
+		Extract<ServerMessage, { method: "public_message" | "whisper_message" | "whisper_placeholder" }>
+	> = [];
+	const seenSequences = new Set<number>();
+	for (const event of events) {
+		if (!("method" in event)) {
+			continue;
+		}
+		if (
+			event.method !== METHOD_PUBLIC_MESSAGE &&
+			event.method !== METHOD_WHISPER_MESSAGE &&
+			event.method !== METHOD_WHISPER_PLACEHOLDER
+		) {
+			continue;
+		}
+		const sequence = event.params.sequence;
+		if (seenSequences.has(sequence)) {
+			continue;
+		}
+		seenSequences.add(sequence);
+		elements.push(event);
+	}
+	if (elements.length === 0) {
 		return null;
 	}
-	const parsed = new Date(timestamp);
-	if (Number.isNaN(parsed.getTime())) {
-		return null;
-	}
-	const pad = (n: number): string => String(n).padStart(2, "0");
-	const at =
-		`${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())} ` +
-		`${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
-	const elapsedMs = now.getTime() - parsed.getTime();
-	const elapsedSec = Math.max(0, Math.floor(elapsedMs / 1000));
-	const ago =
-		elapsedSec < 60
-			? renderTemplate(templates.seconds_ago, { count: String(elapsedSec) })
-			: renderTemplate(templates.minutes_ago, { count: String(Math.floor(elapsedSec / 60)) });
-	return `${at}（${ago}）`;
+	elements.sort((left, right) => left.params.sequence - right.params.sequence);
+	return JSON.stringify(elements, null, 2);
 }

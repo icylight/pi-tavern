@@ -2,12 +2,14 @@ import { randomUUID } from "node:crypto";
 import {
 	type ExtensionAPI,
 	type ExtensionContext,
+	getAgentDir,
 	type InputEventResult,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { setTestNotify } from "./character/group-chat-input.js";
 import { JoinAttempt } from "./character/join-attempt.js";
 import { registerCommands } from "./commands.js";
+import { loadTavernConfig } from "./config/load-config.js";
 import { DEFAULT_TEMPLATES } from "./config/message-templates.js";
 import { TavernController } from "./controller/tavern-controller.js";
 import type { CreatorRuntime } from "./creator/creator-runtime.js";
@@ -188,7 +190,7 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 	};
 
 	// 仅 character 状态启用 tavern_speak，其余禁用
-	pi.on("session_start", (event, ctx) => {
+	pi.on("session_start", async (event, ctx) => {
 		// #180：model hook 执行器取 ctx 的唯一入口（model/thinking getter 与
 		// modelRegistry 均从 ctx 实时读；headless RPC 模式实测同事件触发）。
 		modelHookContext = ctx;
@@ -224,6 +226,17 @@ export default function piTavern(pi: ExtensionAPI, controller?: TavernController
 
 	// quit：先完成群聊清理（受协调超时约束）再让 pi 退出；reload：分离并发布 handoff。
 	pi.on("session_shutdown", async (event, ctx) => {
+		if (event.reason === "reload") {
+			// #215：reload 路径的模板迁移提示。以 warning 投递（TUI 对相邻 info 状态行原地
+			// 合并）；交互 TUI 下 reload 会重建界面，本提示随旧界面清除不可见——已知边界，
+			// 见 acceptance.md SD215；RPC/headless 通道不受影响。此处的加载同时是 #180 交接
+			// 所需的让出（见 architecture-backlog「reload 交接时序竞态」），收敛前不得删除或挪位。
+			await loadTavernConfig({
+				agentDir: getAgentDir(),
+				cwd: ctx.cwd,
+				notice: (message) => ctx.ui.notify(message, "warning"),
+			}).catch(() => undefined);
+		}
 		await ctrl.handleSessionShutdown(event.reason, ctx.sessionManager.getSessionId());
 	});
 

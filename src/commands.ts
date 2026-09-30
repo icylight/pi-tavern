@@ -2,7 +2,12 @@ import { join } from "node:path";
 
 import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { CharacterRuntime } from "./character/character-runtime.js";
-import { DEFAULT_CONFIG_MAX_MESSAGES, loadTavernConfig, type TavernConfig } from "./config/load-config.js";
+import {
+	DEFAULT_CONFIG_MAX_MESSAGES,
+	type LoadTavernConfigOptions,
+	loadTavernConfig,
+	type TavernConfig,
+} from "./config/load-config.js";
 import type { TavernController } from "./controller/tavern-controller.js";
 import type { CreatorRuntime } from "./creator/creator-runtime.js";
 import type { DeleteBoardResult } from "./data/board-store.js";
@@ -78,7 +83,7 @@ import {
 interface RegisterCommandsOptions {
 	agentDir?: string;
 	configMaxMessages?: number;
-	loadConfig?: (options: { agentDir: string; cwd: string }) => Promise<TavernConfig>;
+	loadConfig?: (options: LoadTavernConfigOptions) => Promise<TavernConfig>;
 	discoverGroupChats?: (options: DiscoverGroupChatsOptions) => Promise<ActiveGroupChatDescriptor[]>;
 	listGroupChatSessions?: (agentDir: string, cwd: string) => Promise<GroupChatSessionSummary[]>;
 	deleteGroupChatSession?: (path: string) => Promise<DeleteGroupChatSessionResult>;
@@ -114,7 +119,11 @@ export function registerCommands(
 		description: CMD_DESC_NEW,
 		handler: async (_args, ctx) => {
 			try {
-				const config = await loadConfig({ agentDir, cwd: ctx.cwd });
+				const config = await loadConfig({
+					agentDir,
+					cwd: ctx.cwd,
+					notice: (message) => ctx.ui.notify(message, "warning"),
+				});
 				const runtime = await controller.startNew({
 					cwd: ctx.cwd,
 					agentDir,
@@ -145,7 +154,11 @@ export function registerCommands(
 				if (!ctx.hasUI) {
 					throw new Error(ERROR_RESUME_REQUIRES_UI);
 				}
-				const config = await loadConfig({ agentDir, cwd: ctx.cwd });
+				const config = await loadConfig({
+					agentDir,
+					cwd: ctx.cwd,
+					notice: (message) => ctx.ui.notify(message, "warning"),
+				});
 				// 组合根契约：index.ts 装配注入行为默认实现（五层依赖方向，architecture.md §5）。
 				if (!listGroupChatSessions) {
 					throw new Error(ERROR_INJECTION_LIST_SESSIONS);
@@ -231,7 +244,11 @@ export function registerCommands(
 				}
 				const sessionId = ctx.sessionManager.getSessionId();
 				//：Character 在 join 时加载配置（本地），模板集随 claim 转发。
-				const joinConfig = await loadConfig({ agentDir, cwd: ctx.cwd });
+				const joinConfig = await loadConfig({
+					agentDir,
+					cwd: ctx.cwd,
+					notice: (message) => ctx.ui.notify(message, "warning"),
+				});
 				const attempt = await controller.startJoining(descriptor, sessionId, {
 					...(options.triggerDebounceMs !== undefined ? { triggerDebounceMs: options.triggerDebounceMs } : {}),
 					...(options.deliveryWindowMs !== undefined ? { deliveryWindowMs: options.deliveryWindowMs } : {}),

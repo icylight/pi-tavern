@@ -113,6 +113,9 @@ export class TavernController {
 				...(options.cursorStorePath !== undefined ? { cursorStorePath: options.cursorStorePath } : {}),
 				...(options.messageTemplates !== undefined ? { messageTemplates: options.messageTemplates } : {}),
 				...(options.speakSoftLimitChars !== undefined ? { speakSoftLimitChars: options.speakSoftLimitChars } : {}),
+				//  路径透传到 runtime，reload 才能重读磁盘配置（缺此转发则 reload 不做配置加载）。
+				...(options.agentDir !== undefined ? { agentDir: options.agentDir } : {}),
+				...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
 				onDisconnected: () => {
 					void this.handleConnectionClosed(token);
 				},

@@ -1,0 +1,28 @@
+{
+  // chain:whisper-views。三名真实 pi Character 共用群聊，各自持有独立 Session。
+  // 私信内容含 JSON 转义与换行；旁观者的整个已消费输入均不得泄露明文。
+  "scenario": "SD215-whisper-views",
+  "secret_marker": "sd215-private-unique-",
+  "roles": [
+    { "id": "characters/alice.md", "name": "Alice" },
+    { "id": "characters/bob.md", "name": "Bob" },
+    { "id": "characters/carol.md", "name": "Carol" }
+  ],
+  "steps": [
+    { "act": "persona", "content": "sd215-open-whisper-round" },
+    {
+      "act": "whisper",
+      "from": "Alice",
+      "to": "Bob",
+      "content": "sd215-private-unique-\"quoted\"-\\folder\nsecond ] line",
+      "expect": {
+        "recipient": "whisper_message",
+        "sender": "no-self-input",
+        "bystander_before_pull": "no-input",
+        "bystander_after_pull": "whisper_placeholder",
+        "absent_keys": ["content", "round", "title"]
+      }
+    },
+    { "act": "persona", "content": "sd215-public-wake-carol" }
+  ]
+}

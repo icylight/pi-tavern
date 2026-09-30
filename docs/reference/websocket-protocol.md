@@ -406,7 +406,7 @@ Character 使用固定 1 秒聚合窗口（闲态）合并连续到达的公共�
 3. 忙态：先标记未读挂起，最多排一个 `pi-tavern.abort-control` 隐藏 steer 令牌；当前工具批结束、下一次模型调用前由 `context` 钩子过滤令牌并调用一次 abort。`agent_settled` 后按本 Session 持久化游标 `fetch_messages_since` 拉取全部未读；密集 update 合并为一个令牌、一次 abort、一次拉全。
 4. 拉取完成后请求最新群聊状态，将批次与状态快照合并提交。
 
-**游标推进 = 消费确认（#201）**：批次入队（`sendMessage` 无同步异常）不再推进游标；pi 把批推入 agent 上下文时 emit `message_start`（载荷含批 `details`），本侧按批覆盖元数据（`coverage_from` / `latest_sequence`）判定连续性——覆盖下界 ≤ 当前游标才推进。同步抛错不推进并整批重投；异步 run 启动失败 / 队列静默清空（interactive abort → `clearAllQueues`）均属未确认——区间保持未读，后续投递机会重拉重投（重复可接受、跳过不可接受）。
+**游标推进 = 消费确认（#201）**：**含可投递他人消息**的批次入队（`sendMessage` 无同步异常）不推进游标；pi 把批推入 agent 上下文时 emit `message_start`（载荷含批 `details`），本侧按批覆盖元数据（`coverage_from` / `latest_sequence`）判定连续性——覆盖下界 ≤ 当前游标才推进其**连续覆盖区间**。纯自身回显或无可投递未读的拉取批不生成 Agent 输入，仍可按拉取覆盖证明直接推进至 `page.latestSequence`（不依赖 `message_start`）。同步抛错不推进并整批重投；异步 run 启动失败 / 队列静默清空（interactive abort → `clearAllQueues`）均属未确认——区间保持未读，后续真实投递机会重拉重投（重复可接受、跳过不可接受）；查询/补拉失败保持游标，等待后续真实拉取机会，不保证空转 settle 自愈。
 
 提交环境批次时：
 
@@ -431,6 +431,44 @@ WebSocket 环境消息不会逐条直接追加到 pi session。Agent 输入只�
 - 普通请求响应
 
 `get_group_chat_state` 响应不独立触发 Agent，而是作为触发它的环境批次的最新快照。聚合窗口本身不修改 `is_streaming`；该字段始终跟随当前 pi Agent 的原生状态（watchdog 兜底）。聚合批次只是短暂的消息合并机制，不替代 pi-coding-agent 的 follow-up queue。闲态窗口固定为 1 秒，不提供配置项。
+
+## LLM 消息投影（#215 结构化单轨）
+
+实时群聊输入中「新消息」段为可解析的 JSON 消息元素数组：元素与同一查询者的查询结果同形（`jsonrpc` / `method` / `params`），按 `sequence` 稳定升序且去重。本变更只改角色消费端投影，不新增 wire 帧、不改查询返回与持久化。
+
+### 消息元素来源与旧容器
+
+| 来源 | 外层是否进入消息区 | 内层是否成为消息元素 |
+| --- | --- | --- |
+| `fetch_messages_since` 响应 | 否（`id` / `result.latest_sequence` / `total_messages` 不注入） | ✓ `result.messages[]`（经自产过滤与上下文窗口筛选） |
+| `get_message_history` 响应 | 否（`id` / `cursor` / `has_more` / `total_messages` 不注入） | 分两种消费：旧容器续页（外层 `has_more` 后续页追加进投递批）✓；`tavern_history` 工具调用的结果直回 Agent，不经本投影 |
+| `message_history` 通知（旧容器兼容路径） | 否（`params.cursor` / `has_more` / `total_messages` 不注入） | ✓ `params.messages[]` 内层元素（当前服务端 ready 后不再推送，客户端保留兼容处理） |
+| `group_chat_update` 通知 | 不注入（仅触发拉取） | 不适用 |
+| `system_message` / `board_update` | 不适用（各自独立分区，非消息元素） | 不适用 |
+
+- 注入元素与同视角查询元素全字段深等（键集合一致、无额外字段）；不要求注入批次等于某次查询的全集。
+- 实时帧中 `public_message`（自产回显过滤）与 `whisper_message`（接收者全文）本身即消息元素；`whisper_placeholder` 实时只记水位、不入批，仅补拉或手动重入后成为数组元素。所有元素按同一判据排序；请求 `id`、分页 `cursor`、`has_more`、`total_messages` 与响应 `result` 外壳一律不进入 LLM 输入。
+- 消息元素只按 `sequence` 归并去重；`system_message`、`board_update`、身份/来源、状态与操作指引使用独立分区，不伪装成消息元素。该排序只作用于 LLM 可见投影（`content` 消息区），不改批次事件的聚合顺序（`details.events`）。
+- 旧容器内层元素与增量拉取元素走同一投递与消费确认路径（`message_start` 推进连续覆盖区间）；分页 `cursor` 只是服务端不透明分页边界，与 Session 消费游标无关。
+
+### 私信三视角在投影中的保持
+
+- 接收者：`whisper_message` 全文进入消息区。
+- 发送者：查询可见全文；实时路径不生成自产事件，自产私信不触发自身输入。
+- 旁观者：实时只记水位、不唤醒；补拉或手动重入时以 `whisper_placeholder` 进入消息区，无 `content` / `round` / 标题字段，整段输入不含正文。
+
+### 补拉、手动重入与非 sequence 边界
+
+- 有 `sequence` 的消息沿本 Session 持久化游标补拉：真实断线不自动重连，用户手动重新 join 后复用同一 pi Session 游标；跨批已读重复允许，未读不可跳。
+- 新 Session 进入前历史不自动注入（`tavern_history` 主动分页拉取）；重入只发送新的 `system_message` 欢迎语。
+- 非 sequence 通知不进消息游标、不重放：`system_message` 与 `board_update` 不因重入补回；`board_query` 只返回当前白板快照，不重播断线期间的旧 `board_update`。
+- reload handoff 在进程内保留未提交 pending 与交接窗口缓冲帧、按到达顺序重放；这与真实断线后的手动重入是两条路径。
+- 查询/补拉失败（连接仍活跃）不入投递批、不推进游标；只在后续确实触发的拉取机会重试（下一次 update 触发的拉取、手动重入），空转 settle 不保证自愈。非法 WebSocket 帧沿 codec fail-close 断连，需人工重新 join，不由同连接后续 update 自愈。
+
+### 模板消费面（#215）
+
+- 实时 LLM 消息区不再消费 `message_templates`；`public_message`、`whisper_full`、`whisper_placeholder` 继续用于 `tavern_history` 与创建者 TUI，`whisper_full` 同时是私信落盘格式；`seconds_ago` / `minutes_ago` 不再有实时消费点。
+- 显式有效的受影响模板配置在每次配置加载或 reload 给出恰一条用户可见迁移提示；触发边界与四个入口见 [group-chat-input.md](../architecture/group-chat-input.md#模板消费面与迁移告知215)。
 
 ## Character 状态同步
 
@@ -529,7 +567,7 @@ User Persona 和 Character 的公开消息统一使用 `public_message` 结构�
 成功响应：[`server.jsonc` 的 `ServerMessage`](../../src/protocol/schema/server.jsonc) `fetch_messages_since` 响应分支（`result.messages` = `sequence > since_sequence` 的全部公开消息 + `latest_sequence` + `total_messages`）。
 - `messages`：`sequence > since_sequence` 的全部公开消息（严格递增、无重复）；按序号过滤天然补齐缺口。
 - `latest_sequence`：服务端当前最新序号。
-- 与 `message_history`（主动查询分页）并存：无持久化游标时经 `fetch_messages_since(0)` 拉全量；有持久化游标时 join/重连走增量拉取（差分同步）。
+- 与 `get_message_history`（主动查询分页）及旧 `message_history` 通知（兼容容器）并存：无持久化游标时经 `fetch_messages_since(0)` 拉全量；有持久化游标时 join/重连走增量拉取（差分同步）。
 
 Character 发言成功时，群聊创建者原子分配 `sequence`、更新 Round 次数并通过 `SessionManager` 写入 `custom_message`，使用返回的 entry `id` 作为 `event_id`，然后先广播 `group_chat_update`，再返回对应的 `speak` 成功响应。
 
@@ -559,7 +597,7 @@ Character 的 `tavern_whisper` Agent tool 通过 WebSocket 发送 `whisper` 请�
 
 ### 私信通知（三视角投影，WH4）
 
-投影语义在**服务端**完成，按查看者身份区分（客户端零投影逻辑，只做模板渲染）：
+投影语义在**服务端**完成，按查看者身份区分（客户端零视角投影逻辑；实时 LLM 面按结构化消息元素序列化，TUI/历史工具面继续模板渲染）：
 
 - **接收者**：单播 `whisper_message`（字段形状：[`server.jsonc` 的 `ServerMessage`](../../src/protocol/schema/server.jsonc) `whisper_message` 通知分支）——含 `sender` / `recipient` / `content` / `round`，走现有实时投递与忙态安全边界。
 - **其他 Character**：广播 `whisper_placeholder`（`whisper_placeholder` 通知分支）——仅含 `sender` / `recipient`，**无正文**；占位事件入其未读序列供消费（复用未读先读机制），但**不触发未读先读阻塞、不触发服务端 stale 判定**（占位无正文零信息增量，协议性回复不被拦——公开消息与 whisper 全文仍触发阻塞/仍参与 stale）；不被主动唤醒。
@@ -605,9 +643,10 @@ Character 的 `tavern_whisper` Agent tool 通过 WebSocket 发送 `whisper` 请�
 
 | 帧类型 | codec 解码 | 实时注入 | 补拉（pullIncrement） | 游标推进 | 未读 | 渲染 | TUI（创建者） |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `public_message` | ✓复用 | ✓复用（环境事件，唤醒） | ✓复用 | ✓复用 | ✓复用 | ✓复用（public_message 模板） | ✓复用 |
-| `whisper_message` | ✓复用 | ✓复用（环境事件，唤醒——**仅接收者**） | ✓接纳（含正文） | ✓复用 | ✓复用 | whisper_full 模板（sender/receiver/content） | ✓完整正文（恒参与者视角） |
-| `whisper_placeholder` | ✓复用 | **差异化：不注入、不唤醒、不进 debounce（仅水位推进）** | ✓接纳（占位帧，推进游标防反复 stale） | ✓复用 | ✓复用（占位入未读序列供消费，不触发未读先读阻塞/服务端 stale） | whisper_placeholder 模板（sender/receiver，无 content） | **不适用**（创建者恒见完整正文） |
+| `public_message` | ✓复用 | ✓复用（环境事件，唤醒） | ✓复用 | ✓复用 | ✓复用 | 结构化消息元素（history/TUI 用 public_message 模板） | ✓复用 |
+| `whisper_message` | ✓复用 | ✓复用（环境事件，唤醒——**仅接收者**） | ✓接纳（含正文） | ✓复用 | ✓复用 | 结构化全文元素（history/TUI/落盘用 whisper_full 模板） | ✓完整正文（恒参与者视角） |
+| `whisper_placeholder` | ✓复用 | **差异化：不注入、不唤醒、不进 debounce（仅水位推进）** | ✓接纳（占位帧，推进游标防反复 stale） | ✓复用 | ✓复用（占位入未读序列供消费，不触发未读先读阻塞/服务端 stale） | 结构化占位元素（history 用 whisper_placeholder 模板；无 content） | **不适用**（创建者恒见完整正文） |
+| `message_history`（旧容器） | ✓复用 | **差异化：外层不注入；内层 `params.messages[]` 元素并入消息元素** | —（兼容快照路径，非 pullIncrement） | ✓复用（消费确认推进连续覆盖区间） | 不适用 | 内层结构化；外层分页字段不渲染（history/TUI 工具面仍模板） | **不适用**（Character 侧容器） |
 | `group_chat_update` | ✓复用 | ✓复用 | — | — | — | ✓复用 | ✓复用 |
 | `board_update` | ✓复用 | ✓复用（他人更新；自回显过滤） | 不适用 | 不适用 | 不适用 | 白板更新桶 | ✓变更提示 |
 

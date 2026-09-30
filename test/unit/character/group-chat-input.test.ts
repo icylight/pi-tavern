@@ -5,6 +5,7 @@ import { GroupChatInput } from "../../../src/character/group-chat-input.js";
 import { DEFAULT_TEMPLATES, type MessageTemplateKey } from "../../../src/config/message-templates.js";
 import type { PublicMessage, ServerMessage } from "../../../src/protocol/messages.js";
 import { createConsumableMockPi, emitBatchConsumption } from "../../helpers/consumable-pi.js";
+import { parseMessageElements } from "../../helpers/message-section.js";
 
 function createMockRuntime(
 	overrides: {
@@ -217,12 +218,18 @@ describe("GroupChatInput", () => {
 		expect(message.details.character_id).toBe("dev");
 		expect(message.details.events).toHaveLength(1);
 		expect(message.details.group_chat_state).toEqual(stateSnapshot);
-		expect(message.content).toContain("First message");
+		// #215：消息区为结构化消息元素（与查询投影同形），不再逐条模板渲染。
+		const elements = parseMessageElements(message.content);
+		expect(elements).toHaveLength(1);
+		expect(elements[0]?.method).toBe("public_message");
+		expect(elements[0]?.params.content).toBe("First message");
+		expect(elements[0]?.params.sequence).toBe(1);
+		expect(elements[0]?.params.timestamp).toBe("2026-01-01T00:00:00.000Z");
 		//  三字段身份契约（cab1fd7）
 		expect(message.content).toContain("你的当前角色：Developer（character_id=dev，注册名=Developer）");
-		// 环境文本带当前时间（头部）+ 消息发言时间/间隔（存在性断言防脆测）
+		// 环境文本带当前时间（头部）；消息绝对时间在元素 timestamp 字段。
 		expect(message.content).toMatch(/当前时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/);
-		expect(message.content).toMatch(/User Persona（\d{4}-\d{2}-\d{2} \d{2}:\d{2}（\d+ 秒前|\d+ 分钟前））:/);
+		expect(message.content).not.toMatch(/分钟前|秒前/);
 
 		expect(options.triggerTurn).toBe(true);
 		expect(options.deliverAs).toBe("steer");
@@ -366,7 +373,7 @@ describe("GroupChatInput", () => {
 		input.stop();
 	});
 
-	it("T3: 实时注入用自定义 public_message 模板渲染（三面同变）", async () => {
+	it("T3: 实时注入不再使用自定义 public_message 模板（结构化单轨）", async () => {
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({
@@ -383,14 +390,15 @@ describe("GroupChatInput", () => {
 
 		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
 		const message = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as { content?: string };
-		// 消息带 timestamp → when 并入 vars.sender（契约方案 a），模板格式可辨。
-		expect(message.content ?? "").toContain("[User Persona");
-		expect(message.content ?? "").toContain("]→Hello");
+		// #215：实时消息区结构化——自定义模板不再参与渲染（模板仍服务 history/TUI）。
+		expect(message.content ?? "").not.toContain("[User Persona");
+		const elements = parseMessageElements(message.content ?? "");
+		expect(elements[0]?.params.content).toBe("Hello");
 
 		input.stop();
 	});
 
-	it("T3: 实时注入相对时间用自定义模板渲染（minutes_ago 接入 formatMessageTime）", async () => {
+	it("T3: 实时注入不再消费 seconds_ago/minutes_ago（结构化单轨）", async () => {
 		vi.useFakeTimers();
 
 		// 消息 timestamp = 2026-01-01，fake timers 基准 = 真实当前时间 → 间隔巨大 → 分钟分支。
@@ -408,9 +416,11 @@ describe("GroupChatInput", () => {
 
 		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
 		const message = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as { content?: string };
-		// 自定义相对时间模板生效（此前硬编码「x 分钟前」中文）。
-		expect(message.content ?? "").toContain("min ago");
+		// 相对时间不再有实时消费点；绝对时间由元素 timestamp 提供。
+		expect(message.content ?? "").not.toContain("min ago");
 		expect(message.content ?? "").not.toContain("分钟前");
+		const elements = parseMessageElements(message.content ?? "");
+		expect(elements[0]?.params.timestamp).toBe("2026-01-01T00:00:00.000Z");
 
 		input.stop();
 	});
@@ -1636,9 +1646,12 @@ describe("GroupChatInput", () => {
 
 		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
 		const message = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as { content?: string };
-		expect(message.content ?? "").toContain("hello");
-		expect(message.content ?? "").toContain("Dev 向 QA 悄悄说：secret-2");
-		expect(message.content ?? "").toContain("Dev 向 QA 悄悄说了一句话");
+		// #215：旧容器内层元素合并进同一结构化数组，按 sequence 升序。
+		const elements = parseMessageElements(message.content ?? "");
+		expect(elements.map((entry) => entry.params.sequence)).toEqual([1, 2, 3]);
+		expect(elements.map((entry) => entry.method)).toEqual(["public_message", "whisper_message", "whisper_placeholder"]);
+		expect(elements[1]?.params.content).toBe("secret-2");
+		expect(elements[2]?.params).not.toHaveProperty("content");
 
 		input.stop();
 	});
@@ -2062,7 +2075,7 @@ describe("GroupChatInput", () => {
 
 		input.stop();
 	});
-	it("WH4 : whisper_message 用 whisper_full 模板渲染（接收者实时唤醒，C 回归）", async () => {
+	it("WH4 : whisper_message 结构化元素投递（接收者实时唤醒，C 回归）", async () => {
 		vi.useFakeTimers();
 
 		const runtime = createMockRuntime({ hasPublicMessages: true });
@@ -2083,8 +2096,12 @@ describe("GroupChatInput", () => {
 
 		expect(pi.sendMessage).toHaveBeenCalledTimes(1);
 		const message = (pi.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as { content?: string };
-		// 默认模板 full = "{sender} 向 {receiver} 悄悄说：{content}"。
-		expect(message.content ?? "").toContain("Arch 向 Dev 悄悄说：secret plan");
+		// #215：私信实时面结构化（whisper_full 模板不再参与实时渲染）。
+		const elements = parseMessageElements(message.content ?? "");
+		expect(elements).toHaveLength(1);
+		expect(elements[0]?.method).toBe("whisper_message");
+		expect(elements[0]?.params.content).toBe("secret plan");
+		expect(message.content ?? "").not.toContain("悄悄说");
 
 		input.stop();
 	});
