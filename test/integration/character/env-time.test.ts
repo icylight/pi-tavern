@@ -7,18 +7,16 @@ import type { CharacterRuntime } from "../../../src/character/character-runtime.
 import { JoinAttempt } from "../../../src/character/join-attempt.js";
 import { type CharacterCard, loadCharacterCard } from "../../../src/config/character-card.js";
 import { CreatorRuntime } from "../../../src/creator/creator-runtime.js";
+import { parseMessageElements } from "../../helpers/message-section.js";
 
 /**
- *  环境文本时间要素钉测（QA 属主，integration 层）：
+ * #215 后：环境文本时间要素钉测（integration 层）：
+ * ① 头部「当前时间：YYYY-MM-DD HH:MM:SS」（注入时点）；
+ * ② 消息绝对发言时间在结构化元素的 `params.timestamp`，不再有相对时间渲染。
+ * 协议/持久化零改动（timestamp 已存在于 wire，纯消费端投影）。
  *
- * 契约（定案，A1-A3）：buildContent 生成的环境更新文本必须包含
- * ① 头部「当前时间：YYYY-MM-DD HH:MM:SS」（注入时点）；② 每条 public_message
- * 行带发言时间（YYYY-MM-DD HH:MM）+ 距当前间隔（「x 分钟前」/「x 秒前」）。
- * 协议/持久化零改动（timestamp 已存在于 wire，纯消费端渲染）。
- *
- * 断言策略：存在性匹配（regex 断言格式存在，不钉死具体时刻）防脆测。
  * - T1：头部当前时间（格式 + 与注入时点同一分钟级窗口）
- * - T2：消息行发言时间 + 间隔存在（格式 regex）
+ * - T2：消息元素 timestamp 与发布时刻同窗口；相对时间不再出现
  * - T3：既有内容不回归（身份行/消息正文仍完整）
  */
 
@@ -111,11 +109,11 @@ describe("env time", () => {
 		expect(content).toContain("来源：群聊");
 	});
 
-	it("T2: 消息行含发言时间 + 距当前间隔", { timeout: 15_000 }, async () => {
+	it("T2: 消息元素带绝对发言时间（结构化单轨，无相对时间渲染）", { timeout: 15_000 }, async () => {
 		const { creator, character } = await startCreator();
 		const { pi } = await joinCharacter(creator, character, "env-time-t2");
 		// ready 不再推 message_history——存量历史不自动注入；submit 新消息触发
-		// group_chat_update 水位 → fetchMessagesSince 拉取路径，消息行进入注入。
+		// group_chat_update 水位 → fetchMessagesSince 拉取路径，消息元素进入注入。
 		await creator.submitUserPersonaMessage("hello 1");
 		const sendMessage = pi.sendMessage as ReturnType<typeof vi.fn>;
 		await waitFor(() => {
@@ -127,12 +125,16 @@ describe("env time", () => {
 		const content = sendMessage.mock.calls.find((call) => (call[0]?.content as string).includes("hello 1"))?.[0]
 			?.content as string;
 
-		// A1/A2：消息行含发言时间（YYYY-MM-DD HH:MM）+ 间隔（x 分钟前/x 秒前）
-		// Dev 实现格式：发送者（YYYY-MM-DD HH:MM（x 分钟前/x 秒前））: 内容
-		const messageLine = /User Persona（(\d{4}-\d{2}-\d{2} \d{2}:\d{2})（(\d+ (?:秒|分钟)前)））:/.exec(content);
-		expect(messageLine).not.toBeNull();
+		// #215：「新消息」段为结构化元素（与查询投影同形）；绝对发言时间在 timestamp。
+		const element = parseMessageElements(content).find((entry) => entry.params.content === "hello 1");
+		expect(element?.method).toBe("public_message");
+		const timestamp = element?.params.timestamp;
+		expect(typeof timestamp).toBe("string");
+		const published = new Date(String(timestamp));
+		expect(Number.isNaN(published.getTime())).toBe(false);
+		expect(Math.abs(Date.now() - published.getTime())).toBeLessThan(120_000);
 
-		// T3：消息正文仍完整
-		expect(content).toContain("hello 1");
+		// 相对时间（x 分钟前/x 秒前）不再有实时消费点。
+		expect(content).not.toMatch(/\d+ (?:秒|分钟)前/);
 	});
 });

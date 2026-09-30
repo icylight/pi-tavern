@@ -19,6 +19,80 @@ afterEach(async () => {
 });
 
 describe("loadTavernConfig", () => {
+	it("#215: 显式有效模板键每次加载恰一条可见迁移提示；无配置/仅非法零条", async () => {
+		// 无配置 → 零条
+		const bare = await createTemporaryDirectory();
+		const bareNotices: string[] = [];
+		await loadTavernConfig({
+			agentDir: join(bare, "agent"),
+			cwd: join(bare, "project"),
+			notice: (message) => bareNotices.push(message),
+		});
+		expect(bareNotices).toEqual([]);
+
+		// 全局显式有效 → 恰一条
+		const configured = await createTemporaryDirectory();
+		const agentDir = join(configured, "agent");
+		const cwd = join(configured, "project");
+		await mkdir(join(agentDir, "characters"), { recursive: true });
+		await mkdir(join(cwd, ".pi"), { recursive: true });
+		await writeFile(
+			join(agentDir, "tavern.json"),
+			JSON.stringify({ message_templates: "global-templates.json" }),
+			"utf8",
+		);
+		await writeFile(
+			join(agentDir, "global-templates.json"),
+			JSON.stringify({ public_message: "G: {sender} {content}" }),
+			"utf8",
+		);
+		const notices: string[] = [];
+		await loadTavernConfig({ agentDir, cwd, notice: (message) => notices.push(message) });
+		expect(notices).toHaveLength(1);
+		expect(notices[0]).toContain("模板");
+		expect(notices[0]).toContain("结构化");
+
+		// 项目非法且全局无同 key → 回退内置，零条
+		await writeFile(
+			join(cwd, ".pi", "tavern.json"),
+			JSON.stringify({ message_templates: "project-templates.json" }),
+			"utf8",
+		);
+		await writeFile(
+			join(cwd, ".pi", "project-templates.json"),
+			JSON.stringify({ seconds_ago: "MISSING-PLACEHOLDERS" }),
+			"utf8",
+		);
+		const invalidNotices: string[] = [];
+		await loadTavernConfig({ agentDir, cwd, notice: (message) => invalidNotices.push(message) });
+		// 全局 public_message 仍有效 → 仍恰一条（但不再是 seconds_ago）
+		expect(invalidNotices).toHaveLength(1);
+		expect(invalidNotices[0]).toContain("public_message");
+		expect(invalidNotices[0]).not.toContain("seconds_ago");
+
+		// 仅非法（全局也未配置）→ 零条
+		const invalidOnly = await createTemporaryDirectory();
+		const invalidOnlyCwd = join(invalidOnly, "project");
+		await mkdir(join(invalidOnlyCwd, ".pi"), { recursive: true });
+		await writeFile(
+			join(invalidOnlyCwd, ".pi", "tavern.json"),
+			JSON.stringify({ message_templates: "project-templates.json" }),
+			"utf8",
+		);
+		await writeFile(
+			join(invalidOnlyCwd, ".pi", "project-templates.json"),
+			JSON.stringify({ public_message: "MISSING-PLACEHOLDERS" }),
+			"utf8",
+		);
+		const invalidOnlyNotices: string[] = [];
+		await loadTavernConfig({
+			agentDir: join(invalidOnly, "agent"),
+			cwd: invalidOnlyCwd,
+			notice: (message) => invalidOnlyNotices.push(message),
+		});
+		expect(invalidOnlyNotices).toEqual([]);
+	});
+
 	it("uses defaults when global and project config are absent", async () => {
 		const root = await createTemporaryDirectory();
 
