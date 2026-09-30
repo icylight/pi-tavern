@@ -9,6 +9,10 @@
 
 ## [未发布]
 
+### 修复
+
+- `typebox` 从 `dependencies` 改列 `peerDependencies`（范围 `"*"`）：pi 扩展加载器已把 `typebox` alias 到宿主副本，包内自装一份不会被加载，还会触发 pi 启时的「宿主提供包不得写在 dependencies」警告；开发期仍由 `devDependencies` 锁 `^1.1.38` 供 `tsc`/vitest 解析。
+
 ## [0.3.0] - 2026-08-08
 
 ### 新增

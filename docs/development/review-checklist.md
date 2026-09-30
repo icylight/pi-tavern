@@ -2,7 +2,7 @@
 
 > 属主：Dev。用于方案评审、代码评审与交付收口；只保留可执行检查，不记录讨论过程或历史案例。
 
-1. **依赖归属**：运行期 import 必须来自 `dependencies`；核对 lockfile 的 `dev` 标记。
+1. **依赖归属**：运行期 import 必须来自 `dependencies`（pi 宿主自带包例外：走 `peerDependencies` 范围 `"*"`，开发期再由 `devDependencies` 锁版本）；核对 lockfile 的 `dev` 标记。
 2. **Wire 类型边界**：检查通知/广播构造点是否以 `unknown` / `any` 逃逸，不能只以 `tsc` 通过判定 wire 正确。
 3. **声明逐路径核对**：文档或汇报中的文件数、路径数和分支数逐项对照实际树。
 4. **证据可复现**：交付引用的命令、数据与冒烟结果必须可重跑。
