@@ -1,0 +1,12 @@
+{
+  // chain:partition。system 欢迎/board 更新均无 sequence，不得伪装成结构化消息元素。
+  // 真实 pi 观察者消费 content；WS 仅用于让另一个在线角色执行 board_write。
+  "scenario": "SD215-partitions",
+  "roles": [
+    { "id": "characters/observer.md", "name": "Observer" },
+    { "id": "characters/writer.md", "name": "Writer" }
+  ],
+  "board_note": "sd215-independent-board-note",
+  "public_message": "sd215-partition-public-message",
+  "expected": { "board_heading": "白板更新：", "system_heading": "系统消息：", "public_method": "public_message" }
+}

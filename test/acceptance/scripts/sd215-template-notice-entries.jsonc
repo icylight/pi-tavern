@@ -1,0 +1,21 @@
+{
+  // chain:template-notice。合法的来源 key 合并后生效；每个入口每次加载有一条可见迁移提示。
+  // 交互 Character 与 headless Character 共用模板定义，但各自验证自己的通知通道。
+  "scenario": "SD215-template-notice-entries",
+  "resume_anchor": "sd215-notice-resume-persisted-message",
+  "roles": [
+    { "id": "characters/alpha.md", "name": "Alpha" },
+    { "id": "characters/beta.md", "name": "Beta" }
+  ],
+  "templates": {
+    "global": { "public_message": "GLOBAL-{sender}: {content}" },
+    "project": { "whisper_full": "PROJECT-{sender} to {receiver}: {content}" }
+  },
+  "operations": [
+    { "act": "tavern-new", "channel": "rpc-notify", "notice_count": 1 },
+    { "act": "tavern-join", "channel": "rpc-notify", "notice_count": 1 },
+    { "act": "headless-auto-join", "channel": "auto-join-stderr-prefix", "notice_count": 1 },
+    { "act": "reload", "channel": "rpc-notify", "notice_count": 1 },
+    { "act": "tavern-resume", "channel": "rpc-notify", "notice_count": 1 }
+  ]
+}
