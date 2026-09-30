@@ -136,6 +136,51 @@ export function mergeMessageTemplates(
 }
 
 /**
+ * #215：显式且生效的受影响模板键（实时 LLM 消息面改为结构化，五 key 原先都有实时消费面）。
+ * 逐 key 回退链：项目层该 key 已知且校验通过 → 计入；否则看全局层同 key；
+ * 未知/非法项与内置默认值都不计入。返回按 MESSAGE_TEMPLATE_KEYS 顺序稳定输出。
+ */
+export function collectAffectedTemplateKeys(
+	projectTemplates: Record<string, string> | null | undefined,
+	globalTemplates: Record<string, string> | null | undefined,
+): MessageTemplateKey[] {
+	const effective = new Set<MessageTemplateKey>();
+	const applyLayer = (layer: Record<string, string> | null | undefined): void => {
+		if (layer === null || layer === undefined) {
+			return;
+		}
+		for (const [key, value] of Object.entries(layer)) {
+			if (!MESSAGE_TEMPLATE_KEYS.includes(key as MessageTemplateKey)) {
+				continue;
+			}
+			const templateKey = key as MessageTemplateKey;
+			if (effective.has(templateKey) || !validateTemplate(templateKey, value).ok) {
+				continue;
+			}
+			effective.add(templateKey);
+		}
+	};
+	applyLayer(projectTemplates);
+	applyLayer(globalTemplates);
+	return MESSAGE_TEMPLATE_KEYS.filter((key) => effective.has(key));
+}
+
+/**
+ * #215：迁移提示文案——单行输出（headless 的 stderr 前缀行依赖单行），
+ * 每次配置加载/reload 聚合一条；未命中受影响键时调用方不提示。
+ * 调用方以 warning 级别投递：TUI 对连续 info 状态行原地合并，info 级提示会被
+ * 紧随的成功提示覆盖而不可见。
+ */
+export function formatTemplateMigrationNotice(keys: MessageTemplateKey[]): string {
+	const retired = keys.filter((key) => key === "seconds_ago" || key === "minutes_ago");
+	return (
+		`消息模板迁移提示：检测到显式配置的 message_templates 键（${keys.join("、")}）；` +
+		"实时 LLM 消息已改为结构化投递，不再应用这些模板；历史工具/TUI 与私信落盘渲染不变。" +
+		(retired.length > 0 ? `其中 ${retired.join("、")} 已无消费点。` : "")
+	);
+}
+
+/**
  *  T2：读取模板文件（路径相对声明它的配置文件目录解析）。
  * 未声明 → null 无 warning；文件缺失 / 解析失败 / 顶层非对象 → warning + null
  * （该层整体回退）；顶层对象内非 string 值 → 该 key 丢弃 + warning（逐项回退精神）。

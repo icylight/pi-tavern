@@ -10,7 +10,13 @@ import {
 	ERROR_READ_CONFIG_PREFIX,
 } from "../shared/messages.js";
 import { type CharacterCard, type CharacterImport, loadCharacterCards } from "./character-card.js";
-import { loadMessageTemplateFile, type MessageTemplateKey, mergeMessageTemplates } from "./message-templates.js";
+import {
+	collectAffectedTemplateKeys,
+	formatTemplateMigrationNotice,
+	loadMessageTemplateFile,
+	type MessageTemplateKey,
+	mergeMessageTemplates,
+} from "./message-templates.js";
 
 export interface TavernConfig {
 	configMaxMessages: number;
@@ -34,9 +40,11 @@ export interface TavernConfig {
 	speakSoftLimitChars?: number;
 }
 
-interface LoadTavernConfigOptions {
+export interface LoadTavernConfigOptions {
 	agentDir: string;
 	cwd: string;
+	/** #215：配置加载入口的用户可见通知通道（迁移提示用；未提供则不提示）。 */
+	notice?: (message: string) => void;
 }
 
 const TavernConfigFileSchema = Type.Object(
@@ -88,6 +96,12 @@ export async function loadTavernConfig(options: LoadTavernConfigOptions): Promis
 	);
 	for (const warning of [...projectTemplates.warnings, ...globalTemplates.warnings, ...templateWarnings]) {
 		console.warn(warning);
+	}
+	// #215：显式且生效的受影响模板键 → 每次加载/ reload 聚合一条可见迁移提示
+	// （不影响 LLM 消息区，不进 details）。
+	const affectedTemplateKeys = collectAffectedTemplateKeys(projectTemplates.templates, globalTemplates.templates);
+	if (affectedTemplateKeys.length > 0) {
+		options.notice?.(formatTemplateMigrationNotice(affectedTemplateKeys));
 	}
 
 	const boardMaxNotes = projectConfig?.board_max_notes ?? globalConfig?.board_max_notes;
