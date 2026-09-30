@@ -33,6 +33,7 @@
 - 现状容错形态：`"prepare": "husky || echo \"husky init skipped/inactive\" >&2 || true"`——pi 从 git 安装包时跑 `npm install --omit=dev`（不装 devDependencies，husky 为 devDep），prepare 在安装时必执行；`|| true` 保证 husky 缺失时静默跳过不报错（本地开发有 husky 时正常初始化 hooks）。
 - **红线**：若未来 prepare 需要承担构建/生成（必须步骤），必须撤销 `|| true` 容错或拆分为 `prepare:dev`/`prepare:build`，不得让必须步骤被静默吞掉。
 - 配套依赖归属红线：**运行期 import 的包一律进 `dependencies`，且不得同列 `devDependencies`**（双列会导致 lockfile 打 `dev: true` 标记，`--omit=dev` 安装时被跳过 → 装成功启动崩；vscode-jsonrpc 同规）。
+- 宿主提供包例外：pi 宿主自带的包（`typebox`、`@earendil-works/pi-*`）进 `peerDependencies`（范围 `"*"`），不进 `dependencies`——pi 扩展加载器把这些标识符 alias 到宿主副本（`dist/core/extensions/loader.js`），包内自装一份不仅不会被加载，还会触发 pi 的重复运行时警告；开发期另在 `devDependencies` 锁具体版本（`@earendil-works/pi-coding-agent` 同规）。
 
 ## 自定义 JSON
 
