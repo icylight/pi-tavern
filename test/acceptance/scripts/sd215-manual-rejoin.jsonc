@@ -1,0 +1,14 @@
+{
+  // chain:manual-rejoin。创建者正常关群聊会关闭角色实际 WS，角色不执行 /tavern-leave；
+  // 随后恢复原群聊，角色在同一 pi 进程/Session 人工 /tavern-join。
+  "scenario": "SD215-manual-rejoin",
+  "role": { "id": "characters/watcher.md", "name": "Watcher" },
+  "steps": [
+    { "act": "persona", "content": "sd215-rejoin-open" },
+    { "act": "persona", "content": "sd215-rejoin-before-disconnect" },
+    { "act": "creator_leave", "expect": "character-disconnected" },
+    { "act": "creator_resume" },
+    { "act": "persona", "content": "sd215-rejoin-during-disconnect" },
+    { "act": "character_join", "expect": "new-welcome-and-sequenced-catchup" }
+  ]
+}

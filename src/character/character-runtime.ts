@@ -4,7 +4,7 @@ import { createMessageConnection, type MessageConnection, ResponseError } from "
 import WebSocket from "ws";
 
 import { type CharacterCard, loadCharacterCard } from "../config/character-card.js";
-import { loadTavernConfig, type TavernConfig } from "../config/load-config.js";
+import { type LoadTavernConfigOptions, loadTavernConfig, type TavernConfig } from "../config/load-config.js";
 import type { MessageTemplateKey } from "../config/message-templates.js";
 import {
 	type BufferedFrame,
@@ -327,6 +327,7 @@ export class CharacterRuntime {
 		if (this.socket || this.disconnected) {
 			throw new Error(ERROR_RUNTIME_ALREADY_ACTIVATED_OR_DISPOSED);
 		}
+		const rejoinWithCursor = this.loadCursor() !== null;
 		this.socket = transfer.socket;
 		if (transfer.jsonrpc) {
 			this.adoptJsonRpc(transfer.jsonrpc);
@@ -353,6 +354,13 @@ export class CharacterRuntime {
 
 		for (const message of transfer.bufferedMessages) {
 			this.handleServerMessage(message);
+		}
+		// #215：同 Session 手动重入——进入前已有本 Session 游标时补一次增量拉取。
+		// 闸门必须在 groupChatInput.start() 前采样：start() 内的 primeJoinCursor
+		// 会为新 Session 写入预置水位，事后采样会把新 Session 误判为“已有游标”。
+		// 新 Session（无游标）与 reload（restoreFromReload 路径）都不触发。
+		if (rejoinWithCursor) {
+			this.groupChatInput?.catchUpAfterRejoin();
 		}
 	}
 
@@ -1066,7 +1074,7 @@ export class CharacterRuntime {
 		notify?: (message: string) => void,
 		//  复评（Arch）：恢复路径配置加载器注入化（同 headless AutoJoinOptions
 		// loadConfig 模式，默认 loadTavernConfig；测试可注入 mock）。
-		loadConfig: (options: { agentDir: string; cwd: string }) => Promise<TavernConfig> = loadTavernConfig,
+		loadConfig: (options: LoadTavernConfigOptions) => Promise<TavernConfig> = loadTavernConfig,
 	): Promise<CharacterRuntime> {
 		if (handoff.socketClosed) {
 			void handoff.cleanup();
@@ -1096,7 +1104,10 @@ export class CharacterRuntime {
 		let speakSoftLimitChars = handoff.speakSoftLimitChars;
 		if (handoff.agentDir !== undefined && handoff.cwd !== undefined) {
 			try {
-				const reloaded = await loadConfig({ agentDir: handoff.agentDir, cwd: handoff.cwd });
+				const reloaded = await loadConfig({
+					agentDir: handoff.agentDir,
+					cwd: handoff.cwd,
+				});
 				// 复评：reload 成功即采用磁盘配置——messageTemplates/
 				// speakSoftLimitChars 缺省时清除旧快照（消费面回落代码默认）；仅加载抛错才保留旧快照。
 				messageTemplates = reloaded.messageTemplates;

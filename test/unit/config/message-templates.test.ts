@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+	collectAffectedTemplateKeys,
 	DEFAULT_TEMPLATES,
+	formatTemplateMigrationNotice,
 	loadMessageTemplateFile,
 	MESSAGE_TEMPLATE_KEYS,
 	mergeMessageTemplates,
@@ -197,5 +199,40 @@ describe("loadMessageTemplateFile", () => {
 		const { templates, warnings } = await loadMessageTemplateFile(root, path);
 		expect(templates).toEqual({});
 		expect(warnings.length).toBeGreaterThan(0);
+	});
+});
+
+describe("collectAffectedTemplateKeys（#215 迁移提示键集合）", () => {
+	it("只计显式且校验通过的 key，按 key 顺序稳定输出", () => {
+		expect(collectAffectedTemplateKeys({ public_message: "P: {sender} {content}" }, null)).toEqual(["public_message"]);
+		expect(collectAffectedTemplateKeys(null, { minutes_ago: "{count} 分钟前" })).toEqual(["minutes_ago"]);
+		expect(
+			collectAffectedTemplateKeys(
+				{ public_message: "P: {sender} {content}" },
+				{ public_message: "G: {sender} {content}", whisper_full: "{sender} 向 {receiver} 悄悄说：{content}" },
+			),
+		).toEqual(["public_message", "whisper_full"]);
+	});
+
+	it("项目非法回退到有效全局仍计入；两层都非法/未知/缺失为零", () => {
+		expect(
+			collectAffectedTemplateKeys(
+				{ public_message: "MISSING-PLACEHOLDERS" },
+				{ public_message: "G: {sender} {content}" },
+			),
+		).toEqual(["public_message"]);
+		expect(collectAffectedTemplateKeys({ public_message: "MISSING-PLACEHOLDERS" }, null)).toEqual([]);
+		expect(collectAffectedTemplateKeys({ unknown_key: "x" }, null)).toEqual([]);
+		expect(collectAffectedTemplateKeys({}, {})).toEqual([]);
+		expect(collectAffectedTemplateKeys(null, null)).toEqual([]);
+	});
+
+	it("提示文案单行且可被用户识别（模板 + 结构化）", () => {
+		const notice = formatTemplateMigrationNotice(["public_message", "seconds_ago"]);
+		expect(notice).not.toContain("\n");
+		expect(notice).toMatch(/模板/);
+		expect(notice).toMatch(/结构化/);
+		expect(notice).toContain("public_message");
+		expect(notice).toContain("seconds_ago");
 	});
 });

@@ -1,0 +1,21 @@
+{
+  // chain:template-notice-boundary。每种配置使用全新目录/真实 pi 实例。
+  // "项目无效、全局有效"必须按逐 key 回退：仍有一条提示。
+  "scenario": "SD215-template-notice-boundary",
+  "role": { "id": "characters/alpha.md", "name": "Alpha" },
+  "cases": [
+    { "name": "unconfigured", "global": null, "project": null, "notice_count": 0 },
+    {
+      "name": "invalid-only",
+      "global": null,
+      "project": { "public_message": "MISSING-PLACEHOLDERS" },
+      "notice_count": 0
+    },
+    {
+      "name": "project-invalid-global-valid",
+      "global": { "public_message": "GLOBAL-{sender}: {content}" },
+      "project": { "public_message": "MISSING-PLACEHOLDERS" },
+      "notice_count": 1
+    }
+  ]
+}

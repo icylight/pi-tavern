@@ -269,9 +269,13 @@ export class PiProcess {
 	 */
 	async joinGroupChat(cwd: string, agentDir: string, characterLabel?: string): Promise<ActiveGroupChatDescriptor> {
 		await this.waitForTavernReady();
+		const checkpoint = this.checkpoint();
 		await this.runCommand("/tavern-join");
 		const descriptor = await waitForDescriptor(agentDir, cwd);
-		const firstSelect = await this.waitFor((e) => e.type === "extension_ui_request" && e.method === "select");
+		const firstSelect = await this.waitForAfter(
+			checkpoint,
+			(e) => e.type === "extension_ui_request" && e.method === "select",
+		);
 		if (firstSelect.title === "Choose a group chat") {
 			// select 返回选项标签而非群聊 id；当
 			// 存在多个群聊时，匹配包含
@@ -280,7 +284,8 @@ export class PiProcess {
 			const chosen = options.find((o) => o.includes(descriptor.groupChatId)) ?? options[0];
 			this.respond(String(firstSelect.id), { value: chosen });
 		}
-		const characterSelect = await this.waitFor(
+		const characterSelect = await this.waitForAfter(
+			checkpoint,
 			(e) => e.type === "extension_ui_request" && e.method === "select" && e.title === "Choose a Character",
 		);
 		const options = (characterSelect.options as unknown as string[]) ?? [];

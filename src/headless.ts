@@ -13,7 +13,7 @@
 import { join } from "node:path";
 
 import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
-import { loadTavernConfig, type TavernConfig } from "./config/load-config.js";
+import { type LoadTavernConfigOptions, loadTavernConfig, type TavernConfig } from "./config/load-config.js";
 import type { TavernController } from "./controller/tavern-controller.js";
 import { type ActiveGroupChatDescriptor, getGroupChatCursorDirectory } from "./data/discovery/active-descriptor.js";
 import type { DiscoverGroupChatsOptions } from "./data/discovery/discover-group-chats.js";
@@ -37,7 +37,7 @@ interface AutoJoinOptions {
 	/** 行为默认实现由组合根装配注入（五层依赖方向，architecture.md §5）。 */
 	discoverGroupChats?: (options: DiscoverGroupChatsOptions) => Promise<ActiveGroupChatDescriptor[]>;
 	/**：配置加载注入（默认 loadTavernConfig）——headless auto-join 与 /tavern-join 同生命周期。 */
-	loadConfig?: (options: { agentDir: string; cwd: string }) => Promise<TavernConfig>;
+	loadConfig?: (options: LoadTavernConfigOptions) => Promise<TavernConfig>;
 	/** 闲态触发窗口（Arch 提速项，注入化；undefined = 默认 1000ms）。 */
 	triggerDebounceMs?: number;
 	/** #196 忙态投递窗口（注入化；undefined = 默认 5000ms）。 */
@@ -130,7 +130,9 @@ export async function autoJoinCharacter(
 	//：headless auto-join 与 /tavern-join 同生命周期——本地加载配置，
 	// 自定义模板集随 claim 达 CharacterRuntime（。
 	const loadConfig = options.loadConfig ?? loadTavernConfig;
-	const joinConfig = await loadConfig({ agentDir, cwd: ctx.cwd });
+	// #215：迁移提示以 warning 投递——TUI 会把连续 info 状态行原地合并（被紧随的成功
+	// 提示覆盖），warning 独立成行；headless 侧只改变 stderr 前缀的级别标签。
+	const joinConfig = await loadConfig({ agentDir, cwd: ctx.cwd, notice: (message) => notify(message, "warning") });
 	const attempt = await controller.startJoining(descriptor, sessionId, {
 		...(options.triggerDebounceMs !== undefined ? { triggerDebounceMs: options.triggerDebounceMs } : {}),
 		...(options.deliveryWindowMs !== undefined ? { deliveryWindowMs: options.deliveryWindowMs } : {}),
